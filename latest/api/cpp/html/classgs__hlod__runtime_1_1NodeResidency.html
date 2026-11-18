@@ -106,6 +106,15 @@ Classes</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-types" class="groupheader"><a id="pub-types" name="pub-types"></a>
 Public Types</h2></td></tr>
+<tr class="memitem:accab8cb3285bdc0f1c363710383601e7" id="r_accab8cb3285bdc0f1c363710383601e7"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#accab8cb3285bdc0f1c363710383601e7">TransitionState</a> { <br />
+&#160;&#160;<a class="el" href="#accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb">TRANSITIONS_ABSENT</a> = -1
+, <a class="el" href="#accab8cb3285bdc0f1c363710383601e7a6f1967e18c319bf2db5daa6436f9d4dc">NORMAL</a> = 0
+, <a class="el" href="#accab8cb3285bdc0f1c363710383601e7aca080e639562a9f9f71d1833f20722b9">RETIREMENT_WAIT</a> = 1
+, <a class="el" href="#accab8cb3285bdc0f1c363710383601e7aef4e8364ee4530a04d2d49e65a78a921">COARSE_PLACEMENT_BLOCKED</a> = 2
+, <br />
+&#160;&#160;<a class="el" href="#accab8cb3285bdc0f1c363710383601e7a02edfefd3b0db04e81612e9e0e4728ff">UNSUPPORTED_OWNERS</a> = 3
+<br />
+ }</td></tr>
 <tr class="memitem:a0c175f76a275ed75f0d10cc76a776f28" id="r_a0c175f76a275ed75f0d10cc76a776f28"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c175f76a275ed75f0d10cc76a776f28">State</a> : uint8_t { <br />
 &#160;&#160;<a class="el" href="#a0c175f76a275ed75f0d10cc76a776f28ad6b2cfe28c56a5b9cdb63865e43f3265">ABSENT</a> = 0
 , <a class="el" href="#a0c175f76a275ed75f0d10cc76a776f28acc4170137c1d43dbfbbf373dc265d100">LOADING</a>
@@ -136,7 +145,14 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a7f3e47306ed4d750d4243a1f3598abff" id="r_a7f3e47306ed4d750d4243a1f3598abff"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f3e47306ed4d750d4243a1f3598abff">observe_demand</a> (const uint32_t *p_demand, uint32_t p_count)</td></tr>
 <tr class="memitem:a1228a9d601c568de512dae994f68fcdf" id="r_a1228a9d601c568de512dae994f68fcdf"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1228a9d601c568de512dae994f68fcdf">eviction_event_count</a> () const</td></tr>
 <tr class="memitem:ab3c480c244ba46ec051cdb3c15c6fb7b" id="r_ab3c480c244ba46ec051cdb3c15c6fb7b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab3c480c244ba46ec051cdb3c15c6fb7b">eviction_event</a> (uint32_t p_index, <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html">EvictionEvent</a> &amp;r_event) const</td></tr>
-<tr class="memitem:ada563f33bb344cfe3781a60512b74a68" id="r_ada563f33bb344cfe3781a60512b74a68"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html">RequestResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ada563f33bb344cfe3781a60512b74a68">request</a> (const uint32_t *p_demand, uint32_t p_count, LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;r_tickets)</td></tr>
+<tr class="memitem:ac0ad6f8de040b7240907b2ff647b9b18" id="r_ac0ad6f8de040b7240907b2ff647b9b18"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html">RequestResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac0ad6f8de040b7240907b2ff647b9b18">request</a> (const uint32_t *p_demand, uint32_t p_count, LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;r_tickets, const <a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">TransitionGroup</a> *p_transitions=nullptr, const uint32_t *p_kept=nullptr, uint32_t p_kept_count=0)</td></tr>
+<tr class="memitem:ac9eb899e2cca76ef98b4cab5cbc0c0af" id="r_ac9eb899e2cca76ef98b4cab5cbc0c0af"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html">RequestResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac9eb899e2cca76ef98b4cab5cbc0c0af">request_legacy</a> (const uint32_t *p_demand, uint32_t p_count, LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;r_tickets)</td></tr>
+<tr class="memitem:ae1554823298ef45a95a7d6488dfc049a" id="r_ae1554823298ef45a95a7d6488dfc049a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae1554823298ef45a95a7d6488dfc049a">release_transition_leases</a> ()</td></tr>
+<tr class="memitem:a666dc3fd20aa6eedeaaa196cbaad7570" id="r_a666dc3fd20aa6eedeaaa196cbaad7570"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a666dc3fd20aa6eedeaaa196cbaad7570">withdraw_transitions</a> ()</td></tr>
+<tr class="memitem:a2f1d3cb84fd179e4cf6261425345cdd4" id="r_a2f1d3cb84fd179e4cf6261425345cdd4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2f1d3cb84fd179e4cf6261425345cdd4">executable</a> (uint32_t p_node) const</td></tr>
+<tr class="memitem:a0858f6593a33bb6fadf57fdfcd704a89" id="r_a0858f6593a33bb6fadf57fdfcd704a89"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0858f6593a33bb6fadf57fdfcd704a89">was_cancelled</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
+<tr class="memitem:a0fe72b582fe0f6ef23af0f129dce2398" id="r_a0fe72b582fe0f6ef23af0f129dce2398"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0fe72b582fe0f6ef23af0f129dce2398">discard_known_cancelled</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket)</td></tr>
+<tr class="memitem:a7eb20927473ccdef0cc1d7d3ee576a0b" id="r_a7eb20927473ccdef0cc1d7d3ee576a0b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7eb20927473ccdef0cc1d7d3ee576a0b">transition_workspace_bytes</a> () const</td></tr>
 <tr class="memitem:ab41780c7be4e6790579aad95d784d98b" id="r_ab41780c7be4e6790579aad95d784d98b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab41780c7be4e6790579aad95d784d98b">is_pending</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
 <tr class="memitem:adde4d545faa3835f483956e1aa766cc5" id="r_adde4d545faa3835f483956e1aa766cc5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adde4d545faa3835f483956e1aa766cc5">begin_upload</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket)</td></tr>
 <tr class="memitem:aca59c9d168ab15f6917a79997e740ce0" id="r_aca59c9d168ab15f6917a79997e740ce0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca59c9d168ab15f6917a79997e740ce0">finish_upload</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket, bool p_success)</td></tr>
@@ -233,6 +249,27 @@ Static Public Attributes</h2></td></tr>
 <tr><td class="fieldname"><a id="a0c175f76a275ed75f0d10cc76a776f28a4a0e3b6206bcebca6029bdead2697da9" name="a0c175f76a275ed75f0d10cc76a776f28a4a0e3b6206bcebca6029bdead2697da9"></a>UPLOADING&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a0c175f76a275ed75f0d10cc76a776f28a9d048681e7149941716cff8261449384" name="a0c175f76a275ed75f0d10cc76a776f28a9d048681e7149941716cff8261449384"></a>RESIDENT&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a0c175f76a275ed75f0d10cc76a776f28a0a91d28880693272f9ed8de0e26a34f3" name="a0c175f76a275ed75f0d10cc76a776f28a0a91d28880693272f9ed8de0e26a34f3"></a>FAILED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="accab8cb3285bdc0f1c363710383601e7" name="accab8cb3285bdc0f1c363710383601e7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#accab8cb3285bdc0f1c363710383601e7">&#9670;&#160;</a></span>TransitionState</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#accab8cb3285bdc0f1c363710383601e7">gs_hlod_runtime::NodeResidency::TransitionState</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb" name="accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb"></a>TRANSITIONS_ABSENT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="accab8cb3285bdc0f1c363710383601e7a6f1967e18c319bf2db5daa6436f9d4dc" name="accab8cb3285bdc0f1c363710383601e7a6f1967e18c319bf2db5daa6436f9d4dc"></a>NORMAL&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="accab8cb3285bdc0f1c363710383601e7aca080e639562a9f9f71d1833f20722b9" name="accab8cb3285bdc0f1c363710383601e7aca080e639562a9f9f71d1833f20722b9"></a>RETIREMENT_WAIT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="accab8cb3285bdc0f1c363710383601e7aef4e8364ee4530a04d2d49e65a78a921" name="accab8cb3285bdc0f1c363710383601e7aef4e8364ee4530a04d2d49e65a78a921"></a>COARSE_PLACEMENT_BLOCKED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="accab8cb3285bdc0f1c363710383601e7a02edfefd3b0db04e81612e9e0e4728ff" name="accab8cb3285bdc0f1c363710383601e7a02edfefd3b0db04e81612e9e0e4728ff"></a>UNSUPPORTED_OWNERS&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -415,6 +452,23 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a0fe72b582fe0f6ef23af0f129dce2398" name="a0fe72b582fe0f6ef23af0f129dce2398"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0fe72b582fe0f6ef23af0f129dce2398">&#9670;&#160;</a></span>discard_known_cancelled()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_runtime::NodeResidency::discard_known_cancelled </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="acee4c8d00b429fbb76258b5e5d7e15fc" name="acee4c8d00b429fbb76258b5e5d7e15fc"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#acee4c8d00b429fbb76258b5e5d7e15fc">&#9670;&#160;</a></span>edit_blocked()</h2>
 
@@ -525,6 +579,23 @@ Static Public Attributes</h2></td></tr>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2f1d3cb84fd179e4cf6261425345cdd4" name="a2f1d3cb84fd179e4cf6261425345cdd4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2f1d3cb84fd179e4cf6261425345cdd4">&#9670;&#160;</a></span>executable()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::NodeResidency::executable </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -881,14 +952,72 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="ada563f33bb344cfe3781a60512b74a68" name="ada563f33bb344cfe3781a60512b74a68"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ada563f33bb344cfe3781a60512b74a68">&#9670;&#160;</a></span>request()</h2>
+<a id="ae1554823298ef45a95a7d6488dfc049a" name="ae1554823298ef45a95a7d6488dfc049a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae1554823298ef45a95a7d6488dfc049a">&#9670;&#160;</a></span>release_transition_leases()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_runtime::NodeResidency::release_transition_leases </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac0ad6f8de040b7240907b2ff647b9b18" name="ac0ad6f8de040b7240907b2ff647b9b18"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac0ad6f8de040b7240907b2ff647b9b18">&#9670;&#160;</a></span>request()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
           <td class="memname"><a class="el" href="structNodeResidency_1_1RequestResult.html">NodeResidency::RequestResult</a> gs_hlod_runtime::NodeResidency::request </td>
+          <td>(</td>
+          <td class="paramtype">const uint32_t *</td>          <td class="paramname"><span class="paramname"><em>p_demand</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_tickets</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">TransitionGroup</a> *</td>          <td class="paramname"><span class="paramname"><em>p_transitions</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const uint32_t *</td>          <td class="paramname"><span class="paramname"><em>p_kept</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_kept_count</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac9eb899e2cca76ef98b4cab5cbc0c0af" name="ac9eb899e2cca76ef98b4cab5cbc0c0af"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac9eb899e2cca76ef98b4cab5cbc0c0af">&#9670;&#160;</a></span>request_legacy()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structNodeResidency_1_1RequestResult.html">NodeResidency::RequestResult</a> gs_hlod_runtime::NodeResidency::request_legacy </td>
           <td>(</td>
           <td class="paramtype">const uint32_t *</td>          <td class="paramname"><span class="paramname"><em>p_demand</em></span>, </td>
         </tr>
@@ -1171,6 +1300,57 @@ Static Public Attributes</h2></td></tr>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7eb20927473ccdef0cc1d7d3ee576a0b" name="a7eb20927473ccdef0cc1d7d3ee576a0b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7eb20927473ccdef0cc1d7d3ee576a0b">&#9670;&#160;</a></span>transition_workspace_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::NodeResidency::transition_workspace_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0858f6593a33bb6fadf57fdfcd704a89" name="a0858f6593a33bb6fadf57fdfcd704a89"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0858f6593a33bb6fadf57fdfcd704a89">&#9670;&#160;</a></span>was_cancelled()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::NodeResidency::was_cancelled </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a666dc3fd20aa6eedeaaa196cbaad7570" name="a666dc3fd20aa6eedeaaa196cbaad7570"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a666dc3fd20aa6eedeaaa196cbaad7570">&#9670;&#160;</a></span>withdraw_transitions()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_runtime::NodeResidency::withdraw_transitions </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

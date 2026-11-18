@@ -24,5 +24,10 @@ var searchData=
   ['tile_5fsplat_5fref_5fbuffer_5fmissing_21',['TILE_SPLAT_REF_BUFFER_MISSING',['../namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a156f0902d3a5763250340db5ea6bbfea',1,'GaussianSplatting::InstancePipelineContract']]],
   ['toggle_22',['TOGGLE',['../interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4a1252c45651289c0b553a30d27bb5ae9b',1,'interactive_state_interfaces.h']]],
   ['too_5fmany_5fleaves_23',['TOO_MANY_LEAVES',['../namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9eaf49ce93b3d7412968c575a88073f5dea',1,'gs_hlod_runtime']]],
-  ['trace_24',['TRACE',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480eda2d3e4144aa384b18849ab9a8abad74d6',1,'gs_logger']]]
+  ['trace_24',['TRACE',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480eda2d3e4144aa384b18849ab9a8abad74d6',1,'gs_logger']]],
+  ['transition_5fbootstrap_25',['TRANSITION_BOOTSTRAP',['../namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54aecf7c209bd045d16c32a1cc664932b2a',1,'gs_hlod_runtime']]],
+  ['transition_5finferred_26',['TRANSITION_INFERRED',['../namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54a600941207b34b13379165e5c971c8430',1,'gs_hlod_runtime']]],
+  ['transition_5frefinement_27',['TRANSITION_REFINEMENT',['../namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54a3db5d3ebe1473840a89694e4aa57b214',1,'gs_hlod_runtime']]],
+  ['transition_5froot_28',['TRANSITION_ROOT',['../namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54a8d1bfedbb459a7c70b1cb8ba13e52416',1,'gs_hlod_runtime']]],
+  ['transitions_5fabsent_29',['TRANSITIONS_ABSENT',['../classgs__hlod__runtime_1_1NodeResidency.html#accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb',1,'gs_hlod_runtime::NodeResidency::TRANSITIONS_ABSENT'],['../classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb',1,'NodeResidency::TRANSITIONS_ABSENT']]]
 ];

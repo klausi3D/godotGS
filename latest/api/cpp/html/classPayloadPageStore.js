@@ -27,7 +27,7 @@ var classPayloadPageStore =
     [ "cancel_requester", "classPayloadPageStore.html#a94eb2de7bff7655db7848dabb65f2a2f", null ],
     [ "decode_gsq_page", "classPayloadPageStore.html#a4b363d6784680da4e6862fdbcd9d36f6", null ],
     [ "decode_gsq_subrange", "classPayloadPageStore.html#af1107be89066d7dfd9f2cc82e2a03ca3", null ],
-    [ "end_capture", "classPayloadPageStore.html#a3a7f6eeb8aaa49d20546768de3a6b0c6", null ],
+    [ "end_capture", "classPayloadPageStore.html#a451eeeb62dcb9b459e55dc6081ab849a", null ],
     [ "get_telemetry", "classPayloadPageStore.html#a68396c7103f5b883480f7cdf2e41b4a2", null ],
     [ "lease_decoder", "classPayloadPageStore.html#a6636b7c3785b406ad1d21b2d035fa28e", null ],
     [ "operator=", "classPayloadPageStore.html#a443076a3135e1075222a89a0856475aa", null ],

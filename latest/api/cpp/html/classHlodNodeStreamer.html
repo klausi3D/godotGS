@@ -168,7 +168,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a57e51bf120501fe963b82c5d73ff433f" id="r_a57e51bf120501fe963b82c5d73ff433f"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a57e51bf120501fe963b82c5d73ff433f">cancel_staged_edit</a> ()</td></tr>
 <tr class="memitem:ac61f0b04960aa05e4c60ca6d8fa5a820" id="r_ac61f0b04960aa05e4c60ca6d8fa5a820"><td class="memItemLeft" align="right" valign="top">const Vector&lt; uint8_t &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac61f0b04960aa05e4c60ca6d8fa5a820">resident_mask</a> () const</td></tr>
 <tr class="memitem:ae03a8fcf679c8bc6f55795e2d3267b9d" id="r_ae03a8fcf679c8bc6f55795e2d3267b9d"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html">gs_hlod_runtime::NodeResidency</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae03a8fcf679c8bc6f55795e2d3267b9d">get_residency</a> () const</td></tr>
-<tr class="memitem:afde394d989dc890d13d5423fde052e64" id="r_afde394d989dc890d13d5423fde052e64"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afde394d989dc890d13d5423fde052e64">update</a> (RenderingDevice *p_device, const <a class="el" href="structHlodNodeStreamer_1_1Buffers.html">Buffers</a> &amp;p_buffers, const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count)</td></tr>
+<tr class="memitem:aaba6096e3edac777a548544e8ccbe2d8" id="r_aaba6096e3edac777a548544e8ccbe2d8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaba6096e3edac777a548544e8ccbe2d8">update</a> (RenderingDevice *p_device, const <a class="el" href="structHlodNodeStreamer_1_1Buffers.html">Buffers</a> &amp;p_buffers, const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count, uint64_t p_owner=0)</td></tr>
+<tr class="memitem:ae07fcd1fd4af3bb0397ceb7c9865d4f3" id="r_ae07fcd1fd4af3bb0397ceb7c9865d4f3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae07fcd1fd4af3bb0397ceb7c9865d4f3">transition_workspace_bytes</a> () const</td></tr>
 <tr class="memitem:aa9dd339ac08ac3e490135e6f7cf829d1" id="r_aa9dd339ac08ac3e490135e6f7cf829d1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa9dd339ac08ac3e490135e6f7cf829d1">capture_placement_reserve</a> (const <a class="el" href="structgs__hlod__runtime_1_1CutHistory_1_1Result.html">gs_hlod_runtime::CutHistory::Result</a> &amp;p_cut)</td></tr>
 <tr class="memitem:a290e7fff5bf385be4107db8b2885a102" id="r_a290e7fff5bf385be4107db8b2885a102"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structHlodNodeStreamer_1_1Telemetry.html">Telemetry</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a290e7fff5bf385be4107db8b2885a102">get_telemetry</a> () const</td></tr>
 <tr class="memitem:a003acea7d565779ff3e4ac69e35ec7b4" id="r_a003acea7d565779ff3e4ac69e35ec7b4"><td class="memItemLeft" align="right" valign="top">Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a003acea7d565779ff3e4ac69e35ec7b4">get_pressure_eviction_events</a> () const</td></tr>
@@ -180,7 +181,7 @@ Public Member Functions</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:a233093b3b2fed94273dc4d63693f25ba" id="r_a233093b3b2fed94273dc4d63693f25ba"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10">RefusingGate</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a233093b3b2fed94273dc4d63693f25ba">classify_admission_refusal</a> (bool p_oversized_latch, bool p_transport_full, bool p_oversized_wait_live, bool p_retained_full)</td></tr>
-<tr class="memitem:a7b07567dbf43a3cdf124e27a016a088f" id="r_a7b07567dbf43a3cdf124e27a016a088f"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7b07567dbf43a3cdf124e27a016a088f">split_protection_and_demand</a> (const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count, LocalVector&lt; uint32_t &gt; &amp;r_protected, LocalVector&lt; uint32_t &gt; &amp;r_demand)</td></tr>
+<tr class="memitem:a0985cf037a6196e8b76805a49a0cf4db" id="r_a0985cf037a6196e8b76805a49a0cf4db"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0985cf037a6196e8b76805a49a0cf4db">split_protection_and_demand</a> (const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count, LocalVector&lt; uint32_t &gt; &amp;r_protected, LocalVector&lt; uint32_t &gt; &amp;r_demand, LocalVector&lt; uint32_t &gt; *r_kept=nullptr, LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">gs_hlod_runtime::TransitionGroup</a> &gt; *r_groups=nullptr)</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
 <a id="a634834966fe947971b548af84674de8f" name="a634834966fe947971b548af84674de8f"></a>
@@ -876,8 +877,8 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a7b07567dbf43a3cdf124e27a016a088f" name="a7b07567dbf43a3cdf124e27a016a088f"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7b07567dbf43a3cdf124e27a016a088f">&#9670;&#160;</a></span>split_protection_and_demand()</h2>
+<a id="a0985cf037a6196e8b76805a49a0cf4db" name="a0985cf037a6196e8b76805a49a0cf4db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0985cf037a6196e8b76805a49a0cf4db">&#9670;&#160;</a></span>split_protection_and_demand()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -913,7 +914,17 @@ Static Public Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">LocalVector&lt; uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_demand</em></span>&#160;)</td>
+          <td class="paramtype">LocalVector&lt; uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_demand</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; uint32_t &gt; *</td>          <td class="paramname"><span class="paramname"><em>r_kept</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">gs_hlod_runtime::TransitionGroup</a> &gt; *</td>          <td class="paramname"><span class="paramname"><em>r_groups</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -942,6 +953,23 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="ae07fcd1fd4af3bb0397ceb7c9865d4f3" name="ae07fcd1fd4af3bb0397ceb7c9865d4f3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae07fcd1fd4af3bb0397ceb7c9865d4f3">&#9670;&#160;</a></span>transition_workspace_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::transition_workspace_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="af44b87501b2f3fafda10fde423889aa1" name="af44b87501b2f3fafda10fde423889aa1"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#af44b87501b2f3fafda10fde423889aa1">&#9670;&#160;</a></span>unregister_view()</h2>
 
@@ -959,8 +987,8 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="afde394d989dc890d13d5423fde052e64" name="afde394d989dc890d13d5423fde052e64"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afde394d989dc890d13d5423fde052e64">&#9670;&#160;</a></span>update()</h2>
+<a id="aaba6096e3edac777a548544e8ccbe2d8" name="aaba6096e3edac777a548544e8ccbe2d8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaba6096e3edac777a548544e8ccbe2d8">&#9670;&#160;</a></span>update()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -993,7 +1021,12 @@ Static Public Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_drawn_count</em></span>&#160;)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_drawn_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_owner</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

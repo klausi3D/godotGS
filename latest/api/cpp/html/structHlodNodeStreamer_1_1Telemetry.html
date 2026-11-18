@@ -124,6 +124,11 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a648ce596b665f69e8785641036f938b3" id="r_a648ce596b665f69e8785641036f938b3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a648ce596b665f69e8785641036f938b3">stall_frames</a> = 0</td></tr>
 <tr class="memitem:a56e04d7e53d2cda59f5401ad27b355a2" id="r_a56e04d7e53d2cda59f5401ad27b355a2"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56e04d7e53d2cda59f5401ad27b355a2">blocked_groups_this_frame</a> = 0</td></tr>
 <tr class="memitem:a4d4d8ec5b1bbea467918fd3de85ad9a6" id="r_a4d4d8ec5b1bbea467918fd3de85ad9a6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d4d8ec5b1bbea467918fd3de85ad9a6">fragmented_groups_this_frame</a> = 0</td></tr>
+<tr class="memitem:a578771d650ba4bb69f08b3e579ce2074" id="r_a578771d650ba4bb69f08b3e579ce2074"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a578771d650ba4bb69f08b3e579ce2074">transitions_measured</a> = false</td></tr>
+<tr class="memitem:a1e0479f5f24bc324fcac18ec4828ac2b" id="r_a1e0479f5f24bc324fcac18ec4828ac2b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e0479f5f24bc324fcac18ec4828ac2b">protected_sibling_nodes</a> = 0</td></tr>
+<tr class="memitem:a6ff10be820dbf84adaa45fad6b253d73" id="r_a6ff10be820dbf84adaa45fad6b253d73"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6ff10be820dbf84adaa45fad6b253d73">abandoned_transitions_this_frame</a> = 0</td></tr>
+<tr class="memitem:a920ae4f4ff198a9424f307a21e650cd0" id="r_a920ae4f4ff198a9424f307a21e650cd0"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a920ae4f4ff198a9424f307a21e650cd0">abandoned_transitions_total</a> = 0</td></tr>
+<tr class="memitem:aa7d43debf5c897fdc71c71b0d6186462" id="r_aa7d43debf5c897fdc71c71b0d6186462"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#accab8cb3285bdc0f1c363710383601e7">gs_hlod_runtime::NodeResidency::TransitionState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa7d43debf5c897fdc71c71b0d6186462">transition_state</a> = <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb">gs_hlod_runtime::NodeResidency::TRANSITIONS_ABSENT</a></td></tr>
 <tr class="memitem:a611fe3f968b39852090eaee2362fa260" id="r_a611fe3f968b39852090eaee2362fa260"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166">gs_hlod_runtime::CutHistory::PlacementReserveState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a611fe3f968b39852090eaee2362fa260">placement_reserve_state</a> = <a class="el" href="classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f">gs_hlod_runtime::CutHistory::RESERVE_ABSENT</a></td></tr>
 <tr class="memitem:aeadbeae8d40076db2ba28d723dd9b604" id="r_aeadbeae8d40076db2ba28d723dd9b604"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeadbeae8d40076db2ba28d723dd9b604">placement_reserve_measured</a> = false</td></tr>
 <tr class="memitem:a0c63f3513929359d2ab72853e1ea9d79" id="r_a0c63f3513929359d2ab72853e1ea9d79"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c63f3513929359d2ab72853e1ea9d79">placement_reserve_pages</a> = 0</td></tr>
@@ -177,6 +182,34 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a6bbcd14970c883f520f6eb002bc840b4" id="r_a6bbcd14970c883f520f6eb002bc840b4"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6bbcd14970c883f520f6eb002bc840b4">edit_event</a> = &quot;&quot;</td></tr>
 </table>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="a6ff10be820dbf84adaa45fad6b253d73" name="a6ff10be820dbf84adaa45fad6b253d73"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6ff10be820dbf84adaa45fad6b253d73">&#9670;&#160;</a></span>abandoned_transitions_this_frame</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodNodeStreamer::Telemetry::abandoned_transitions_this_frame = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a920ae4f4ff198a9424f307a21e650cd0" name="a920ae4f4ff198a9424f307a21e650cd0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a920ae4f4ff198a9424f307a21e650cd0">&#9670;&#160;</a></span>abandoned_transitions_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::abandoned_transitions_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a8f1519d4e7066bc0675b62d67ae735cb" name="a8f1519d4e7066bc0675b62d67ae735cb"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8f1519d4e7066bc0675b62d67ae735cb">&#9670;&#160;</a></span>allocation_eviction_limit_total</h2>
 
@@ -1115,6 +1148,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a1e0479f5f24bc324fcac18ec4828ac2b" name="a1e0479f5f24bc324fcac18ec4828ac2b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1e0479f5f24bc324fcac18ec4828ac2b">&#9670;&#160;</a></span>protected_sibling_nodes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodNodeStreamer::Telemetry::protected_sibling_nodes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ad42189117597e71ee14683fe01fb3483" name="ad42189117597e71ee14683fe01fb3483"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ad42189117597e71ee14683fe01fb3483">&#9670;&#160;</a></span>ready_count</h2>
 
@@ -1235,6 +1282,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t HlodNodeStreamer::Telemetry::stall_frames = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa7d43debf5c897fdc71c71b0d6186462" name="aa7d43debf5c897fdc71c71b0d6186462"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa7d43debf5c897fdc71c71b0d6186462">&#9670;&#160;</a></span>transition_state</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#accab8cb3285bdc0f1c363710383601e7">gs_hlod_runtime::NodeResidency::TransitionState</a> HlodNodeStreamer::Telemetry::transition_state = <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb">gs_hlod_runtime::NodeResidency::TRANSITIONS_ABSENT</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a578771d650ba4bb69f08b3e579ce2074" name="a578771d650ba4bb69f08b3e579ce2074"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a578771d650ba4bb69f08b3e579ce2074">&#9670;&#160;</a></span>transitions_measured</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool HlodNodeStreamer::Telemetry::transitions_measured = false</td>
         </tr>
       </table>
 </div><div class="memdoc">

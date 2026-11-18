@@ -57,7 +57,8 @@ var classHlodNodeStreamer =
     [ "root_failed", "classHlodNodeStreamer.html#ad302605616d01af31c14273224892d9a", null ],
     [ "shutdown", "classHlodNodeStreamer.html#a2fad6d3427031bead65d5f6a62bec38f", null ],
     [ "stage_edit", "classHlodNodeStreamer.html#a69a21e557d321680b681bd1586bff120", null ],
+    [ "transition_workspace_bytes", "classHlodNodeStreamer.html#ae07fcd1fd4af3bb0397ceb7c9865d4f3", null ],
     [ "unregister_view", "classHlodNodeStreamer.html#af44b87501b2f3fafda10fde423889aa1", null ],
-    [ "update", "classHlodNodeStreamer.html#afde394d989dc890d13d5423fde052e64", null ],
+    [ "update", "classHlodNodeStreamer.html#aaba6096e3edac777a548544e8ccbe2d8", null ],
     [ "uses_page_store", "classHlodNodeStreamer.html#a79b528c60c63ad599f12e28cadcb46f4", null ]
 ];

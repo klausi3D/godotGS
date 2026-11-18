@@ -31,7 +31,7 @@ var searchData=
   ['kgsdeviceshare_28',['kGsDeviceShare',['../classDeviceVramLedger.html#a87357f8b1ed941116e49a3ac30c2f39e',1,'DeviceVramLedger']]],
   ['kheaderbytes_29',['kHeaderBytes',['../namespacegs__gsq.html#addd1d6eba541e8d34c23045af4bf4797',1,'gs_gsq']]],
   ['kind_30',['Kind',['../classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#ac8ee224d9a8a967955123a85b46529d3',1,'GaussianSplatSceneDirector::DeferredRendererWork']]],
-  ['kind_31',['kind',['../structgs__shadow__caster_1_1LightPassInfo.html#a77b06d6caf96ba1fd4ca43b2aa0c2030',1,'gs_shadow_caster::LightPassInfo::kind'],['../structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ab2b2d626f323d9ad84e1f4284cb0e990',1,'gs_shadow_caster::LightFrameStats::Light::kind']]],
+  ['kind_31',['kind',['../structgs__hlod__runtime_1_1TransitionGroup.html#aa77fa40d19545b8b52172e8f419e7053',1,'gs_hlod_runtime::TransitionGroup::kind'],['../structgs__shadow__caster_1_1LightPassInfo.html#a77b06d6caf96ba1fd4ca43b2aa0c2030',1,'gs_shadow_caster::LightPassInfo::kind'],['../structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ab2b2d626f323d9ad84e1f4284cb0e990',1,'gs_shadow_caster::LightFrameStats::Light::kind']]],
   ['kinstanceassetemptysyncgraceframes_32',['kInstanceAssetEmptySyncGraceFrames',['../render__streaming__orchestrator_8cpp.html#a91642b57112eb973665193b5ffbdd9fb',1,'render_streaming_orchestrator.cpp']]],
   ['kinvalidstreamingassetid_33',['kInvalidStreamingAssetId',['../render__streaming__orchestrator_8cpp.html#ae2e20f365baae5581cad8cdc5219c503',1,'render_streaming_orchestrator.cpp']]],
   ['klogframedebug_34',['kLogFrameDebug',['../gaussian__splat__renderer_8cpp.html#ab01191949fd6e29d089589ed66f31e57',1,'gaussian_splat_renderer.cpp']]],

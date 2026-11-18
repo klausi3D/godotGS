@@ -1,5 +1,7 @@
 var structHlodNodeStreamer_1_1Telemetry =
 [
+    [ "abandoned_transitions_this_frame", "structHlodNodeStreamer_1_1Telemetry.html#a6ff10be820dbf84adaa45fad6b253d73", null ],
+    [ "abandoned_transitions_total", "structHlodNodeStreamer_1_1Telemetry.html#a920ae4f4ff198a9424f307a21e650cd0", null ],
     [ "allocation_eviction_limit_total", "structHlodNodeStreamer_1_1Telemetry.html#a8f1519d4e7066bc0675b62d67ae735cb", null ],
     [ "allocation_no_contiguous_run_total", "structHlodNodeStreamer_1_1Telemetry.html#a3b861854693776bd1c94dfc9dc977127", null ],
     [ "allocation_other_total", "structHlodNodeStreamer_1_1Telemetry.html#a0842ed2916bfcf2c605ffe5047249c48", null ],
@@ -67,6 +69,7 @@ var structHlodNodeStreamer_1_1Telemetry =
     [ "placement_reserve_state", "structHlodNodeStreamer_1_1Telemetry.html#a611fe3f968b39852090eaee2362fa260", null ],
     [ "pressure_epoch", "structHlodNodeStreamer_1_1Telemetry.html#afaa994550bc4762ef39aa897796ea4bb", null ],
     [ "pressure_measured", "structHlodNodeStreamer_1_1Telemetry.html#ada3b6e8aff3e421f7a508a4d26aab9ba", null ],
+    [ "protected_sibling_nodes", "structHlodNodeStreamer_1_1Telemetry.html#a1e0479f5f24bc324fcac18ec4828ac2b", null ],
     [ "ready_count", "structHlodNodeStreamer_1_1Telemetry.html#ad42189117597e71ee14683fe01fb3483", null ],
     [ "refusing_gate", "structHlodNodeStreamer_1_1Telemetry.html#ac66db5b957c6215098a8519a1c829d9b", null ],
     [ "requested_this_frame", "structHlodNodeStreamer_1_1Telemetry.html#a2dfeb8508bbbc376dfd229861d1305e2", null ],
@@ -76,6 +79,8 @@ var structHlodNodeStreamer_1_1Telemetry =
     [ "skipped_groups_total", "structHlodNodeStreamer_1_1Telemetry.html#a36fd0eb0385b93a37ab5ab4db7abe6c1", null ],
     [ "stale_nodes", "structHlodNodeStreamer_1_1Telemetry.html#a88e23cb368dcb260b92b6c29f1d0cb68", null ],
     [ "stall_frames", "structHlodNodeStreamer_1_1Telemetry.html#a648ce596b665f69e8785641036f938b3", null ],
+    [ "transition_state", "structHlodNodeStreamer_1_1Telemetry.html#aa7d43debf5c897fdc71c71b0d6186462", null ],
+    [ "transitions_measured", "structHlodNodeStreamer_1_1Telemetry.html#a578771d650ba4bb69f08b3e579ce2074", null ],
     [ "uploaded_bytes_this_frame", "structHlodNodeStreamer_1_1Telemetry.html#a81010f272a078754daf3f78fbc959c50", null ],
     [ "uploaded_bytes_total", "structHlodNodeStreamer_1_1Telemetry.html#a670fa535f5cfcdac774a7df9c0df2863", null ],
     [ "uploaded_this_frame", "structHlodNodeStreamer_1_1Telemetry.html#a6a4b68009a88ec0e713703abab0079c5", null ]

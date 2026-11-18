@@ -266,6 +266,7 @@ var annotated_dup =
       [ "NodeResidency", "classgs__hlod__runtime_1_1NodeResidency.html", "classgs__hlod__runtime_1_1NodeResidency" ],
       [ "CutRequest", "structgs__hlod__runtime_1_1CutRequest.html", "structgs__hlod__runtime_1_1CutRequest" ],
       [ "CutHistory", "classgs__hlod__runtime_1_1CutHistory.html", "classgs__hlod__runtime_1_1CutHistory" ],
+      [ "TransitionGroup", "structgs__hlod__runtime_1_1TransitionGroup.html", "structgs__hlod__runtime_1_1TransitionGroup" ],
       [ "NodeKey", "structgs__hlod__runtime_1_1NodeKey.html", "structgs__hlod__runtime_1_1NodeKey" ],
       [ "NodeVersion", "structgs__hlod__runtime_1_1NodeVersion.html", "structgs__hlod__runtime_1_1NodeVersion" ],
       [ "Caps", "structgs__hlod__runtime_1_1Caps.html", "structgs__hlod__runtime_1_1Caps" ],

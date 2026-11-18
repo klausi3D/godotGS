@@ -137,8 +137,11 @@ digraph "render_frame_context_manager.h"
   Node43 -> Node33 [id="edge87_Node000043_Node000033",color="steelblue1",style="solid",tooltip=" "];
   Node43 -> Node15 [id="edge88_Node000043_Node000015",color="steelblue1",style="solid",tooltip=" "];
   Node43 -> Node38 [id="edge89_Node000043_Node000038",color="steelblue1",style="solid",tooltip=" "];
-  Node12 -> Node21 [id="edge90_Node000012_Node000021",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node45 [id="edge91_Node000001_Node000045",color="steelblue1",style="solid",tooltip=" "];
-  Node45 [id="Node000045",label="servers/rendering/renderer\l_rd/storage_rd/render_scene\l_buffers_rd.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node15 [id="edge92_Node000001_Node000015",color="steelblue1",style="solid",tooltip=" "];
+  Node12 -> Node45 [id="edge90_Node000012_Node000045",color="steelblue1",style="solid",tooltip=" "];
+  Node45 [id="Node000045",label="hlod_transition.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$hlod__transition_8h.html",tooltip=" "];
+  Node45 -> Node38 [id="edge91_Node000045_Node000038",color="steelblue1",style="solid",tooltip=" "];
+  Node12 -> Node21 [id="edge92_Node000012_Node000021",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node46 [id="edge93_Node000001_Node000046",color="steelblue1",style="solid",tooltip=" "];
+  Node46 [id="Node000046",label="servers/rendering/renderer\l_rd/storage_rd/render_scene\l_buffers_rd.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node15 [id="edge94_Node000001_Node000015",color="steelblue1",style="solid",tooltip=" "];
 }

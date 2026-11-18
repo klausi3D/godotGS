@@ -468,7 +468,7 @@ var searchData=
   ['span_465',['span',['../structgs__hlod_1_1SplatList.html#a19f31274a8bb51cb4e595d1f59be42da',1,'gs_hlod::SplatList::span()'],['../structgs__hlod_1_1QualityPayload.html#a0be7a418cc6d0e4279ae85da78e93425',1,'gs_hlod::QualityPayload::span()']]],
   ['sphereeffector3d_466',['SphereEffector3D',['../classSphereEffector3D.html#abc9926b3dacb2120cd00d644a9311f25',1,'SphereEffector3D']]],
   ['splat_5fcovariance_467',['splat_covariance',['../namespacegs__hlod.html#a6c4c941c850c5b77a1a807b2c051e39a',1,'gs_hlod']]],
-  ['split_5fprotection_5fand_5fdemand_468',['split_protection_and_demand',['../classHlodNodeStreamer.html#a7b07567dbf43a3cdf124e27a016a088f',1,'HlodNodeStreamer']]],
+  ['split_5fprotection_5fand_5fdemand_468',['split_protection_and_demand',['../classHlodNodeStreamer.html#a0985cf037a6196e8b76805a49a0cf4db',1,'HlodNodeStreamer']]],
   ['spzextensionbase_469',['SpzExtensionBase',['../structspz_1_1SpzExtensionBase.html#a532d04467aba43fd638906d93044f54c',1,'spz::SpzExtensionBase']]],
   ['spzextensioncoordinatesystemadobe_470',['SpzExtensionCoordinateSystemAdobe',['../structspz_1_1SpzExtensionCoordinateSystemAdobe.html#a0cd26af22c4fbe6ffff139afd2ef7e7a',1,'spz::SpzExtensionCoordinateSystemAdobe']]],
   ['spzextensionsafeorbitcameraadobe_471',['SpzExtensionSafeOrbitCameraAdobe',['../structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#a63873fbb86a5ccedf9ed4921ad1a5491',1,'spz::SpzExtensionSafeOrbitCameraAdobe']]],

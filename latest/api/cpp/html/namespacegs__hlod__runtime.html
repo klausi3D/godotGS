@@ -98,6 +98,7 @@ Classes</h2></td></tr>
 <tr class="memitem:NodeResidency" id="r_NodeResidency"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html">NodeResidency</a></td></tr>
 <tr class="memitem:CutRequest" id="r_CutRequest"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__runtime_1_1CutRequest.html">CutRequest</a></td></tr>
 <tr class="memitem:CutHistory" id="r_CutHistory"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__hlod__runtime_1_1CutHistory.html">CutHistory</a></td></tr>
+<tr class="memitem:TransitionGroup" id="r_TransitionGroup"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">TransitionGroup</a></td></tr>
 <tr class="memitem:NodeKey" id="r_NodeKey"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__runtime_1_1NodeKey.html">NodeKey</a></td></tr>
 <tr class="memitem:NodeVersion" id="r_NodeVersion"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__runtime_1_1NodeVersion.html">NodeVersion</a></td></tr>
 <tr class="memitem:Caps" id="r_Caps"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__runtime_1_1Caps.html">Caps</a></td></tr>
@@ -131,6 +132,11 @@ Enumerations</h2></td></tr>
  }</td></tr>
 <tr class="memitem:a13094606ca42a651f039b6be3f925d91" id="r_a13094606ca42a651f039b6be3f925d91"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a13094606ca42a651f039b6be3f925d91">FailureClass</a> : uint8_t { <a class="el" href="#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78">FAILURE_PERMANENT</a> = 0
 , <a class="el" href="#a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab">FAILURE_RETRY_LATER</a>
+ }</td></tr>
+<tr class="memitem:a4d8897e625c937b18269614e4e316d54" id="r_a4d8897e625c937b18269614e4e316d54"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d8897e625c937b18269614e4e316d54">TransitionKind</a> : uint8_t { <a class="el" href="#a4d8897e625c937b18269614e4e316d54a600941207b34b13379165e5c971c8430">TRANSITION_INFERRED</a> = 0
+, <a class="el" href="#a4d8897e625c937b18269614e4e316d54a8d1bfedbb459a7c70b1cb8ba13e52416">TRANSITION_ROOT</a> = 1
+, <a class="el" href="#a4d8897e625c937b18269614e4e316d54a3db5d3ebe1473840a89694e4aa57b214">TRANSITION_REFINEMENT</a> = 2
+, <a class="el" href="#a4d8897e625c937b18269614e4e316d54aecf7c209bd045d16c32a1cc664932b2a">TRANSITION_BOOTSTRAP</a> = 3
  }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
@@ -202,6 +208,26 @@ Variables</h2></td></tr>
 <table class="fieldtable">
 <tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78" name="a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78"></a>FAILURE_PERMANENT&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab" name="a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab"></a>FAILURE_RETRY_LATER&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a4d8897e625c937b18269614e4e316d54" name="a4d8897e625c937b18269614e4e316d54"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4d8897e625c937b18269614e4e316d54">&#9670;&#160;</a></span>TransitionKind</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#a4d8897e625c937b18269614e4e316d54">gs_hlod_runtime::TransitionKind</a> : uint8_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a4d8897e625c937b18269614e4e316d54a600941207b34b13379165e5c971c8430" name="a4d8897e625c937b18269614e4e316d54a600941207b34b13379165e5c971c8430"></a>TRANSITION_INFERRED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a4d8897e625c937b18269614e4e316d54a8d1bfedbb459a7c70b1cb8ba13e52416" name="a4d8897e625c937b18269614e4e316d54a8d1bfedbb459a7c70b1cb8ba13e52416"></a>TRANSITION_ROOT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a4d8897e625c937b18269614e4e316d54a3db5d3ebe1473840a89694e4aa57b214" name="a4d8897e625c937b18269614e4e316d54a3db5d3ebe1473840a89694e4aa57b214"></a>TRANSITION_REFINEMENT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a4d8897e625c937b18269614e4e316d54aecf7c209bd045d16c32a1cc664932b2a" name="a4d8897e625c937b18269614e4e316d54aecf7c209bd045d16c32a1cc664932b2a"></a>TRANSITION_BOOTSTRAP&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>

@@ -1,5 +1,7 @@
 var structgs__hlod__runtime_1_1NodeResidency_1_1Stats =
 [
+    [ "abandoned_transitions_this_frame", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a5c97418ca092e9e81f3dfa06708e37aa", null ],
+    [ "abandoned_transitions_total", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a1b669b41e263735647962450249f1a07", null ],
     [ "absent", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a90b66a820eaccdfbcbf0d8b429945dc7", null ],
     [ "allocation_eviction_limit_total", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a914d4420d5accafe3c32fe2aaf7c3369", null ],
     [ "allocation_no_contiguous_run_total", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a19aa3c361a178693fa721fb65aa97ff6", null ],
@@ -36,10 +38,13 @@ var structgs__hlod__runtime_1_1NodeResidency_1_1Stats =
     [ "pages_shadow", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ab7d3105aa192a36d5cd70510a6f89d8f", null ],
     [ "permanently_failed", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a26abbac68eeeac3076a7ae160069d47c", null ],
     [ "pressure_measured", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a7c1820b4dfe0c4f28f72cf6363726e58", null ],
+    [ "protected_sibling_nodes", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a65384a249227ce9ecf235031071967d8", null ],
     [ "requested_total", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a1761d7b69e53e47080cb84d787f05ae9", null ],
     [ "resident", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#adc31b055b54c5e0ba68fc2e6eaba548c", null ],
     [ "retry_later_waiting", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#af785604ccbb434197aefff2384cb9221", null ],
     [ "skipped_groups_total", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#abd7b7f5e6287b0f98fc2094d9fa82c72", null ],
     [ "stale_nodes", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ad435ed7537f9ab64c8e3f721e51f488a", null ],
+    [ "transition_state", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ab243f55fab0b5bb73b55fc91c93f2d90", null ],
+    [ "transitions_measured", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a6bd60c45ba1920966f818d9e4c48559b", null ],
     [ "uploading", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a20d219ce3ddeee825ce23db675ccd986", null ]
 ];

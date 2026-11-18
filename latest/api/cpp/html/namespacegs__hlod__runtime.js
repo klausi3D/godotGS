@@ -4,6 +4,7 @@ var namespacegs__hlod__runtime =
     [ "NodeResidency", "classgs__hlod__runtime_1_1NodeResidency.html", "classgs__hlod__runtime_1_1NodeResidency" ],
     [ "CutRequest", "structgs__hlod__runtime_1_1CutRequest.html", "structgs__hlod__runtime_1_1CutRequest" ],
     [ "CutHistory", "classgs__hlod__runtime_1_1CutHistory.html", "classgs__hlod__runtime_1_1CutHistory" ],
+    [ "TransitionGroup", "structgs__hlod__runtime_1_1TransitionGroup.html", "structgs__hlod__runtime_1_1TransitionGroup" ],
     [ "NodeKey", "structgs__hlod__runtime_1_1NodeKey.html", "structgs__hlod__runtime_1_1NodeKey" ],
     [ "NodeVersion", "structgs__hlod__runtime_1_1NodeVersion.html", "structgs__hlod__runtime_1_1NodeVersion" ],
     [ "Caps", "structgs__hlod__runtime_1_1Caps.html", "structgs__hlod__runtime_1_1Caps" ],
@@ -32,6 +33,12 @@ var namespacegs__hlod__runtime =
     [ "FailureClass", "namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91", [
       [ "FAILURE_PERMANENT", "namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78", null ],
       [ "FAILURE_RETRY_LATER", "namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab", null ]
+    ] ],
+    [ "TransitionKind", "namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54", [
+      [ "TRANSITION_INFERRED", "namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54a600941207b34b13379165e5c971c8430", null ],
+      [ "TRANSITION_ROOT", "namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54a8d1bfedbb459a7c70b1cb8ba13e52416", null ],
+      [ "TRANSITION_REFINEMENT", "namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54a3db5d3ebe1473840a89694e4aa57b214", null ],
+      [ "TRANSITION_BOOTSTRAP", "namespacegs__hlod__runtime.html#a4d8897e625c937b18269614e4e316d54aecf7c209bd045d16c32a1cc664932b2a", null ]
     ] ],
     [ "allocation_bytes", "namespacegs__hlod__runtime.html#af87fa44af335c0570ce8b6d3921d87bd", null ],
     [ "checked_allocation_bytes", "namespacegs__hlod__runtime.html#a7f706972640d427011a0ce9724e24fe9", null ],

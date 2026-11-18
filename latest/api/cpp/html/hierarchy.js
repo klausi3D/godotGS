@@ -797,6 +797,7 @@ var hierarchy =
     [ "GaussianSplatting::TileTimestampRange", "structGaussianSplatting_1_1TileTimestampRange.html", null ],
     [ "GaussianSplatting::TileTimingState", "structGaussianSplatting_1_1TileTimingState.html", null ],
     [ "GaussianSplatting::TileUniformBuffers", "structGaussianSplatting_1_1TileUniformBuffers.html", null ],
+    [ "gs_hlod_runtime::TransitionGroup", "structgs__hlod__runtime_1_1TransitionGroup.html", null ],
     [ "GaussianSplatting::HierarchicalSplatStructure::TreeStats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html", null ],
     [ "GaussianSplatting::ComputeInfrastructure::UniformBindingContract", "structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html", null ],
     [ "spz::UnpackedGaussian", "structspz_1_1UnpackedGaussian.html", null ],

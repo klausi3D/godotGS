@@ -139,13 +139,16 @@ digraph "render_frame_context_manager.cpp"
   Node44 -> Node34 [id="edge88_Node000044_Node000034",color="steelblue1",style="solid",tooltip=" "];
   Node44 -> Node16 [id="edge89_Node000044_Node000016",color="steelblue1",style="solid",tooltip=" "];
   Node44 -> Node39 [id="edge90_Node000044_Node000039",color="steelblue1",style="solid",tooltip=" "];
-  Node13 -> Node22 [id="edge91_Node000013_Node000022",color="steelblue1",style="solid",tooltip=" "];
-  Node2 -> Node46 [id="edge92_Node000002_Node000046",color="steelblue1",style="solid",tooltip=" "];
-  Node46 [id="Node000046",label="servers/rendering/renderer\l_rd/storage_rd/render_scene\l_buffers_rd.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node2 -> Node16 [id="edge93_Node000002_Node000016",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node47 [id="edge94_Node000001_Node000047",color="steelblue1",style="solid",tooltip=" "];
-  Node47 [id="Node000047",label="core/object/object.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node48 [id="edge95_Node000001_Node000048",color="steelblue1",style="solid",tooltip=" "];
-  Node48 [id="Node000048",label="core/os/os.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node16 [id="edge96_Node000001_Node000016",color="steelblue1",style="solid",tooltip=" "];
+  Node13 -> Node46 [id="edge91_Node000013_Node000046",color="steelblue1",style="solid",tooltip=" "];
+  Node46 [id="Node000046",label="hlod_transition.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$hlod__transition_8h.html",tooltip=" "];
+  Node46 -> Node39 [id="edge92_Node000046_Node000039",color="steelblue1",style="solid",tooltip=" "];
+  Node13 -> Node22 [id="edge93_Node000013_Node000022",color="steelblue1",style="solid",tooltip=" "];
+  Node2 -> Node47 [id="edge94_Node000002_Node000047",color="steelblue1",style="solid",tooltip=" "];
+  Node47 [id="Node000047",label="servers/rendering/renderer\l_rd/storage_rd/render_scene\l_buffers_rd.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node2 -> Node16 [id="edge95_Node000002_Node000016",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node48 [id="edge96_Node000001_Node000048",color="steelblue1",style="solid",tooltip=" "];
+  Node48 [id="Node000048",label="core/object/object.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node49 [id="edge97_Node000001_Node000049",color="steelblue1",style="solid",tooltip=" "];
+  Node49 [id="Node000049",label="core/os/os.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node16 [id="edge98_Node000001_Node000016",color="steelblue1",style="solid",tooltip=" "];
 }

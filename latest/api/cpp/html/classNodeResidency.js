@@ -25,6 +25,13 @@ var classNodeResidency =
       [ "RESIDENT", "classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28a9d048681e7149941716cff8261449384", null ],
       [ "FAILED", "classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28a0a91d28880693272f9ed8de0e26a34f3", null ]
     ] ],
+    [ "TransitionState", "classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7", [
+      [ "TRANSITIONS_ABSENT", "classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7a3c7980999f70100f5c128af45893ddbb", null ],
+      [ "NORMAL", "classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7a6f1967e18c319bf2db5daa6436f9d4dc", null ],
+      [ "RETIREMENT_WAIT", "classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7aca080e639562a9f9f71d1833f20722b9", null ],
+      [ "COARSE_PLACEMENT_BLOCKED", "classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7aef4e8364ee4530a04d2d49e65a78a921", null ],
+      [ "UNSUPPORTED_OWNERS", "classNodeResidency.html#accab8cb3285bdc0f1c363710383601e7a02edfefd3b0db04e81612e9e0e4728ff", null ]
+    ] ],
     [ "advance_edit", "classNodeResidency.html#a5fed0cb1807b5c9d63666a5455f0cefe", null ],
     [ "begin_frame", "classNodeResidency.html#a6a8bb1b91285f54b914dc2da567a0941", null ],
     [ "begin_upload", "classNodeResidency.html#adde4d545faa3835f483956e1aa766cc5", null ],
@@ -34,12 +41,14 @@ var classNodeResidency =
     [ "committed_edit_revision", "classNodeResidency.html#a4e51ab215c76f8a91af7006c10ef1cac", null ],
     [ "config", "classNodeResidency.html#af13e7234ad5710949b608e6cf7330b51", null ],
     [ "device_generation", "classNodeResidency.html#a09d6da5294a3a53e73c5174c2f2c0eb3", null ],
+    [ "discard_known_cancelled", "classNodeResidency.html#a0fe72b582fe0f6ef23af0f129dce2398", null ],
     [ "edit_blocked", "classNodeResidency.html#acee4c8d00b429fbb76258b5e5d7e15fc", null ],
     [ "edit_prefetch", "classNodeResidency.html#ac68ce6b1153d129bd3245d605aa3c28b", null ],
     [ "edit_ready", "classNodeResidency.html#a946ed2930a38e7c2d35bf14f44b61490", null ],
     [ "evict", "classNodeResidency.html#a87d94c66e7eea51a2e5dc8efd77aad0c", null ],
     [ "eviction_event", "classNodeResidency.html#ab3c480c244ba46ec051cdb3c15c6fb7b", null ],
     [ "eviction_event_count", "classNodeResidency.html#a1228a9d601c568de512dae994f68fcdf", null ],
+    [ "executable", "classNodeResidency.html#a2f1d3cb84fd179e4cf6261425345cdd4", null ],
     [ "fail_load", "classNodeResidency.html#a077041d87e9a680957c9905b94710239", null ],
     [ "finish_shadow", "classNodeResidency.html#a2a31adb25970ae73250c63368fdd2d65", null ],
     [ "finish_shadow_transfer", "classNodeResidency.html#a442d8340d89a100ccb51878aeedb3092", null ],
@@ -56,7 +65,9 @@ var classNodeResidency =
     [ "observe_demand", "classNodeResidency.html#a7f3e47306ed4d750d4243a1f3598abff", null ],
     [ "pages_for", "classNodeResidency.html#a85e8fad817855972e258e0dac5946305", null ],
     [ "protect_drawn", "classNodeResidency.html#a7425e4fa621ee751c2600d7d533231e6", null ],
-    [ "request", "classNodeResidency.html#ada563f33bb344cfe3781a60512b74a68", null ],
+    [ "release_transition_leases", "classNodeResidency.html#ae1554823298ef45a95a7d6488dfc049a", null ],
+    [ "request", "classNodeResidency.html#ac0ad6f8de040b7240907b2ff647b9b18", null ],
+    [ "request_legacy", "classNodeResidency.html#ac9eb899e2cca76ef98b4cab5cbc0c0af", null ],
     [ "reset", "classNodeResidency.html#aaf88ddc7901bf8e8f92988f640e54fcc", null ],
     [ "resident_mask", "classNodeResidency.html#a5694cd095ab1808ab45e98ebbee7f06b", null ],
     [ "root_permanently_failed", "classNodeResidency.html#a6bd185ca4645e60a61fdc084d74dd7d5", null ],
@@ -68,5 +79,8 @@ var classNodeResidency =
     [ "state", "classNodeResidency.html#a64ce39bc8e5a3d95f166a2495a6097f2", null ],
     [ "stats", "classNodeResidency.html#a15ae338dd8e664713db2430abfa468c5", null ],
     [ "take_evicted", "classNodeResidency.html#a38aca86d6242d9be911cd871ab7b4446", null ],
+    [ "transition_workspace_bytes", "classNodeResidency.html#a7eb20927473ccdef0cc1d7d3ee576a0b", null ],
+    [ "was_cancelled", "classNodeResidency.html#a0858f6593a33bb6fadf57fdfcd704a89", null ],
+    [ "withdraw_transitions", "classNodeResidency.html#a666dc3fd20aa6eedeaaa196cbaad7570", null ],
     [ "world_generation", "classNodeResidency.html#abc578d0d3a57bed527fd5ff6b9210007", null ]
 ];

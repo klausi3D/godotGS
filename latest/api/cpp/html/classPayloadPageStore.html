@@ -138,7 +138,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4b363d6784680da4e6862fdbcd9d36f6" id="r_a4b363d6784680da4e6862fdbcd9d36f6"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4b363d6784680da4e6862fdbcd9d36f6">decode_gsq_page</a> (const <a class="el" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;p_page, <a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;p_decoder, bool p_verify_decoded_digest, <a class="el" href="structPayloadPageStore_1_1DecodedPage.html">DecodedPage</a> &amp;r_page, String &amp;r_reason)</td></tr>
 <tr class="memitem:af1107be89066d7dfd9f2cc82e2a03ca3" id="r_af1107be89066d7dfd9f2cc82e2a03ca3"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af1107be89066d7dfd9f2cc82e2a03ca3">decode_gsq_subrange</a> (const <a class="el" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;p_page, <a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;p_decoder, uint32_t p_offset, uint32_t p_count, uint32_t p_sh_degree, <a class="el" href="structGaussian.html">Gaussian</a> *r_gaussians, Vector3 *r_sh, String &amp;r_reason, bool p_enclosing_digest_verified=false)</td></tr>
 <tr class="memitem:ad381c369e8e84f5651364c241967e2fd" id="r_ad381c369e8e84f5651364c241967e2fd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad381c369e8e84f5651364c241967e2fd">begin_capture</a> (bool p_reset_decode_span=true)</td></tr>
-<tr class="memitem:a3a7f6eeb8aaa49d20546768de3a6b0c6" id="r_a3a7f6eeb8aaa49d20546768de3a6b0c6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3a7f6eeb8aaa49d20546768de3a6b0c6">end_capture</a> (bool p_success, const String &amp;p_reason)</td></tr>
+<tr class="memitem:a451eeeb62dcb9b459e55dc6081ab849a" id="r_a451eeeb62dcb9b459e55dc6081ab849a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a451eeeb62dcb9b459e55dc6081ab849a">end_capture</a> (bool p_success, const String &amp;p_reason, bool p_cancelled=false)</td></tr>
 <tr class="memitem:ae4495ad3cfb93a57fa34b85c675ff4d3" id="r_ae4495ad3cfb93a57fa34b85c675ff4d3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae4495ad3cfb93a57fa34b85c675ff4d3">take_thread_last_capture_decode_nsec</a> ()</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
@@ -392,8 +392,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a3a7f6eeb8aaa49d20546768de3a6b0c6" name="a3a7f6eeb8aaa49d20546768de3a6b0c6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3a7f6eeb8aaa49d20546768de3a6b0c6">&#9670;&#160;</a></span>end_capture()</h2>
+<a id="a451eeeb62dcb9b459e55dc6081ab849a" name="a451eeeb62dcb9b459e55dc6081ab849a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a451eeeb62dcb9b459e55dc6081ab849a">&#9670;&#160;</a></span>end_capture()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -406,7 +406,12 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_reason</em></span>&#160;)</td>
+          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_reason</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_cancelled</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

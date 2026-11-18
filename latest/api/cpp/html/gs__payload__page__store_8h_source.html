@@ -345,99 +345,100 @@ $(function(){initNavTree('gs__payload__page__store_8h_source.html','',''); });
 <div class="line"><a id="l00231" name="l00231"></a><span class="lineno">  231</span>    <span class="comment">// Thread-local decode span is reset at begin and taken exactly once after end.</span></div>
 <div class="line"><a id="l00232" name="l00232"></a><span class="lineno">  232</span>    <span class="comment">// The adapter&#39;s legacy null-index refusal counts a capture without resetting it.</span></div>
 <div class="line"><a id="l00233" name="l00233"></a><span class="lineno">  233</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classPayloadPageStore.html#ad381c369e8e84f5651364c241967e2fd">begin_capture</a>(<span class="keywordtype">bool</span> p_reset_decode_span = <span class="keyword">true</span>);</div>
-<div class="line"><a id="l00234" name="l00234"></a><span class="lineno">  234</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classPayloadPageStore.html#a3a7f6eeb8aaa49d20546768de3a6b0c6">end_capture</a>(<span class="keywordtype">bool</span> p_success, <span class="keyword">const</span> String &amp;p_reason);</div>
-<div class="line"><a id="l00235" name="l00235"></a><span class="lineno">  235</span>    uint64_t <a class="code hl_function" href="classPayloadPageStore.html#ae4495ad3cfb93a57fa34b85c675ff4d3">take_thread_last_capture_decode_nsec</a>();</div>
-<div class="line"><a id="l00236" name="l00236"></a><span class="lineno">  236</span> </div>
-<div class="line"><a id="l00237" name="l00237"></a><span class="lineno">  237</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
-<div class="line"><a id="l00238" name="l00238"></a><span class="lineno">  238</span>    <span class="comment">// Configure before start(), like the underlying read-service seam.</span></div>
-<div class="line"><a id="l00239" name="l00239"></a><span class="lineno">  239</span>    <span class="keywordtype">void</span> _test_set_read_hook(PayloadReadService::ReadHook p_hook, <span class="keywordtype">void</span> *p_user) {</div>
-<div class="line"><a id="l00240" name="l00240"></a><span class="lineno">  240</span>        read_service._test_set_read_hook(p_hook, p_user);</div>
-<div class="line"><a id="l00241" name="l00241"></a><span class="lineno">  241</span>    }</div>
-<div class="line"><a id="l00242" name="l00242"></a><span class="lineno">  242</span>    <span class="keywordtype">bool</span> _test_read_cancelled(uint64_t p_service_ticket)<span class="keyword"> const </span>{</div>
-<div class="line"><a id="l00243" name="l00243"></a><span class="lineno">  243</span>        <span class="keywordflow">return</span> read_service._test_read_cancelled(p_service_ticket);</div>
-<div class="line"><a id="l00244" name="l00244"></a><span class="lineno">  244</span>    }</div>
-<div class="line"><a id="l00245" name="l00245"></a><span class="lineno">  245</span>    Error _test_set_telemetry_delays(uint32_t p_read_usec, uint32_t p_decode_usec);</div>
-<div class="line"><a id="l00246" name="l00246"></a><span class="lineno">  246</span>    <span class="comment">// Same compile gate as PayloadReadService::_test_set_read_hook: absent from</span></div>
-<div class="line"><a id="l00247" name="l00247"></a><span class="lineno">  247</span>    <span class="comment">// non-test release templates. Faults alter the REAL dispatch handoff, never</span></div>
-<div class="line"><a id="l00248" name="l00248"></a><span class="lineno">  248</span>    <span class="comment">// stats() or the checker. Set only while drained, before submitting requests.</span></div>
-<div class="line"><a id="l00249" name="l00249"></a><span class="lineno">  249</span>    <span class="keyword">enum</span> TestFault {</div>
-<div class="line"><a id="l00250" name="l00250"></a><span class="lineno">  250</span>        TEST_FAULT_NONE,</div>
-<div class="line"><a id="l00251" name="l00251"></a><span class="lineno">  251</span>        <span class="comment">// Dispatch still parks real bytes, but omits their reservation transfer.</span></div>
-<div class="line"><a id="l00252" name="l00252"></a><span class="lineno">  252</span>        TEST_FAULT_DROP_STASH_TRANSFER,</div>
-<div class="line"><a id="l00253" name="l00253"></a><span class="lineno">  253</span>        <span class="comment">// Exchange completion routing keys (requester AND ticket) of the first</span></div>
-<div class="line"><a id="l00254" name="l00254"></a><span class="lineno">  254</span>        <span class="comment">// two accepted requests from different requesters, leaving bytes intact.</span></div>
-<div class="line"><a id="l00255" name="l00255"></a><span class="lineno">  255</span>        TEST_FAULT_SWAP_REQUESTER_TICKETS,</div>
-<div class="line"><a id="l00256" name="l00256"></a><span class="lineno">  256</span>    };</div>
-<div class="line"><a id="l00257" name="l00257"></a><span class="lineno">  257</span>    Error _test_set_fault(TestFault p_fault);</div>
-<div class="line"><a id="l00258" name="l00258"></a><span class="lineno">  258</span>    <span class="comment">// Waits for one real service completion and dispatches it into the stash.</span></div>
-<div class="line"><a id="l00259" name="l00259"></a><span class="lineno">  259</span>    <span class="comment">// Only called without concurrent wait() pumps; enables deterministic snapshots.</span></div>
-<div class="line"><a id="l00260" name="l00260"></a><span class="lineno">  260</span>    <span class="keywordtype">bool</span> _test_dispatch_one_completion();</div>
-<div class="line"><a id="l00261" name="l00261"></a><span class="lineno">  261</span>    uint64_t _test_faults_triggered() <span class="keyword">const</span>;</div>
-<div class="line"><a id="l00262" name="l00262"></a><span class="lineno">  262</span><span class="preprocessor">#endif</span></div>
-<div class="line"><a id="l00263" name="l00263"></a><span class="lineno">  263</span> </div>
-<div class="line"><a id="l00264" name="l00264"></a><span class="lineno">  264</span><span class="keyword">private</span>:</div>
-<div class="line"><a id="l00265" name="l00265"></a><span class="lineno">  265</span>    <span class="keyword">using </span>RequestKey = Pair&lt;uint64_t, uint64_t&gt;; <span class="comment">// requester, local ticket</span></div>
-<div class="line"><a id="l00266" name="l00266"></a><span class="lineno">  266</span>    <span class="keyword">enum</span> State {</div>
-<div class="line"><a id="l00267" name="l00267"></a><span class="lineno">  267</span>        NEW,</div>
-<div class="line"><a id="l00268" name="l00268"></a><span class="lineno">  268</span>        RUNNING,</div>
-<div class="line"><a id="l00269" name="l00269"></a><span class="lineno">  269</span>        STOPPING,</div>
-<div class="line"><a id="l00270" name="l00270"></a><span class="lineno">  270</span>        STOPPED,</div>
-<div class="line"><a id="l00271" name="l00271"></a><span class="lineno">  271</span>    };</div>
-<div class="line"><a id="l00272" name="l00272"></a><span class="lineno">  272</span>    <span class="keyword">struct </span>Request {</div>
-<div class="line"><a id="l00273" name="l00273"></a><span class="lineno">  273</span>        uint64_t service_ticket = 0;</div>
-<div class="line"><a id="l00274" name="l00274"></a><span class="lineno">  274</span>        Identity identity;</div>
-<div class="line"><a id="l00275" name="l00275"></a><span class="lineno">  275</span>        PageDescriptor descriptor;</div>
-<div class="line"><a id="l00276" name="l00276"></a><span class="lineno">  276</span>        RequestKey route;</div>
-<div class="line"><a id="l00277" name="l00277"></a><span class="lineno">  277</span>        <span class="keywordtype">bool</span> in_stash = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00278" name="l00278"></a><span class="lineno">  278</span>        Error error = ERR_UNAVAILABLE;</div>
-<div class="line"><a id="l00279" name="l00279"></a><span class="lineno">  279</span>        Vector&lt;uint8_t&gt; bytes;</div>
-<div class="line"><a id="l00280" name="l00280"></a><span class="lineno">  280</span>        uint64_t reserved_bytes = 0;</div>
-<div class="line"><a id="l00281" name="l00281"></a><span class="lineno">  281</span>    };</div>
-<div class="line"><a id="l00282" name="l00282"></a><span class="lineno">  282</span> </div>
-<div class="line"><a id="l00283" name="l00283"></a><span class="lineno">  283</span>    <span class="comment">// The service owns its own mutex/readers. Lock order, when both are needed:</span></div>
-<div class="line"><a id="l00284" name="l00284"></a><span class="lineno">  284</span>    <span class="comment">// mutex -&gt; read_service&#39;s mutex. Readers never call back into the store.</span></div>
-<div class="line"><a id="l00285" name="l00285"></a><span class="lineno">  285</span>    PayloadReadService read_service;</div>
-<div class="line"><a id="l00286" name="l00286"></a><span class="lineno">  286</span>    <span class="comment">// Guards ALL fields below, including lifecycle, catalog, dispatch/stash,</span></div>
-<div class="line"><a id="l00287" name="l00287"></a><span class="lineno">  287</span>    <span class="comment">// reservation counters, decoder pool, stage counters and test faults. Codec</span></div>
-<div class="line"><a id="l00288" name="l00288"></a><span class="lineno">  288</span>    <span class="comment">// work runs outside it, using caller-owned StoredPage/DecoderLease instances.</span></div>
-<div class="line"><a id="l00289" name="l00289"></a><span class="lineno">  289</span>    <span class="comment">// Those move-only instances must not themselves be shared concurrently.</span></div>
-<div class="line"><a id="l00290" name="l00290"></a><span class="lineno">  290</span>    <span class="keyword">mutable</span> BinaryMutex mutex;</div>
-<div class="line"><a id="l00291" name="l00291"></a><span class="lineno">  291</span>    ConditionVariable dispatch_cv;</div>
-<div class="line"><a id="l00292" name="l00292"></a><span class="lineno">  292</span>    State state = NEW;</div>
-<div class="line"><a id="l00293" name="l00293"></a><span class="lineno">  293</span>    <a class="code hl_struct" href="structPayloadPageStore_1_1Config.html">Config</a> config;</div>
-<div class="line"><a id="l00294" name="l00294"></a><span class="lineno">  294</span>    String file_path;</div>
-<div class="line"><a id="l00295" name="l00295"></a><span class="lineno">  295</span>    uint64_t source_generation = 0;</div>
-<div class="line"><a id="l00296" name="l00296"></a><span class="lineno">  296</span>    HashMap&lt;uint64_t, PageDescriptor&gt; catalog;</div>
-<div class="line"><a id="l00297" name="l00297"></a><span class="lineno">  297</span>    uint64_t next_service_ticket = 0;</div>
-<div class="line"><a id="l00298" name="l00298"></a><span class="lineno">  298</span>    HashMap&lt;RequestKey, uint64_t&gt; request_keys;</div>
-<div class="line"><a id="l00299" name="l00299"></a><span class="lineno">  299</span>    HashMap&lt;uint64_t, Request *&gt; requests;</div>
-<div class="line"><a id="l00300" name="l00300"></a><span class="lineno">  300</span>    HashMap&lt;RequestKey, Request *&gt; dispatch_stash;</div>
-<div class="line"><a id="l00301" name="l00301"></a><span class="lineno">  301</span>    <span class="keywordtype">bool</span> dispatch_pumping = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00302" name="l00302"></a><span class="lineno">  302</span>    uint32_t waiters = 0;</div>
-<div class="line"><a id="l00303" name="l00303"></a><span class="lineno">  303</span>    LocalVector&lt;gs_gsq::DecodeContext *&gt; idle_decoders;</div>
-<div class="line"><a id="l00304" name="l00304"></a><span class="lineno">  304</span>    <a class="code hl_struct" href="structPayloadPageStore_1_1Stats.html">Stats</a> counters;</div>
-<div class="line"><a id="l00305" name="l00305"></a><span class="lineno">  305</span>    <a class="code hl_struct" href="structPayloadPageStore_1_1Stats.html">Stats</a> collection_base; <span class="comment">// mutex; captured after old requests/decoders drain.</span></div>
-<div class="line"><a id="l00306" name="l00306"></a><span class="lineno">  306</span>    HashMap&lt;uint64_t, String&gt; content_digests; <span class="comment">// mutex; cleared at source replacement.</span></div>
-<div class="line"><a id="l00307" name="l00307"></a><span class="lineno">  307</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
-<div class="line"><a id="l00308" name="l00308"></a><span class="lineno">  308</span>    uint32_t test_decode_delay_usec = 0; <span class="comment">// mutex; delay executes outside the lock.</span></div>
-<div class="line"><a id="l00309" name="l00309"></a><span class="lineno">  309</span>    <span class="keywordtype">void</span> _test_delay_decode();</div>
-<div class="line"><a id="l00310" name="l00310"></a><span class="lineno">  310</span><span class="preprocessor">#endif</span></div>
-<div class="line"><a id="l00311" name="l00311"></a><span class="lineno">  311</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
-<div class="line"><a id="l00312" name="l00312"></a><span class="lineno">  312</span>    TestFault test_fault = TEST_FAULT_NONE;</div>
-<div class="line"><a id="l00313" name="l00313"></a><span class="lineno">  313</span>    uint64_t test_fault_count = 0;</div>
-<div class="line"><a id="l00314" name="l00314"></a><span class="lineno">  314</span>    uint64_t test_first_ticket = 0;</div>
-<div class="line"><a id="l00315" name="l00315"></a><span class="lineno">  315</span>    uint64_t test_second_ticket = 0;</div>
-<div class="line"><a id="l00316" name="l00316"></a><span class="lineno">  316</span><span class="preprocessor">#endif</span></div>
-<div class="line"><a id="l00317" name="l00317"></a><span class="lineno">  317</span> </div>
-<div class="line"><a id="l00318" name="l00318"></a><span class="lineno">  318</span>    <span class="keyword">static</span> <span class="keywordtype">bool</span> _descriptors_equal(<span class="keyword">const</span> <a class="code hl_struct" href="structPayloadPageStore_1_1PageDescriptor.html">PageDescriptor</a> &amp;p_a, <span class="keyword">const</span> <a class="code hl_struct" href="structPayloadPageStore_1_1PageDescriptor.html">PageDescriptor</a> &amp;p_b);</div>
-<div class="line"><a id="l00319" name="l00319"></a><span class="lineno">  319</span>    <span class="keywordtype">bool</span> _pump_locked(<span class="keyword">const</span> MutexLock&lt;BinaryMutex&gt; &amp;p_lock, uint64_t p_watch_ticket);</div>
-<div class="line"><a id="l00320" name="l00320"></a><span class="lineno">  320</span>    <span class="keywordtype">void</span> _route_locked(PayloadReadService::Completion &amp;p_completion);</div>
-<div class="line"><a id="l00321" name="l00321"></a><span class="lineno">  321</span>    <span class="keywordtype">void</span> _take_stash_locked(<span class="keyword">const</span> RequestKey &amp;p_key, <a class="code hl_class" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;r_page);</div>
-<div class="line"><a id="l00322" name="l00322"></a><span class="lineno">  322</span>    <span class="keywordtype">void</span> _discard_locked(Request *p_request);</div>
-<div class="line"><a id="l00323" name="l00323"></a><span class="lineno">  323</span>    <span class="keywordtype">void</span> _drain_locked();</div>
-<div class="line"><a id="l00324" name="l00324"></a><span class="lineno">  324</span>    <span class="keywordtype">void</span> _release_stored(uint64_t p_bytes);</div>
-<div class="line"><a id="l00325" name="l00325"></a><span class="lineno">  325</span>    <span class="keywordtype">void</span> _return_decoder(gs_gsq::DecodeContext *p_decoder, <span class="keywordtype">bool</span> p_retain);</div>
-<div class="line"><a id="l00326" name="l00326"></a><span class="lineno">  326</span>};</div>
+<div class="line"><a id="l00234" name="l00234"></a><span class="lineno">  234</span>    <span class="comment">// Transport cancellation is already counted by the read service, not as a failed capture.</span></div>
+<div class="line"><a id="l00235" name="l00235"></a><span class="lineno">  235</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classPayloadPageStore.html#a451eeeb62dcb9b459e55dc6081ab849a">end_capture</a>(<span class="keywordtype">bool</span> p_success, <span class="keyword">const</span> String &amp;p_reason, <span class="keywordtype">bool</span> p_cancelled = <span class="keyword">false</span>);</div>
+<div class="line"><a id="l00236" name="l00236"></a><span class="lineno">  236</span>    uint64_t <a class="code hl_function" href="classPayloadPageStore.html#ae4495ad3cfb93a57fa34b85c675ff4d3">take_thread_last_capture_decode_nsec</a>();</div>
+<div class="line"><a id="l00237" name="l00237"></a><span class="lineno">  237</span> </div>
+<div class="line"><a id="l00238" name="l00238"></a><span class="lineno">  238</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
+<div class="line"><a id="l00239" name="l00239"></a><span class="lineno">  239</span>    <span class="comment">// Configure before start(), like the underlying read-service seam.</span></div>
+<div class="line"><a id="l00240" name="l00240"></a><span class="lineno">  240</span>    <span class="keywordtype">void</span> _test_set_read_hook(PayloadReadService::ReadHook p_hook, <span class="keywordtype">void</span> *p_user) {</div>
+<div class="line"><a id="l00241" name="l00241"></a><span class="lineno">  241</span>        read_service._test_set_read_hook(p_hook, p_user);</div>
+<div class="line"><a id="l00242" name="l00242"></a><span class="lineno">  242</span>    }</div>
+<div class="line"><a id="l00243" name="l00243"></a><span class="lineno">  243</span>    <span class="keywordtype">bool</span> _test_read_cancelled(uint64_t p_service_ticket)<span class="keyword"> const </span>{</div>
+<div class="line"><a id="l00244" name="l00244"></a><span class="lineno">  244</span>        <span class="keywordflow">return</span> read_service._test_read_cancelled(p_service_ticket);</div>
+<div class="line"><a id="l00245" name="l00245"></a><span class="lineno">  245</span>    }</div>
+<div class="line"><a id="l00246" name="l00246"></a><span class="lineno">  246</span>    Error _test_set_telemetry_delays(uint32_t p_read_usec, uint32_t p_decode_usec);</div>
+<div class="line"><a id="l00247" name="l00247"></a><span class="lineno">  247</span>    <span class="comment">// Same compile gate as PayloadReadService::_test_set_read_hook: absent from</span></div>
+<div class="line"><a id="l00248" name="l00248"></a><span class="lineno">  248</span>    <span class="comment">// non-test release templates. Faults alter the REAL dispatch handoff, never</span></div>
+<div class="line"><a id="l00249" name="l00249"></a><span class="lineno">  249</span>    <span class="comment">// stats() or the checker. Set only while drained, before submitting requests.</span></div>
+<div class="line"><a id="l00250" name="l00250"></a><span class="lineno">  250</span>    <span class="keyword">enum</span> TestFault {</div>
+<div class="line"><a id="l00251" name="l00251"></a><span class="lineno">  251</span>        TEST_FAULT_NONE,</div>
+<div class="line"><a id="l00252" name="l00252"></a><span class="lineno">  252</span>        <span class="comment">// Dispatch still parks real bytes, but omits their reservation transfer.</span></div>
+<div class="line"><a id="l00253" name="l00253"></a><span class="lineno">  253</span>        TEST_FAULT_DROP_STASH_TRANSFER,</div>
+<div class="line"><a id="l00254" name="l00254"></a><span class="lineno">  254</span>        <span class="comment">// Exchange completion routing keys (requester AND ticket) of the first</span></div>
+<div class="line"><a id="l00255" name="l00255"></a><span class="lineno">  255</span>        <span class="comment">// two accepted requests from different requesters, leaving bytes intact.</span></div>
+<div class="line"><a id="l00256" name="l00256"></a><span class="lineno">  256</span>        TEST_FAULT_SWAP_REQUESTER_TICKETS,</div>
+<div class="line"><a id="l00257" name="l00257"></a><span class="lineno">  257</span>    };</div>
+<div class="line"><a id="l00258" name="l00258"></a><span class="lineno">  258</span>    Error _test_set_fault(TestFault p_fault);</div>
+<div class="line"><a id="l00259" name="l00259"></a><span class="lineno">  259</span>    <span class="comment">// Waits for one real service completion and dispatches it into the stash.</span></div>
+<div class="line"><a id="l00260" name="l00260"></a><span class="lineno">  260</span>    <span class="comment">// Only called without concurrent wait() pumps; enables deterministic snapshots.</span></div>
+<div class="line"><a id="l00261" name="l00261"></a><span class="lineno">  261</span>    <span class="keywordtype">bool</span> _test_dispatch_one_completion();</div>
+<div class="line"><a id="l00262" name="l00262"></a><span class="lineno">  262</span>    uint64_t _test_faults_triggered() <span class="keyword">const</span>;</div>
+<div class="line"><a id="l00263" name="l00263"></a><span class="lineno">  263</span><span class="preprocessor">#endif</span></div>
+<div class="line"><a id="l00264" name="l00264"></a><span class="lineno">  264</span> </div>
+<div class="line"><a id="l00265" name="l00265"></a><span class="lineno">  265</span><span class="keyword">private</span>:</div>
+<div class="line"><a id="l00266" name="l00266"></a><span class="lineno">  266</span>    <span class="keyword">using </span>RequestKey = Pair&lt;uint64_t, uint64_t&gt;; <span class="comment">// requester, local ticket</span></div>
+<div class="line"><a id="l00267" name="l00267"></a><span class="lineno">  267</span>    <span class="keyword">enum</span> State {</div>
+<div class="line"><a id="l00268" name="l00268"></a><span class="lineno">  268</span>        NEW,</div>
+<div class="line"><a id="l00269" name="l00269"></a><span class="lineno">  269</span>        RUNNING,</div>
+<div class="line"><a id="l00270" name="l00270"></a><span class="lineno">  270</span>        STOPPING,</div>
+<div class="line"><a id="l00271" name="l00271"></a><span class="lineno">  271</span>        STOPPED,</div>
+<div class="line"><a id="l00272" name="l00272"></a><span class="lineno">  272</span>    };</div>
+<div class="line"><a id="l00273" name="l00273"></a><span class="lineno">  273</span>    <span class="keyword">struct </span>Request {</div>
+<div class="line"><a id="l00274" name="l00274"></a><span class="lineno">  274</span>        uint64_t service_ticket = 0;</div>
+<div class="line"><a id="l00275" name="l00275"></a><span class="lineno">  275</span>        Identity identity;</div>
+<div class="line"><a id="l00276" name="l00276"></a><span class="lineno">  276</span>        PageDescriptor descriptor;</div>
+<div class="line"><a id="l00277" name="l00277"></a><span class="lineno">  277</span>        RequestKey route;</div>
+<div class="line"><a id="l00278" name="l00278"></a><span class="lineno">  278</span>        <span class="keywordtype">bool</span> in_stash = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00279" name="l00279"></a><span class="lineno">  279</span>        Error error = ERR_UNAVAILABLE;</div>
+<div class="line"><a id="l00280" name="l00280"></a><span class="lineno">  280</span>        Vector&lt;uint8_t&gt; bytes;</div>
+<div class="line"><a id="l00281" name="l00281"></a><span class="lineno">  281</span>        uint64_t reserved_bytes = 0;</div>
+<div class="line"><a id="l00282" name="l00282"></a><span class="lineno">  282</span>    };</div>
+<div class="line"><a id="l00283" name="l00283"></a><span class="lineno">  283</span> </div>
+<div class="line"><a id="l00284" name="l00284"></a><span class="lineno">  284</span>    <span class="comment">// The service owns its own mutex/readers. Lock order, when both are needed:</span></div>
+<div class="line"><a id="l00285" name="l00285"></a><span class="lineno">  285</span>    <span class="comment">// mutex -&gt; read_service&#39;s mutex. Readers never call back into the store.</span></div>
+<div class="line"><a id="l00286" name="l00286"></a><span class="lineno">  286</span>    PayloadReadService read_service;</div>
+<div class="line"><a id="l00287" name="l00287"></a><span class="lineno">  287</span>    <span class="comment">// Guards ALL fields below, including lifecycle, catalog, dispatch/stash,</span></div>
+<div class="line"><a id="l00288" name="l00288"></a><span class="lineno">  288</span>    <span class="comment">// reservation counters, decoder pool, stage counters and test faults. Codec</span></div>
+<div class="line"><a id="l00289" name="l00289"></a><span class="lineno">  289</span>    <span class="comment">// work runs outside it, using caller-owned StoredPage/DecoderLease instances.</span></div>
+<div class="line"><a id="l00290" name="l00290"></a><span class="lineno">  290</span>    <span class="comment">// Those move-only instances must not themselves be shared concurrently.</span></div>
+<div class="line"><a id="l00291" name="l00291"></a><span class="lineno">  291</span>    <span class="keyword">mutable</span> BinaryMutex mutex;</div>
+<div class="line"><a id="l00292" name="l00292"></a><span class="lineno">  292</span>    ConditionVariable dispatch_cv;</div>
+<div class="line"><a id="l00293" name="l00293"></a><span class="lineno">  293</span>    State state = NEW;</div>
+<div class="line"><a id="l00294" name="l00294"></a><span class="lineno">  294</span>    <a class="code hl_struct" href="structPayloadPageStore_1_1Config.html">Config</a> config;</div>
+<div class="line"><a id="l00295" name="l00295"></a><span class="lineno">  295</span>    String file_path;</div>
+<div class="line"><a id="l00296" name="l00296"></a><span class="lineno">  296</span>    uint64_t source_generation = 0;</div>
+<div class="line"><a id="l00297" name="l00297"></a><span class="lineno">  297</span>    HashMap&lt;uint64_t, PageDescriptor&gt; catalog;</div>
+<div class="line"><a id="l00298" name="l00298"></a><span class="lineno">  298</span>    uint64_t next_service_ticket = 0;</div>
+<div class="line"><a id="l00299" name="l00299"></a><span class="lineno">  299</span>    HashMap&lt;RequestKey, uint64_t&gt; request_keys;</div>
+<div class="line"><a id="l00300" name="l00300"></a><span class="lineno">  300</span>    HashMap&lt;uint64_t, Request *&gt; requests;</div>
+<div class="line"><a id="l00301" name="l00301"></a><span class="lineno">  301</span>    HashMap&lt;RequestKey, Request *&gt; dispatch_stash;</div>
+<div class="line"><a id="l00302" name="l00302"></a><span class="lineno">  302</span>    <span class="keywordtype">bool</span> dispatch_pumping = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00303" name="l00303"></a><span class="lineno">  303</span>    uint32_t waiters = 0;</div>
+<div class="line"><a id="l00304" name="l00304"></a><span class="lineno">  304</span>    LocalVector&lt;gs_gsq::DecodeContext *&gt; idle_decoders;</div>
+<div class="line"><a id="l00305" name="l00305"></a><span class="lineno">  305</span>    <a class="code hl_struct" href="structPayloadPageStore_1_1Stats.html">Stats</a> counters;</div>
+<div class="line"><a id="l00306" name="l00306"></a><span class="lineno">  306</span>    <a class="code hl_struct" href="structPayloadPageStore_1_1Stats.html">Stats</a> collection_base; <span class="comment">// mutex; captured after old requests/decoders drain.</span></div>
+<div class="line"><a id="l00307" name="l00307"></a><span class="lineno">  307</span>    HashMap&lt;uint64_t, String&gt; content_digests; <span class="comment">// mutex; cleared at source replacement.</span></div>
+<div class="line"><a id="l00308" name="l00308"></a><span class="lineno">  308</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
+<div class="line"><a id="l00309" name="l00309"></a><span class="lineno">  309</span>    uint32_t test_decode_delay_usec = 0; <span class="comment">// mutex; delay executes outside the lock.</span></div>
+<div class="line"><a id="l00310" name="l00310"></a><span class="lineno">  310</span>    <span class="keywordtype">void</span> _test_delay_decode();</div>
+<div class="line"><a id="l00311" name="l00311"></a><span class="lineno">  311</span><span class="preprocessor">#endif</span></div>
+<div class="line"><a id="l00312" name="l00312"></a><span class="lineno">  312</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
+<div class="line"><a id="l00313" name="l00313"></a><span class="lineno">  313</span>    TestFault test_fault = TEST_FAULT_NONE;</div>
+<div class="line"><a id="l00314" name="l00314"></a><span class="lineno">  314</span>    uint64_t test_fault_count = 0;</div>
+<div class="line"><a id="l00315" name="l00315"></a><span class="lineno">  315</span>    uint64_t test_first_ticket = 0;</div>
+<div class="line"><a id="l00316" name="l00316"></a><span class="lineno">  316</span>    uint64_t test_second_ticket = 0;</div>
+<div class="line"><a id="l00317" name="l00317"></a><span class="lineno">  317</span><span class="preprocessor">#endif</span></div>
+<div class="line"><a id="l00318" name="l00318"></a><span class="lineno">  318</span> </div>
+<div class="line"><a id="l00319" name="l00319"></a><span class="lineno">  319</span>    <span class="keyword">static</span> <span class="keywordtype">bool</span> _descriptors_equal(<span class="keyword">const</span> <a class="code hl_struct" href="structPayloadPageStore_1_1PageDescriptor.html">PageDescriptor</a> &amp;p_a, <span class="keyword">const</span> <a class="code hl_struct" href="structPayloadPageStore_1_1PageDescriptor.html">PageDescriptor</a> &amp;p_b);</div>
+<div class="line"><a id="l00320" name="l00320"></a><span class="lineno">  320</span>    <span class="keywordtype">bool</span> _pump_locked(<span class="keyword">const</span> MutexLock&lt;BinaryMutex&gt; &amp;p_lock, uint64_t p_watch_ticket);</div>
+<div class="line"><a id="l00321" name="l00321"></a><span class="lineno">  321</span>    <span class="keywordtype">void</span> _route_locked(PayloadReadService::Completion &amp;p_completion);</div>
+<div class="line"><a id="l00322" name="l00322"></a><span class="lineno">  322</span>    <span class="keywordtype">void</span> _take_stash_locked(<span class="keyword">const</span> RequestKey &amp;p_key, <a class="code hl_class" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;r_page);</div>
+<div class="line"><a id="l00323" name="l00323"></a><span class="lineno">  323</span>    <span class="keywordtype">void</span> _discard_locked(Request *p_request);</div>
+<div class="line"><a id="l00324" name="l00324"></a><span class="lineno">  324</span>    <span class="keywordtype">void</span> _drain_locked();</div>
+<div class="line"><a id="l00325" name="l00325"></a><span class="lineno">  325</span>    <span class="keywordtype">void</span> _release_stored(uint64_t p_bytes);</div>
+<div class="line"><a id="l00326" name="l00326"></a><span class="lineno">  326</span>    <span class="keywordtype">void</span> _return_decoder(gs_gsq::DecodeContext *p_decoder, <span class="keywordtype">bool</span> p_retain);</div>
+<div class="line"><a id="l00327" name="l00327"></a><span class="lineno">  327</span>};</div>
 </div>
 <div class="ttc" id="aclassPayloadPageStore_1_1DecoderLease_html"><div class="ttname"><a href="classPayloadPageStore_1_1DecoderLease.html">PayloadPageStore::DecoderLease</a></div><div class="ttdef"><b>Definition</b> gs_payload_page_store.h:91</div></div>
 <div class="ttc" id="aclassPayloadPageStore_1_1DecoderLease_html_a1033a15f1656e689c4ec32928e216b18"><div class="ttname"><a href="classPayloadPageStore_1_1DecoderLease.html#a1033a15f1656e689c4ec32928e216b18">PayloadPageStore::DecoderLease::DecoderLease</a></div><div class="ttdeci">DecoderLease(const DecoderLease &amp;)=delete</div></div>
@@ -467,8 +468,8 @@ $(function(){initNavTree('gs__payload__page__store_8h_source.html','',''); });
 <div class="ttc" id="aclassPayloadPageStore_html_a32656d75aa1a965afe1f29fe85b455d5a05b9c667412e544e9af8bff63be0a352"><div class="ttname"><a href="classPayloadPageStore.html#a32656d75aa1a965afe1f29fe85b455d5a05b9c667412e544e9af8bff63be0a352">PayloadPageStore::DIGEST_NOT_PERFORMED</a></div><div class="ttdeci">@ DIGEST_NOT_PERFORMED</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.h:109</div></div>
 <div class="ttc" id="aclassPayloadPageStore_html_a32656d75aa1a965afe1f29fe85b455d5a5739d56ea948a264ad53e843a3a9990e"><div class="ttname"><a href="classPayloadPageStore.html#a32656d75aa1a965afe1f29fe85b455d5a5739d56ea948a264ad53e843a3a9990e">PayloadPageStore::DIGEST_SKIPPED</a></div><div class="ttdeci">@ DIGEST_SKIPPED</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.h:111</div></div>
 <div class="ttc" id="aclassPayloadPageStore_html_a32656d75aa1a965afe1f29fe85b455d5ab7965b2fd7a054a4e321f77ba346cbdc"><div class="ttname"><a href="classPayloadPageStore.html#a32656d75aa1a965afe1f29fe85b455d5ab7965b2fd7a054a4e321f77ba346cbdc">PayloadPageStore::DIGEST_CHECKED</a></div><div class="ttdeci">@ DIGEST_CHECKED</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.h:110</div></div>
-<div class="ttc" id="aclassPayloadPageStore_html_a3a7f6eeb8aaa49d20546768de3a6b0c6"><div class="ttname"><a href="classPayloadPageStore.html#a3a7f6eeb8aaa49d20546768de3a6b0c6">PayloadPageStore::end_capture</a></div><div class="ttdeci">void end_capture(bool p_success, const String &amp;p_reason)</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.cpp:821</div></div>
 <div class="ttc" id="aclassPayloadPageStore_html_a443076a3135e1075222a89a0856475aa"><div class="ttname"><a href="classPayloadPageStore.html#a443076a3135e1075222a89a0856475aa">PayloadPageStore::operator=</a></div><div class="ttdeci">PayloadPageStore &amp; operator=(const PayloadPageStore &amp;)=delete</div></div>
+<div class="ttc" id="aclassPayloadPageStore_html_a451eeeb62dcb9b459e55dc6081ab849a"><div class="ttname"><a href="classPayloadPageStore.html#a451eeeb62dcb9b459e55dc6081ab849a">PayloadPageStore::end_capture</a></div><div class="ttdeci">void end_capture(bool p_success, const String &amp;p_reason, bool p_cancelled=false)</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.cpp:821</div></div>
 <div class="ttc" id="aclassPayloadPageStore_html_a4a26dc79523b9bdf44519f8001ddb38d"><div class="ttname"><a href="classPayloadPageStore.html#a4a26dc79523b9bdf44519f8001ddb38d">PayloadPageStore::replace_source</a></div><div class="ttdeci">Error replace_source(const String &amp;p_path, uint64_t p_generation, const LocalVector&lt; PageDescriptor &gt; &amp;p_pages, uint64_t p_collection_epoch=0)</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.cpp:145</div></div>
 <div class="ttc" id="aclassPayloadPageStore_html_a4b363d6784680da4e6862fdbcd9d36f6"><div class="ttname"><a href="classPayloadPageStore.html#a4b363d6784680da4e6862fdbcd9d36f6">PayloadPageStore::decode_gsq_page</a></div><div class="ttdeci">Error decode_gsq_page(const StoredPage &amp;p_page, DecoderLease &amp;p_decoder, bool p_verify_decoded_digest, DecodedPage &amp;r_page, String &amp;r_reason)</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.cpp:590</div></div>
 <div class="ttc" id="aclassPayloadPageStore_html_a6636b7c3785b406ad1d21b2d035fa28e"><div class="ttname"><a href="classPayloadPageStore.html#a6636b7c3785b406ad1d21b2d035fa28e">PayloadPageStore::lease_decoder</a></div><div class="ttdeci">Error lease_decoder(DecoderLease &amp;r_lease, bool p_retain_on_return=true)</div><div class="ttdef"><b>Definition</b> gs_payload_page_store.cpp:551</div></div>

@@ -28,6 +28,7 @@ var classgs__hlod__runtime_1_1CutHistory =
     [ "allocated_bytes", "classgs__hlod__runtime_1_1CutHistory.html#a329f364c2559dd5ec9f747251a397cf2", null ],
     [ "demand_count", "classgs__hlod__runtime_1_1CutHistory.html#a1d368a172d18c8a53aeecf141ba0b674", null ],
     [ "demand_node", "classgs__hlod__runtime_1_1CutHistory.html#aa39c00838d5d720381c27a80f01e4350", null ],
+    [ "demand_transition", "classgs__hlod__runtime_1_1CutHistory.html#a2cd7349a37d4d0d1ba69730711352b9a", null ],
     [ "diagnostic_flags", "classgs__hlod__runtime_1_1CutHistory.html#a51909fa0a996df3634b80a5d22e8ee7c", null ],
     [ "invalidate", "classgs__hlod__runtime_1_1CutHistory.html#aa11db9fdb5f997a7f2365ed051461852", null ],
     [ "partial_frontier_count", "classgs__hlod__runtime_1_1CutHistory.html#a85030f5726849fb0eb90181d149960c3", null ],

@@ -1049,7 +1049,7 @@ var searchData=
   ['splatting_1046',['GPU Radix Sort Implementation for Gaussian Splatting',['..//home/runner/work/godotGS/godotGS/modules/gaussian_splatting/renderer/gpu_sorter.cpp#autotoc_md10',1,'']]],
   ['split_5fdepth_1047',['split_depth',['../structgs__hlod__runtime_1_1NodeKey.html#a553a85fe3fa026b36a3e1f424ac8d427',1,'gs_hlod_runtime::NodeKey']]],
   ['split_5fpath_1048',['split_path',['../structgs__hlod__runtime_1_1NodeKey.html#a6f29b713dee9db6f00e02adfcfaf5fd7',1,'gs_hlod_runtime::NodeKey']]],
-  ['split_5fprotection_5fand_5fdemand_1049',['split_protection_and_demand',['../classHlodNodeStreamer.html#a7b07567dbf43a3cdf124e27a016a088f',1,'HlodNodeStreamer']]],
+  ['split_5fprotection_5fand_5fdemand_1049',['split_protection_and_demand',['../classHlodNodeStreamer.html#a0985cf037a6196e8b76805a49a0cf4db',1,'HlodNodeStreamer']]],
   ['spot_1050',['SPOT',['../namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5ba5bac85a0c611ddef64ab0dfb383056f4',1,'gs_shadow_caster']]],
   ['spot_5flight_5fcount_1051',['spot_light_count',['../structGaussianSplatting_1_1TileRenderParams.html#ac3756c874109c46b8edc872151ffdc34',1,'GaussianSplatting::TileRenderParams::spot_light_count'],['../structGaussianSplatting_1_1TileSceneLightingInputs.html#a43c3135c92ca930026531b75411ad3a7',1,'GaussianSplatting::TileSceneLightingInputs::spot_light_count']]],
   ['spz_1052',['spz',['../namespacespz.html',1,'']]],
