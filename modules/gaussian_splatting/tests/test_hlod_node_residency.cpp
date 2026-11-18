@@ -1379,6 +1379,156 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] bootstrap keeps are revocable bu
 	CHECK(sim.res.stats().protected_sibling_nodes == 0);
 }
 
+static bool bootstrap_cap_fixture(Residency &r_res, LocalVector<uint32_t> &r_frontier, uint32_t p_count) {
+	GaussianSplatHlodRuntimeData data;
+	binary_tree(data, 8, 1000, 1000); // Valid binary topology, one page per node.
+	Vector<Residency::NodeInfo> infos;
+	if (!make_node_infos(data, infos) || !r_res.reset(infos, config(p_count + 1, 0), 1, 1) ||
+			!make_resident_at(r_res, 0, 1)) {
+		return false;
+	}
+	// Start with a complete 32/64-node frontier. Refining eight of the 64 nodes
+	// replaces eight parents with sixteen children: a complete 72-node plan.
+	const uint32_t base_count = p_count > 64 ? 64 : p_count;
+	const uint32_t first = base_count - 1;
+	for (uint32_t node = first; node < first + base_count; ++node) {
+		if (node - first < p_count - base_count) {
+			r_frontier.push_back(2 * node + 1);
+			r_frontier.push_back(2 * node + 2);
+		} else {
+			r_frontier.push_back(node);
+		}
+	}
+	return r_frontier.size() == p_count;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a 72-request bootstrap reserves the whole plan and progresses across the unchanged frame cap (#1483 B)") {
+	constexpr uint32_t count = 72, cap = 64;
+	Residency res;
+	LocalVector<uint32_t> frontier, kept;
+	if (!bootstrap_cap_fixture(res, frontier, count)) { FAIL("could not prepare the 72-node bootstrap frontier"); return; }
+	CHECK(res.config().max_requests_per_frame == cap);
+	LocalVector<TransitionGroup> transitions;
+	transitions.resize(count);
+	for (auto &transition : transitions) { transition.kind = TRANSITION_BOOTSTRAP; }
+	kept.push_back(0); // Complete coarse coverage stays resident while the bootstrap fills.
+	res.begin_frame(10);
+	LocalVector<Residency::Ticket> first;
+	const auto started = res.request(frontier.ptr(), count, first, transitions.ptr(), kept.ptr(), kept.size());
+	CHECK(started.requested == cap);
+	CHECK(started.capped);
+	if (first.size() != cap) { FAIL("bootstrap must use the available 64-request frame budget, got ", first.size()); return; }
+	std::vector<uint32_t> reserved_pages(count);
+	for (uint32_t i = 0; i < count; ++i) {
+		uint32_t pages = 0;
+		if (!res.run(frontier[i], reserved_pages[i], pages)) {
+			FAIL("bootstrap did not reserve every run before starting its first request batch"); return;
+		}
+		CHECK(pages == 1);
+		CHECK(res.is_protected(frontier[i]));
+	}
+	CHECK(res.stats().pages_free == 0); // The eight deferred requests already own reserved runs.
+	for (uint32_t i = 0; i < cap; ++i) {
+		CHECK(first[i].node == frontier[i]);
+		CHECK(first[i].first_page == reserved_pages[i]);
+		if (!res.begin_upload(first[i]) || !res.finish_upload(first[i], true)) {
+			FAIL("first bootstrap batch could not become resident"); return;
+		}
+		kept.push_back(frontier[i]);
+	}
+	// Real selection now emits only the eight missing nodes and keeps the completed prefix.
+	// Reconciliation in the SAME logical frame must preserve reservations without exceeding 64.
+	LocalVector<Residency::Ticket> repeated;
+	const auto same_frame = res.request(frontier.ptr() + cap, count - cap, repeated, transitions.ptr() + cap, kept.ptr(), kept.size());
+	CHECK(same_frame.requested == 0);
+	CHECK(same_frame.capped);
+	CHECK(repeated.is_empty());
+	CHECK(res.stats().requested_total == 1 + cap); // Includes the fixture's root request.
+	CHECK(res.stats().resident == 1 + cap);
+	CHECK(res.stats().pages_free == 0);
+	for (uint32_t i = 0; i < cap; ++i) {
+		CHECK(res.is_protected(frontier[i]));
+		CHECK_FALSE(res.evict(frontier[i])); // Completed prefix remains leased to the whole plan.
+	}
+	// These are synchronous model frames, not a fixed-frame wait for worker progress.
+	res.begin_frame(11);
+	LocalVector<Residency::Ticket> last;
+	const auto resumed = res.request(frontier.ptr() + cap, count - cap, last, transitions.ptr() + cap, kept.ptr(), kept.size());
+	CHECK(resumed.requested == count - cap);
+	CHECK_FALSE(resumed.capped);
+	if (last.size() != count - cap) { FAIL("remaining eight bootstrap requests did not start in the next frame"); return; }
+	for (uint32_t i = 0; i < last.size(); ++i) {
+		CHECK(last[i].node == frontier[cap + i]);
+		CHECK(last[i].first_page == reserved_pages[cap + i]); // No second allocation or run movement.
+		CHECK(last[i].page_count == 1);
+		if (!res.begin_upload(last[i]) || !res.finish_upload(last[i], true)) {
+			FAIL("final bootstrap batch could not become resident"); return;
+		}
+	}
+	LocalVector<Residency::Ticket> complete;
+	const uint32_t root = 0;
+	const auto settled = res.request(frontier.ptr(), count, complete, transitions.ptr(), &root, 1);
+	CHECK(settled.requested == 0);
+	CHECK(settled.satisfied == count + 1);
+	CHECK(complete.is_empty());
+	CHECK(res.stats().requested_total == count + 1);
+	CHECK(res.stats().completed_total == count + 1);
+	CHECK(res.stats().resident == count + 1);
+	CHECK(res.stats().loading == 0);
+	CHECK(res.stats().uploading == 0);
+	CHECK(res.stats().pages_free == 0);
+	CHECK(res.stats().cancelled_total == 0);
+	CHECK(res.stats().abandoned_transitions_total == 0);
+	for (uint32_t node : frontier) {
+		CHECK(res.state(node) == Residency::RESIDENT);
+		CHECK(res.resident_mask()[node] == 1);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] bootstrap plans within 64 requests keep their tickets in the same frame (#1483 B)") {
+	for (uint32_t count : { 32u, 64u }) {
+		CAPTURE(count);
+		Residency res;
+		LocalVector<uint32_t> frontier;
+		if (!bootstrap_cap_fixture(res, frontier, count)) { FAIL("could not prepare the within-cap bootstrap frontier"); return; }
+		CHECK(res.config().max_requests_per_frame == 64);
+		LocalVector<TransitionGroup> transitions;
+		transitions.resize(count);
+		for (auto &transition : transitions) { transition.kind = TRANSITION_BOOTSTRAP; }
+		const uint32_t root = 0;
+		res.begin_frame(10);
+		LocalVector<Residency::Ticket> tickets;
+		const auto started = res.request(frontier.ptr(), count, tickets, transitions.ptr(), &root, 1);
+		CHECK(started.requested == count);
+		CHECK_FALSE(started.capped);
+		if (tickets.size() != count) { FAIL("within-cap bootstrap did not emit all its tickets in frame 10"); return; }
+		for (uint32_t i = 0; i < count; ++i) {
+			const auto &ticket = tickets[i];
+			CHECK(ticket.node == frontier[i]);
+			CHECK(ticket.first_page == i + 1); // Fresh one-page atlas: root occupies page zero.
+			CHECK(ticket.page_count == 1);
+			CHECK(ticket.request_generation == i + 2); // Root was the sole earlier request.
+			CHECK(ticket.world_generation == 1);
+			CHECK(ticket.device_generation == 1);
+			CHECK_FALSE(ticket.shadow);
+			CHECK(res.is_pending(ticket));
+			if (!res.begin_upload(ticket) || !res.finish_upload(ticket, true)) {
+				FAIL("within-cap bootstrap ticket did not finish in its original frame"); return;
+			}
+		}
+		CHECK(res.frame() == 10);
+		CHECK(res.stats().resident == count + 1);
+		CHECK(res.stats().completed_total == count + 1);
+		CHECK(res.stats().pages_free == 0);
+		LocalVector<Residency::Ticket> repeated;
+		const auto settled = res.request(frontier.ptr(), count, repeated, transitions.ptr(), &root, 1);
+		CHECK(settled.requested == 0);
+		CHECK_FALSE(settled.capped);
+		CHECK(repeated.is_empty());
+		CHECK(res.stats().requested_total == count + 1);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Residency] mass transition abandonment classifies every distinct late ticket beyond the legacy cancel window (#1483 B)") {
 	GaussianSplatHlodRuntimeData data;
 	binary_tree(data, 10, 1000, 1000);
