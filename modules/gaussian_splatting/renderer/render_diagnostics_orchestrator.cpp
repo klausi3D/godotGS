@@ -1648,6 +1648,12 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_allocation_pending_retire_total"] = t.pressure_measured ? int64_t(t.allocation_pending_retire_total) : -1;
         stats["hlod_stream_allocation_eviction_limit_total"] = t.pressure_measured ? int64_t(t.allocation_eviction_limit_total) : -1;
         stats["hlod_stream_allocation_other_total"] = t.pressure_measured ? int64_t(t.allocation_other_total) : -1;
+        stats["hlod_stream_compaction_pages_moved_total"] = t.pressure_measured ? int64_t(t.compaction_pages_moved_total) : -1;
+        stats["hlod_stream_compaction_moves_total"] = t.pressure_measured ? int64_t(t.compaction_moves_total) : -1;
+        stats["hlod_stream_compaction_frames_total"] = t.pressure_measured ? int64_t(t.compaction_frames_total) : -1;
+        stats["hlod_stream_compaction_no_candidate_frames_total"] = t.pressure_measured ? int64_t(t.compaction_no_candidate_frames_total) : -1;
+        stats["hlod_stream_compaction_cap_limited_frames_total"] = t.pressure_measured ? int64_t(t.compaction_cap_limited_frames_total) : -1;
+        stats["hlod_stream_compaction_switch_deferred_total"] = t.pressure_measured ? int64_t(t.compaction_switch_deferred_total) : -1;
         stats["hlod_stream_evicted_in_cut_total"] = t.pressure_measured ? int64_t(t.evicted_in_cut_total) : -1;
         stats["hlod_stream_evicted_in_transition_total"] = t.pressure_measured ? int64_t(t.evicted_in_transition_total) : -1;
         stats["hlod_stream_evicted_neither_total"] = t.pressure_measured ? int64_t(t.evicted_neither_total) : -1;

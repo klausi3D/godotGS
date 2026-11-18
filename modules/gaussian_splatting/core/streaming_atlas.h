@@ -42,6 +42,13 @@ public:
 	bool resize_preserve(uint32_t p_new_capacity);
 	// True when a contiguous free run of at least `p_page_count` pages exists.
 	bool can_allocate(uint32_t p_page_count) const;
+	// Dry-run sequential best-fit placement in the caller's supplied member order.
+	// Neither allocator state nor p_pages is changed. Outputs describe the placed
+	// prefix and the first failed request (zero when every request fits).
+	bool can_allocate_all(const uint32_t *p_pages, uint32_t p_count, uint32_t *r_first_failing_pages = nullptr, uint64_t *r_placed_pages = nullptr) const;
+	// Reusable planner seam: p_pages is consumed in its supplied order. Only the
+	// supplied scratch free runs are consumed; allocator state is never accessed.
+	static bool simulate_allocate_all(LocalVector<PageRun> &r_free_runs, const uint32_t *p_pages, uint32_t p_count, uint32_t *r_first_failing_pages = nullptr, uint64_t *r_placed_pages = nullptr);
 	uint32_t get_free_page_count() const { return free_page_count; }
 	uint32_t get_used_page_count() const { return capacity - free_page_count; }
 	uint32_t get_largest_free_run() const;
@@ -52,6 +59,9 @@ public:
 	// receives the run's first page. Re-allocating a key that already owns a run
 	// returns that run only if it has the requested size.
 	bool allocate_slot(uint64_t p_chunk_key, uint32_t p_page_count, uint32_t &r_slot);
+	// Owner-thread inspection/reservation for HLOD relocation. Exact reservation never relocates an owner.
+	bool get_free_run(uint32_t p_index, PageRun &r_run) const;
+	bool allocate_run_at(uint64_t p_chunk_key, const PageRun &p_run);
 	void release_slot(uint64_t p_chunk_key);
 	bool get_slot(uint64_t p_chunk_key, uint32_t &r_slot) const;
 	bool get_run(uint64_t p_chunk_key, PageRun &r_run) const;

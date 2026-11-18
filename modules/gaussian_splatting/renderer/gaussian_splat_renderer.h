@@ -941,6 +941,7 @@ public:
     // commits a ready staged edit), then adopt_hlod_served_snapshot(). Null when the streamer is no longer active (the
     // caller releases the bundle).
     Ref<GaussianSplatHlodRuntimeData> hlod_stream_commit_boundary();
+    uint64_t hlod_stream_compaction_boundary(RenderingDevice *p_device);
     // Registers this frame's view with the streamer, judging expiry by THIS renderer's view bindings.
     void register_hlod_known_view(const HlodViewIdentity &p_identity, const gs_hlod_runtime::CutRequest &p_request);
 #ifdef TESTS_ENABLED

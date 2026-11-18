@@ -5,8 +5,10 @@
 #include "../core/gs_vector_alloc.h"
 #include "../lod/hlod_edit.h"
 #include "../io/gs_payload_page_store.h"
+#include "core/object/object.h"
 
 #include <chrono>
+#include <cstddef>
 #include <utility>
 
 using gs_hlod_runtime::NodeResidency;
@@ -586,6 +588,10 @@ Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeD
 	Vector<NodeResidency::NodeInfo> infos;
 	if (!gs_hlod_runtime::make_node_infos(*p_data.ptr(), infos)) { return ERR_INVALID_DATA; }
 	const NodeResidency::Config rc = residency.config();
+	free_compaction_scratch();
+	residency.clear_compaction();
+	server_frame = compaction_step_frame = UINT64_MAX;
+	compaction_drawn.clear();
 	if (!residency.reset(infos, rc, p_world, p_device)) { return ERR_INVALID_DATA; }
 	pending.clear();
 	if (!had_edit) {
@@ -653,6 +659,9 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	ledger->observe_peak();
 	mailbox->ledger = ledger;
 	frame = 0;
+	server_frame = compaction_step_frame = UINT64_MAX;
+	compaction_drawn.clear();
+	compaction_scratch_last_use = 0;
 	frame_eviction_start_total = frame_eviction_truncated = 0;
 	gate_counted_frame = eviction_export_frame = eviction_export_total = UINT64_MAX;
 	frame_admission_refusing_gate = REFUSING_NONE;
@@ -665,6 +674,7 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 #ifdef TESTS_ENABLED
 	test_metadata.clear();
 	test_quantization.clear();
+	test_compaction_copies.clear();
 #endif
 	telemetry = Telemetry();
 	// A reset restarts residency counters and eviction sequence numbers, even
@@ -741,6 +751,8 @@ void HlodNodeStreamer::collect_finished_tasks(bool p_wait_all) {
 }
 
 void HlodNodeStreamer::shutdown() {
+	free_compaction_scratch();
+	residency.clear_compaction();
 	telemetry.transitions_measured = false;
 	telemetry.transition_state = NodeResidency::TRANSITIONS_ABSENT;
 	telemetry.protected_sibling_nodes = telemetry.abandoned_transitions_this_frame = 0;
@@ -1318,7 +1330,214 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 	return COMMIT_DONE;
 }
 
-void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_buffers) {
+bool HlodNodeStreamer::compaction_node_drawn(uint32_t p_node) const {
+	for (uint32_t node : compaction_drawn) { if (node == p_node) { return true; } }
+	return false;
+}
+
+void HlodNodeStreamer::free_compaction_scratch() {
+	if (compaction_scratch.is_valid()) {
+		// A replaced device already destroyed its resources. Never pass its RID to the new generation.
+		RenderingDevice *device = Object::cast_to<RenderingDevice>(ObjectDB::get_instance(compaction_scratch_owner));
+		if (device && device->get_device_instance_id() == compaction_scratch_device) {
+			device->free(compaction_scratch);
+		}
+		compaction_scratch = RID();
+	}
+	compaction_scratch_owner = ObjectID();
+	compaction_scratch_device = 0;
+}
+
+Error HlodNodeStreamer::patch_compaction_address(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, uint32_t p_base) {
+	if (p_node >= residency.node_count()) { return ERR_INVALID_DATA; }
+	bool cpu_sink = false;
+#ifdef TESTS_ENABLED
+	{
+		MutexLock lock(ledger->mutex);
+		cpu_sink = ledger->control.cpu_upload_sink;
+		if (ledger->control.fail_upload) { return ERR_CANT_CREATE; }
+		if (cpu_sink) {
+			if (p_node >= uint32_t(test_metadata.size()) ||
+					(cfg.quantized && p_node >= uint32_t(test_quantization.size()))) { return ERR_INVALID_DATA; }
+			test_metadata.write[p_node].atlas_base = p_base;
+			if (cfg.quantized) { test_quantization.write[p_node].start_index = p_base; }
+		}
+	}
+#endif
+	if (!cpu_sink) {
+		if (!upload_available(p_device)) { return ERR_UNAVAILABLE; }
+		if (cfg.quantized) {
+			const Error err = p_device->buffer_update(p_buffers.quantization,
+					p_node * sizeof(ChunkQuantizationGPU) + offsetof(ChunkQuantizationGPU, start_index), sizeof(p_base), &p_base);
+			if (err != OK) { return err; }
+		}
+		const Error err = p_device->buffer_update(p_buffers.chunk_meta,
+				p_node * sizeof(ChunkMetaGPU) + offsetof(ChunkMetaGPU, atlas_base), sizeof(p_base), &p_base);
+		if (err != OK) { return err; }
+	}
+#ifdef TESTS_ENABLED
+	if (cpu_sink) {
+		if (cfg.quantized) {
+			record_write(TestWrite::QUANTIZATION, p_node,
+					uint64_t(p_node) * sizeof(ChunkQuantizationGPU) + offsetof(ChunkQuantizationGPU, start_index),
+					sizeof(p_base), false, nullptr, &test_quantization[p_node]);
+		}
+		record_write(TestWrite::METADATA, p_node, uint64_t(p_node) * sizeof(ChunkMetaGPU) + offsetof(ChunkMetaGPU, atlas_base),
+				sizeof(p_base), false, &test_metadata[p_node]);
+	}
+#endif
+	return OK;
+}
+
+void HlodNodeStreamer::begin_server_frame(uint64_t p_server_frame, RenderingDevice *p_device, const Buffers *p_buffers,
+		const uint32_t *p_drawn, uint32_t p_drawn_count) {
+	if (!active || server_frame == p_server_frame) { return; }
+	if ((p_device && p_device->get_device_instance_id() != device_generation) ||
+			((data->source_world.is_valid() || page_store || residency.is_edit_staged()) && !data->is_current())) {
+		shutdown();
+		return;
+	}
+	server_frame = p_server_frame;
+	residency.begin_server_frame(server_frame);
+	compaction_drawn.clear();
+	for (uint32_t i = 0; i < p_drawn_count; ++i) { compaction_drawn.push_back(p_drawn[i]); }
+	if (residency.compaction_move().valid() && !residency.compaction_move_needed()) {
+		residency.cancel_compaction();
+	}
+	if (residency.compaction_copy_complete() && p_buffers && upload_available(p_device)) {
+		const auto move = residency.compaction_move();
+		if (compaction_node_drawn(move.node)) {
+			residency.defer_compaction_switch();
+		} else {
+			// Submission is not completion: the final copy in F becomes switchable only at F + the
+			// streamer's existing retirement distance, measured in server frames, just like old GPU draws.
+			// Patch only the address words, before ANY shadow/depth consumer can latch an absolute index.
+			if (patch_compaction_address(p_device, *p_buffers, move.node, move.destination_first * cfg.page_splats) != OK ||
+					!residency.switch_compaction()) {
+				shutdown(); // A partial metadata write cannot leave this bundle drawable.
+				return;
+			}
+		}
+	}
+	if (!residency.compaction_move().valid() && !residency.compaction_active() && !residency.compaction_retiring() && residency.has_compaction_scratch() &&
+			server_frame >= compaction_scratch_last_use + cfg.retire_delay_frames) {
+		free_compaction_scratch();
+		residency.release_compaction_scratch();
+	}
+	refresh_telemetry();
+}
+
+void HlodNodeStreamer::step_compaction(RenderingDevice *p_device, const Buffers &p_buffers) {
+	if (!active || compaction_step_frame == server_frame || !upload_available(p_device)) { return; }
+	if (!residency.compaction_move().valid() && !residency.compaction_active()) {
+		return;
+	}
+	if (residency.compaction_move().valid() && !residency.compaction_move_needed()) { residency.cancel_compaction(); return; }
+	// An earlier view with no blocked demand must not consume the server frame's allowance before
+	// another view records the eighth skip. The first active step owns the token, including no-candidate frames.
+	compaction_step_frame = server_frame;
+	if (residency.compaction_move().valid() && !residency.compaction_move_current()) { residency.cancel_compaction(); }
+	const uint64_t page_bytes = uint64_t(cfg.page_splats) * record_stride();
+	if (!residency.has_compaction_scratch() && !residency.acquire_compaction_scratch()) {
+		residency.record_compaction_frame(false, false, true);
+		return;
+	}
+	bool cpu_sink = false;
+#ifdef TESTS_ENABLED
+	{
+		MutexLock lock(ledger->mutex);
+		cpu_sink = ledger->control.cpu_upload_sink;
+	}
+#endif
+	if (!cpu_sink && compaction_scratch.is_null()) {
+		compaction_scratch = p_device->storage_buffer_create(uint32_t(page_bytes));
+		if (compaction_scratch.is_null()) {
+			residency.release_compaction_scratch();
+			residency.record_compaction_frame(false, false, true);
+			return;
+		}
+		compaction_scratch_device = device_generation;
+		compaction_scratch_owner = p_device->get_instance_id();
+	}
+	if (!residency.compaction_move().valid() &&
+			!residency.plan_compaction(compaction_drawn.ptr(), compaction_drawn.size())) {
+		residency.record_compaction_frame(false, false, true);
+		return;
+	}
+	uint32_t copied = 0;
+	while (copied < NodeResidency::COMPACTION_PAGES_PER_FRAME) {
+		const auto move = residency.compaction_move();
+		if (!move.valid() || move.copied_pages == move.pages) { break; }
+		const uint64_t source = uint64_t(move.source_first + move.copied_pages) * page_bytes;
+		const uint64_t destination = uint64_t(move.destination_first + move.copied_pages) * page_bytes;
+		if (source > atlas_bytes_capacity() || page_bytes > atlas_bytes_capacity() - source ||
+				destination > atlas_bytes_capacity() || page_bytes > atlas_bytes_capacity() - destination) {
+			residency.cancel_compaction();
+			break;
+		}
+		compaction_scratch_last_use = server_frame;
+		residency.touch_compaction_copy();
+		if (!cpu_sink) {
+			// RD's graph forbids a same-buffer buffer_copy. One budgeted page is reused serially;
+			// the graph orders atlas -> scratch -> atlas before scratch is reused for the next page.
+			if (p_device->buffer_copy(p_buffers.atlas, compaction_scratch, uint32_t(source), 0, uint32_t(page_bytes)) != OK ||
+					p_device->buffer_copy(compaction_scratch, p_buffers.atlas, 0, uint32_t(destination), uint32_t(page_bytes)) != OK) {
+				residency.cancel_compaction();
+				break;
+			}
+		}
+		residency.record_compaction_copy(1);
+		++copied;
+#ifdef TESTS_ENABLED
+		if (cpu_sink) {
+			TestCopy observation;
+			observation.server_frame = server_frame;
+			observation.source_offset = source;
+			observation.destination_offset = destination;
+			observation.bytes = page_bytes;
+			observation.node = move.node;
+			test_compaction_copies.push_back(observation);
+		}
+#endif
+	}
+	const auto &move = residency.compaction_move();
+	const bool cap_limited = copied == NodeResidency::COMPACTION_PAGES_PER_FRAME && move.valid() && move.copied_pages < move.pages;
+	residency.record_compaction_frame(copied != 0, cap_limited, false);
+}
+
+#ifdef TESTS_ENABLED
+Error HlodNodeStreamer::_test_seed_resident_metadata(uint32_t p_node) {
+	uint32_t first = 0, pages = 0;
+	if (!active || residency.state(p_node) != NodeResidency::RESIDENT || !residency.run(p_node, first, pages)) { return ERR_INVALID_DATA; }
+	Buffers buffers;
+	ChunkMetaGPU meta = {};
+	meta.atlas_base = first * cfg.page_splats;
+	meta.splat_count = data->nodes[p_node].topology.payload_count;
+	if (cfg.quantized) {
+		ChunkQuantizationGPU quant = {};
+		quant.start_index = meta.atlas_base;
+		const Error err = write_quant(nullptr, buffers, p_node, quant);
+		if (err != OK) { return err; }
+	}
+	return write_meta(nullptr, buffers, p_node, meta);
+}
+
+bool HlodNodeStreamer::_test_compaction_meta(uint32_t p_node, ChunkMetaGPU &r_meta) const {
+	if (p_node >= uint32_t(test_metadata.size())) { return false; }
+	r_meta = test_metadata[p_node];
+	return true;
+}
+
+void HlodNodeStreamer::_test_compaction_step(RenderingDevice *p_device, const Buffers &p_buffers, const uint32_t *p_drawn, uint32_t p_count) {
+	for (uint32_t i = 0; i < p_count; ++i) { compaction_drawn.push_back(p_drawn[i]); }
+	step_compaction(p_device, p_buffers);
+	refresh_telemetry();
+}
+#endif
+
+void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_buffers, uint64_t p_server_frame) {
+	// Standalone callers/tests have one view unless they supply an explicit shared token.
+	begin_server_frame(p_server_frame == UINT64_MAX ? frame + 1 : p_server_frame, p_device, p_buffers);
 	telemetry.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
 	telemetry.placement_reserve_measured = false;
 	telemetry.placement_reserve_pages = 0;
@@ -1926,6 +2145,10 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	// requested again is not in the log (NodeResidency), and a payload that lands below is never zeroed after.
 	clear_evicted(p_device, p_buffers);
 	if (!active) { return; }
+	for (uint32_t node : drawn_scratch) { compaction_drawn.push_back(node); }
+	// Request first: the cached B refusal must reach its eighth server-frame skip before planning.
+	// Repeated views preserve their ordinary admission/upload behavior but cannot replenish this copy cap.
+	step_compaction(p_device, p_buffers);
 	for (uint32_t i = 0; i < tickets_scratch.size(); ++i) {
 		pending.push_back(tickets_scratch[i]);
 	}
@@ -1999,7 +2222,7 @@ void HlodNodeStreamer::split_protection_and_demand(const gs_hlod_runtime::Desire
 
 uint64_t HlodNodeStreamer::transition_workspace_bytes() const {
 	return residency.transition_workspace_bytes() +
-			(uint64_t(kept_scratch.get_capacity()) + demand_scratch.get_capacity() + prefetch_scratch.get_capacity() + drawn_scratch.get_capacity()) * sizeof(uint32_t) +
+			(uint64_t(kept_scratch.get_capacity()) + demand_scratch.get_capacity() + prefetch_scratch.get_capacity() + drawn_scratch.get_capacity() + compaction_drawn.get_capacity()) * sizeof(uint32_t) +
 			uint64_t(transition_scratch.get_capacity()) * sizeof(gs_hlod_runtime::TransitionGroup);
 }
 
@@ -2050,6 +2273,12 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.allocation_pending_retire_total = s.allocation_pending_retire_total;
 	telemetry.allocation_eviction_limit_total = s.allocation_eviction_limit_total;
 	telemetry.allocation_other_total = s.allocation_other_total;
+	telemetry.compaction_pages_moved_total = s.compaction_pages_moved_total;
+	telemetry.compaction_moves_total = s.compaction_moves_total;
+	telemetry.compaction_frames_total = s.compaction_frames_total;
+	telemetry.compaction_no_candidate_frames_total = s.compaction_no_candidate_frames_total;
+	telemetry.compaction_cap_limited_frames_total = s.compaction_cap_limited_frames_total;
+	telemetry.compaction_switch_deferred_total = s.compaction_switch_deferred_total;
 	telemetry.evicted_in_cut_total = s.evicted_in_cut_total;
 	telemetry.evicted_in_transition_total = s.evicted_in_transition_total;
 	telemetry.evicted_neither_total = s.evicted_neither_total;

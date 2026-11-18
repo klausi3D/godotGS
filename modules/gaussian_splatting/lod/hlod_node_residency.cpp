@@ -32,6 +32,14 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	cancelled_generations.clear();
 	cancelled_next = 0;
 	groups.clear();
+	placement_groups.clear();
+	compaction_baseline.clear();
+	compaction_page_scratch.clear();
+	compaction_member_scratch.clear();
+	compaction_run_scratch.clear();
+	compaction_candidate_runs.clear();
+	compaction_group_scratch.clear();
+	move_placement_group = UINT32_MAX;
 	group_order.clear();
 	need_scratch.clear();
 	reconciliation = transition_signature = 0;
@@ -48,6 +56,16 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	shadow_alloc_pending = false;
 	requests_this_frame = evictions_this_frame = 0;
 	current_frame = 0;
+	current_server_frame = 0;
+	explicit_server_clock = false;
+	pending_move = CompactionMove();
+	move_source_key = move_destination_key = move_request_generation = 0;
+	move_world_generation = move_device_generation = 0;
+	move_copy_touched = false;
+	compaction_scratch_key = 0;
+	compaction_scratch_first = 0;
+	compaction_recorded_frame = compaction_deferred_frame = compaction_copy_frame = UINT64_MAX;
+	compaction_copied_this_frame = 0;
 	request_serial = alloc_serial = 0;
 	cfg = p_config;
 	world_gen = p_world_generation;
@@ -76,10 +94,19 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	}
 	nodes = std::move(next);
 	mask = std::move(next_mask);
-	if (!gs_resize_or_fail(groups, uint64_t(count) + 2, "HLOD transition groups")) { nodes.clear(); mask.clear(); return false; }
-	// Reserve all reconciliation scratch at initialization, never while rendering.
+	if (!gs_resize_or_fail(groups, uint64_t(count) + 2, "HLOD transition groups") ||
+			!gs_resize_or_fail(placement_groups, uint64_t(count) + 2, "HLOD blocked placement groups") ||
+			!gs_resize_or_fail(compaction_baseline, uint64_t(count) + 2, "HLOD compaction placement baselines")) {
+		nodes.clear(); mask.clear(); groups.clear(); placement_groups.clear(); compaction_baseline.clear(); return false;
+	}
+	// Reserve baseline reconciliation scratch here; failed-set records can grow when demand is recorded.
 	group_order.reserve(count + 2);
 	need_scratch.reserve(count);
+	compaction_page_scratch.reserve(count);
+	compaction_member_scratch.reserve(count);
+	compaction_group_scratch.reserve(count + 2);
+	compaction_run_scratch.reserve(cfg.page_capacity);
+	compaction_candidate_runs.reserve(cfg.page_capacity);
 	for (uint32_t i = count; i-- > 0;) {
 		const uint32_t parent = nodes[i].parent;
 		if (parent != UINT32_MAX) {
@@ -101,12 +128,36 @@ uint64_t NodeResidency::make_alloc_key(uint32_t p_node) {
 }
 
 void NodeResidency::begin_frame(uint64_t p_frame) {
+	if (!explicit_server_clock) { advance_server_clock(p_frame); }
 	if (current_frame != p_frame) { totals.abandoned_transitions_this_frame = 0; }
 	current_frame = p_frame;
 	requests_this_frame = 0;
 	evictions_this_frame = 0;
+	retire_due_runs(false);
+}
+
+void NodeResidency::begin_server_frame(uint64_t p_token) {
+	explicit_server_clock = true;
+	advance_server_clock(p_token);
+}
+
+void NodeResidency::advance_server_clock(uint64_t p_token) {
+	current_server_frame = p_token;
+	retire_due_runs(true);
+	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
+		if (nodes[i].placement_compaction_active && node_placement_fits(i)) {
+			Node &n = nodes.write[i];
+			n.placement_compaction_active = false;
+			n.placement_blocked_streak = 0;
+			n.placement_blocked_frame = UINT64_MAX;
+		}
+	}
+}
+
+void NodeResidency::retire_due_runs(bool p_server_clock) {
+	const uint64_t now = p_server_clock ? current_server_frame : current_frame;
 	for (uint32_t i = 0; i < retiring.size();) {
-		if (retiring[i].retire_frame <= current_frame) {
+		if (retiring[i].server_clock == p_server_clock && retiring[i].retire_frame <= now) {
 			allocator.release_slot(retiring[i].alloc_key);
 			pages_retiring -= retiring[i].pages;
 			retiring[i] = retiring[retiring.size() - 1];
@@ -115,6 +166,430 @@ void NodeResidency::begin_frame(uint64_t p_frame) {
 			++i;
 		}
 	}
+}
+
+void NodeResidency::observe_compaction_demand(uint32_t p_node, uint64_t p_identity) {
+	Node &n = nodes.write[p_node];
+	const bool continued_demand = n.compaction_demand_frame == current_server_frame ||
+			(n.compaction_demand_frame != UINT64_MAX && n.compaction_demand_frame + 1 == current_server_frame);
+	// Descriptor/request identity is independent of allocator layout, so a cached coarse blockage
+	// keeps accumulating while visibility changes and new node versions restart their own streak.
+	const uint64_t identity = (p_identity ^ n.request_generation) * 1099511628211ULL;
+	if (!continued_demand || n.placement_identity != identity || n.state == RESIDENT || n.state == LOADING || n.state == UPLOADING || n.stale || node_placement_fits(p_node)) {
+		n.placement_blocked_streak = 0;
+		n.placement_blocked_frame = UINT64_MAX;
+		n.placement_compaction_active = false;
+	}
+	n.compaction_demand_frame = current_server_frame;
+	n.placement_identity = identity;
+}
+
+void NodeResidency::record_placement_blocked(uint32_t p_node) {
+	Node &n = nodes.write[p_node];
+	if (n.stale || n.alloc_key != 0) { return; }
+	if (n.placement_blocked_frame == current_server_frame) { return; } // Union over all views.
+	const bool consecutive = n.placement_blocked_frame != UINT64_MAX &&
+			n.placement_blocked_frame + 1 == current_server_frame;
+	n.placement_blocked_streak = consecutive ? std::min(n.placement_blocked_streak, UINT32_MAX - 1u) + 1u : 1u;
+	n.placement_blocked_frame = current_server_frame;
+	if (n.placement_blocked_streak >= COMPACTION_SKIP_FRAMES) { n.placement_compaction_active = true; }
+}
+
+void NodeResidency::copy_free_runs(LocalVector<GaussianAtlasAllocator::PageRun> &r_runs) const {
+	r_runs.clear();
+	for (uint32_t i = 0; i < allocator.get_free_run_count(); ++i) {
+		GaussianAtlasAllocator::PageRun run;
+		if (allocator.get_free_run(i, run)) { r_runs.push_back(run); }
+	}
+}
+
+// Replay the captured allocate_all sequence, skipping members that already hold a run.
+// A's reserve is applied before demand reaches residency
+// (lod/hlod_runtime_selection.cpp:178-179,204-208); the streamer passes the physical capacity
+// unchanged (renderer/hlod_node_streamer.cpp:636-637). Neither residency allocate_all path
+// subtracts another reserve or page budget, so neither may this dry run.
+uint64_t NodeResidency::placement_group_pages(uint32_t p_group) const {
+	compaction_page_scratch.clear();
+	if (p_group >= uint32_t(placement_groups.size())) { return 0; }
+	uint64_t total = 0;
+	for (uint32_t index : placement_groups[p_group].members) {
+		const Node &n = nodes[index];
+		if (n.alloc_key != 0 || n.stale || n.state == RESIDENT || n.state == LOADING || n.state == UPLOADING) { continue; }
+		total += n.pages;
+		compaction_page_scratch.push_back(n.pages);
+	}
+	return total;
+}
+
+bool NodeResidency::placement_group_fits(uint32_t p_group, uint32_t *r_failure, uint64_t *r_placed) const {
+	if (r_failure) { *r_failure = 0; }
+	if (r_placed) { *r_placed = 0; }
+	if (p_group >= uint32_t(placement_groups.size())) { return false; }
+	placement_group_pages(p_group);
+	copy_free_runs(compaction_run_scratch);
+	return GaussianAtlasAllocator::simulate_allocate_all(compaction_run_scratch, compaction_page_scratch.ptr(),
+			compaction_page_scratch.size(), r_failure, r_placed);
+}
+
+bool NodeResidency::placement_group_fragmented(uint32_t p_group, uint32_t *r_failure, uint64_t *r_placed) const {
+	if (r_failure) { *r_failure = 0; }
+	if (r_placed) { *r_placed = 0; }
+	const uint64_t total = placement_group_pages(p_group);
+	if (total == 0 || total > allocator.get_free_page_count()) { return false; } // Budget pressure cannot be compacted away.
+	copy_free_runs(compaction_run_scratch);
+	return !GaussianAtlasAllocator::simulate_allocate_all(compaction_run_scratch, compaction_page_scratch.ptr(),
+			compaction_page_scratch.size(), r_failure, r_placed);
+}
+
+bool NodeResidency::placement_group_demanded(uint32_t p_group) const {
+	if (!placement_group_observed(p_group)) { return false; }
+	for (uint32_t index : placement_groups[p_group].members) {
+		const Node &n = nodes[index];
+		// Before new selections, retain the completed previous frame's union. One entirely undemanded
+		// server frame expires it; an empty later view cannot erase another view's current demand.
+		const bool demanded = n.compaction_demand_frame == current_server_frame ||
+				(n.compaction_demand_frame != UINT64_MAX && n.compaction_demand_frame + 1 == current_server_frame);
+		if (demanded && n.placement_compaction_active && !n.stale && n.alloc_key == 0) { return true; }
+	}
+	return false;
+}
+
+void NodeResidency::reset_placeable_group(uint32_t p_group) {
+	if (!placement_group_fits(p_group)) { return; }
+	for (uint32_t index : placement_groups[p_group].members) {
+		Node &n = nodes.write[index];
+		if (!node_placement_fits(index)) { continue; }
+		n.placement_blocked_streak = 0;
+		n.placement_blocked_frame = UINT64_MAX;
+		n.placement_compaction_active = false;
+	}
+}
+
+bool NodeResidency::placement_group_observed(uint32_t p_group) const {
+	if (p_group >= uint32_t(placement_groups.size())) { return false; }
+	const uint64_t offered = placement_groups[p_group].offered_frame;
+	return offered == current_server_frame || (offered != UINT64_MAX && offered + 1 == current_server_frame);
+}
+
+bool NodeResidency::node_placement_fits(uint32_t p_node) const {
+	for (uint32_t key = 0; key < uint32_t(placement_groups.size()); ++key) {
+		if (!placement_group_observed(key)) { continue; }
+		bool member = false;
+		for (uint32_t index : placement_groups[key].members) { if (index == p_node) { member = true; break; } }
+		if (member && !placement_group_fits(key)) { return false; }
+	}
+	return true;
+}
+
+void NodeResidency::order_admission_members(uint32_t *p_members, uint32_t p_count) const {
+	// Preserve admission's existing stable largest-run-first order in both real placement paths.
+	// Observations of an offered (not yet attempted) group use this same policy, never a dry-run sort.
+	for (uint32_t a = 1; a < p_count; ++a) {
+		const uint32_t node = p_members[a];
+		uint32_t b = a;
+		while (b && nodes[p_members[b - 1]].pages < nodes[node].pages) { p_members[b] = p_members[b - 1]; --b; }
+		p_members[b] = node;
+	}
+}
+
+uint32_t NodeResidency::observe_placement_group(const uint32_t *p_members, uint32_t p_count, bool p_create) {
+	compaction_member_scratch.clear();
+	for (uint32_t i = 0; i < p_count; ++i) {
+		const Node &n = nodes[p_members[i]];
+		if (n.alloc_key == 0 && !n.stale && n.state != RESIDENT && n.state != LOADING && n.state != UPLOADING) { compaction_member_scratch.push_back(p_members[i]); }
+	}
+	if (compaction_member_scratch.is_empty()) { return UINT32_MAX; }
+	// A genuine failed allocate_all supplies its attempted order verbatim. Earlier observations
+	// receive raw demand, so derive the sequence through the very same helper as real admission.
+	if (!p_create) { order_admission_members(compaction_member_scratch.ptr(), compaction_member_scratch.size()); }
+	uint32_t reusable = UINT32_MAX, matched = UINT32_MAX;
+	for (uint32_t key = 0; key < uint32_t(placement_groups.size()); ++key) {
+		const PlacementGroup &group = placement_groups[key];
+		bool equal = true;
+		uint32_t member = 0;
+		for (uint32_t index : group.members) {
+			const Node &n = nodes[index];
+			if (n.alloc_key != 0 || n.stale || n.state == RESIDENT || n.state == LOADING || n.state == UPLOADING) { continue; }
+			if (member >= compaction_member_scratch.size() || index != compaction_member_scratch[member]) { equal = false; break; }
+			++member;
+		}
+		equal = equal && member == compaction_member_scratch.size();
+		if (equal) {
+			placement_groups.write[key].offered_frame = current_server_frame;
+			reset_placeable_group(key);
+			if (matched == UINT32_MAX || (pending_move.valid() && move_placement_group == key)) { matched = key; }
+			continue;
+		}
+		if (reusable == UINT32_MAX && !placement_group_observed(key) && !(pending_move.valid() && move_placement_group == key)) { reusable = key; }
+	}
+	if (matched != UINT32_MAX) { return matched; }
+	if (!p_create) { return UINT32_MAX; }
+	if (reusable == UINT32_MAX) {
+		// Overlapping views can offer more distinct failed sets than there are nodes. Grow only when
+		// recording a new genuine failure, never in candidate evaluation; charge the storage below.
+		const uint32_t old_size = placement_groups.size();
+		const uint64_t next_size = uint64_t(old_size) * 2;
+		if (!gs_resize_or_fail(compaction_baseline, next_size, "HLOD compaction placement baselines") ||
+				!gs_resize_or_fail(placement_groups, next_size, "HLOD blocked placement groups")) { return UINT32_MAX; }
+		compaction_group_scratch.reserve(placement_groups.size());
+		reusable = old_size;
+	}
+	PlacementGroup &group = placement_groups.write[reusable];
+	// Preserve the failed transaction's order, rather than canonicalizing by node id or page count.
+	group.members = compaction_member_scratch;
+	group.offered_frame = current_server_frame;
+	return reusable;
+}
+
+void NodeResidency::record_group_placement_blocked(const uint32_t *p_members, uint32_t p_count) {
+	compaction_page_scratch.clear();
+	uint64_t total = 0;
+	for (uint32_t i = 0; i < p_count; ++i) {
+		const Node &n = nodes[p_members[i]];
+		if (n.alloc_key != 0 || n.stale || n.state == RESIDENT || n.state == LOADING || n.state == UPLOADING) { continue; }
+		total += n.pages;
+		compaction_page_scratch.push_back(n.pages);
+	}
+	if (total == 0 || total > allocator.get_free_page_count()) { return; }
+	copy_free_runs(compaction_run_scratch);
+	if (GaussianAtlasAllocator::simulate_allocate_all(compaction_run_scratch, compaction_page_scratch.ptr(), compaction_page_scratch.size())) { return; }
+	const uint32_t key = observe_placement_group(p_members, p_count, true);
+	if (key == UINT32_MAX) { return; }
+	// The failed transaction is the evidence: even a member that fits alone is blocked with its siblings.
+	for (uint32_t index : placement_groups[key].members) { record_placement_blocked(index); }
+}
+
+uint32_t NodeResidency::compaction_blocked_pages() const {
+	uint32_t pages = 0;
+	for (uint32_t key = 0; key < uint32_t(placement_groups.size()); ++key) {
+		uint32_t failure = 0;
+		if (placement_group_demanded(key) && placement_group_fragmented(key, &failure)) { pages = std::max(pages, failure); }
+	}
+	return pages;
+}
+
+bool NodeResidency::compaction_active() const {
+	return compaction_blocked_pages() != 0;
+}
+
+bool NodeResidency::acquire_compaction_scratch() {
+	if (compaction_scratch_key != 0) { return true; }
+	if (!compaction_active()) { return false; }
+	const uint64_t key = make_alloc_key(UINT32_MAX);
+	if (!allocator.allocate_slot(key, 1, compaction_scratch_first)) { return false; }
+	compaction_scratch_key = key;
+	return true;
+}
+
+void NodeResidency::release_compaction_scratch() {
+	if (compaction_scratch_key == 0) { return; }
+	// The GPU owner calls only after its last-use retirement boundary and buffer destruction.
+	// Waiting again here would charge a buffer that no longer exists for a second retirement delay.
+	allocator.release_slot(compaction_scratch_key);
+	compaction_scratch_key = 0;
+}
+
+bool NodeResidency::plan_compaction(const uint32_t *p_drawn, uint32_t p_count) {
+	if (pending_move.valid()) { return compaction_move_current(); }
+	if (compaction_scratch_key == 0) { return false; }
+	compaction_group_scratch.clear();
+	for (uint32_t key = 0; key < uint32_t(placement_groups.size()); ++key) {
+		uint64_t placed = 0;
+		if (placement_group_demanded(key) && placement_group_fragmented(key, nullptr, &placed)) {
+			compaction_group_scratch.push_back(key);
+			compaction_baseline.write[key] = placed;
+		}
+	}
+	if (compaction_group_scratch.is_empty()) { return false; }
+	uint32_t best_node = UINT32_MAX, best_hole = 0, best_destination = 0, best_group = UINT32_MAX;
+	uint64_t best_progress = 0;
+	// Deterministic one-move heuristic: take the best-fit non-adjacent destination, then simulate
+	// freeing the source. Require strictly more of a blocked group's captured admission prefix to fit;
+	// a larger global hole alone is insufficient (20,10,6 cannot hold 16+16). Maximize placed-page
+	// progress, then merged-hole size, then lowest node index; best-fit destination ties use address.
+	// Simulation storage is reserved at reset()/failed-set recording; candidate evaluation allocates none.
+	for (uint32_t index = 0; index < uint32_t(nodes.size()); ++index) {
+		const Node &n = nodes[index];
+		if (n.state != RESIDENT || n.stale || n.alloc_key == 0 || n.shadow_state != Node::SHADOW_NONE) { continue; }
+		bool drawn = false;
+		for (uint32_t d = 0; d < p_count && !drawn; ++d) { drawn = p_drawn[d] == index; }
+		if (drawn) { continue; }
+		uint32_t target_first = n.first_page, target_end = n.first_page + n.pages;
+		uint32_t adjacent_largest = 0;
+		for (uint32_t f = 0; f < allocator.get_free_run_count(); ++f) {
+			GaussianAtlasAllocator::PageRun hole;
+			if (!allocator.get_free_run(f, hole)) { continue; }
+			if (hole.first_page + hole.page_count == n.first_page) { target_first = hole.first_page; adjacent_largest = std::max(adjacent_largest, hole.page_count); }
+			if (hole.first_page == n.first_page + n.pages) { target_end = hole.first_page + hole.page_count; adjacent_largest = std::max(adjacent_largest, hole.page_count); }
+		}
+		if (adjacent_largest == 0) { continue; }
+		const uint32_t merged_hole = target_end - target_first;
+		if (merged_hole <= adjacent_largest) { continue; }
+		uint32_t destination_size = UINT32_MAX, destination_first = 0;
+		for (uint32_t f = 0; f < allocator.get_free_run_count(); ++f) {
+			GaussianAtlasAllocator::PageRun hole;
+			if (!allocator.get_free_run(f, hole) || hole.page_count < n.pages ||
+					(hole.first_page < target_end && hole.first_page + hole.page_count > target_first)) { continue; }
+			if (hole.page_count < destination_size) { destination_size = hole.page_count; destination_first = hole.first_page; }
+		}
+		if (destination_size == UINT32_MAX) { continue; }
+		copy_free_runs(compaction_candidate_runs);
+		for (uint32_t f = 0; f < compaction_candidate_runs.size(); ++f) {
+			auto &hole = compaction_candidate_runs[f];
+			if (hole.first_page != destination_first) { continue; }
+			if (hole.page_count == n.pages) { compaction_candidate_runs.remove_at(f); }
+			else { hole.first_page += n.pages; hole.page_count -= n.pages; }
+			break;
+		}
+		uint32_t at = 0;
+		while (at < compaction_candidate_runs.size() && compaction_candidate_runs[at].first_page < n.first_page) { ++at; }
+		const bool merge_prev = at > 0 && compaction_candidate_runs[at - 1].first_page + compaction_candidate_runs[at - 1].page_count == n.first_page;
+		const bool merge_next = at < compaction_candidate_runs.size() && n.first_page + n.pages == compaction_candidate_runs[at].first_page;
+		if (merge_prev && merge_next) {
+			compaction_candidate_runs[at - 1].page_count += n.pages + compaction_candidate_runs[at].page_count;
+			compaction_candidate_runs.remove_at(at);
+		} else if (merge_prev) { compaction_candidate_runs[at - 1].page_count += n.pages; }
+		else if (merge_next) { compaction_candidate_runs[at].first_page = n.first_page; compaction_candidate_runs[at].page_count += n.pages; }
+		else { compaction_candidate_runs.insert(at, GaussianAtlasAllocator::PageRun{ n.first_page, n.pages }); }
+		uint64_t progress = 0;
+		uint32_t progress_group = UINT32_MAX;
+		for (uint32_t key : compaction_group_scratch) {
+			placement_group_pages(key);
+			compaction_run_scratch = compaction_candidate_runs;
+			uint64_t placed = 0;
+			GaussianAtlasAllocator::simulate_allocate_all(compaction_run_scratch, compaction_page_scratch.ptr(), compaction_page_scratch.size(), nullptr, &placed);
+			if (placed > compaction_baseline[key] && placed - compaction_baseline[key] > progress) {
+				progress = placed - compaction_baseline[key]; progress_group = key;
+			}
+		}
+		if (progress == 0 || progress < best_progress || (progress == best_progress && merged_hole <= best_hole)) { continue; }
+		best_node = index; best_hole = merged_hole; best_destination = destination_first; best_progress = progress; best_group = progress_group;
+	}
+	if (best_node == UINT32_MAX) { return false; }
+	const Node &n = nodes[best_node];
+	const uint64_t key = make_alloc_key(best_node);
+	if (!allocator.allocate_run_at(key, GaussianAtlasAllocator::PageRun{ best_destination, n.pages })) { return false; }
+	pending_move.node = best_node;
+	pending_move.source_first = n.first_page;
+	pending_move.destination_first = best_destination;
+	pending_move.pages = n.pages;
+	move_source_key = n.alloc_key;
+	move_destination_key = key;
+	move_request_generation = n.request_generation;
+	move_world_generation = world_gen;
+	move_device_generation = device_gen;
+	move_placement_group = best_group;
+	move_copy_touched = false;
+	return true;
+}
+
+bool NodeResidency::compaction_move_current() const {
+	if (!pending_move.valid() || pending_move.node >= uint32_t(nodes.size()) || move_world_generation != world_gen || move_device_generation != device_gen) { return false; }
+	const Node &n = nodes[pending_move.node];
+	return n.state == RESIDENT && !n.stale && n.alloc_key == move_source_key && n.first_page == pending_move.source_first &&
+			n.pages == pending_move.pages && n.request_generation == move_request_generation && n.shadow_state == Node::SHADOW_NONE;
+}
+
+bool NodeResidency::compaction_move_needed() const {
+	// Destination and scratch are genuinely charged. Their temporary reservations can reduce free
+	// pages below the group's total, which prevents NEW planning but must not cancel an existing copy.
+	return compaction_move_current() && placement_group_demanded(move_placement_group) && !placement_group_fits(move_placement_group);
+}
+
+bool NodeResidency::compaction_retiring() const {
+	for (const Retiring &run : retiring) { if (run.server_clock) { return true; } }
+	return false;
+}
+
+void NodeResidency::touch_compaction_copy() {
+	if (!compaction_move_current()) { return; }
+	move_copy_touched = true;
+	nodes.write[pending_move.node].compaction_read_until = current_server_frame + cfg.retire_delay_frames;
+}
+
+void NodeResidency::record_compaction_copy(uint32_t p_pages) {
+	if (!compaction_move_current()) { return; }
+	if (compaction_copy_frame != current_server_frame) { compaction_copy_frame = current_server_frame; compaction_copied_this_frame = 0; }
+	const uint32_t copied = std::min(p_pages, std::min(pending_move.pages - pending_move.copied_pages,
+			COMPACTION_PAGES_PER_FRAME - compaction_copied_this_frame));
+	if (copied == 0) { return; }
+	touch_compaction_copy();
+	pending_move.copied_pages += copied;
+	pending_move.last_copy_frame = current_server_frame;
+	compaction_copied_this_frame += copied;
+	totals.compaction_pages_moved_total += copied;
+}
+
+bool NodeResidency::compaction_copy_complete() const {
+	// The streamer already keeps submitted runs alive for retire_delay_frames. Applying the same
+	// server-frame distance after the LAST submitted page prevents CPU submission from being mistaken
+	// for GPU completion, including when several views render within one server frame.
+	return compaction_move_current() && pending_move.copied_pages == pending_move.pages &&
+			current_server_frame >= pending_move.last_copy_frame && current_server_frame - pending_move.last_copy_frame >= cfg.retire_delay_frames;
+}
+
+bool NodeResidency::switch_compaction() {
+	if (!compaction_copy_complete()) { return false; }
+	Node &n = nodes.write[pending_move.node];
+	const uint64_t key = move_destination_key;
+	const uint32_t first = pending_move.destination_first;
+	pending_move = CompactionMove(); // retire_run must not cancel the destination being published.
+	move_source_key = move_destination_key = 0;
+	move_placement_group = UINT32_MAX;
+	move_copy_touched = false;
+	retire_run(n, true);
+	n.alloc_key = key;
+	n.first_page = first;
+	n.compaction_read_until = 0;
+	++totals.compaction_moves_total;
+	return true;
+}
+
+void NodeResidency::cancel_compaction() {
+	if (!pending_move.valid()) { return; }
+	Node destination;
+	destination.alloc_key = move_destination_key;
+	destination.first_page = pending_move.destination_first;
+	destination.pages = pending_move.pages;
+	const bool touched = move_copy_touched;
+	pending_move = CompactionMove();
+	move_source_key = move_destination_key = 0;
+	move_placement_group = UINT32_MAX;
+	move_copy_touched = false;
+	if (touched) { retire_run(destination, true); }
+	else { release_run_now(destination); }
+}
+
+void NodeResidency::clear_compaction() {
+	if (move_destination_key != 0) { allocator.release_slot(move_destination_key); }
+	if (compaction_scratch_key != 0) { allocator.release_slot(compaction_scratch_key); }
+	pending_move = CompactionMove();
+	move_source_key = move_destination_key = compaction_scratch_key = 0;
+	move_placement_group = UINT32_MAX;
+	move_copy_touched = false;
+	for (uint32_t i = 0; i < retiring.size();) {
+		if (!retiring[i].server_clock) { ++i; continue; }
+		allocator.release_slot(retiring[i].alloc_key);
+		pages_retiring -= retiring[i].pages;
+		retiring[i] = retiring[retiring.size() - 1];
+		retiring.resize(retiring.size() - 1);
+	}
+}
+
+void NodeResidency::record_compaction_frame(bool p_copied, bool p_cap_limited, bool p_no_candidate) {
+	if (compaction_recorded_frame == current_server_frame) { return; }
+	if (!p_copied && !p_no_candidate) { return; }
+	compaction_recorded_frame = current_server_frame;
+	if (p_copied) {
+		++totals.compaction_frames_total;
+		if (p_cap_limited) { ++totals.compaction_cap_limited_frames_total; }
+	} else if (p_no_candidate) { ++totals.compaction_no_candidate_frames_total; }
+}
+
+void NodeResidency::defer_compaction_switch() {
+	if (compaction_deferred_frame == current_server_frame) { return; }
+	compaction_deferred_frame = current_server_frame;
+	++totals.compaction_switch_deferred_total;
 }
 
 void NodeResidency::protect_drawn(const uint32_t *p_nodes, uint32_t p_count) {
@@ -242,9 +717,16 @@ void NodeResidency::release_unrequested_run(Node &r_node) {
 	}
 }
 
-void NodeResidency::retire_run(Node &r_node) {
+void NodeResidency::retire_run(Node &r_node, bool p_server_clock) {
 	if (r_node.alloc_key == 0) {
 		return;
+	}
+	if (r_node.compaction_read_until > current_server_frame) { p_server_clock = true; }
+	if (pending_move.valid() && r_node.alloc_key == move_source_key) {
+		// A submitted copy also reads the old primary. Eviction/edit cancellation must retain both
+		// addresses for the existing GPU retirement distance, counted in server frames.
+		p_server_clock = true;
+		cancel_compaction();
 	}
 	if (cfg.retire_delay_frames == 0) {
 		release_run_now(r_node);
@@ -254,7 +736,8 @@ void NodeResidency::retire_run(Node &r_node) {
 	r.alloc_key = r_node.alloc_key;
 	r.first_page = r_node.first_page;
 	r.pages = r_node.pages;
-	r.retire_frame = current_frame + cfg.retire_delay_frames;
+	r.server_clock = p_server_clock;
+	r.retire_frame = (p_server_clock ? current_server_frame : current_frame) + cfg.retire_delay_frames;
 	retiring.push_back(r);
 	pages_retiring += r.pages;
 	r_node.alloc_key = 0;
@@ -329,7 +812,14 @@ uint32_t NodeResidency::evict_window(uint32_t p_pages, uint32_t p_exclude_parent
 	const uint32_t FREE_PAGE = UINT32_MAX, BLOCKED_PAGE = UINT32_MAX - 1;
 	window_owner.resize(capacity);
 	for (uint32_t i = 0; i < capacity; ++i) {
-		window_owner[i] = FREE_PAGE;
+		window_owner[i] = BLOCKED_PAGE;
+	}
+	// Only allocator-free pages are holes. Relocation destinations and the scratch charge have no
+	// primary node owner, but remain occupied just like shadows and retiring runs.
+	for (uint32_t i = 0; i < allocator.get_free_run_count(); ++i) {
+		GaussianAtlasAllocator::PageRun hole;
+		if (!allocator.get_free_run(i, hole)) { continue; }
+		for (uint32_t p = hole.first_page; p < hole.first_page + hole.page_count; ++p) { window_owner[p] = FREE_PAGE; }
 	}
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		const Node &n = nodes[i];
@@ -473,9 +963,16 @@ bool NodeResidency::executable(uint32_t p_node) const {
 
 uint64_t NodeResidency::transition_workspace_bytes() const {
 	// The node table now owns lease references/tombstones, so charge its complete rounded storage too.
-	uint64_t bytes = 0, node_bytes = 0;
-	if (!allocation_bytes(groups.size(), sizeof(Group), bytes) || !allocation_bytes(nodes.size(), sizeof(Node), node_bytes)) { return UINT64_MAX; }
-	return bytes + node_bytes + (uint64_t(group_order.get_capacity()) + need_scratch.get_capacity()) * sizeof(uint32_t);
+	uint64_t bytes = 0, node_bytes = 0, placement_bytes = 0, baseline_bytes = 0;
+	if (!allocation_bytes(groups.size(), sizeof(Group), bytes) || !allocation_bytes(nodes.size(), sizeof(Node), node_bytes) ||
+			!allocation_bytes(placement_groups.size(), sizeof(PlacementGroup), placement_bytes) ||
+			!allocation_bytes(compaction_baseline.size(), sizeof(uint64_t), baseline_bytes)) { return UINT64_MAX; }
+	uint64_t member_capacity = 0;
+	for (const PlacementGroup &group : placement_groups) { member_capacity += group.members.get_capacity(); }
+	return bytes + node_bytes + placement_bytes + baseline_bytes +
+			(uint64_t(group_order.get_capacity()) + need_scratch.get_capacity() + compaction_page_scratch.get_capacity() + compaction_member_scratch.get_capacity() +
+					compaction_group_scratch.get_capacity() + member_capacity) * sizeof(uint32_t) +
+			(uint64_t(compaction_run_scratch.get_capacity()) + compaction_candidate_runs.get_capacity()) * sizeof(GaussianAtlasAllocator::PageRun);
 }
 
 NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets,
@@ -531,6 +1028,11 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			group_order.push_back(key);
 		}
 		Node &n = nodes.write[p_node];
+		uint64_t compaction_identity = 1469598103934665603ULL;
+		auto mix_identity = [&](uint64_t p_part) { compaction_identity = (compaction_identity ^ p_part) * 1099511628211ULL; };
+		mix_identity(p_descriptor.kind); mix_identity(p_descriptor.parent);
+		mix_identity(p_descriptor.first_child); mix_identity(p_descriptor.visible_mask);
+		observe_compaction_demand(p_node, compaction_identity);
 		n.demand_pass = reconciliation;
 		n.offered_group = key;
 		n.offered_keep = p_keep;
@@ -577,6 +1079,11 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 				!groups[n.offered_group].suppressed && !groups[n.offered_group].coarse_blocked;
 		if (!owned) { release_unrequested_run(n); }
 	}
+	for (uint32_t key : group_order) {
+		need_scratch.clear();
+		for (uint32_t n = groups[key].head; n != UINT32_MAX; n = nodes[n].next_demand) { need_scratch.push_back(n); }
+		observe_placement_group(need_scratch.ptr(), need_scratch.size());
+	}
 	bool priority_changed = false;
 	for (uint32_t key : group_order) {
 		if (key == arbitration_head) { break; }
@@ -622,6 +1129,10 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		Group &g = groups.write[key];
 		if (g.suppressed) { continue; }
 		if (g.coarse_blocked && g.blocked_signature == before) {
+			need_scratch.clear();
+			for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { need_scratch.push_back(n); }
+			order_admission_members(need_scratch.ptr(), need_scratch.size());
+			record_group_placement_blocked(need_scratch.ptr(), need_scratch.size());
 			totals.transition_state = COARSE_PLACEMENT_BLOCKED;
 			continue;
 		}
@@ -675,12 +1186,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			out.capped = true; break;
 		}
 		// Existing largest-run-first placement order; no comparator or allocator policy change.
-		for (uint32_t a = 1; a < need_scratch.size(); ++a) {
-			const uint32_t node = need_scratch[a];
-			uint32_t b = a;
-			while (b && nodes[need_scratch[b - 1]].pages < nodes[node].pages) { need_scratch[b] = need_scratch[b - 1]; --b; }
-			need_scratch[b] = node;
-		}
+		order_admission_members(need_scratch.ptr(), need_scratch.size());
 		// Bootstrap keeps are dependencies of this indivisible plan, not drawn nodes. Protect them only
 		// while attempting/reserving the plan; a failed irreducible placement releases them below.
 		if (g.descriptor.kind == TRANSITION_BOOTSTRAP && !g.active) { g.active = true; lease_group(key, true); }
@@ -728,6 +1234,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			placed = place();
 		}
 		if (!placed) {
+			record_group_placement_blocked(need_scratch.ptr(), need_scratch.size());
 			++out.skipped_groups; ++totals.skipped_groups_total;
 			record_allocation_refusal(total_pages, parent);
 			if (uint64_t(allocator.get_free_page_count()) >= total_pages) { ++out.fragmented_groups; }
@@ -748,6 +1255,9 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
 		for (uint32_t node : need_scratch) {
 			Node &n = nodes.write[node];
+			n.placement_blocked_streak = 0;
+			n.placement_blocked_frame = UINT64_MAX;
+			n.placement_compaction_active = false;
 			// Reserve every generation with the whole plan; only emitted tickets become LOADING.
 			if (n.request_generation == 0) { n.request_generation = ++request_serial; }
 			if (requests_this_frame == cfg.max_requests_per_frame) { n.state = ABSENT; out.capped = true; continue; }
@@ -789,6 +1299,7 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 	++reconciliation;
 	for (uint32_t i = 0; i < p_count; ++i) {
 		if (p_demand[i] < uint32_t(nodes.size()) && nodes[p_demand[i]].demand_pass != reconciliation) {
+			observe_compaction_demand(p_demand[i], 1);
 			nodes.write[p_demand[i]].demand_pass = reconciliation;
 			nodes.write[p_demand[i]].last_demand_frame = current_frame;
 			need_scratch.push_back(p_demand[i]);
@@ -796,6 +1307,15 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 	}
 	p_demand = need_scratch.ptr();
 	p_count = need_scratch.size();
+	// Renew every previously failed offered set before a request cap can stop the admission walk.
+	// Different consecutive need sets of the same parent retain independent records.
+	for (uint32_t scan = 0; scan < p_count;) {
+		const uint32_t parent = nodes[p_demand[scan]].parent;
+		uint32_t end = scan + 1;
+		while (parent != UINT32_MAX && end < p_count && nodes[p_demand[end]].parent == parent) { ++end; }
+		observe_placement_group(p_demand + scan, end - scan);
+		scan = end;
+	}
 	// Requests nobody asked for lately are cancelled, so a camera that moved on does not keep loading.
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		const Node &n = nodes[i];
@@ -837,6 +1357,7 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 		}
 		const uint32_t group_begin = at;
 		at = end;
+		observe_placement_group(need, need_count);
 		// A group that is complete or already on its way is wanted by a higher-priority refinement than anything
 		// still to be placed this pass: its members (resident ones included) are protected from eviction by
 		// lower-priority groups. Without this, two groups competing for one atlas evict each other's
@@ -859,12 +1380,7 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 			break; // Priority order: lower-priority groups do not jump the queue.
 		}
 		// Largest runs first: they are the hardest to place, small ones fill the holes that remain.
-		for (uint32_t a = 1; a < need_count; ++a) {
-			const uint32_t v = need[a];
-			uint32_t b = a;
-			while (b > 0 && nodes[need[b - 1]].pages < nodes[v].pages) { need[b] = need[b - 1]; --b; }
-			need[b] = v;
-		}
+		order_admission_members(need, need_count);
 		uint32_t failed_pages = 0;
 		auto allocate_all = [&]() {
 			for (uint32_t k = 0; k < need_count; ++k) {
@@ -897,6 +1413,7 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 			placed = allocate_all();
 		}
 		if (!placed) {
+			record_group_placement_blocked(need, need_count);
 			++out.skipped_groups;
 			++totals.skipped_groups_total;
 			record_allocation_refusal(total_pages, parent);
@@ -913,6 +1430,9 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 		want_group();
 		for (uint32_t k = 0; k < need_count; ++k) {
 			Node &n = nodes.write[need[k]];
+			n.placement_blocked_streak = 0;
+			n.placement_blocked_frame = UINT64_MAX;
+			n.placement_compaction_active = false;
 			// An evicted node that is requested again in the same pass is no longer "evicted": clearing its GPU
 			// metadata after the new payload landed would leave a resident node that draws nothing.
 			for (uint32_t e = 0; e < evicted_log.size(); ++e) {
@@ -1128,6 +1648,8 @@ NodeResidency::Stats NodeResidency::stats() const {
 		}
 	}
 	s.edit_staged = edit_staged;
+	if (pending_move.valid()) { s.pages_in_flight += pending_move.pages; }
+	if (compaction_scratch_key != 0) { ++s.pages_in_flight; }
 	s.edit_waiting_for_space = edit_staged && shadow_alloc_pending;
 	s.committed_edit_revision = committed_revision;
 	s.pages_retiring = pages_retiring;
@@ -1246,6 +1768,9 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 	}
 	if (reclaimable < total_pages) {
 		return reject(EDIT_NO_SPACE); // Nothing was evicted, held or reserved.
+	}
+	if (pending_move.valid() && (edited_flag[pending_move.node] || stale_flag[pending_move.node])) {
+		cancel_compaction(); // A staged replacement/stale ancestor must never publish the copied old version.
 	}
 	// Admitted: holds first, so nothing the edit needs can be evicted from here on.
 	for (uint32_t i = 0; i < required.size(); ++i) {
