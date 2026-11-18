@@ -772,7 +772,7 @@ void HlodNodeStreamer::drain_jobs_and_output() {
 	collect_finished_tasks(true);
 	residency.cancel_edit();
 	for (uint32_t node = 0; node < residency.node_count(); ++node) {
-		if (residency.state(node) == NodeResidency::LOADING || residency.state(node) == NodeResidency::UPLOADING) { residency.cancel(node); }
+		residency.cancel(node); // Also releases bootstrap reservations whose tickets were not issued.
 	}
 	pending.clear();
 	ready.clear();

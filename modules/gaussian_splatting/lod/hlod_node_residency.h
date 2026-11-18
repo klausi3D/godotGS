@@ -120,7 +120,7 @@ public:
 		uint32_t absent = 0, loading = 0, uploading = 0, resident = 0, failed = 0, permanently_failed = 0;
 		uint32_t retry_later_waiting = 0;
 		uint32_t pages_resident = 0; // Pages of RESIDENT nodes.
-		uint32_t pages_in_flight = 0; // Pages of LOADING and UPLOADING nodes.
+		uint32_t pages_in_flight = 0; // Reserved runs and pages of LOADING/UPLOADING nodes.
 		uint32_t pages_retiring = 0; // Freed runs still awaiting retirement.
 		uint32_t pages_free = 0; // Allocator free pages (retiring runs are not free).
 		uint32_t largest_free_run = 0;
@@ -333,7 +333,7 @@ private:
 		uint32_t pages = 0;
 		uint32_t first_page = 0;
 		uint64_t alloc_key = 0; // Unique per allocation, so a retiring run is never confused with a new one.
-		uint64_t request_generation = 0;
+		uint64_t request_generation = 0; // Bootstrap may reserve a generation before issuing its ticket.
 		uint64_t last_drawn_frame = 0;
 		uint64_t last_demand_frame = 0;
 		uint64_t protected_frame = UINT64_MAX; // == current_frame while protected.
@@ -421,6 +421,7 @@ private:
 	uint64_t make_alloc_key(uint32_t p_node);
 	void retire_run(Node &r_node);
 	void release_run_now(Node &r_node);
+	void release_unrequested_run(Node &r_node);
 	bool ticket_current(const Ticket &p_ticket, State p_expected) const;
 	bool shadow_ticket_current(const Ticket &p_ticket, Node::ShadowState p_expected) const;
 	// A completion was rejected: counted as harmless when the ticket's request was cancelled in this world and

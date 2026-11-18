@@ -234,6 +234,14 @@ void NodeResidency::release_run_now(Node &r_node) {
 	}
 }
 
+void NodeResidency::release_unrequested_run(Node &r_node) {
+	// A capped bootstrap owns this run, but no ticket or GPU command has used it.
+	if (r_node.state == ABSENT && r_node.alloc_key != 0 && r_node.request_generation != 0) {
+		r_node.request_generation = 0;
+		release_run_now(r_node);
+	}
+}
+
 void NodeResidency::retire_run(Node &r_node) {
 	if (r_node.alloc_key == 0) {
 		return;
@@ -415,6 +423,7 @@ void NodeResidency::abandon_group(uint32_t p_group, bool p_count) {
 			node.abandoned_generation = node.request_generation;
 			killed = cancel(n) || killed;
 		}
+		if (node.leases == 0) { release_unrequested_run(node); }
 	}
 	if (p_count && (was_active || killed)) {
 		++totals.abandoned_transitions_total;
@@ -426,6 +435,7 @@ void NodeResidency::withdraw_transitions() {
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		Node &n = nodes.write[i];
 		n.leases = n.sibling_leases = 0;
+		release_unrequested_run(n);
 		if ((n.state == LOADING || n.state == UPLOADING) && !n.edit_hold && n.protected_frame != current_frame &&
 				!(cfg.pin_root && i == 0)) {
 			n.abandoned_generation = n.request_generation;
@@ -445,6 +455,7 @@ void NodeResidency::release_transition_leases() {
 	if (group_order.is_empty() && arbitration_head == UINT32_MAX) { return; }
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		nodes.write[i].leases = nodes.write[i].sibling_leases = 0;
+		release_unrequested_run(nodes.write[i]);
 	}
 	groups.fill(Group());
 	group_order.clear();
@@ -557,6 +568,15 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		Group &g = groups.write[i];
 		if (g.offered_pass != reconciliation) { g = Group(); }
 	}
+	// Only the still-admitted bootstrap may retain unissued reservations across reconciliations.
+	for (uint32_t i = 0; i < count; ++i) {
+		Node &n = nodes.write[i];
+		if (n.state != ABSENT || n.alloc_key == 0 || n.request_generation == 0) { continue; }
+		const bool owned = n.demand_pass == reconciliation && n.offered_group < uint32_t(groups.size()) &&
+				groups[n.offered_group].descriptor.kind == TRANSITION_BOOTSTRAP && groups[n.offered_group].active &&
+				!groups[n.offered_group].suppressed && !groups[n.offered_group].coarse_blocked;
+		if (!owned) { release_unrequested_run(n); }
+	}
 	bool priority_changed = false;
 	for (uint32_t key : group_order) {
 		if (key == arbitration_head) { break; }
@@ -609,6 +629,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
 		need_scratch.clear();
 		uint32_t total_pages = 0;
+		bool reserved_bootstrap = false;
 		bool blocked = false;
 		bool terminal_dependency = false;
 		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
@@ -618,8 +639,13 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			else if (node.state == FAILED && (node.failures >= cfg.max_failures || current_frame < node.retry_after_frame)) {
 				blocked = true;
 				terminal_dependency = terminal_dependency || node.failures >= cfg.max_failures;
-			} else if (node.alloc_key != 0) { blocked = true; }
-			else { need_scratch.push_back(n); total_pages += node.pages; }
+			} else if (node.alloc_key != 0 && !(g.descriptor.kind == TRANSITION_BOOTSTRAP &&
+					node.state == ABSENT && node.request_generation != 0)) { blocked = true; }
+			else {
+				need_scratch.push_back(n);
+				if (node.alloc_key == 0) { total_pages += node.pages; }
+				else { reserved_bootstrap = true; }
+			}
 		}
 		if (blocked) {
 			++out.blocked_groups;
@@ -628,6 +654,9 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			// cancelling them here can erase serialized jobs before they even perform their first read.
 			if (terminal_dependency) { abandon_group(key, false); }
 			else if (g.active) { lease_group(key, false); g.active = false; }
+			for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
+				if (nodes[n].leases == 0) { release_unrequested_run(nodes.write[n]); }
+			}
 			if (arbitration_head == key) {
 				arbitration_head = UINT32_MAX;
 				for (uint32_t lower : group_order) { groups.write[lower].suppressed = false; }
@@ -639,7 +668,12 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
 			continue;
 		}
-		if (requests_this_frame + need_scratch.size() > cfg.max_requests_per_frame) { out.capped = true; break; }
+		const bool incremental_bootstrap = g.descriptor.kind == TRANSITION_BOOTSTRAP &&
+				(reserved_bootstrap || need_scratch.size() > cfg.max_requests_per_frame);
+		if (requests_this_frame >= cfg.max_requests_per_frame ||
+				(!incremental_bootstrap && requests_this_frame + need_scratch.size() > cfg.max_requests_per_frame)) {
+			out.capped = true; break;
+		}
 		// Existing largest-run-first placement order; no comparator or allocator policy change.
 		for (uint32_t a = 1; a < need_scratch.size(); ++a) {
 			const uint32_t node = need_scratch[a];
@@ -654,11 +688,15 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		auto allocate_all = [&]() {
 			for (uint32_t k = 0; k < need_scratch.size(); ++k) {
 				Node &n = nodes.write[need_scratch[k]];
+				if (n.alloc_key != 0) { continue; } // Reuse the plan's unissued reservations.
 				const uint64_t alloc_key = make_alloc_key(need_scratch[k]);
 				uint32_t slot = 0;
 				if (!allocator.allocate_slot(alloc_key, n.pages, slot)) {
 					failed_pages = n.pages;
-					for (uint32_t r = 0; r < k; ++r) { release_run_now(nodes.write[need_scratch[r]]); }
+					for (uint32_t r = 0; r < k; ++r) {
+						Node &allocated = nodes.write[need_scratch[r]];
+						if (allocated.request_generation == 0) { release_run_now(allocated); }
+					}
 					return false;
 				}
 				n.alloc_key = alloc_key; n.first_page = slot;
@@ -710,16 +748,20 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
 		for (uint32_t node : need_scratch) {
 			Node &n = nodes.write[node];
+			// Reserve every generation with the whole plan; only emitted tickets become LOADING.
+			if (n.request_generation == 0) { n.request_generation = ++request_serial; }
+			if (requests_this_frame == cfg.max_requests_per_frame) { n.state = ABSENT; out.capped = true; continue; }
 			for (uint32_t e = 0; e < evicted_log.size(); ++e) {
 				if (evicted_log[e] == node) { evicted_log[e] = evicted_log[evicted_log.size() - 1]; evicted_log.resize(evicted_log.size() - 1); break; }
 			}
-			n.state = LOADING; n.request_generation = ++request_serial;
+			n.state = LOADING;
 			Ticket ticket;
 			ticket.node = node; ticket.first_page = n.first_page; ticket.page_count = n.pages;
 			ticket.request_generation = n.request_generation; ticket.world_generation = world_gen; ticket.device_generation = device_gen;
 			r_tickets.push_back(ticket);
 			++out.requested; ++requests_this_frame; ++totals.requested_total;
 		}
+		if (out.capped) { break; } // Keep lower-priority groups behind the unfinished bootstrap.
 	}
 	// Undemanded legacy work retains the established grace period. Explicitly abandoned work was cancelled above.
 	for (uint32_t i = 0; i < count; ++i) {
@@ -1022,6 +1064,10 @@ bool NodeResidency::cancel(uint32_t p_node) {
 		return false;
 	}
 	Node &n = nodes.write[p_node];
+	if (n.state == ABSENT && n.alloc_key != 0 && n.request_generation != 0) {
+		release_unrequested_run(n);
+		return true;
+	}
 	if (n.state != LOADING && n.state != UPLOADING) {
 		return false;
 	}
@@ -1056,7 +1102,10 @@ NodeResidency::Stats NodeResidency::stats() const {
 		const Node &n = nodes[i];
 		if (n.state == RESIDENT && n.sibling_leases != 0) { ++s.protected_sibling_nodes; }
 		switch (n.state) {
-			case ABSENT: ++s.absent; break;
+			case ABSENT:
+				++s.absent;
+				if (n.alloc_key != 0) { s.pages_in_flight += n.pages; }
+				break;
 			case LOADING: ++s.loading; s.pages_in_flight += n.pages; break;
 			case UPLOADING: ++s.uploading; s.pages_in_flight += n.pages; break;
 			case RESIDENT: ++s.resident; s.pages_resident += n.pages; break;
@@ -1400,6 +1449,7 @@ bool NodeResidency::commit_edit() {
 			++totals.cancelled_total; // A load of the OLD content is in flight: its ticket dies below.
 			note_cancelled_generation(n.request_generation);
 		}
+		release_unrequested_run(n);
 		retire_run(n); // Uses the old page count; the old run serves already submitted frames until it retires.
 		n.alloc_key = n.shadow_key;
 		n.first_page = n.shadow_first;
@@ -1426,6 +1476,7 @@ bool NodeResidency::commit_edit() {
 	for (uint32_t i = 0; i < staged_stale.size(); ++i) {
 		const uint32_t index = staged_stale[i];
 		Node &n = nodes.write[index];
+		release_unrequested_run(n);
 		if (n.state == LOADING || n.state == UPLOADING) {
 			++totals.cancelled_total;
 			note_cancelled_generation(n.request_generation);
