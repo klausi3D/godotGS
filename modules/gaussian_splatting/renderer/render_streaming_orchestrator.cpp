@@ -2055,6 +2055,8 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 		}
 		// Admission runs only after the original allocation/clamp, against the
 		// same effective capacity depth emission uses (including its fallback).
+		// Before the first sort, the fallback cache is unknown (0), so admission
+		// uses buffers.max_visible_splats; GPU clamp/overflow remain the backstop.
 		const uint32_t sorter_capacity = sorting_pipeline ? sorting_pipeline->get_instance_sorter_capacity() : 0;
 		const uint32_t admission_cap = sorter_capacity > 0 ? MIN(buffers.max_visible_splats, sorter_capacity) : buffers.max_visible_splats;
 		if (apply_chunk_drawn_cap(streaming_system, admission_cap, streaming_camera_transform, cull_projection)) {
