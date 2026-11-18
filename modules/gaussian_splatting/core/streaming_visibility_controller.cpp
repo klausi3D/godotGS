@@ -890,38 +890,13 @@ void StreamingVisibilityController::update_chunk_lod_parameters(GaussianStreamin
         }
     };
 
-    if (!lod_config.enabled) {
-        if (!lod_config_changed) {
-            culling_stats.lod_parameter_update_scan_count = 0;
-            remember_lod_parameter_config(lod_config, chunk_count);
-            return;
-        }
-
-        for (uint32_t i = 0; i < chunk_count; i++) {
-            GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
-            const uint32_t prev_effective_count = chunk.effective_count;
-            const uint32_t prev_lod_level = chunk.current_lod_level;
-            const uint32_t prev_target_lod_level = chunk.target_lod_level;
-            const int prev_sh_band_level = chunk.sh_band_level;
-            chunk.current_lod_level = 0;
-            chunk.target_lod_level = 0;
-            chunk.sh_band_level = global_sh_band_level;
-            chunk.splat_skip_factor = 1;
-            chunk.opacity_multiplier = 1.0f;
-            chunk.effective_count = chunk.count;
-            if (prev_lod_level != chunk.current_lod_level ||
-                    prev_target_lod_level != chunk.target_lod_level) {
-                lod_transitions_this_frame++;
-            }
-
-            mark_resident_chunk_meta_if_lod_changed(i, chunk, prev_effective_count, prev_lod_level, prev_sh_band_level);
-        }
-        culling_stats.lod_parameter_update_scan_count = chunk_count;
+    if (!lod_config.enabled && !lod_config_changed) {
+        culling_stats.lod_parameter_update_scan_count = 0;
         remember_lod_parameter_config(lod_config, chunk_count);
         return;
     }
 
-    const bool full_scan = chunk_count < SPATIAL_GRID_MIN_CHUNKS ||
+    const bool full_scan = !lod_config.enabled || chunk_count < SPATIAL_GRID_MIN_CHUNKS ||
             !visibility_flags_initialized ||
             lod_config_changed;
     if (!full_scan) {
@@ -931,34 +906,35 @@ void StreamingVisibilityController::update_chunk_lod_parameters(GaussianStreamin
     }
 
     const uint32_t scan_count = full_scan ? chunk_count : lod_worklist_indices.size();
+    lod_selection_candidates.resize(scan_count);
+    for (uint32_t scan_idx = 0; scan_idx < scan_count; scan_idx++) {
+        const uint32_t i = full_scan ? scan_idx : lod_worklist_indices[scan_idx];
+        const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
+        GaussianSplatting::ChunkLODCandidate &candidate = lod_selection_candidates[scan_idx];
+        candidate.splat_count = chunk.count;
+        candidate.distance = chunk.distance;
+        candidate.previous_lod = chunk.current_lod_level;
+        candidate.previous_target_lod = chunk.target_lod_level;
+        candidate.visible = chunk.is_visible;
+    }
+    // The existing policy is independent of the renderer's drawn cap. Phase 1
+    // exposes that policy unchanged; cap propagation/admission belongs to phase 2.
+    GaussianSplatting::select_chunk_lods(lod_selection_candidates, lod_config, global_sh_band_level,
+            UINT64_MAX, lod_selection_plan);
+    lod_transitions_this_frame = lod_selection_plan.lod_transitions;
     for (uint32_t scan_idx = 0; scan_idx < scan_count; scan_idx++) {
         const uint32_t i = full_scan ? scan_idx : lod_worklist_indices[scan_idx];
         GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
         const uint32_t prev_effective_count = chunk.effective_count;
         const uint32_t prev_lod_level = chunk.current_lod_level;
-        const uint32_t prev_target_lod_level = chunk.target_lod_level;
         const int prev_sh_band_level = chunk.sh_band_level;
-
-        float distance = chunk.distance;
-        int lod_level = lod_config.calculate_lod_level(distance);
-        if (prev_lod_level != uint32_t(lod_level)) {
-            lod_transitions_this_frame++;
-        }
-
-        chunk.target_lod_level = lod_level;
-        chunk.current_lod_level = lod_level;
-        if (prev_lod_level != chunk.current_lod_level ||
-                prev_target_lod_level != chunk.target_lod_level) {
-            lod_transitions_this_frame++;
-        }
-
-        chunk.sh_band_level = lod_config.get_sh_band_for_lod(lod_level, global_sh_band_level);
-        chunk.splat_skip_factor = lod_config.get_splat_skip_factor(lod_level);
-        chunk.opacity_multiplier = lod_config.get_opacity_multiplier(distance);
-        chunk.effective_count = chunk.count / chunk.splat_skip_factor;
-        if (chunk.effective_count == 0 && chunk.count > 0) {
-            chunk.effective_count = 1;
-        }
+        const GaussianSplatting::ChunkLODSelection &selection = lod_selection_plan.selections[scan_idx];
+        chunk.target_lod_level = selection.lod;
+        chunk.current_lod_level = selection.lod;
+        chunk.sh_band_level = selection.sh_band_level;
+        chunk.splat_skip_factor = selection.splat_skip_factor;
+        chunk.opacity_multiplier = selection.opacity_multiplier;
+        chunk.effective_count = selection.effective_count;
 
         mark_resident_chunk_meta_if_lod_changed(i, chunk, prev_effective_count, prev_lod_level, prev_sh_band_level);
     }

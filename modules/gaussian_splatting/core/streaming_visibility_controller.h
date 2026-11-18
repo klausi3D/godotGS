@@ -1,6 +1,7 @@
 #ifndef STREAMING_VISIBILITY_CONTROLLER_H
 #define STREAMING_VISIBILITY_CONTROLLER_H
 
+#include "chunk_lod_selection.h"
 #include "core/math/aabb.h"
 #include "core/math/math_funcs.h"
 #include "core/math/plane.h"
@@ -176,6 +177,8 @@ private:
     uint32_t visibility_flags_chunk_count = 0;
     LocalVector<uint32_t> lod_worklist_indices;
     LocalVector<uint32_t> lod_worklist_marks;
+    LocalVector<GaussianSplatting::ChunkLODCandidate> lod_selection_candidates;
+    GaussianSplatting::ChunkLODPlan lod_selection_plan;
     uint32_t lod_worklist_generation = 1;
     bool lod_parameter_state_initialized = false;
     uint32_t lod_parameter_state_chunk_count = 0;
