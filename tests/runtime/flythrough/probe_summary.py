@@ -208,6 +208,18 @@ def read_trace(path: Path) -> Trace:
 HLOD_PLACEMENT_RESERVE_STATES = {-1: "absent", 0: "unprepared", 1: "measured"}
 HLOD_PLACEMENT_RESERVE_STATE = "hlod_stream_placement_reserve_state"
 HLOD_PLACEMENT_RESERVE_PAGES = "hlod_stream_placement_reserve_pages"
+HLOD_TRANSITION_STATES = {-1: "absent", 0: "normal", 1: "retirement_wait", 2: "coarse_placement_blocked", 3: "unsupported_owners"}
+HLOD_TRANSITION_STATE = "hlod_stream_transition_state"
+
+
+def hlod_transition_observation(values: object) -> dict:
+    """Decode the report-only transition state; zero is a measured normal state."""
+    values = values if isinstance(values, dict) else {}
+    code = values.get(HLOD_TRANSITION_STATE)
+    state = HLOD_TRANSITION_STATES.get(code, "absent") if type(code) is int else "absent"
+    if state == "absent":
+        return {"state": "absent", "measured": False, "value": None, "reason": "no native transition state observation"}
+    return {"state": state, "measured": True, "value": code}
 
 
 def hlod_placement_reserve_observation(values: object) -> dict:
@@ -231,6 +243,11 @@ def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
     is separate from the maximum. A decrease invalidates the delta, not a gate.
     """
     absent = {"measured": False, "value": None, "reason": f"no complete native {field} observation"}
+    if field == HLOD_TRANSITION_STATE:
+        samples = [hlod_transition_observation({field: trace.get(trace.rows[row], field) if field in trace.index else None}) for row in rows]
+        if not samples or not all(sample["measured"] for sample in samples):
+            return {**absent, "state": "absent", "rows": len(rows),
+                    "samples_measured": sum(sample["measured"] for sample in samples)}
     if field == HLOD_PLACEMENT_RESERVE_PAGES:
         samples = [hlod_placement_reserve_observation({
             HLOD_PLACEMENT_RESERVE_STATE: trace.get(trace.rows[row], HLOD_PLACEMENT_RESERVE_STATE) if HLOD_PLACEMENT_RESERVE_STATE in trace.index else None,
@@ -250,6 +267,9 @@ def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
     out = {"measured": True, "value": values[-1], "first": values[0], "max": max(values), "rows": len(rows)}
     if field == HLOD_PLACEMENT_RESERVE_PAGES:
         out["state"] = "measured"
+    elif field == HLOD_TRANSITION_STATE:
+        out["state"] = HLOD_TRANSITION_STATES[values[-1]]
+        out["states"] = sorted({HLOD_TRANSITION_STATES[value] for value in values})
     if field.endswith("_total"):
         monotonic = all(after >= before for before, after in zip(values, values[1:]))
         epoch_key = "hlod_stream_pressure_epoch"

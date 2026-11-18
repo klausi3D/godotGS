@@ -1432,7 +1432,15 @@ TEST_CASE("[GaussianSplatting][HLOD] Desired(view) separates the nodes to reques
 	const DesiredRecord *want = set.desired(1, count);
 	if (!want || count != 5) { FAIL("expected 5 desired records, got ", count); return; }
 	Vector<uint32_t> request, keep;
-	for (uint32_t i = 0; i < count; ++i) { (want[i].keep ? keep : request).push_back(want[i].node); }
+	for (uint32_t i = 0; i < count; ++i) {
+		(want[i].keep ? keep : request).push_back(want[i].node);
+		CHECK(want[i].transition.kind == TRANSITION_BOOTSTRAP);
+		if (!want[i].keep) {
+			CHECK(want[i].transition.parent == 2);
+			CHECK(want[i].transition.first_child == 5);
+			CHECK(want[i].transition.visible_mask == 3);
+		}
+	}
 	CHECK(same(request, { 5, 6 }));
 	keep.sort();
 	CHECK(same(keep, { 2, 3, 4 }));
@@ -1442,6 +1450,112 @@ TEST_CASE("[GaussianSplatting][HLOD] Desired(view) separates the nodes to reques
 	run(set, snap, results);
 	CHECK(set.desired(1, count) == nullptr);
 	CHECK(count == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] view demand preserves the explicit mask when only one sibling remains missing (#1483 B)") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree);
+	ViewSet set;
+	const auto spec = perspective(1);
+	if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("view admission failed"); return; }
+	snap.views.push_back(spec);
+	snap.assets.write[0].resident.resize(7);
+	snap.assets.write[0].resident.fill(1);
+	snap.assets.write[0].resident.write[2] = 0;
+	CHECK(set.select(snap) == ViewSet::SNAPSHOT_OK);
+	uint32_t count = 0;
+	const auto *want = set.desired(1, count);
+	if (!want || count != 1) { FAIL("expected one missing sibling, got ", count); return; }
+	CHECK(want[0].node == 2);
+	CHECK_FALSE(want[0].keep);
+	CHECK(want[0].transition.parent == 0);
+	CHECK(want[0].transition.first_child == 1);
+	CHECK(want[0].transition.visible_mask == 3);
+	CHECK(want[0].transition.kind == TRANSITION_REFINEMENT);
+	CHECK(want[0].transition.ordinal == 0);
+	CHECK(same(nodes_of(set, 1), { 0 }));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] bootstrap demand and resident keeps truncate together and never publish a partial frontier (#1483 B)") {
+	auto tree = make_tree(IDENT);
+	tree->nodes.write[0].topology.payload_count = 100;
+	tree->nodes.write[0].topology.radius = 50;
+	for (int i = 1; i < 3; ++i) { tree->nodes.write[i].topology.payload_count = 40; }
+	auto snap = snapshot(tree);
+	snap.instances.write[0].caps = caps(45, 4, 1000);
+	auto spec = perspective(1);
+	spec.camera = Vector3(0, 0, 0);
+	spec.tau_pixels = 1e9;
+	spec.caps = caps(45, 4, 1000);
+	ViewSet set;
+	if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("view admission failed"); return; }
+	snap.views.push_back(spec);
+	snap.assets.write[0].resident.resize(7);
+	snap.assets.write[0].resident.fill(1);
+	snap.assets.write[0].resident.write[5] = 0;
+	snap.assets.write[0].resident.write[6] = 0;
+	Vector<ViewSet::ViewResult> results;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	const auto *result = result_of(results, 1);
+	if (!result) { FAIL("view result missing"); return; }
+	CHECK(result->readiness == ViewSet::NOT_ADMITTED);
+	CHECK(result->worst_status == CutHistory::BOOTSTRAP_INFEASIBLE);
+	CHECK(result->desired_truncated); // Two missing nodes plus three keeps exceed four records.
+	CHECK(result->desired_count == 0);
+	uint32_t count = 0;
+	CHECK(set.desired(1, count) == nullptr);
+	CHECK(count == 0);
+	CHECK(set.drawn(1, count) == nullptr);
+	CHECK(count == 0);
+	CHECK(result->draw_generation == 0);
+	// Once the complete frontier is resident, the same caps publish all four leaves.
+	snap.assets.write[0].resident = Vector<uint8_t>();
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	result = result_of(results, 1);
+	if (!result) { FAIL("ready view result missing"); return; }
+	CHECK(result->readiness == ViewSet::READY);
+	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
+	// An infeasible cap clears the published set and cannot expose the prior complete set as current.
+	snap.instances.write[0].caps = caps(10, 4, 1000);
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	result = result_of(results, 1);
+	if (!result) { FAIL("infeasible view result missing"); return; }
+	CHECK(result->readiness == ViewSet::NOT_ADMITTED);
+	CHECK(set.drawn(1, count) == nullptr);
+	CHECK(count == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a blocked stale bootstrap ancestor is neither a keep nor a published partial cut (#1483 B)") {
+	auto tree = make_tree(IDENT);
+	tree->edit_revision = 1;
+	tree->edit_state.resize(7);
+	tree->edit_state.fill(GaussianSplatHlodRuntimeData::EDIT_CLEAN);
+	tree->edit_state.write[0] = GaussianSplatHlodRuntimeData::EDIT_STALE;
+	auto snap = snapshot(tree);
+	auto spec = perspective(1);
+	spec.tau_pixels = 1e9;
+	ViewSet set;
+	if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("view admission failed"); return; }
+	snap.views.push_back(spec);
+	snap.assets.write[0].resident.resize(7);
+	snap.assets.write[0].resident.fill(1);
+	snap.assets.write[0].resident.write[2] = 0;
+	Vector<ViewSet::ViewResult> results;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	const auto *result = result_of(results, 1);
+	if (!result) { FAIL("view result missing"); return; }
+	CHECK(result->readiness == ViewSet::LOADING);
+	CHECK(result->worst_status == CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
+	uint32_t count = 0;
+	const auto *want = set.desired(1, count);
+	if (!want || count != 1) { FAIL("expected only the missing child demand, got ", count); return; }
+	CHECK(want[0].node == 2);
+	CHECK_FALSE(want[0].keep);
+	CHECK(want[0].transition.kind == TRANSITION_BOOTSTRAP);
+	CHECK(want[0].transition.visible_mask == 3);
+	CHECK(set.drawn(1, count) == nullptr);
+	CHECK(count == 0);
+	CHECK(result->draw_generation == 0);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][Edit] the view set never publishes a stale ancestor and versions an edited leaf apart from its untouched siblings (package F1)") {

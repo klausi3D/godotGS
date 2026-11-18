@@ -389,6 +389,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] unavailable ordinary dev
 	}
 	CHECK(telemetry.payload_reads_total == demand.size());
 	CHECK(telemetry.failed_total == demand.size());
+	CHECK(telemetry.cancelled_total == 0); // One failed read/upload cannot cancel a queued sibling's first attempt.
 	CHECK(telemetry.resident == 0);
 	CHECK(telemetry.uploaded_bytes_total == 0);
 	CHECK(sample.jobs_started == demand.size());

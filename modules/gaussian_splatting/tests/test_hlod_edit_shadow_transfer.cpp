@@ -342,6 +342,93 @@ struct Harness {
 	}
 };
 
+TEST_CASE("[GaussianSplatting][HLOD][Edit] an admitted edit transfers and commits while shared view transition ownership is unsupported") {
+	bool timeout = false;
+	SUBCASE("admitted transfer commits") {}
+	SUBCASE("timeout drains a held admitted worker") { timeout = true; }
+	for (bool common_store : { false, true }) {
+		CAPTURE(common_store);
+		Harness h;
+		if (!h.init(true, false, false, 16, false, common_store) || !h.probe() || !h.warm()) { return; }
+		// Upload completion can precede the native task's final return. Drain those handles while
+		// single-owner updates still collect them, so the first shadow admission has an available slot.
+		const auto drained = gs_pump_until([&]() {
+			h.step(false);
+			return !h.observation_ok || (h.sample.tasks_outstanding == 0 && h.sample.live_reservations == 0);
+		});
+		if (!drained.ready() || !h.observation_ok) { FAIL("shared-view edit warmup did not release all worker slots: ", drained.describe()); return; }
+		const auto ordinary_before = h.streamer.get_residency().stats();
+		const auto warm = h.streamer._test_snapshot();
+		const uint32_t publications_before = h.streamer._test_publications().size();
+		gs_hlod_runtime::CutRequest second_view;
+		second_view.frustum_enabled = false;
+		second_view.camera = Vector3(0, 0, 1000);
+		second_view.focal_pixels = 100;
+		second_view.node_budget = h.fixture.source.node_count;
+		second_view.splat_budget = 1u << 30;
+		second_view.record_budget = 1.0e9;
+		second_view.tau_pixels = 1.0e9;
+		h.streamer.register_view(2, second_view);
+		if (timeout) { h.control.hold_workers = true; if (!h.set_control()) { return; } }
+		if (!h.stage()) { return; } // Both views accepted the replacement cut and the shadow runs are reserved.
+		h.step(false);
+		// Reservation admission increments jobs_started synchronously, before any worker can complete.
+		// The former multi-owner early return must fail here instead of waiting for the pump deadline.
+		if (h.sample.jobs_started <= warm.jobs_started) {
+			FAIL("a feasible shared-view edit must admit a real shadow worker in its first update"); return;
+		}
+		CHECK(h.observation_ok);
+		CHECK(h.streamer.get_telemetry().transitions_measured);
+		CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
+		CHECK(h.streamer.get_residency().stats().requested_total == ordinary_before.requested_total);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == ordinary_before.cancelled_total);
+		CHECK(h.streamer.get_residency().stats().abandoned_transitions_total == ordinary_before.abandoned_transitions_total);
+		CHECK(h.streamer.get_data() == h.fixture.source.snapshot);
+		CHECK(h.revision(false, true) == REVISION_OK);
+		CHECK(bounded(h.sample, h.cfg, h.streamer.get_retained_byte_cap()));
+		if (timeout) {
+			CHECK(h.sample.shadow_live_reservations > 0);
+			h.force_timeout_frames = true; // Deliberately age the real edit timeout while the worker is held.
+			const auto expired = gs_pump_until([&]() {
+				h.step(false);
+				CHECK(bounded(h.sample, h.cfg, h.streamer.get_retained_byte_cap()));
+				return !h.observation_ok || !h.streamer.is_edit_staged();
+			});
+			if (!expired.ready() || !h.observation_ok || h.streamer.is_edit_staged()) {
+				FAIL("shared-view edit did not time out with its admitted worker held: ", expired.describe()); return;
+			}
+			CHECK(h.streamer.get_telemetry().edit_timeouts_total == 1);
+			CHECK(String(h.streamer.get_telemetry().edit_event) == "timeout");
+			h.control.hold_workers = false;
+			if (!h.set_control()) { return; }
+			const auto released = gs_pump_until([&]() {
+				h.step(false);
+				return !h.observation_ok || (h.sample.live_reservations == 0 && h.sample.tasks_outstanding == 0 && retained(h.sample) == 0);
+			});
+			if (!released.ready() || !h.observation_ok) { FAIL("timed-out shared-view worker did not drain: ", released.describe()); return; }
+			CHECK(h.streamer.get_telemetry().edit_timeouts_total == 1);
+			CHECK(String(h.streamer.get_telemetry().edit_event) == "timeout");
+			CHECK(h.streamer.get_telemetry().edits_committed_total == 0);
+			CHECK(h.streamer.get_residency().stats().late_dropped_cancelled_total > ordinary_before.late_dropped_cancelled_total);
+			CHECK(h.streamer.get_residency().stats().late_dropped_total == ordinary_before.late_dropped_total);
+			CHECK(h.streamer.get_data() == h.fixture.source.snapshot);
+			CHECK(h.writes.size() == h.baseline_writes); // Neither held nor late shadow output published metadata or payload.
+			CHECK(h.revision(false, true) == REVISION_OK);
+		} else {
+			if (!h.finish()) { return; }
+			CHECK(h.streamer.get_telemetry().edits_committed_total == 1);
+			CHECK(h.revision(true) == REVISION_OK);
+		}
+		CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
+		CHECK(h.streamer.get_telemetry().edit_commit_failures_total == 0);
+		CHECK(h.streamer.get_residency().stats().requested_total == ordinary_before.requested_total);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == ordinary_before.cancelled_total);
+		CHECK(h.streamer.get_residency().stats().abandoned_transitions_total == ordinary_before.abandoned_transitions_total);
+		CHECK(h.streamer._test_publications().size() == publications_before);
+		CHECK(accounting_ok(h.sample, true));
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] A edit larger than ready window drains without deadlock") {
 	Harness h;
 	if (!h.init() || !h.probe() || !h.warm() || !h.stage()) { return; }
@@ -406,7 +493,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] C cancel mid trans
 	// Prove allocator reuse by an actual ordinary reload, then another edit.
 	h.drawn.clear();
 	const uint32_t reload = h.fixture.leaves[0]; // stage() guarded nonempty cardinality.
-	h.streamer.begin_frame(); // Drop the previous frame's protection before evicting.
+	h.streamer.begin_frame(); // Expire the previous frame's drawn stamps.
+	// An empty selection also withdraws admitted transition leases. Keep h.demand for the actual reload.
+	const Streamer::Buffers buffers;
+	h.streamer.update(nullptr, buffers, nullptr, 0, nullptr, 0);
 	if (h.streamer._test_evict_node(reload) != OK) { FAIL("D3-3 reuse must evict an actual served leaf"); return; }
 	const auto reloaded = gs_pump_until([&]() {
 		h.step(false);
@@ -496,7 +586,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] G held shadow and 
 		// One variant saturates bytes; the other has the default byte envelope
 		// and saturates jobs, so deleting either shared limit is observable.
 		const uint32_t ordinary = h.fixture.leaves[0];
-		h.streamer.begin_frame();
+		h.streamer.begin_frame(); // Expire drawn stamps before withdrawing admitted transition leases.
+		// Reconcile an empty selection; h.demand stays intact for the competing ordinary jobs below.
+		const Streamer::Buffers buffers;
+		h.streamer.update(nullptr, buffers, nullptr, 0, nullptr, 0);
 		if (h.streamer._test_evict_node(ordinary) != OK) { FAIL("D3-3 ordinary competition must evict a real leaf"); return; }
 		if (h.streamer._test_evict_node(h.fixture.leaves[1]) != OK) { FAIL("D3-3 ordinary competition needs a second pending leaf"); return; }
 		h.control.hold_workers = true;

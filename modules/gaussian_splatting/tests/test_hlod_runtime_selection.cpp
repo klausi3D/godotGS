@@ -97,9 +97,11 @@ TEST_CASE("[GaussianSplatting][HLOD] cut diagnostics distinguish history holds c
 	tree(data);
 	gs_hlod_runtime::CutHistory history;
 	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
-	// Historical selection workspace for this topology (5a438363cd6), excluding report-only scratch.
-	CHECK(gs_hlod_runtime::CutHistory::workspace_bytes(7) == 368);
-	CHECK(history.allocated_bytes() == 392); // Includes the separately accounted 24-byte diagnostic allocation.
+	// Historical workspace plus the explicitly admitted parallel transition descriptors.
+	uint64_t transitions = 0;
+	CHECK(gs_hlod_runtime::allocation_bytes(7, sizeof(gs_hlod_runtime::TransitionGroup), transitions));
+	CHECK(gs_hlod_runtime::CutHistory::workspace_bytes(7) == 368 + transitions);
+	CHECK(history.allocated_bytes() == 392 + transitions); // Includes the 24-byte diagnostic allocation.
 	auto r = request();
 	uint8_t resident[7] = {1, 0, 1, 1, 1, 1, 1};
 	r.resident = resident; r.resident_count = 7;
@@ -1546,5 +1548,88 @@ TEST_CASE("[GaussianSplatting][HLOD] prepared zero placement reserve is measured
 	const auto absent = history.select(data, r);
 	CHECK(absent.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
 	CHECK_FALSE(absent.placement_reserve_measured);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] transition descriptors retain visible resident siblings and exclude invisible children (#1483 B)") {
+	using namespace gs_hlod_runtime;
+	GaussianSplatHlodRuntimeData data;
+	data.nodes.resize(4);
+	for (uint32_t i = 0; i < 4; ++i) {
+		auto &node = data.nodes.write[i];
+		node.bounds_center = Vector3(i == 3 ? 100 : 0, 0, -10);
+		node.topology.payload_count = 1;
+		if (i != 0) { node.topology.parent = 0; }
+	}
+	data.nodes.write[0].topology.first_child = 1;
+	data.nodes.write[0].topology.child_count = 3;
+	data.nodes.write[0].topology.geometric_error = 4;
+	CutHistory history;
+	if (!history.reserve(4)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.node_budget = 4;
+	r.frustum_enabled = true;
+	for (Plane &plane : r.frustum) { plane = Plane(Vector3(1, 0, 0), 10); }
+	uint8_t resident[4] = { 1, 1, 0, 1 };
+	r.resident = resident;
+	r.resident_count = 4;
+	TransitionKind expected = TRANSITION_REFINEMENT;
+	SUBCASE("ordinary refinement") {}
+	SUBCASE("forced bootstrap captures visibility before skipping missing children") {
+		data.nodes.write[0].topology.payload_count = 100;
+		r.splat_budget = 2;
+		expected = TRANSITION_BOOTSTRAP;
+	}
+	const auto cut = history.select(data, r);
+	CHECK(cut.status == (expected == TRANSITION_BOOTSTRAP ? CutHistory::BOOTSTRAP_MISSING_RESIDENCY : CutHistory::COMPLETE));
+	if (history.demand_count() != 1) { FAIL("expected one missing child, got ", history.demand_count()); return; }
+	CHECK(history.demand_node(0) == 2);
+	const auto &group = history.demand_transition(0);
+	CHECK(group.parent == 0);
+	CHECK(group.first_child == 1);
+	CHECK(group.visible_mask == 3); // Child 1 is resident, child 2 is missing, child 3 is invisible.
+	CHECK(group.kind == expected);
+	CHECK(group.ordinal == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] transition kinds and emission ordinals preserve root priority and duplicate ordering (#1483 B)") {
+	using namespace gs_hlod_runtime;
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	uint8_t resident[7] = { 0, 0, 0, 0, 0, 0, 0 };
+	r.resident = resident;
+	r.resident_count = 7;
+	CHECK(history.select(data, r).status == CutHistory::UNAVAILABLE);
+	if (history.demand_count() != 1) { FAIL("root demand missing"); return; }
+	CHECK(history.demand_node(0) == 0);
+	CHECK(history.demand_transition(0).kind == TRANSITION_ROOT);
+	CHECK(history.demand_transition(0).parent == UINT32_MAX);
+	CHECK(history.demand_transition(0).ordinal == 0);
+	resident[0] = resident[1] = resident[2] = 1;
+	CHECK(history.select(data, r).status == CutHistory::COMPLETE);
+	if (history.demand_count() != 4) { FAIL("expected two complete leaf demands"); return; }
+	for (uint32_t i = 0; i < 4; ++i) {
+		CHECK(history.demand_node(i) == i + 3);
+		CHECK(history.demand_transition(i).kind == TRANSITION_REFINEMENT);
+		CHECK(history.demand_transition(i).parent == i / 2 + 1);
+		CHECK(history.demand_transition(i).ordinal == (i / 2) * 2);
+		CHECK(history.demand_transition(i).visible_mask == 3);
+	}
+	heavy_root_tree(data);
+	history.invalidate();
+	resident[5] = resident[6] = 1;
+	r.splat_budget = 60;
+	r.page_splats = 16;
+	r.page_budget = 24;
+	CHECK(history.select(data, r).status == CutHistory::COMPLETE);
+	if (history.demand_count() != 4) { FAIL("expected bootstrap demand revisited by refinement"); return; }
+	for (uint32_t i = 0; i < 4; ++i) {
+		CHECK(history.demand_node(i) == 3 + i % 2);
+		CHECK(history.demand_transition(i).kind == (i < 2 ? TRANSITION_BOOTSTRAP : TRANSITION_REFINEMENT));
+		CHECK(history.demand_transition(i).ordinal == (i < 2 ? 0 : 2));
+		CHECK(history.demand_transition(i).parent == 1);
+	}
 }
 }

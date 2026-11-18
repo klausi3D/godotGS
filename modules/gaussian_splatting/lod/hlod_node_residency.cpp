@@ -31,6 +31,11 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	eviction_events_next = eviction_events_count = 0;
 	cancelled_generations.clear();
 	cancelled_next = 0;
+	groups.clear();
+	group_order.clear();
+	need_scratch.clear();
+	reconciliation = transition_signature = 0;
+	arbitration_head = UINT32_MAX;
 	allocator.clear();
 	totals = Stats();
 	pages_retiring = 0;
@@ -71,10 +76,23 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	}
 	nodes = std::move(next);
 	mask = std::move(next_mask);
+	if (!gs_resize_or_fail(groups, uint64_t(count) + 2, "HLOD transition groups")) { nodes.clear(); mask.clear(); return false; }
+	// Reserve all reconciliation scratch at initialization, never while rendering.
+	group_order.reserve(count + 2);
+	need_scratch.reserve(count);
+	for (uint32_t i = count; i-- > 0;) {
+		const uint32_t parent = nodes[i].parent;
+		if (parent != UINT32_MAX) {
+			nodes.write[i].next_sibling = nodes[parent].first_child;
+			nodes.write[parent].first_child = i;
+		}
+	}
 	committed_revision = cfg.committed_edit_revision;
 	allocator.reset(cfg.page_capacity);
 	eviction_events.resize(EVICTION_EVENT_CAPACITY);
 	totals.pressure_measured = true;
+	totals.transitions_measured = true;
+	totals.transition_state = NORMAL;
 	return true;
 }
 
@@ -83,6 +101,7 @@ uint64_t NodeResidency::make_alloc_key(uint32_t p_node) {
 }
 
 void NodeResidency::begin_frame(uint64_t p_frame) {
+	if (current_frame != p_frame) { totals.abandoned_transitions_this_frame = 0; }
 	current_frame = p_frame;
 	requests_this_frame = 0;
 	evictions_this_frame = 0;
@@ -100,8 +119,8 @@ void NodeResidency::begin_frame(uint64_t p_frame) {
 
 void NodeResidency::protect_drawn(const uint32_t *p_nodes, uint32_t p_count) {
 	for (uint32_t i = 0; i < p_count; ++i) {
-		// Keep report marks independent of protected_frame: request() also stamps protection for groups
-		// that are wanted but are not part of the current drawn cut.
+		// Keep report marks independent of protection: transition leases also hold nodes that are not
+		// part of the current drawn cut.
 		for (uint32_t observed = p_nodes[i]; observed < uint32_t(nodes.size()); observed = nodes[observed].parent) {
 			if (nodes[observed].observed_cut_frame == current_frame) { break; }
 			nodes.write[observed].observed_cut_frame = current_frame;
@@ -205,13 +224,21 @@ bool NodeResidency::is_protected(uint32_t p_node) const {
 	if (n.stale) {
 		return false;
 	}
-	return n.protected_frame == current_frame || (cfg.pin_root && p_node == 0) || n.state == LOADING || n.state == UPLOADING || n.edit_hold;
+	return n.protected_frame == current_frame || n.leases != 0 || (cfg.pin_root && p_node == 0) || n.state == LOADING || n.state == UPLOADING || n.edit_hold;
 }
 
 void NodeResidency::release_run_now(Node &r_node) {
 	if (r_node.alloc_key != 0) {
 		allocator.release_slot(r_node.alloc_key);
 		r_node.alloc_key = 0;
+	}
+}
+
+void NodeResidency::release_unrequested_run(Node &r_node) {
+	// A capped bootstrap owns this run, but no ticket or GPU command has used it.
+	if (r_node.state == ABSENT && r_node.alloc_key != 0 && r_node.request_generation != 0) {
+		r_node.request_generation = 0;
+		release_run_now(r_node);
 	}
 }
 
@@ -350,22 +377,425 @@ uint32_t NodeResidency::evict_window(uint32_t p_pages, uint32_t p_exclude_parent
 	return evicted;
 }
 
-NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets) {
+
+void NodeResidency::lease_group(uint32_t p_group, bool p_acquire) {
+	Group &g = groups.write[p_group];
+	auto lease = [&](uint32_t p_node, bool p_sibling) {
+		if (p_node >= uint32_t(nodes.size()) || nodes[p_node].stale) { return; }
+		Node &n = nodes.write[p_node];
+		if (p_acquire) { ++n.leases; if (p_sibling) { ++n.sibling_leases; } }
+		else { if (n.leases) { --n.leases; } if (p_sibling && n.sibling_leases) { --n.sibling_leases; } }
+	};
+	if (g.descriptor.kind == TRANSITION_BOOTSTRAP || g.descriptor.kind == TRANSITION_ROOT) {
+		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
+			lease(n, g.descriptor.kind == TRANSITION_BOOTSTRAP && nodes[n].bootstrap_sibling && nodes[n].parent != UINT32_MAX);
+		}
+		return;
+	}
+	lease(g.descriptor.parent, false);
+	if (g.descriptor.kind == TRANSITION_INFERRED) {
+		for (uint32_t n = nodes[g.descriptor.parent].first_child; n != UINT32_MAX; n = nodes[n].next_sibling) { lease(n, true); }
+	} else {
+		for (uint32_t bit = 0; bit < 16; ++bit) {
+			if (g.descriptor.visible_mask & (1u << bit)) { lease(g.descriptor.first_child + bit, true); }
+		}
+	}
+}
+
+bool NodeResidency::group_complete(uint32_t p_group) const {
+	const Group &g = groups[p_group];
+	for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
+		if (nodes[n].state != RESIDENT) { return false; }
+	}
+	return g.head != UINT32_MAX;
+}
+
+void NodeResidency::abandon_group(uint32_t p_group, bool p_count) {
+	Group &g = groups.write[p_group];
+	const bool was_active = g.active;
+	if (g.active) { lease_group(p_group, false); g.active = false; }
+	bool killed = false;
+	for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
+		Node &node = nodes.write[n];
+		// Another dependency or a genuine drawn/edit hold is non-revocable by this group.
+		if ((node.state == LOADING || node.state == UPLOADING) && node.leases == 0 &&
+				node.protected_frame != current_frame && !(cfg.pin_root && n == 0) && !node.edit_hold) {
+			node.abandoned_generation = node.request_generation;
+			killed = cancel(n) || killed;
+		}
+		if (node.leases == 0) { release_unrequested_run(node); }
+	}
+	if (p_count && (was_active || killed)) {
+		++totals.abandoned_transitions_total;
+		++totals.abandoned_transitions_this_frame;
+	}
+}
+
+void NodeResidency::withdraw_transitions() {
+	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
+		Node &n = nodes.write[i];
+		n.leases = n.sibling_leases = 0;
+		release_unrequested_run(n);
+		if ((n.state == LOADING || n.state == UPLOADING) && !n.edit_hold && n.protected_frame != current_frame &&
+				!(cfg.pin_root && i == 0)) {
+			n.abandoned_generation = n.request_generation;
+			cancel(i);
+		}
+	}
+	groups.fill(Group());
+	arbitration_head = UINT32_MAX;
+	transition_signature = 0;
+}
+
+void NodeResidency::release_transition_leases() {
+	if (nodes.is_empty()) { return; }
+	totals.transition_state = UNSUPPORTED_OWNERS;
+	// All state is confined to the residency owner thread. Once legacy admission has cleared the
+	// policy, later views in the same frame need no table walk and retain each other's drawn stamps.
+	if (group_order.is_empty() && arbitration_head == UINT32_MAX) { return; }
+	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
+		nodes.write[i].leases = nodes.write[i].sibling_leases = 0;
+		release_unrequested_run(nodes.write[i]);
+	}
+	groups.fill(Group());
+	group_order.clear();
+	arbitration_head = UINT32_MAX;
+	transition_signature = 0;
+}
+
+bool NodeResidency::executable(uint32_t p_node) const {
+	if (p_node >= uint32_t(nodes.size())) { return false; }
+	const Node &n = nodes[p_node];
+	return n.demand_pass == reconciliation && !n.offered_keep && n.offered_group < uint32_t(groups.size()) &&
+			groups[n.offered_group].offered_pass == reconciliation && groups[n.offered_group].active &&
+			!groups[n.offered_group].suppressed && !groups[n.offered_group].coarse_blocked;
+}
+
+uint64_t NodeResidency::transition_workspace_bytes() const {
+	// The node table now owns lease references/tombstones, so charge its complete rounded storage too.
+	uint64_t bytes = 0, node_bytes = 0;
+	if (!allocation_bytes(groups.size(), sizeof(Group), bytes) || !allocation_bytes(nodes.size(), sizeof(Node), node_bytes)) { return UINT64_MAX; }
+	return bytes + node_bytes + (uint64_t(group_order.get_capacity()) + need_scratch.get_capacity()) * sizeof(uint32_t);
+}
+
+NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets,
+		const TransitionGroup *p_transitions, const uint32_t *p_kept, uint32_t p_kept_count) {
 	RequestResult out;
+	if (nodes.is_empty()) { return out; }
+	observe_demand(p_demand, p_count);
+	++reconciliation;
+	group_order.clear();
+	const uint32_t count = nodes.size(), root_group = count, bootstrap_group = count + 1;
+	// Clear soft references only. Drawn stamps, pinned root and edit holds are never touched.
+	for (uint32_t i = 0; i < count; ++i) { nodes.write[i].leases = nodes.write[i].sibling_leases = 0; }
+	auto offer = [&](uint32_t p_node, TransitionGroup p_descriptor, bool p_keep, bool p_sibling) {
+		if (p_node >= count) { return; }
+		if (nodes[p_node].demand_pass == reconciliation) {
+			if (p_descriptor.kind == TRANSITION_BOOTSTRAP && p_sibling) { nodes.write[p_node].bootstrap_sibling = true; }
+			return;
+		}
+		if (p_descriptor.kind > TRANSITION_BOOTSTRAP) { ++out.blocked_groups; return; }
+		if (p_descriptor.kind == TRANSITION_REFINEMENT || (p_descriptor.kind == TRANSITION_BOOTSTRAP && p_descriptor.visible_mask)) {
+			if (p_descriptor.parent >= count) { ++out.blocked_groups; return; }
+			for (uint32_t bit = 0; bit < 16; ++bit) {
+				if (!(p_descriptor.visible_mask & (1u << bit))) { continue; }
+				const uint64_t child = uint64_t(p_descriptor.first_child) + bit;
+				if (child >= count || nodes[child].parent != p_descriptor.parent) { ++out.blocked_groups; return; }
+			}
+			if (!p_keep && (p_node < p_descriptor.first_child || p_node - p_descriptor.first_child >= 16 ||
+					!(p_descriptor.visible_mask & (1u << (p_node - p_descriptor.first_child))))) { ++out.blocked_groups; return; }
+		}
+		if (p_descriptor.kind == TRANSITION_INFERRED) {
+			p_descriptor.parent = nodes[p_node].parent;
+			if (p_descriptor.parent == UINT32_MAX) { p_descriptor.kind = TRANSITION_ROOT; }
+		}
+		if (p_descriptor.kind == TRANSITION_BOOTSTRAP) {
+			// The whole frontier is one stable plan, independent of which child finishes first.
+			p_descriptor.parent = UINT32_MAX; p_descriptor.first_child = 0; p_descriptor.visible_mask = 0;
+		}
+		const uint32_t key = p_descriptor.kind == TRANSITION_BOOTSTRAP ? bootstrap_group :
+				(p_descriptor.kind == TRANSITION_ROOT ? root_group : p_descriptor.parent);
+		if (key >= uint32_t(groups.size()) || (key < count && nodes[p_node].parent != key)) {
+			++out.blocked_groups; return;
+		}
+		Group &g = groups.write[key];
+		if (g.offered_pass != reconciliation) {
+			// A visibility/plan-kind change is a new offered transition. Emission ordinal itself is not identity.
+			if (g.descriptor.kind != p_descriptor.kind || g.descriptor.parent != p_descriptor.parent ||
+					g.descriptor.first_child != p_descriptor.first_child || g.descriptor.visible_mask != p_descriptor.visible_mask) {
+				g.active = g.suppressed = g.coarse_blocked = false;
+			}
+			g.descriptor = p_descriptor;
+			g.offered_pass = reconciliation;
+			g.head = g.tail = UINT32_MAX;
+			group_order.push_back(key);
+		}
+		Node &n = nodes.write[p_node];
+		n.demand_pass = reconciliation;
+		n.offered_group = key;
+		n.offered_keep = p_keep;
+		n.bootstrap_sibling = p_sibling;
+		n.next_demand = UINT32_MAX;
+		if (g.tail == UINT32_MAX) { g.head = p_node; } else { nodes.write[g.tail].next_demand = p_node; }
+		g.tail = p_node;
+	};
+	for (uint32_t i = 0; i < p_count; ++i) {
+		const TransitionGroup descriptor = p_transitions ? p_transitions[i] : TransitionGroup();
+		offer(p_demand[i], descriptor, false, descriptor.kind == TRANSITION_BOOTSTRAP);
+		// Bootstrap's partial frontier can still contain the parent while one child is missing. The
+		// descriptor preserves resident visible children omitted from BOTH missing demand and that frontier.
+		if (descriptor.kind == TRANSITION_BOOTSTRAP) {
+			if (descriptor.parent < count && nodes[descriptor.parent].state == RESIDENT && !nodes[descriptor.parent].stale) {
+				TransitionGroup plan;
+				plan.kind = TRANSITION_BOOTSTRAP;
+				offer(descriptor.parent, plan, true, false);
+			}
+			for (uint32_t bit = 0; bit < 16; ++bit) {
+				const uint64_t child = uint64_t(descriptor.first_child) + bit;
+				if ((descriptor.visible_mask & (1u << bit)) && child < count &&
+						nodes[child].parent == descriptor.parent && nodes[child].state == RESIDENT && !nodes[child].stale) {
+					offer(uint32_t(child), descriptor, true, true);
+				}
+			}
+		}
+	}
+	for (uint32_t i = 0; i < p_kept_count; ++i) {
+		TransitionGroup bootstrap;
+		bootstrap.kind = TRANSITION_BOOTSTRAP;
+		offer(p_kept[i], bootstrap, true, true);
+	}
+	for (uint32_t i = 0; i < uint32_t(groups.size()); ++i) {
+		Group &g = groups.write[i];
+		if (g.offered_pass != reconciliation) { g = Group(); }
+	}
+	// Only the still-admitted bootstrap may retain unissued reservations across reconciliations.
+	for (uint32_t i = 0; i < count; ++i) {
+		Node &n = nodes.write[i];
+		if (n.state != ABSENT || n.alloc_key == 0 || n.request_generation == 0) { continue; }
+		const bool owned = n.demand_pass == reconciliation && n.offered_group < uint32_t(groups.size()) &&
+				groups[n.offered_group].descriptor.kind == TRANSITION_BOOTSTRAP && groups[n.offered_group].active &&
+				!groups[n.offered_group].suppressed && !groups[n.offered_group].coarse_blocked;
+		if (!owned) { release_unrequested_run(n); }
+	}
+	bool priority_changed = false;
+	for (uint32_t key : group_order) {
+		if (key == arbitration_head) { break; }
+		priority_changed = priority_changed || groups[key].suppressed;
+	}
+	if (priority_changed || arbitration_head >= uint32_t(groups.size()) || groups[arbitration_head].offered_pass != reconciliation ||
+			group_complete(arbitration_head)) {
+		arbitration_head = UINT32_MAX;
+		for (uint32_t key : group_order) { groups.write[key].suppressed = false; }
+	}
+	// Renew every previously admitted group before allocation, including the lower-priority ones.
+	// Evicting their siblings now requires an explicit suffix abandonment below.
+	for (uint32_t key : group_order) {
+		if (groups[key].active && !groups[key].suppressed && !groups[key].coarse_blocked) { lease_group(key, true); }
+	}
+	auto signature = [&]() {
+		uint64_t value = 1469598103934665603ULL;
+		auto mix = [&](uint64_t part) { value = (value ^ part) * 1099511628211ULL; };
+		for (uint32_t i = 0; i < count; ++i) {
+			const Node &n = nodes[i];
+			mix(n.state); mix(n.alloc_key); mix(n.first_page);
+			mix(n.shadow_key); mix(n.shadow_first); mix(n.shadow_state);
+			mix(n.protected_frame == current_frame || n.edit_hold || (cfg.pin_root && i == 0));
+		}
+		mix(pages_retiring);
+		for (const Retiring &run : retiring) { mix(run.alloc_key); mix(run.first_page); mix(run.pages); }
+		for (uint32_t key : group_order) {
+			const auto &d = groups[key].descriptor;
+			mix(key); mix(d.kind); mix(d.first_child); mix(d.visible_mask);
+			if (d.kind == TRANSITION_BOOTSTRAP) {
+				for (uint32_t n = 0; n < count; ++n) {
+					if (nodes[n].demand_pass == reconciliation && nodes[n].offered_group == key) { mix(n); }
+				}
+			}
+		}
+		return value;
+	};
+	const uint64_t before = signature();
+	totals.transition_state = NORMAL;
+	bool arbitrated = false;
+	for (uint32_t order = 0; order < group_order.size(); ++order) {
+		const uint32_t key = group_order[order];
+		Group &g = groups.write[key];
+		if (g.suppressed) { continue; }
+		if (g.coarse_blocked && g.blocked_signature == before) {
+			totals.transition_state = COARSE_PLACEMENT_BLOCKED;
+			continue;
+		}
+		g.coarse_blocked = false;
+		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
+		need_scratch.clear();
+		uint32_t total_pages = 0;
+		bool reserved_bootstrap = false;
+		bool blocked = false;
+		bool terminal_dependency = false;
+		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
+			const Node &node = nodes[n];
+			if (node.stale || (node.offered_keep && node.state != RESIDENT)) { blocked = terminal_dependency = true; }
+			else if (node.state == LOADING || node.state == UPLOADING || node.state == RESIDENT) { ++out.satisfied; }
+			else if (node.state == FAILED && (node.failures >= cfg.max_failures || current_frame < node.retry_after_frame)) {
+				blocked = true;
+				terminal_dependency = terminal_dependency || node.failures >= cfg.max_failures;
+			} else if (node.alloc_key != 0 && !(g.descriptor.kind == TRANSITION_BOOTSTRAP &&
+					node.state == ABSENT && node.request_generation != 0)) { blocked = true; }
+			else {
+				need_scratch.push_back(n);
+				if (node.alloc_key == 0) { total_pages += node.pages; }
+				else { reserved_bootstrap = true; }
+			}
+		}
+		if (blocked) {
+			++out.blocked_groups;
+			// A blocked dependency cannot retain soft protection or suppress the suffix. A retryable
+			// cooldown must still let already-admitted siblings finish/fail and release their own permits:
+			// cancelling them here can erase serialized jobs before they even perform their first read.
+			if (terminal_dependency) { abandon_group(key, false); }
+			else if (g.active) { lease_group(key, false); g.active = false; }
+			for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
+				if (nodes[n].leases == 0) { release_unrequested_run(nodes.write[n]); }
+			}
+			if (arbitration_head == key) {
+				arbitration_head = UINT32_MAX;
+				for (uint32_t lower : group_order) { groups.write[lower].suppressed = false; }
+			}
+			continue;
+		}
+		if (need_scratch.is_empty()) {
+			if (!g.active) { g.active = true; lease_group(key, true); }
+			for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
+			continue;
+		}
+		const bool incremental_bootstrap = g.descriptor.kind == TRANSITION_BOOTSTRAP &&
+				(reserved_bootstrap || need_scratch.size() > cfg.max_requests_per_frame);
+		if (requests_this_frame >= cfg.max_requests_per_frame ||
+				(!incremental_bootstrap && requests_this_frame + need_scratch.size() > cfg.max_requests_per_frame)) {
+			out.capped = true; break;
+		}
+		// Existing largest-run-first placement order; no comparator or allocator policy change.
+		for (uint32_t a = 1; a < need_scratch.size(); ++a) {
+			const uint32_t node = need_scratch[a];
+			uint32_t b = a;
+			while (b && nodes[need_scratch[b - 1]].pages < nodes[node].pages) { need_scratch[b] = need_scratch[b - 1]; --b; }
+			need_scratch[b] = node;
+		}
+		// Bootstrap keeps are dependencies of this indivisible plan, not drawn nodes. Protect them only
+		// while attempting/reserving the plan; a failed irreducible placement releases them below.
+		if (g.descriptor.kind == TRANSITION_BOOTSTRAP && !g.active) { g.active = true; lease_group(key, true); }
+		uint32_t failed_pages = 0;
+		auto allocate_all = [&]() {
+			for (uint32_t k = 0; k < need_scratch.size(); ++k) {
+				Node &n = nodes.write[need_scratch[k]];
+				if (n.alloc_key != 0) { continue; } // Reuse the plan's unissued reservations.
+				const uint64_t alloc_key = make_alloc_key(need_scratch[k]);
+				uint32_t slot = 0;
+				if (!allocator.allocate_slot(alloc_key, n.pages, slot)) {
+					failed_pages = n.pages;
+					for (uint32_t r = 0; r < k; ++r) {
+						Node &allocated = nodes.write[need_scratch[r]];
+						if (allocated.request_generation == 0) { release_run_now(allocated); }
+					}
+					return false;
+				}
+				n.alloc_key = alloc_key; n.first_page = slot;
+			}
+			return true;
+		};
+		const uint32_t parent = g.descriptor.kind == TRANSITION_BOOTSTRAP ? UINT32_MAX : g.descriptor.parent;
+		auto place = [&]() {
+			bool placed = allocate_all();
+			if (!placed) { out.evicted += evict_for(total_pages, parent); placed = allocate_all(); }
+			for (uint32_t round = 0; !placed && round < need_scratch.size() && pages_retiring == 0 &&
+					uint64_t(allocator.get_free_page_count()) >= total_pages; ++round) {
+				const uint32_t freed = evict_window(failed_pages, parent);
+				if (freed == 0) { break; }
+				out.evicted += freed; placed = allocate_all();
+			}
+			return placed;
+		};
+		bool placed = place();
+		if (!placed && !arbitrated) {
+			arbitrated = true;
+			arbitration_head = key;
+			// One deterministic suffix withdrawal and one placement retry per reconciliation.
+			for (uint32_t lower = order + 1; lower < group_order.size(); ++lower) {
+				const uint32_t low_key = group_order[lower];
+				abandon_group(low_key, true);
+				groups.write[low_key].suppressed = true;
+			}
+			placed = place();
+		}
+		if (!placed) {
+			++out.skipped_groups; ++totals.skipped_groups_total;
+			record_allocation_refusal(total_pages, parent);
+			if (uint64_t(allocator.get_free_page_count()) >= total_pages) { ++out.fragmented_groups; }
+			// Any retirement can remove a blocking run, even if free+retiring is not yet the whole group.
+			// Eviction-limit and request-limit waits are not irreducible coarse blockage.
+			if (pages_retiring != 0 || evictions_this_frame >= cfg.evictions_per_frame) {
+				++out.pending_retire_groups;
+				totals.transition_state = RETIREMENT_WAIT;
+				if (!g.active) { g.active = true; lease_group(key, true); }
+			} else {
+				abandon_group(key, false);
+				g.coarse_blocked = true;
+				totals.transition_state = COARSE_PLACEMENT_BLOCKED;
+			}
+			continue;
+		}
+		if (!g.active) { g.active = true; lease_group(key, true); }
+		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) { nodes.write[n].last_demand_frame = current_frame; }
+		for (uint32_t node : need_scratch) {
+			Node &n = nodes.write[node];
+			// Reserve every generation with the whole plan; only emitted tickets become LOADING.
+			if (n.request_generation == 0) { n.request_generation = ++request_serial; }
+			if (requests_this_frame == cfg.max_requests_per_frame) { n.state = ABSENT; out.capped = true; continue; }
+			for (uint32_t e = 0; e < evicted_log.size(); ++e) {
+				if (evicted_log[e] == node) { evicted_log[e] = evicted_log[evicted_log.size() - 1]; evicted_log.resize(evicted_log.size() - 1); break; }
+			}
+			n.state = LOADING;
+			Ticket ticket;
+			ticket.node = node; ticket.first_page = n.first_page; ticket.page_count = n.pages;
+			ticket.request_generation = n.request_generation; ticket.world_generation = world_gen; ticket.device_generation = device_gen;
+			r_tickets.push_back(ticket);
+			++out.requested; ++requests_this_frame; ++totals.requested_total;
+		}
+		if (out.capped) { break; } // Keep lower-priority groups behind the unfinished bootstrap.
+	}
+	// Undemanded legacy work retains the established grace period. Explicitly abandoned work was cancelled above.
+	for (uint32_t i = 0; i < count; ++i) {
+		const Node &n = nodes[i];
+		if (n.state == LOADING && n.leases == 0 && current_frame > n.last_demand_frame + cfg.cancel_grace_frames) { cancel(i); }
+	}
+	transition_signature = signature();
+	for (uint32_t key : group_order) {
+		if (groups[key].coarse_blocked) { groups.write[key].blocked_signature = transition_signature; }
+	}
+	return out;
+}
+
+// Shared-owner fallback preserves the pre-transition-policy request algorithm. Deduplication uses
+// the same monotonic stamp as request(), and its existing charged scratch, so mode switches cannot
+// mistake a previous policy pass for this demand or allocate another persistent workspace.
+NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets) {
+	RequestResult out;
+	if (nodes.is_empty()) { return out; }
+	release_transition_leases();
 	observe_demand(p_demand, p_count);
 	// The selector can list a node twice (a bootstrap expansion and the refinement walk both reach it). One
 	// node is one demand and gets at most one run: keep the first occurrence, in priority order.
-	demand_unique.clear();
-	++dedup_pass;
+	need_scratch.clear();
+	++reconciliation;
 	for (uint32_t i = 0; i < p_count; ++i) {
-		if (p_demand[i] < uint32_t(nodes.size()) && nodes[p_demand[i]].demand_pass != dedup_pass) {
-			nodes.write[p_demand[i]].demand_pass = dedup_pass;
+		if (p_demand[i] < uint32_t(nodes.size()) && nodes[p_demand[i]].demand_pass != reconciliation) {
+			nodes.write[p_demand[i]].demand_pass = reconciliation;
 			nodes.write[p_demand[i]].last_demand_frame = current_frame;
-			demand_unique.push_back(p_demand[i]);
+			need_scratch.push_back(p_demand[i]);
 		}
 	}
-	p_demand = demand_unique.ptr();
-	p_count = demand_unique.size();
+	p_demand = need_scratch.ptr();
+	p_count = need_scratch.size();
 	// Requests nobody asked for lately are cancelled, so a camera that moved on does not keep loading.
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		const Node &n = nodes[i];
@@ -520,13 +950,31 @@ bool NodeResidency::consume_cancelled(const Ticket &p_ticket) {
 	if (!p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen) {
 		return false;
 	}
+	bool abandoned = p_ticket.node < uint32_t(nodes.size()) && nodes[p_ticket.node].abandoned_generation == p_ticket.request_generation;
+	if (abandoned) { nodes.write[p_ticket.node].abandoned_generation = 0; }
 	for (uint32_t i = 0; i < cancelled_generations.size(); ++i) {
 		if (cancelled_generations[i] == p_ticket.request_generation) {
 			cancelled_generations[i] = 0; // Consumed: a second delivery of the same ticket is a duplicate, not a cancel.
 			return true;
 		}
 	}
+	return abandoned;
+}
+
+bool NodeResidency::was_cancelled(const Ticket &p_ticket) const {
+	if (!p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen) { return false; }
+	if (p_ticket.node < uint32_t(nodes.size()) && nodes[p_ticket.node].abandoned_generation == p_ticket.request_generation) { return true; }
+	for (uint64_t generation : cancelled_generations) { if (generation == p_ticket.request_generation) { return true; } }
 	return false;
+}
+
+void NodeResidency::discard_known_cancelled(const Ticket &p_ticket) {
+	// The streamer's exact token owns one output receipt; it outlives the bounded report history.
+	// Epoch mismatches still represent real loss, even when another world's requester was cancelled.
+	if (p_ticket.valid() && p_ticket.world_generation == world_gen && p_ticket.device_generation == device_gen) {
+		consume_cancelled(p_ticket);
+		++totals.late_dropped_cancelled_total;
+	} else { ++totals.late_dropped_total; }
 }
 
 void NodeResidency::count_rejected_completion(const Ticket &p_ticket) {
@@ -616,6 +1064,10 @@ bool NodeResidency::cancel(uint32_t p_node) {
 		return false;
 	}
 	Node &n = nodes.write[p_node];
+	if (n.state == ABSENT && n.alloc_key != 0 && n.request_generation != 0) {
+		release_unrequested_run(n);
+		return true;
+	}
 	if (n.state != LOADING && n.state != UPLOADING) {
 		return false;
 	}
@@ -648,8 +1100,12 @@ NodeResidency::Stats NodeResidency::stats() const {
 	Stats s = totals;
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		const Node &n = nodes[i];
+		if (n.state == RESIDENT && n.sibling_leases != 0) { ++s.protected_sibling_nodes; }
 		switch (n.state) {
-			case ABSENT: ++s.absent; break;
+			case ABSENT:
+				++s.absent;
+				if (n.alloc_key != 0) { s.pages_in_flight += n.pages; }
+				break;
 			case LOADING: ++s.loading; s.pages_in_flight += n.pages; break;
 			case UPLOADING: ++s.uploading; s.pages_in_flight += n.pages; break;
 			case RESIDENT: ++s.resident; s.pages_resident += n.pages; break;
@@ -993,6 +1449,7 @@ bool NodeResidency::commit_edit() {
 			++totals.cancelled_total; // A load of the OLD content is in flight: its ticket dies below.
 			note_cancelled_generation(n.request_generation);
 		}
+		release_unrequested_run(n);
 		retire_run(n); // Uses the old page count; the old run serves already submitted frames until it retires.
 		n.alloc_key = n.shadow_key;
 		n.first_page = n.shadow_first;
@@ -1019,6 +1476,7 @@ bool NodeResidency::commit_edit() {
 	for (uint32_t i = 0; i < staged_stale.size(); ++i) {
 		const uint32_t index = staged_stale[i];
 		Node &n = nodes.write[index];
+		release_unrequested_run(n);
 		if (n.state == LOADING || n.state == UPLOADING) {
 			++totals.cancelled_total;
 			note_cancelled_generation(n.request_generation);

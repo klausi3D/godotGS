@@ -154,6 +154,7 @@ struct DesiredRecord {
 	// part of the target the view is building (the resident part of an incomplete bootstrap frontier): keep it,
 	// do not request it.
 	bool keep = false;
+	TransitionGroup transition; // Explicit sibling mask for demand; BOOTSTRAP bundle membership for keeps.
 };
 
 class ViewSet {

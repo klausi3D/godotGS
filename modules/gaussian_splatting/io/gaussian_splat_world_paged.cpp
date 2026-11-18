@@ -968,8 +968,9 @@ void GaussianSplatHlodPagedSource::_test_set_runtime_full_payload_validation(boo
 
 Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStore &p_store,
 		uint64_t p_requester, uint64_t p_ticket, uint32_t p_node, Vector<Gaussian> &r_gaussians,
-		Vector<Vector3> &r_sh, String &r_reason, ReadStorageObserver *p_observer) const {
+		Vector<Vector3> &r_sh, String &r_reason, ReadStorageObserver *p_observer, bool *r_cancelled) const {
 	const auto load_begin = std::chrono::steady_clock::now();
+	if (r_cancelled) { *r_cancelled = false; }
 	const bool full_validation = runtime_full_payload_validation.load();
 	uint64_t record_verify_nsec = 0;
 	auto add_verify_time = [&](std::chrono::steady_clock::time_point p_begin) {
@@ -997,18 +998,19 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		stored_extent = 0;
 		observe();
 	};
-	auto fail = [&](Error p_error, const String &p_why) {
+	auto fail = [&](Error p_error, const String &p_why, bool p_cancelled = false) {
 		r_gaussians.clear();
 		r_sh.clear();
 		decoded_extent = 0;
 		release_transport();
 		r_reason = p_why;
-		stat_failures.fetch_add(1u);
-		p_store.end_capture(false, p_why);
+		if (r_cancelled) { *r_cancelled = p_cancelled; }
+		if (!p_cancelled) { stat_failures.fetch_add(1u); }
+		p_store.end_capture(false, p_why, p_cancelled);
 		return p_error;
 	};
 	auto cancelled = [&]() { return p_observer != nullptr && p_observer->is_cancelled(); };
-	if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+	if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
 	if (!opened || p_node >= uint32_t(nodes.size())) {
 		return fail(ERR_INVALID_PARAMETER, "v4_node_out_of_range");
 	}
@@ -1026,7 +1028,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	// changed record bytes by the outer digest. Appended bytes are outside the
 	// immutable catalog and cannot affect this node; avoid reopening for get_size.
 	auto read_page = [&](const PayloadPageStore::PageDescriptor &p_descriptor) -> Error {
-		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
 		// Includes CowData's rounded capacity and both allocation headers. The
 		// caller resets the previous page before another request can allocate.
 		const Error size_error = gs_hlod_runtime::checked_allocation_bytes(p_descriptor.stored_bytes, 1, stored_extent);
@@ -1048,12 +1050,17 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		// hold the streamer's ledger lock while calling either store operation.
 		if (cancelled()) {
 			p_store.cancel_requester(p_requester);
-			return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled");
+			return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true);
 		}
 		if (!p_store.wait(p_requester, p_ticket, page)) {
-			return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled");
+			return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true);
 		}
-		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+		if (cancelled()) {
+			// Preserve a returned IO failure's accounting even if the token raced delivery.
+			// The cancellation return/reason and cleanup order remain unchanged.
+			const bool read_ok = page.get_error() == OK && uint64_t(page.get_bytes().size()) == p_descriptor.stored_bytes;
+			return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", read_ok);
+		}
 		if (page.get_error() != OK || uint64_t(page.get_bytes().size()) != p_descriptor.stored_bytes) {
 			return fail(page.get_error() != OK ? page.get_error() : ERR_FILE_CORRUPT, "v4_payload_truncated");
 		}
@@ -1104,7 +1111,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		return OK;
 	};
 	auto allocate_decoded = [&]() -> Error {
-		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
 		uint64_t gaussian_allocation = 0, sh_allocation = 0;
 		Error size_error = gs_hlod_runtime::checked_allocation_bytes(g_bytes, 1, gaussian_allocation);
 		if (size_error == OK) {
@@ -1141,7 +1148,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		if (error != OK) {
 			return fail(error, "v4_cannot_allocate_payload");
 		}
-		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+		if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
 		error = p_store.decode_gsq_subrange(page, decoder, uint32_t(kPayloadRecordHeaderBytes), count,
 				info.sh_degree, r_gaussians.ptrw(), r_sh.ptrw(), why, true);
 		if (error != OK) {
@@ -1169,7 +1176,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 				error = allocate_decoded();
 				if (error != OK) { return error; }
 			}
-			if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+			if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
 			const auto verify_begin = std::chrono::steady_clock::now();
 			ctx.update(window, descriptor.stored_bytes);
 			add_verify_time(verify_begin);
@@ -1194,7 +1201,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	}
 	// Validation sees node-relative positions; reconstruction is a required
 	// transform even when the optional semantic checks are disabled.
-	if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled"); }
+	if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
 	if (full_validation) {
 		const auto verify_begin = std::chrono::steady_clock::now();
 		if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {

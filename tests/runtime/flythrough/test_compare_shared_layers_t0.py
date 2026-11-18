@@ -2013,12 +2013,29 @@ class ComparisonContract(unittest.TestCase):
               for value in (None, 0, 3, 999999, -1)),
             *({"report_only": True, "snapshot": {"values": {"hlod_stream_placement_reserve_state": state,
                                                            "hlod_stream_placement_reserve_pages": pages}}}
-              for state, pages in ((None, 999999), (0, None), (0, 999999), (1, 0), (1, 999999))))
+              for state, pages in ((None, 999999), (0, None), (0, 999999), (1, 0), (1, 999999))),
+            *({"report_only": True, "snapshot": {"values": {
+                "hlod_stream_protected_sibling_nodes": value,
+                "hlod_stream_abandoned_transitions_total": value,
+                "hlod_stream_abandoned_transitions_this_frame": value,
+                "hlod_stream_transition_state": value}}}
+              for value in (None, -1, 0, 1, 2, 3, 999999)),
+            *({"report_only": True, "snapshot": {"values": {
+                "hlod_stream_protected_sibling_nodes": 0,
+                "hlod_stream_abandoned_transitions_total": 8,
+                "hlod_stream_abandoned_transitions_this_frame": 0,
+                "hlod_stream_transition_state": 3}},
+               "settle_window": {"counter_deltas": {
+                   "hlod_stream_abandoned_transitions_total": delta}}}
+              for delta in ({"measured": True, "value": 0}, {"measured": True, "value": 5},
+                            {"measured": False, "value": None, "reason": "native epoch changed"},
+                            {"measured": False, "value": None, "reason": "counter decreased"})))
         for failure in (False, True):
             experiment = copy.deepcopy(self.experiment)
             if failure:
                 experiment["arms"]["hlod"]["observed"]["exit_code"] = 91
             baseline = driver.compare(experiment)
+            self.assertEqual(baseline["verdict"], "UNUSABLE" if failure else "VALID")
             for receipt in diagnostics:
                 with self.subTest(failure=failure, receipt=receipt):
                     changed = copy.deepcopy(experiment)
@@ -2074,6 +2091,29 @@ class ComparisonContract(unittest.TestCase):
                 self.assertEqual(len(cells), len(columns))
                 self.assertEqual(cells[columns.index("placement reserve pages")], expected)
                 self.assertEqual(cells[columns.index("placement reserve state")], expected_state)
+
+    def test_transition_diagnostics_table_distinguishes_absence_normal_and_blocked_states(self):
+        # Report-only semantic receipts; no native capture or settlement evidence is claimed.
+        for code, expected in ((None, "not measured"), (-1, "not measured"), (True, "not measured"),
+                               (0, "normal"), (1, "retirement_wait"), (2, "coarse_placement_blocked"),
+                               (3, "unsupported_owners"), (999999, "not measured")):
+            with self.subTest(code=code):
+                values = {"hlod_stream_transition_state": code, "hlod_stream_protected_sibling_nodes": 0,
+                          "hlod_stream_abandoned_transitions_total": 8, "hlod_stream_abandoned_transitions_this_frame": 0}
+                receipt = {"report_only": True, "snapshot": {"values": values}, "settle_window": {"counter_deltas": {
+                    "hlod_stream_abandoned_transitions_total": {"measured": True, "value": 5}}}}
+                report = {"hlod_pressure_report": {"hlod": {"checkpoints": [
+                    {"checkpoint": "C5", "pass_index": 0, "observation": receipt}]}}}
+                markdown = driver.render_markdown(report)
+                headers = next(line for line in markdown.splitlines() if line.startswith("| arm / checkpoint |"))
+                columns = [cell.strip().lower() for cell in headers.split("|")[1:-1]]
+                rows = [line for line in markdown.splitlines() if line.startswith("| hlod / C5 pass 0 |")]
+                self.assertEqual(len(rows), 1)
+                cells = [cell.strip() for cell in rows[0].split("|")[1:-1]]
+                self.assertEqual(len(cells), len(columns))
+                self.assertEqual(cells[columns.index("transition state")], expected)
+                self.assertEqual(cells[columns.index("protected siblings")], "0")
+                self.assertEqual(cells[columns.index("abandoned delta / this frame")], "5 / 0")
 
     def test_pressure_variant_without_pressure_evidence_is_a_named_non_pass(self):
         def teleports(arm):

@@ -621,6 +621,177 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] pressure telemet
 	CHECK(t.gate_frames_total[Streamer::REFUSING_NONE] == 1);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] transition telemetry preserves absence measured idle and lifecycle reset (#1483 B)") {
+	Harness h;
+	CHECK_FALSE(h.streamer.get_telemetry().transitions_measured);
+	CHECK(h.streamer.get_telemetry().transition_state == Residency::TRANSITIONS_ABSENT);
+	if (!h.init()) { return; }
+	h.demand.clear();
+	h.step();
+	const auto idle = h.streamer.get_telemetry();
+	CHECK(idle.transitions_measured);
+	CHECK(idle.transition_state == Residency::NORMAL);
+	CHECK(idle.protected_sibling_nodes == 0);
+	CHECK(idle.abandoned_transitions_total == 0);
+	CHECK(idle.abandoned_transitions_this_frame == 0);
+	CHECK(h.streamer.transition_workspace_bytes() >= h.streamer.get_residency().transition_workspace_bytes());
+	CHECK(h.streamer.transition_workspace_bytes() > 0);
+	const uint64_t source_generation = h.store.stats().source_generation;
+	h.streamer.shutdown();
+	CHECK_FALSE(h.streamer.get_telemetry().transitions_measured);
+	CHECK(h.streamer.get_telemetry().transition_state == Residency::TRANSITIONS_ABSENT);
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK || !h.set_control()) {
+		FAIL("could not reinitialize transition observations"); return;
+	}
+	CHECK(h.store.stats().source_generation == source_generation + 1);
+	h.step();
+	CHECK(h.streamer.get_telemetry().transitions_measured);
+	CHECK(h.streamer.get_telemetry().transition_state == Residency::NORMAL);
+	CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 0);
+	CHECK(h.streamer.get_telemetry().abandoned_transitions_this_frame == 0);
+	CHECK(idle.transitions_measured); // A copied checkpoint cannot alias the lifecycle reset.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] shared owners fail closed without cancelling another owners work (#1483 B)") {
+	for (bool reverse : { false, true }) {
+		CAPTURE(reverse);
+		Harness h;
+		if (!h.init()) { return; }
+		h.demand.clear();
+		gs_hlod_runtime::DesiredRecord lower;
+		lower.node = 4;
+		h.demand.push_back(lower);
+		if (!reach_holder(h, WORKER)) { return; }
+		const auto before = h.streamer.get_residency().stats();
+		if (before.loading != 1) { FAIL("shared-owner test requires a real held ordinary request"); return; }
+		gs_hlod_runtime::CutRequest view;
+		h.streamer.register_view(reverse ? 202 : 101, view);
+		h.streamer.register_view(reverse ? 101 : 202, view);
+		for (uint64_t owner : { 101u, 202u, 101u }) {
+			h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0, owner);
+			CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
+			CHECK(h.streamer.get_telemetry().transitions_measured);
+			CHECK(h.streamer.get_telemetry().desired > 0);
+			CHECK(h.streamer.get_residency().stats().cancelled_total == before.cancelled_total);
+			CHECK(h.streamer.get_residency().stats().requested_total == before.requested_total);
+			CHECK(h.streamer.get_residency().state(4) == Residency::LOADING);
+		}
+		CHECK(h.streamer.unregister_view(202));
+		// Multiple instances are also owners, even when there is only one registered view.
+		gs_hlod_runtime::DesiredRecord instances[2];
+		// Both owners refer to the already-held request; this probe adds no new legacy work.
+		instances[0].instance_key = 1; instances[0].node = 4;
+		instances[1].instance_key = 2; instances[1].node = 4;
+		h.streamer.update(nullptr, Streamer::Buffers(), instances, 2, nullptr, 0, 101);
+		CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == 0);
+		CHECK(h.streamer.get_residency().state(4) == Residency::LOADING);
+		// Once only one owner remains, replacing the old single owner explicitly withdraws its work.
+		// Rebind that owner after legacy admission, then expire its frame-only want stamp.
+		h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0, 0);
+		h.streamer.begin_frame();
+		h.demand.clear();
+		h.streamer.update(nullptr, Streamer::Buffers(), nullptr, 0, nullptr, 0, 101);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
+		h.control.hold_workers = h.control.hold_mailbox = h.control.hold_uploads = false;
+		if (!h.set_control() || !h.drain() || !h.check_released()) { return; }
+		CHECK(h.streamer._test_publications().is_empty());
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] shared views admit missing demand and evict through the legacy path (#1483 B)") {
+	Harness h;
+	if (!h.init()) { return; }
+	h.streamer.shutdown();
+	h.config.atlas_pages = 3; // Synthetic pressure: pinned root plus two served nodes.
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+		FAIL("shared-view legacy fixture could not initialize its three-page atlas"); return;
+	}
+	h.retained_cap = h.streamer.get_retained_byte_cap();
+	h.demand.clear();
+	h.control.hold_uploads = false;
+	auto step_owner = [&](uint64_t p_owner) {
+		h.streamer.begin_frame();
+		h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0, p_owner);
+		h.sample = h.streamer._test_snapshot();
+		h.observations_ok = h.observations_ok && h.sample.observation_error == OK;
+		h.bound_ok = h.bound_ok && bounded(h.sample, h.config, h.retained_cap);
+		const auto stats = h.streamer.get_residency().stats();
+		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring <= 3);
+	};
+	auto load_missing = [&](uint32_t p_node, uint64_t p_owner, bool p_shared, bool p_evict) {
+		CAPTURE(p_node);
+		CAPTURE(p_owner);
+		if (h.streamer.get_residency().state(p_node) != Residency::ABSENT) { FAIL("phase must offer only a missing node"); return false; }
+		h.demand.clear();
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = p_node;
+		h.demand.push_back(wanted);
+		h.control.hold_workers = true;
+		if (!h.set_control()) { return false; }
+		const auto before = h.streamer.get_residency().stats();
+		step_owner(p_owner);
+		const auto first = h.streamer.get_residency().stats();
+		// Admission and eviction are synchronous model actions: the frozen path fails before an async wait.
+		if ((!p_evict && first.requested_total != before.requested_total + 1) ||
+				(p_evict && first.evicted_total != before.evicted_total + 1)) {
+			FAIL("shared-view legacy admission did not request or evict for fresh demand"); return false;
+		}
+		if (p_evict) {
+			const auto admitted = gs_pump_until([&]() {
+				step_owner(p_owner);
+				return !h.observations_ok || h.streamer.get_residency().state(p_node) == Residency::LOADING;
+			});
+			if (!admitted.ready() || !h.observations_ok) { FAIL("legacy eviction did not admit the missing node after retirement: ", admitted.describe()); return false; }
+		}
+		CHECK(h.streamer.get_residency().stats().requested_total == before.requested_total + 1);
+		h.control.hold_workers = false;
+		if (!h.set_control()) { return false; }
+		const auto resident = gs_pump_until([&]() {
+			step_owner(p_owner);
+			return !h.observations_ok || (h.streamer.get_residency().state(p_node) == Residency::RESIDENT &&
+					h.sample.tasks_outstanding == 0 && h.sample.live_reservations == 0);
+		});
+		if (!resident.ready() || !h.observations_ok) { FAIL("view's missing node never became actually resident: ", resident.describe()); return false; }
+		CHECK(h.bound_ok);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == before.cancelled_total);
+		CHECK(h.streamer.get_residency().stats().late_dropped_total == 0);
+		CHECK(h.streamer.get_telemetry().protected_sibling_nodes == 0);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 0);
+		if (p_shared) { CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS); }
+		return true;
+	};
+	if (!load_missing(0, 0, false, false)) { return; }
+	gs_hlod_runtime::CutRequest view;
+	view.frustum_enabled = false;
+	view.focal_pixels = 100;
+	view.tau_pixels = 1.0e9;
+	view.node_budget = h.fixture.node_count;
+	view.splat_budget = 1u << 30;
+	view.record_budget = 1.0e9;
+	h.streamer.register_view(101, view);
+	h.streamer.register_view(202, view);
+	if (!load_missing(1, 101, true, false) || !load_missing(2, 202, true, false)) { return; }
+	CHECK(h.streamer.get_residency().state(1) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().stats().pages_free == 0);
+	// Parent 1 and pinned root 0 survive node 3's allocation; the actual served node 2 pays for it.
+	if (!load_missing(3, 101, true, true)) { return; }
+	CHECK(h.streamer.get_residency().state(0) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().state(1) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().state(2) == Residency::ABSENT);
+	CHECK(h.streamer.get_residency().state(3) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().stats().evicted_total == 1);
+	CHECK(h.streamer.get_residency().stats().requested_total == 4);
+	const auto publications = h.streamer._test_publications();
+	if (publications.size() != 4) { FAIL("legacy views must publish all four actual node payloads"); return; }
+	for (uint32_t node = 0; node < 4; ++node) {
+		CHECK(publications[node].node == node);
+		CHECK(publications[node].metadata_splat_count == h.fixture.splats_per_node);
+	}
+	CHECK(h.store.stats().reads.completed_ok == 4);
+	if (!h.check_released()) { return; }
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] placement reserve capture preserves zero and clears absent frames and lifecycle resets (#1483)") {
 	Harness h;
 	CHECK_FALSE(h.streamer.get_telemetry().placement_reserve_measured);
@@ -1103,6 +1274,93 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] oversized single
 	h.check_released();
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] priority abandonment drains real output owners without publishing the abandoned child (#1483 B)") {
+	// Use only existing streamer APIs. The CPU sink replaces device writes; request arbitration, store
+	// reads, worker/mailbox/ready ownership, partial cursors and publication gates all remain real.
+	for (uint32_t phase = 0; phase < 4; ++phase) {
+		CAPTURE(phase);
+		Harness h;
+		if (!h.init()) { return; }
+		h.config.atlas_pages = 3; // Root + resident sibling + the admitted missing child fill the atlas.
+		h.config.upload_bytes_per_frame = 64 * sizeof(PackedGaussian); // Four slices for a 256-splat node.
+		if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+			FAIL("could not initialize the three-page abandonment fixture"); return;
+		}
+		h.retained_cap = h.streamer.get_retained_byte_cap();
+		h.control.hold_uploads = false;
+		if (!h.set_control()) { return; }
+		h.demand.clear();
+		for (uint32_t node : { 0u, 3u }) {
+			gs_hlod_runtime::DesiredRecord wanted;
+			wanted.node = node;
+			h.demand.push_back(wanted);
+		}
+		const auto seeded = gs_pump_until([&]() {
+			h.step();
+			return !h.observations_ok || (h.streamer.get_residency().state(0) == Residency::RESIDENT &&
+					h.streamer.get_residency().state(3) == Residency::RESIDENT && h.sample.live_reservations == 0);
+		});
+		if (!seeded.ready() || !h.observations_ok) {
+			FAIL("the real root and resident sibling never finished loading"); return;
+		}
+		h.demand.clear();
+		gs_hlod_runtime::DesiredRecord lower;
+		lower.node = 4;
+		h.demand.push_back(lower);
+		h.control.hold_uploads = true;
+		const Holder holder = phase == 0 ? WORKER : (phase == 1 ? MAILBOX : READY);
+		if (!reach_holder(h, holder)) { return; }
+		if (phase == 3) {
+			h.control.hold_uploads = false;
+			if (!h.set_control()) { return; }
+			h.step(); // One actual atlas slice, with the metadata-last boundary still ahead.
+			if (h.sample.partial_upload_bytes == 0 || h.streamer.get_residency().state(4) != Residency::LOADING) {
+				FAIL("the lower child never reached a real partial-upload owner"); return;
+			}
+		}
+		CHECK(h.streamer.get_residency().stats().pages_free == 0);
+		CHECK(h.streamer.get_telemetry().protected_sibling_nodes == 1);
+		h.demand.clear();
+		for (uint32_t node : { 5u, 6u, 4u }) {
+			gs_hlod_runtime::DesiredRecord wanted;
+			wanted.node = node;
+			h.demand.push_back(wanted);
+		}
+		h.step(); // Higher-priority arrival must cause cancellation; the test never calls a cancel seam.
+		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
+		CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
+		CHECK(h.streamer.get_telemetry().desired == 3); // Unmet selection demand BEFORE abandonment filtering.
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 1);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_this_frame == 1);
+		CHECK(h.streamer.get_telemetry().transition_state == Residency::RETIREMENT_WAIT);
+		h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 1);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_this_frame == 1);
+		h.control.hold_workers = h.control.hold_mailbox = h.control.hold_uploads = false;
+		if (!h.set_control()) { return; }
+		const auto progressed = gs_pump_until([&]() {
+			h.step(); // Keep offering the abandoned demand; it must not steal the head's released capacity.
+			return !h.observations_ok || (h.streamer.get_residency().state(5) == Residency::RESIDENT &&
+					h.streamer.get_residency().state(6) == Residency::RESIDENT && h.sample.jobs_in_flight == 0 &&
+					h.sample.pending_tickets == 0 && h.sample.mailbox_outputs == 0 && h.sample.ready_outputs == 0 &&
+					h.sample.live_reservations == 0);
+		});
+		if (!progressed.ready() || !h.observations_ok) {
+			FAIL("the higher-priority transition never completed after abandonment and owner drain"); return;
+		}
+		CHECK(h.streamer.get_residency().state(0) == Residency::RESIDENT);
+		CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
+		CHECK(h.streamer.get_telemetry().late_dropped_total == 0);
+		const Vector<Streamer::TestPublication> publications = h.streamer._test_publications();
+		CHECK(publications.size() == 4); // Exactly the two seed nodes and the two head children.
+		for (const auto &publication : publications) {
+			CHECK(publication.node != 4); // A counter cannot substitute for absence at the real metadata write.
+		}
+		CHECK(h.bound_ok);
+		if (!h.check_released()) { return; }
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] cancellation retarget and eviction release each ordinary owner once") {
 	for (Holder holder : { WORKER, MAILBOX, READY }) {
 		CAPTURE(holder);
@@ -1410,6 +1668,127 @@ struct SlowRead {
 		}
 	}
 };
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] an abandoned in-flight read counts as cancellation without capture or payload read failures (#1483 B)") {
+	SlowRead slow; // Outlives readers even when a precondition fails.
+	Harness h;
+	slow.store = &h.store;
+	slow.released.store(true); // Let the root and sibling seed reads finish normally.
+	h.store._test_set_read_hook(&SlowRead::hook, &slow);
+	if (!h.init()) { return; }
+	h.config.atlas_pages = 3; // Root + resident sibling + in-flight child fill the atlas.
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+		FAIL("cancelled-read accounting fixture could not initialize its three-page atlas"); return;
+	}
+	h.retained_cap = h.streamer.get_retained_byte_cap();
+	h.control.hold_uploads = false;
+	if (!h.set_control()) { return; }
+	h.demand.clear();
+	for (uint32_t node : { 0u, 3u }) {
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		h.demand.push_back(wanted);
+	}
+	const auto seeded = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || (h.streamer.get_residency().state(0) == Residency::RESIDENT &&
+				h.streamer.get_residency().state(3) == Residency::RESIDENT && h.sample.jobs_in_flight == 0 &&
+				h.sample.live_reservations == 0);
+	});
+	if (!seeded.ready() || !h.observations_ok) {
+		FAIL("cancelled-read accounting requires a real resident root and sibling"); return;
+	}
+	const auto before = h.store.stats();
+	CHECK(before.captures_failed == 0);
+	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 0);
+	slow.entered.store(false);
+	slow.saw_cancel.store(false);
+	slow.deadline_usec.store(0);
+	slow.released.store(false);
+	h.demand.clear();
+	gs_hlod_runtime::DesiredRecord lower;
+	lower.node = 4;
+	h.demand.push_back(lower);
+	const auto reading = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || (slow.entered.load() && h.store.stats().reads.reading == 1 &&
+				h.sample.jobs_in_flight == 1 && h.streamer.get_residency().state(4) == Residency::LOADING);
+	});
+	if (!reading.ready() || !h.observations_ok || slow.saw_cancel.load() ||
+			OS::get_singleton()->get_ticks_usec() + 2 * 1000 * 1000 >= slow.deadline_usec.load()) {
+		FAIL("abandonment requires an uncancelled real read still held at its slice boundary"); return;
+	}
+	CHECK(h.streamer.get_residency().stats().pages_free == 0);
+	CHECK(h.streamer.get_telemetry().protected_sibling_nodes == 1);
+	h.demand.clear();
+	for (uint32_t node : { 5u, 6u, 4u }) {
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		h.demand.push_back(wanted);
+	}
+	h.step(); // Only priority arbitration may cancel the read; never call a cancel seam.
+	CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 1);
+	CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
+	CHECK(slow.saw_cancel.load());
+	slow.released.store(true);
+	h.demand.clear(); // Drain the cancelled capture without admitting another read.
+	if (!h.drain()) { return; }
+	const auto after = h.store.stats();
+	const Dictionary capture = h.store.get_telemetry("hlod");
+	CHECK(after.captures == before.captures + 1);
+	CHECK(after.reads.submitted == before.reads.submitted + 1);
+	CHECK(after.reads.cancelled_reading >= 1);
+	CHECK(int64_t(capture.get("cancellations", -1)) >= 1);
+	CHECK(after.reads.completed_failed == 0);
+	CHECK(after.captures_failed == 0);
+	CHECK(int64_t(capture.get("captures_failed", -1)) == 0);
+	CHECK(after.last_failure_reason.is_empty());
+	CHECK(String(capture.get("last_failure_reason", "missing")).is_empty());
+	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 0);
+	CHECK(h.streamer.get_residency().stats().failed_permanent_total == 0);
+	CHECK(h.bound_ok);
+	h.check_released();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] a real reader IO error still counts exactly one failed capture and payload read (#1483 B)") {
+	Harness h;
+	if (!h.init()) { return; }
+	h.demand.clear();
+	gs_hlod_runtime::DesiredRecord root;
+	root.node = 0;
+	h.demand.push_back(root);
+	// The snapshot/catalog are already open, but no service read or handle exists yet.
+	// Removing only this fixture's file injects a real reader open error, not a pack failure.
+	if (h.store.stats().reads.submitted != 0 || DirAccess::remove_absolute(h.fixture.path) != OK) {
+		FAIL("IO-error control could not remove its unread fixture payload"); return;
+	}
+	const auto failed = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || h.streamer.get_residency().state(0) == Residency::FAILED;
+	});
+	if (!failed.ready() || !h.observations_ok) {
+		FAIL("the real reader IO error never reached the streamer's failed-read path"); return;
+	}
+	h.demand.clear(); // Stop after the first failed attempt; do not exercise retry policy here.
+	if (!h.drain()) { return; }
+	const auto stats = h.store.stats();
+	const Dictionary capture = h.store.get_telemetry("hlod");
+	CHECK(stats.captures == 1);
+	CHECK(stats.reads.submitted == 1);
+	CHECK(stats.reads.completed_failed == 1);
+	CHECK(stats.captures_failed == 1);
+	CHECK(int64_t(capture.get("captures_failed", -1)) == 1);
+	CHECK(int64_t(capture.get("read_failures", -1)) == 1);
+	CHECK(int64_t(capture.get("cancellations", -1)) == 0);
+	CHECK_FALSE(stats.last_failure_reason.is_empty());
+	CHECK(stats.last_failure_reason != "v4_page_store_request_cancelled");
+	CHECK(String(capture.get("last_failure_reason", "")) == stats.last_failure_reason);
+	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 1);
+	CHECK(h.streamer.get_residency().stats().failed_permanent_total == 1);
+	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(h.bound_ok);
+	h.check_released();
+}
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels slow IO before joining and never publishes cancelled jobs") {
 	SlowRead slow; // Outlives the harness/readers, including on an early return.
