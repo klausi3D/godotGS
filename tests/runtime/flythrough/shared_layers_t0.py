@@ -521,6 +521,12 @@ def pressure_request(tree: Path) -> dict:
     return {"name": "pressure", "issue": "#1471", "atlas_setting": PRESSURE_ATLAS_SETTING,
             "atlas_override_mb": megabytes, "tree_pages": total, "requested_atlas_pages": pages,
             "atlas_fraction_band": [low, high], "drawn_budget_splats": PRESSURE_DRAWN_BUDGET_SPLATS,
+            "object_tail_setting": "rendering/gaussian_splatting/hlod/object_tail_reservation_percent",
+            "object_tail_reservation_percent": 0,
+            "object_tail_reason": (
+                "T0 has no objects and the pre-D3 base binary has no object tail. A tail carved from a "
+                "pressure atlas without headroom would make migration capacities incomparable; "
+                "the unconstrained variant keeps the shipped default."),
             "page_splats": PRESSURE_PAGE_SPLATS, "record_bytes": PRESSURE_RECORD_BYTES,
             "tree_pages_source": "V4 node directory of the prepared tree, read before any arm runs",
             "chunk_arm": {"role": "unconstrained_reference", "reason": (
@@ -602,8 +608,9 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
     plan["node"]["lod_bias"] = 1.0
     if pressure is not None:
         # #1471 pressure variant only: an existing atlas limit and the node's drawn budget,
-        # identical for every arm. Nothing else differs from the unconstrained plan.
+        # identical for every arm, with #1473's object tail disabled for comparable T0 capacities.
         plan["project_settings"][pressure["atlas_setting"]] = pressure["atlas_override_mb"]
+        plan["project_settings"][pressure["object_tail_setting"]] = pressure["object_tail_reservation_percent"]
         plan["node"]["max_splat_count"] = pressure["drawn_budget_splats"]
     request = requested_settings(plan, prepared)
     cache = prepare_cold(world)
