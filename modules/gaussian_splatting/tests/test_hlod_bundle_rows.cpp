@@ -252,6 +252,39 @@ TEST_CASE("[GaussianSplatting][HLOD] object-only asset changes fitting the fixed
 	}
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] failed instance refresh escalates to full rebuild for that asset generation (#1473)") {
+	ContractChange change;
+	change.prepared_asset_generation = 4;
+	change.asset_generation = 5;
+	change.prepared_row_generation = change.row_generation = 9;
+	change.object_pages = 1;
+	change.reserved_object_pages = 10;
+	if (hlod_contract_change_action(change).action != ContractChangeAction::INSTANCE_REGION_ONLY) {
+		FAIL("a fresh tail-fitting edit must reach the incremental refresh before its failure is recorded");
+		return;
+	}
+
+	// Model a failed refresh: the prepared generation stays stale and the retained buffers still fit.
+	change.instance_refresh_failed_asset_generation = change.asset_generation;
+	for (uint32_t retry = 0; retry < 3; ++retry) {
+		CAPTURE(retry);
+		const auto decision = hlod_contract_change_action(change);
+		CHECK_MESSAGE(decision.action == ContractChangeAction::FULL_REBUILD,
+				"a failed refresh must release/rebuild instead of indefinitely retrying with the old allocations retained");
+		CHECK(decision.reason == ContractChangeReason::INSTANCE_REFRESH_FAILED);
+	}
+
+	// Failure history belongs to the attempted asset generation, not every later edit.
+	change.asset_generation = 6;
+	const auto later = hlod_contract_change_action(change);
+	CHECK(later.action == ContractChangeAction::INSTANCE_REGION_ONLY);
+	CHECK(later.reason == ContractChangeReason::ASSETS_CHANGED);
+	change.instance_refresh_failed_asset_generation = change.asset_generation;
+	const auto later_failed = hlod_contract_change_action(change);
+	CHECK(later_failed.action == ContractChangeAction::FULL_REBUILD);
+	CHECK(later_failed.reason == ContractChangeReason::INSTANCE_REFRESH_FAILED);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] lifecycle replacement overflow and unchanged controls (#1473)") {
 	ContractChange change;
 	change.prepared_asset_generation = change.asset_generation = 4;

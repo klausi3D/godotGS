@@ -6,12 +6,14 @@
 namespace gs_hlod_bundle {
 
 enum class ContractChangeAction { ROWS_ONLY, INSTANCE_REGION_ONLY, FULL_REBUILD };
-enum class ContractChangeReason { UNCHANGED, ROWS_CHANGED, ASSETS_CHANGED, OBJECT_TAIL_OVERFLOW, WORLD_DEVICE_SOURCE_CHANGED, RESOURCES_CHANGED };
+enum class ContractChangeReason { UNCHANGED, ROWS_CHANGED, ASSETS_CHANGED, OBJECT_TAIL_OVERFLOW, WORLD_DEVICE_SOURCE_CHANGED, RESOURCES_CHANGED, INSTANCE_REFRESH_FAILED };
 
 struct ContractChange {
 	bool world_device_source_current = true;
 	bool resources_current = true;
 	uint64_t prepared_asset_generation = 0, asset_generation = 0;
+	// Zero means no failed attempt; a different asset generation may try the incremental path again.
+	uint64_t instance_refresh_failed_asset_generation = 0;
 	uint64_t prepared_row_generation = 0, row_generation = 0;
 	uint64_t object_pages = 0, reserved_object_pages = 0;
 };
