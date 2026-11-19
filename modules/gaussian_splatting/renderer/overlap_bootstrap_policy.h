@@ -79,8 +79,10 @@ inline OverlapOverflowRecoveryPlan overlap_overflow_recovery_plan(bool p_hlod_re
 struct OverlapFrameSizingInput {
 	uint32_t splat_count = 0u;
 	uint32_t effective_visible_splats = 0u;
-	// Reserved for draw-domain prediction (#1467 phase 2). Today's policy ignores this count.
 	uint32_t current_cpu_draw_domain_count = 0u;
+	// Raw demand and the CPU draw domain from the same completed COUNT/readback request.
+	uint32_t sampled_records = 0u;
+	uint32_t sampled_cpu_draw_domain_count = 0u;
 	uint32_t total_gaussians = 0u;
 	// Actual capacity AFTER any overflow recovery attempt, including a refused/failed resize.
 	uint32_t capacity = 0u;
@@ -120,6 +122,15 @@ inline OverlapFrameSizingPlan overlap_frame_sizing_plan(const OverlapFrameSizing
 		} else {
 			estimate = estimate > p_input.adaptive_overlap_floor ? estimate : p_input.adaptive_overlap_floor;
 		}
+	}
+	if (p_input.sampled_records > 0u && p_input.sampled_cpu_draw_domain_count > 0u &&
+			p_input.current_cpu_draw_domain_count > p_input.sampled_cpu_draw_domain_count) {
+		// Predict only domain growth, using the existing Q8 rate and headroom convention.
+		// Keeping today's estimate as a floor leaves unchanged/shrinking domains on their
+		// existing sizing and shrink policy. The resource owner still enforces the hard cap.
+		const uint32_t sampled_rate_q8 = overlap_records_per_splat_q8(p_input.sampled_records, p_input.sampled_cpu_draw_domain_count);
+		const uint32_t predicted = overlap_demand_estimate(p_input.current_cpu_draw_domain_count, sampled_rate_q8);
+		estimate = estimate > predicted ? estimate : predicted;
 	}
 	plan.requested_records = estimate;
 	plan.capacity = p_input.capacity > estimate ? p_input.capacity : estimate;

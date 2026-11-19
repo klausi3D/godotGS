@@ -184,6 +184,8 @@ struct PublishedInstanceAssetRemap {
 };
 
 struct InstancePipelineBuffers {
+    // Current frame metadata, refreshed after upload retirements/admission even on contract reuse.
+    uint32_t current_cpu_draw_domain_count = 0;
     bool hlod_relative = false;
     RID hlod_draw_entry_buffer;
     uint64_t hlod_source_generation = 0;

@@ -891,8 +891,9 @@ private:
 				GaussianSplatting::OverlapFrameSizingInput sizing_input;
 				sizing_input.splat_count = params.splat_count;
 				sizing_input.effective_visible_splats = effective_visible_splats;
-				// Phase 1 preserves the existing count; the resident/admitted CPU domain is wired in phase 2.
-				sizing_input.current_cpu_draw_domain_count = params.splat_count;
+				sizing_input.current_cpu_draw_domain_count = params.hlod_relative ? 0u : params.current_cpu_draw_domain_count;
+				sizing_input.sampled_records = renderer.async_readback.overflow_state.sampled_records;
+				sizing_input.sampled_cpu_draw_domain_count = renderer.async_readback.overflow_state.sampled_cpu_draw_domain_count;
 				sizing_input.total_gaussians = params.total_gaussians;
 				sizing_input.capacity = renderer.global_sort_resources.capacity;
 				sizing_input.measured_records_per_splat_q8 = renderer.global_sort_resources.measured_records_per_splat_q8;
@@ -977,6 +978,7 @@ private:
 			}
 
 			// Sync only when prefix readback/validation is enabled.
+			renderer.async_readback.overflow_state.count_cpu_draw_domain_count = sizing_input.current_cpu_draw_domain_count;
 			renderer._dispatch_tile_binning_count(params.splat_count, count_sets.buffer_uniform_set, count_sets.param_uniform_set,
 					count_sets.lighting_uniform_set,
 					uniform_device, allow_sync_readback);
@@ -1084,6 +1086,7 @@ private:
 						return false;
 					}
 
+					renderer.async_readback.overflow_state.count_cpu_draw_domain_count = sizing_input.current_cpu_draw_domain_count;
 					renderer._dispatch_tile_binning_count(params.splat_count,
 							count_sets.buffer_uniform_set, count_sets.param_uniform_set,
 							count_sets.lighting_uniform_set, uniform_device, allow_sync_readback);
@@ -1974,6 +1977,7 @@ Error TileRenderer::initialize(RenderingDevice *p_rendering_device, const Vector
 void TileRenderer::cleanup() {
 	clear_output_resource_tracking();
 	clear_adaptive_overlap_budget_runtime_state();
+	async_readback.overflow_state = TileAsyncReadback::AsyncOverflowState();
     RenderingDevice *device = _get_resource_device();
     if (device) {
         projection_buffers.release(device);

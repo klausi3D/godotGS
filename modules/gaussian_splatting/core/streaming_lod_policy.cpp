@@ -49,6 +49,30 @@ bool GaussianStreamingSystem::drawn_splat_cap_would_bind(uint64_t p_cap, const H
 	return visibility.drawn_splat_cap_would_bind(*this, p_cap, p_instance_counts);
 }
 
+uint32_t GaussianStreamingSystem::get_cpu_draw_domain_count(const HashMap<uint32_t, uint32_t> &p_instance_counts) const {
+	uint64_t domain = 0u;
+	for (uint32_t asset_id : asset_registry.atlas_asset_order) {
+		const uint32_t *instances = p_instance_counts.getptr(asset_id);
+		const AtlasAssetState *asset = _get_asset_state(asset_id);
+		if (!instances || !asset) {
+			continue;
+		}
+		for (const StreamingChunk &chunk : _get_asset_chunks(*asset)) {
+			if (!chunk.is_loaded || !chunk.gpu_resident || chunk.upload_pending || chunk.buffer_slot == UINT32_MAX) {
+				continue;
+			}
+			// GPU frustum culling is independent of CPU discovery visibility: include every
+			// possible resident emitter, using effective_count AFTER drawn-splat admission.
+			const uint64_t cost = uint64_t(chunk.effective_count) * *instances;
+			if (cost > uint64_t(UINT32_MAX) - domain) {
+				return UINT32_MAX;
+			}
+			domain += cost;
+		}
+	}
+	return uint32_t(domain);
+}
+
 void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
 		const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
 		const Transform3D &p_camera_transform, const Projection &p_projection,

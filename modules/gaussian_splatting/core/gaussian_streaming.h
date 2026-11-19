@@ -332,6 +332,8 @@ public:
     // Owner-thread checks after streaming and the original sort allocation/clamp.
     // No frustum tests or LOD writes on the non-binding path.
     bool drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts) const;
+    // Owner-thread, post-admission upper bound on this frame's resident instance draw domain.
+    uint32_t get_cpu_draw_domain_count(const HashMap<uint32_t, uint32_t> &p_instance_counts) const;
     void apply_drawn_splat_admission(uint64_t p_cap, const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
             const Transform3D &p_camera_transform, const Projection &p_projection,
             bool p_frustum_culling_enabled, float p_frustum_plane_slack);

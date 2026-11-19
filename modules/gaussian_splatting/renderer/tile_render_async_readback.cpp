@@ -12,6 +12,8 @@ void TileRenderer::TileAsyncReadback::on_overflow_flag_readback(const Vector<uin
 
     // Callback for async readback from indirect buffer (element_count onwards).
     // Layout matches IndirectDispatchLayout (element_count, overflow_flag, unclamped_total).
+    const uint32_t sampled_domain = overflow_state.requested_cpu_draw_domain_count;
+    overflow_state.requested_cpu_draw_domain_count = 0;
     overflow_state.pending_readback = false;
     overflow_state.requested_frame_serial = 0;
     if (p_data.size() < int(GaussianSplatting::kIndirectDispatchElementCountReadbackSize)) {
@@ -21,6 +23,8 @@ void TileRenderer::TileAsyncReadback::on_overflow_flag_readback(const Vector<uin
     const uint32_t *data = reinterpret_cast<const uint32_t *>(p_data.ptr());
     overflow_state.overflow_detected = (data[1] != 0);
     overflow_state.last_unclamped_total = data[2];
+    overflow_state.sampled_records = data[2];
+    overflow_state.sampled_cpu_draw_domain_count = sampled_domain;
     overflow_state.first_frame_complete = true;
 }
 

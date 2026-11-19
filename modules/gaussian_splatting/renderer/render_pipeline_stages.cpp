@@ -2460,6 +2460,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 		render_params.instance_buffer = instance_buffers.instance_buffer;
 		render_params.instance_grading_buffer = instance_buffers.instance_grading_buffer;
         render_params.hlod_relative = instance_buffers.hlod_relative;
+		render_params.current_cpu_draw_domain_count = instance_buffers.hlod_relative ? 0u : instance_buffers.current_cpu_draw_domain_count;
         render_params.hlod_draw_entry_buffer = instance_buffers.hlod_draw_entry_buffer;
         render_params.hlod_draw_list_buffer = instance_buffers.visible_chunk_buffer;
         render_params.hlod_source_generation = instance_buffers.hlod_source_generation;

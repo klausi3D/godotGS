@@ -2161,6 +2161,20 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 			upload_fingerprint = _compute_instance_pipeline_upload_fingerprint(resource_state_mut, buffers, published_remap);
 		}
 
+		// Refresh after admission AND cached-buffer restoration. This is frame metadata, not a
+		// resource fingerprint: retirement/LOD changes must be visible even when uploads are reused.
+		HashMap<uint32_t, uint32_t> draw_domain_instances;
+		if (instance_pipeline_submission_asset_ids_cache.size() == instance_pipeline_instance_cache.size()) {
+			for (uint64_t submission_id : instance_pipeline_submission_asset_ids_cache) {
+				const uint32_t asset_id = _peek_streaming_asset_slot(submission_id);
+				if (asset_id != UINT32_MAX) {
+					draw_domain_instances[asset_id]++;
+				}
+			}
+		}
+		buffers.current_cpu_draw_domain_count = streaming_system->get_cpu_draw_domain_count(draw_domain_instances);
+		renderer->instance_pipeline_buffers.current_cpu_draw_domain_count = buffers.current_cpu_draw_domain_count;
+
 		const bool atlas_ready = GaussianSplatting::InstancePipelineContract::has_atlas_buffers(buffers);
 		const bool cull_ready = GaussianSplatting::InstancePipelineContract::has_cull_buffers(buffers);
 		const bool sort_ready = GaussianSplatting::InstancePipelineContract::has_sort_buffers(buffers);
