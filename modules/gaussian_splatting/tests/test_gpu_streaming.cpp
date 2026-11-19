@@ -2263,6 +2263,108 @@ TEST_CASE("[Streaming Pipeline] Sparse chunk meta sync planning uses cached topo
 	CHECK_FALSE(diagnostics.chunk_meta_full_update);
 }
 
+TEST_CASE("[Streaming Pipeline] Unchanged admitted plan does not republish chunk metadata") {
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    GaussianStreamingSystem::ConfigOverrides overrides;
+    overrides.override_lod_config = true;
+    overrides.lod_config = LODConfig();
+    system->set_config_overrides(overrides);
+    system->initialize_empty(nullptr);
+    system->_test_atlas_allocator().reset(2);
+    LocalVector<StreamingVisibilityController::DrawInstance> instances;
+    LocalVector<uint32_t> meta_indices;
+    for (uint32_t i = 0; i < 2; i++) {
+        const uint32_t asset_id = 9070 + i;
+        system->register_asset(asset_id, create_test_gaussian_data(64));
+        auto *asset = system->_test_get_asset_state(asset_id);
+        if (!asset || system->_test_get_asset_chunks(*asset).size() != 1) {
+            FAIL("Admission fixture needs one chunk per asset");
+            return;
+        }
+        auto &chunk = system->_test_get_asset_chunks(*asset)[0];
+        if (!system->_test_atlas_allocator().allocate_slot(system->_test_make_chunk_key(asset_id, 0), 1, chunk.buffer_slot)) {
+            FAIL("Admission fixture could not reserve a resident atlas run");
+            return;
+        }
+        chunk.is_loaded = chunk.gpu_resident = true;
+        chunk.upload_pending = false;
+        chunk.current_lod_level = chunk.target_lod_level = 0;
+        chunk.effective_count = chunk.count;
+        chunk.sh_band_level = 4;
+        chunk.splat_skip_factor = 1;
+        chunk.opacity_multiplier = 1.0f;
+        chunk.center = Vector3(100.0f * i, 0, 0);
+        instances.push_back({ asset_id, Transform3D() });
+    }
+    system->_test_build_global_atlas_cpu_state();
+    for (const auto &instance : instances) {
+        meta_indices.push_back(system->_test_get_asset_state(instance.asset_id)->chunk_meta_base);
+    }
+    system->_test_clear_atlas_cpu_dirty_state();
+    const auto expect_publication = [&](uint32_t p_count, uint32_t p_changed = UINT32_MAX) {
+        CHECK_FALSE(system->_test_get_atlas_registry_dirty());
+        CHECK_FALSE(system->_test_get_chunk_meta_dirty_all());
+        CHECK(system->_test_plan_chunk_meta_sync().dirty_count == p_count);
+        const auto &dirty = system->_test_get_chunk_meta_dirty_indices();
+        CHECK(dirty.size() == p_count);
+        if (p_count == 1 && dirty.size() == 1) {
+            CHECK(dirty[0] == meta_indices[p_changed]);
+        }
+    };
+    const auto expect_counts = [&](uint32_t p_near, uint32_t p_far) {
+        const auto &meta = system->_test_get_chunk_meta_cpu();
+        if (meta.size() <= MAX(meta_indices[0], meta_indices[1])) {
+            FAIL("Admission fixture lost its chunk metadata entries");
+            return;
+        }
+        CHECK(meta[meta_indices[0]].splat_count == p_near);
+        CHECK(meta[meta_indices[1]].splat_count == p_far);
+    };
+    system->begin_frame();
+    system->_test_prepare_drawn_splat_admission(96, instances, Vector3());
+    expect_publication(1, 1);
+    expect_counts(64, 32);
+    // Model successful upload consumption, never sync_to_gpu(nullptr): that
+    // intentionally invalidates publication. Inspect its real dirty input instead.
+    system->_test_clear_atlas_cpu_dirty_state();
+    for (uint32_t frame = 0; frame < 4; frame++) {
+        CAPTURE(frame);
+        system->begin_frame();
+        // Catch the transient nominal publication before admission as well.
+        expect_publication(0);
+        system->_test_prepare_drawn_splat_admission(96, instances, Vector3());
+        expect_publication(0);
+        expect_counts(64, 32);
+        system->_test_clear_atlas_cpu_dirty_state();
+    }
+    system->begin_frame();
+    system->_test_prepare_drawn_splat_admission(80, instances, Vector3());
+    expect_publication(1, 1);
+    expect_counts(64, 16);
+    system->_test_clear_atlas_cpu_dirty_state();
+    system->begin_frame();
+    system->_test_prepare_drawn_splat_admission(80, instances, Vector3(100, 0, 0));
+    expect_publication(2);
+    expect_counts(16, 64);
+    system->_test_clear_atlas_cpu_dirty_state();
+    // Take the renderer's real non-binding decision: no admission call follows.
+    HashMap<uint32_t, uint32_t> instance_counts;
+    for (const auto &instance : instances) {
+        instance_counts[instance.asset_id]++;
+    }
+    system->begin_frame();
+    CHECK_FALSE(system->drawn_splat_cap_would_bind(128, instance_counts));
+    CHECK_FALSE(system->is_drawn_splat_admission_engaged());
+    expect_publication(1, 0);
+    expect_counts(64, 64);
+    system->_test_clear_atlas_cpu_dirty_state();
+    system->begin_frame();
+    CHECK_FALSE(system->drawn_splat_cap_would_bind(128, instance_counts));
+    expect_publication(0);
+    expect_counts(64, 64);
+}
+
 TEST_CASE("[Streaming Pipeline] Full chunk meta sync planning reports full-update diagnostics") {
 	Ref<GaussianStreamingSystem> system;
 	system.instantiate();

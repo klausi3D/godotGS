@@ -73,7 +73,7 @@ uint32_t GaussianStreamingSystem::get_cpu_draw_domain_count(const HashMap<uint32
 	return uint32_t(domain);
 }
 
-void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
+void GaussianStreamingSystem::_prepare_drawn_splat_admission(uint64_t p_cap,
 		const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
 		const Transform3D &p_camera_transform, const Projection &p_projection,
 		bool p_frustum_culling_enabled, float p_frustum_plane_slack) {
@@ -84,6 +84,14 @@ void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
 	visibility.draw_frustum_planes = p_projection.get_projection_planes(p_camera_transform);
 	visibility.update_draw_cap_lod_parameters(*this, p_camera_transform.origin);
 	visibility.draw_cap_admission_engaged = true;
+}
+
+void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
+		const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
+		const Transform3D &p_camera_transform, const Projection &p_projection,
+		bool p_frustum_culling_enabled, float p_frustum_plane_slack) {
+	_prepare_drawn_splat_admission(p_cap, p_instances, p_camera_transform, p_projection,
+			p_frustum_culling_enabled, p_frustum_plane_slack);
 	GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
 	RenderingDevice *rd = primary_device_override ? primary_device_override
 			: (last_upload_device ? last_upload_device : (manager ? manager->get_primary_rendering_device() : nullptr));

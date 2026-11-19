@@ -425,6 +425,11 @@ public:
         return global_atlas_registry.get_last_sync_diagnostics();
     }
     void _test_clear_atlas_cpu_dirty_state() { global_atlas_registry._test_clear_cpu_dirty_state(); }
+    const LocalVector<ChunkMetaGPU> &_test_get_chunk_meta_cpu() const { return global_atlas_registry.chunk_meta_cpu; }
+    void _test_prepare_drawn_splat_admission(uint64_t p_cap,
+            const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances, const Vector3 &p_camera_pos) {
+        _prepare_drawn_splat_admission(p_cap, p_instances, Transform3D(Basis(), p_camera_pos), Projection(), false, 1.0f);
+    }
     void _test_mark_chunk_meta_dirty(uint32_t asset_id, uint32_t chunk_idx) {
         global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     }
@@ -787,6 +792,9 @@ private:
             bool p_vram_regulator_allows_load);
     void _apply_config_overrides();
     const LODConfig &_get_lod_config() const;
+    void _prepare_drawn_splat_admission(uint64_t p_cap, const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
+            const Transform3D &p_camera_transform, const Projection &p_projection,
+            bool p_frustum_culling_enabled, float p_frustum_plane_slack);
     void _update_culling_config_from_project_settings();
     uint32_t _prefetch_chunks_at_predicted_position(const Vector3 &predicted_pos,
             uint32_t available_slots, uint32_t load_budget, uint32_t max_scan_budget);
