@@ -14,6 +14,9 @@ var NAVTREEINDEX0 =
 "batched__async__readback_8h_source.html":[2,0,0,0,12,2],
 "camera__cut__policy_8h.html":[2,0,0,0,12,3],
 "camera__cut__policy_8h_source.html":[2,0,0,0,12,3],
+"chunk__lod__selection_8cpp.html":[2,0,0,0,3,0],
+"chunk__lod__selection_8h.html":[2,0,0,0,3,1],
+"chunk__lod__selection_8h_source.html":[2,0,0,0,3,1],
 "classAssetDependencyManager.html":[1,0,36],
 "classAssetDependencyManager.html#a031ae8d78d65702bdde294dc60910ab6":[1,0,36,5],
 "classAssetDependencyManager.html#a0790bdb5316f16c8bdd4f93e18fe8ff8":[1,0,36,32],
@@ -246,8 +249,5 @@ var NAVTREEINDEX0 =
 "classDeviceVramLedger.html#a17f1134af3d6b64cdad848b213797251":[1,0,68,8],
 "classDeviceVramLedger.html#a3db833cb0c09d9f8e236ba62c6d1e7fd":[1,0,68,10],
 "classDeviceVramLedger.html#a43acb8799e64462db0235f2058fd2e63":[1,0,68,4],
-"classDeviceVramLedger.html#a44ed98d090b0db6220076f7e2a462800":[1,0,68,9],
-"classDeviceVramLedger.html#ab803d2b79a871de94559cb0433d0f629":[1,0,68,11],
-"classDeviceVramLedger.html#ac81b158d1b3119f68f80fb9da120c5a4":[1,0,68,13],
-"classDeviceVramLedger.html#ad017e732fc79007da46126fbeb06de57":[1,0,68,5]
+"classDeviceVramLedger.html#a44ed98d090b0db6220076f7e2a462800":[1,0,68,9]
 };

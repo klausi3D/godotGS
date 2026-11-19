@@ -18,6 +18,7 @@ var classGPUSortingPipeline =
     [ "get_depth_submission_device", "classGPUSortingPipeline.html#a4d4d1349eb22815b196615e393575d76", null ],
     [ "get_forced_sort_algorithm", "classGPUSortingPipeline.html#a35999597a5ab5f55c3b9de62fe3fdd35", null ],
     [ "get_instance_count_overflow_events", "classGPUSortingPipeline.html#a897dbfde17aa9a1d16c7de2b7ee3f2e6", null ],
+    [ "get_instance_sorter_capacity", "classGPUSortingPipeline.html#ae25aa94ed236fc94a80d5f2740b2ffc8", null ],
     [ "get_last_compute_error", "classGPUSortingPipeline.html#a234198e3a29d2f5f413e96ce704523e6", null ],
     [ "get_last_instance_visible_splat_count", "classGPUSortingPipeline.html#af6b362f2a79db394a597fadcde69637b", null ],
     [ "get_last_sort_time_ms", "classGPUSortingPipeline.html#a00ac519ed533bcfdd1cfbe94aa8c5c5f", null ],

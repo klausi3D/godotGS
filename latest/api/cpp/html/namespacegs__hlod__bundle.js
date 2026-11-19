@@ -1,12 +1,29 @@
 var namespacegs__hlod__bundle =
 [
     [ "Rows", "structgs__hlod__bundle_1_1Rows.html", "structgs__hlod__bundle_1_1Rows" ],
+    [ "ContractChange", "structgs__hlod__bundle_1_1ContractChange.html", "structgs__hlod__bundle_1_1ContractChange" ],
+    [ "ContractChangeDecision", "structgs__hlod__bundle_1_1ContractChangeDecision.html", "structgs__hlod__bundle_1_1ContractChangeDecision" ],
+    [ "ObjectTailPlacement", "structgs__hlod__bundle_1_1ObjectTailPlacement.html", "structgs__hlod__bundle_1_1ObjectTailPlacement" ],
     [ "InstanceAsset", "structgs__hlod__bundle_1_1InstanceAsset.html", "structgs__hlod__bundle_1_1InstanceAsset" ],
     [ "InstanceRegion", "structgs__hlod__bundle_1_1InstanceRegion.html", "structgs__hlod__bundle_1_1InstanceRegion" ],
     [ "OverlapWorldNeed", "structgs__hlod__bundle_1_1OverlapWorldNeed.html", "structgs__hlod__bundle_1_1OverlapWorldNeed" ],
     [ "ObjectDemand", "structgs__hlod__bundle_1_1ObjectDemand.html", "structgs__hlod__bundle_1_1ObjectDemand" ],
     [ "ObjectShare", "structgs__hlod__bundle_1_1ObjectShare.html", "structgs__hlod__bundle_1_1ObjectShare" ],
     [ "Admission", "structgs__hlod__bundle_1_1Admission.html", "structgs__hlod__bundle_1_1Admission" ],
+    [ "ContractChangeAction", "namespacegs__hlod__bundle.html#aad55d73c0176cdecd261f962d09e0bd1", [
+      [ "ROWS_ONLY", "namespacegs__hlod__bundle.html#aad55d73c0176cdecd261f962d09e0bd1a0a49f947dd3c7130f1a5b1127f5c1a43", null ],
+      [ "INSTANCE_REGION_ONLY", "namespacegs__hlod__bundle.html#aad55d73c0176cdecd261f962d09e0bd1a5576fa3be705a1c3bc7108ede7077f44", null ],
+      [ "FULL_REBUILD", "namespacegs__hlod__bundle.html#aad55d73c0176cdecd261f962d09e0bd1aeb53875742efdfa97535090442db6799", null ]
+    ] ],
+    [ "ContractChangeReason", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05d", [
+      [ "UNCHANGED", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05da46335765005ff44b1fe1e38e5d2ddfcc", null ],
+      [ "ROWS_CHANGED", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05dac09045b8431c091163c2992ff51b9ed9", null ],
+      [ "ASSETS_CHANGED", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05da5fff42bc63a97dc25b67c564a06eec64", null ],
+      [ "OBJECT_TAIL_OVERFLOW", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05dada70af4e295b96d281abb65bb44dc43b", null ],
+      [ "WORLD_DEVICE_SOURCE_CHANGED", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05da7f177ebb68b9d91c9a1e973540245ea2", null ],
+      [ "RESOURCES_CHANGED", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05da14916a41c2614189aa28b141266dd0e7", null ],
+      [ "INSTANCE_REFRESH_FAILED", "namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05da6dd97f52ea2d60c1da260665dd5b315d", null ]
+    ] ],
     [ "PreparedRows", "namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aa", [
       [ "CURRENT", "namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aaaa2770969c827f0f2910f6179418462df", null ],
       [ "REUPLOAD", "namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aaa1cf3710c6436c42d13ff716b8223defa", null ],
@@ -21,14 +38,18 @@ var namespacegs__hlod__bundle =
     [ "creation_host_staged_bytes", "namespacegs__hlod__bundle.html#af9f720af74313a654566d6ebebb0157e", null ],
     [ "dense_id_for_asset", "namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b", null ],
     [ "dense_id_for_asset", "namespacegs__hlod__bundle.html#a3b584f5a796f2a4fe8de8d645f053a13", null ],
+    [ "hlod_contract_change_action", "namespacegs__hlod__bundle.html#ac0f506feec3593adc65f3b8f7a324e6b", null ],
     [ "instance_camera_offset", "namespacegs__hlod__bundle.html#a16414fbf154011e40982799ac0ee909e", null ],
     [ "object_share_records", "namespacegs__hlod__bundle.html#ae1e3300ff5045890136755c3b4799836", null ],
     [ "object_share_records", "namespacegs__hlod__bundle.html#ac324b1e2985b776fa4f570d51fdc7ecf", null ],
     [ "object_share_splats", "namespacegs__hlod__bundle.html#aa075be9e358bd778e8257cea779900a9", null ],
+    [ "object_tail_pages", "namespacegs__hlod__bundle.html#ad66ec887a0ee65c17dd3418121fc4a2d", null ],
     [ "object_view_demand", "namespacegs__hlod__bundle.html#ad8eb870d00a05a79395ff7456515b8e0", null ],
     [ "pack_instance_rows", "namespacegs__hlod__bundle.html#a516dfc9247839f48e871303ca79883ad", null ],
     [ "pack_instance_rows", "namespacegs__hlod__bundle.html#a4e841ec1dae151d4e89b6a8394f18635", null ],
+    [ "place_object_tail", "namespacegs__hlod__bundle.html#a8c54fd38cbbaba9b9ce02489c4160d19", null ],
     [ "prepared_rows_action", "namespacegs__hlod__bundle.html#a40fc17a3d3c3e96b93d1dc87fc4a4dfc", null ],
+    [ "publish_instance_tail", "namespacegs__hlod__bundle.html#a0e3538bc81af8f0f84a3c98a96208849", null ],
     [ "relative_capacity", "namespacegs__hlod__bundle.html#a32f5ff18d83edeb33e2824e722921222", null ],
     [ "rows_refusal", "namespacegs__hlod__bundle.html#ab7e774d2969508c17424a72706b0b557", null ],
     [ "rows_refusal", "namespacegs__hlod__bundle.html#a7667be2d4b50290bc4ab701ec5885ed7", null ],

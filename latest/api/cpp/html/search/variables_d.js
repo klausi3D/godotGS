@@ -103,7 +103,7 @@ var searchData=
   ['mean_100',['mean',['../structgs__hlod_1_1CellMergeMoments.html#af866ccb38358a3369fb7b3f352f602d6',1,'gs_hlod::CellMergeMoments']]],
   ['mean_5finterval_5fms_101',['mean_interval_ms',['../structGaussianSplatPerformanceOverlay_1_1FrameClock_1_1Window.html#ac207965828ee02e7ffe6a68d4b72ae2f',1,'GaussianSplatPerformanceOverlay::FrameClock::Window']]],
   ['measured_5fexternal_5fscratch_102',['measured_external_scratch',['../structgs__world__writer_1_1WriterV4_1_1Impl.html#ab8e39f1432d6ac4c834edccd790e5478',1,'gs_world_writer::WriterV4::Impl']]],
-  ['measured_5frecords_5fper_5fsplat_5fq8_103',['measured_records_per_splat_q8',['../structGaussianSplatting_1_1TileGlobalSortResources.html#a265f17e04286a6e4a1c2b8920fd4934e',1,'GaussianSplatting::TileGlobalSortResources']]],
+  ['measured_5frecords_5fper_5fsplat_5fq8_103',['measured_records_per_splat_q8',['../structGaussianSplatting_1_1OverlapFrameSizingInput.html#a5f5169bd572a0ed497d1466e1b7d7472',1,'GaussianSplatting::OverlapFrameSizingInput::measured_records_per_splat_q8'],['../structGaussianSplatting_1_1TileGlobalSortResources.html#a265f17e04286a6e4a1c2b8920fd4934e',1,'GaussianSplatting::TileGlobalSortResources::measured_records_per_splat_q8']]],
   ['members_104',['members',['../structgs__hlod_1_1MergeScratch.html#a8810cf7ea1c906f6f57cc2abad3dfc1e',1,'gs_hlod::MergeScratch']]],
   ['memory_5fstream_105',['memory_stream',['../structGaussianRenderState_1_1StreamingState.html#ae0596f9a1bff0bd2f1423ec6b62aff09',1,'GaussianRenderState::StreamingState']]],
   ['memory_5fstream_5fstats_106',['memory_stream_stats',['../structGaussianSplatRenderer_1_1MonitorStreamingSnapshot.html#a2d010c540dcbb2b338a22d4e1805b607',1,'GaussianSplatRenderer::MonitorStreamingSnapshot']]],

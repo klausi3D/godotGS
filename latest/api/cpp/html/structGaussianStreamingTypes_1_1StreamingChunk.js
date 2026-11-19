@@ -1,5 +1,8 @@
 var structGaussianStreamingTypes_1_1StreamingChunk =
 [
+    [ "get_draw_count", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7ab23ecef43798107952800e38fa5466", null ],
+    [ "get_draw_lod", "structGaussianStreamingTypes_1_1StreamingChunk.html#a390fae78d826d556e29f76fb8240e358", null ],
+    [ "get_draw_sh_band", "structGaussianStreamingTypes_1_1StreamingChunk.html#a0c872a488f9c9f5ba62bb7dc9eefec5a", null ],
     [ "is_needed_for_view", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7fc0be96263ff74354354a5c6fa302a1", null ],
     [ "bounds", "structGaussianStreamingTypes_1_1StreamingChunk.html#a783997bd1de0e1658765dfc00e81e500", null ],
     [ "buffer_slot", "structGaussianStreamingTypes_1_1StreamingChunk.html#ab173be8b060883dd8f0359d633274ee4", null ],
@@ -7,6 +10,8 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "count", "structGaussianStreamingTypes_1_1StreamingChunk.html#a61221922fc9a3fbe9b241b695b156608", null ],
     [ "current_lod_level", "structGaussianStreamingTypes_1_1StreamingChunk.html#a62021ebb8c0690231ebc4c3021efb916", null ],
     [ "distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#a621453b28eb055296248afd7d0090972", null ],
+    [ "draw_cap_override", "structGaussianStreamingTypes_1_1StreamingChunk.html#addc8533e69b5919d2fd26f1b5380226e", null ],
+    [ "draw_cap_parameters", "structGaussianStreamingTypes_1_1StreamingChunk.html#a68dbd451342a95d5da1812d433c5f2b8", null ],
     [ "effective_count", "structGaussianStreamingTypes_1_1StreamingChunk.html#a522d08462ab228e4963e84acd6abae93", null ],
     [ "explicit_request_generation", "structGaussianStreamingTypes_1_1StreamingChunk.html#a3cca3c7191f97e558d068b3fe0d18ad4", null ],
     [ "gpu_resident", "structGaussianStreamingTypes_1_1StreamingChunk.html#a6f8dac1fc7af0d83009175d6b1f1bf7a", null ],

@@ -101,6 +101,9 @@ Collaboration diagram for GaussianStreamingTypes::StreamingChunk:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
+<tr class="memitem:a7ab23ecef43798107952800e38fa5466" id="r_a7ab23ecef43798107952800e38fa5466"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7ab23ecef43798107952800e38fa5466">get_draw_count</a> () const</td></tr>
+<tr class="memitem:a390fae78d826d556e29f76fb8240e358" id="r_a390fae78d826d556e29f76fb8240e358"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a390fae78d826d556e29f76fb8240e358">get_draw_lod</a> () const</td></tr>
+<tr class="memitem:a0c872a488f9c9f5ba62bb7dc9eefec5a" id="r_a0c872a488f9c9f5ba62bb7dc9eefec5a"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c872a488f9c9f5ba62bb7dc9eefec5a">get_draw_sh_band</a> () const</td></tr>
 <tr class="memitem:a7fc0be96263ff74354354a5c6fa302a1" id="r_a7fc0be96263ff74354354a5c6fa302a1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7fc0be96263ff74354354a5c6fa302a1">is_needed_for_view</a> () const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
@@ -141,10 +144,87 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a7525675ed0865ec85d9d9b0f40536269" id="r_a7525675ed0865ec85d9d9b0f40536269"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7525675ed0865ec85d9d9b0f40536269">splat_skip_factor</a> = 1</td></tr>
 <tr class="memitem:ab40d60d839071e51f90dd3d8728f7035" id="r_ab40d60d839071e51f90dd3d8728f7035"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab40d60d839071e51f90dd3d8728f7035">opacity_multiplier</a> = 1.0f</td></tr>
 <tr class="memitem:a522d08462ab228e4963e84acd6abae93" id="r_a522d08462ab228e4963e84acd6abae93"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a522d08462ab228e4963e84acd6abae93">effective_count</a> = 0</td></tr>
+<tr class="memitem:addc8533e69b5919d2fd26f1b5380226e" id="r_addc8533e69b5919d2fd26f1b5380226e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#addc8533e69b5919d2fd26f1b5380226e">draw_cap_override</a> = false</td></tr>
+<tr class="memitem:a68dbd451342a95d5da1812d433c5f2b8" id="r_a68dbd451342a95d5da1812d433c5f2b8"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1ChunkLODSelection.html">GaussianSplatting::ChunkLODSelection</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a68dbd451342a95d5da1812d433c5f2b8">draw_cap_parameters</a></td></tr>
 <tr class="memitem:a89ff588aabc57a1f9938e6a096ea5462" id="r_a89ff588aabc57a1f9938e6a096ea5462"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structChunkQuantizationInfo.html">ChunkQuantizationInfo</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a89ff588aabc57a1f9938e6a096ea5462">quantization</a></td></tr>
 <tr class="memitem:ab15d3a3bae8e3c5debf2e8a61d422ec1" id="r_ab15d3a3bae8e3c5debf2e8a61d422ec1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab15d3a3bae8e3c5debf2e8a61d422ec1">quantization_computed</a> = false</td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="a7ab23ecef43798107952800e38fa5466" name="a7ab23ecef43798107952800e38fa5466"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7ab23ecef43798107952800e38fa5466">&#9670;&#160;</a></span>get_draw_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianStreamingTypes::StreamingChunk::get_draw_count </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a390fae78d826d556e29f76fb8240e358" name="a390fae78d826d556e29f76fb8240e358"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a390fae78d826d556e29f76fb8240e358">&#9670;&#160;</a></span>get_draw_lod()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianStreamingTypes::StreamingChunk::get_draw_lod </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0c872a488f9c9f5ba62bb7dc9eefec5a" name="a0c872a488f9c9f5ba62bb7dc9eefec5a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0c872a488f9c9f5ba62bb7dc9eefec5a">&#9670;&#160;</a></span>get_draw_sh_band()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int GaussianStreamingTypes::StreamingChunk::get_draw_sh_band </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a7fc0be96263ff74354354a5c6fa302a1" name="a7fc0be96263ff74354354a5c6fa302a1"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a7fc0be96263ff74354354a5c6fa302a1">&#9670;&#160;</a></span>is_needed_for_view()</h2>
 
@@ -249,6 +329,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">float GaussianStreamingTypes::StreamingChunk::distance = 0.0f</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="addc8533e69b5919d2fd26f1b5380226e" name="addc8533e69b5919d2fd26f1b5380226e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#addc8533e69b5919d2fd26f1b5380226e">&#9670;&#160;</a></span>draw_cap_override</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingTypes::StreamingChunk::draw_cap_override = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a68dbd451342a95d5da1812d433c5f2b8" name="a68dbd451342a95d5da1812d433c5f2b8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a68dbd451342a95d5da1812d433c5f2b8">&#9670;&#160;</a></span>draw_cap_parameters</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1ChunkLODSelection.html">GaussianSplatting::ChunkLODSelection</a> GaussianStreamingTypes::StreamingChunk::draw_cap_parameters</td>
         </tr>
       </table>
 </div><div class="memdoc">

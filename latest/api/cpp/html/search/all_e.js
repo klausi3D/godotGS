@@ -135,7 +135,7 @@ var searchData=
   ['mean_5finterval_5fms_132',['mean_interval_ms',['../structGaussianSplatPerformanceOverlay_1_1FrameClock_1_1Window.html#ac207965828ee02e7ffe6a68d4b72ae2f',1,'GaussianSplatPerformanceOverlay::FrameClock::Window']]],
   ['measure_5fprecision_5floss_133',['measure_precision_loss',['../namespaceFloat16Utils.html#afbd8cadebbee8d40ded6edf3a4196859',1,'Float16Utils']]],
   ['measured_5fexternal_5fscratch_134',['measured_external_scratch',['../structgs__world__writer_1_1WriterV4_1_1Impl.html#ab8e39f1432d6ac4c834edccd790e5478',1,'gs_world_writer::WriterV4::Impl']]],
-  ['measured_5frecords_5fper_5fsplat_5fq8_135',['measured_records_per_splat_q8',['../structGaussianSplatting_1_1TileGlobalSortResources.html#a265f17e04286a6e4a1c2b8920fd4934e',1,'GaussianSplatting::TileGlobalSortResources']]],
+  ['measured_5frecords_5fper_5fsplat_5fq8_135',['measured_records_per_splat_q8',['../structGaussianSplatting_1_1OverlapFrameSizingInput.html#a5f5169bd572a0ed497d1466e1b7d7472',1,'GaussianSplatting::OverlapFrameSizingInput::measured_records_per_splat_q8'],['../structGaussianSplatting_1_1TileGlobalSortResources.html#a265f17e04286a6e4a1c2b8920fd4934e',1,'GaussianSplatting::TileGlobalSortResources::measured_records_per_splat_q8']]],
   ['measurement_5fcompleted_136',['measurement_completed',['../classGaussianSplatting_1_1CameraCutDetector.html#af63e916c10ab2944700fd54ec9e8917a',1,'GaussianSplatting::CameraCutDetector']]],
   ['medianvolume_137',['medianVolume',['../structspz_1_1GaussianCloud.html#a849d75973f0b0a601afa9ade6499c319',1,'spz::GaussianCloud']]],
   ['members_138',['members',['../structgs__hlod_1_1MergeScratch.html#a8810cf7ea1c906f6f57cc2abad3dfc1e',1,'gs_hlod::MergeScratch']]],

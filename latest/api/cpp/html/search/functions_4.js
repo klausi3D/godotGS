@@ -89,7 +89,8 @@ var searchData=
   ['draw_86',['draw',['../classGsSplatShadowCaster.html#a6080b5716a165a69ea9d6bb0256206b9',1,'GsSplatShadowCaster']]],
   ['drawn_87',['drawn',['../classgs__hlod__runtime_1_1ViewSet.html#a681908226c42eff83720cf25fa44614d',1,'gs_hlod_runtime::ViewSet']]],
   ['drawn_5forigin_5frevision_88',['drawn_origin_revision',['../classgs__hlod__runtime_1_1ViewSet.html#abe142284bf979410c794ffb55daac8a4',1,'gs_hlod_runtime::ViewSet']]],
-  ['draws_89',['draws',['../structgs__shadow__caster_1_1PassPlan.html#aac658765232d9ebeb0858416fdd7f877',1,'gs_shadow_caster::PassPlan']]],
-  ['dump_5fgpu_5fdebug_5fcounters_90',['dump_gpu_debug_counters',['../structTileRendererDebugStats.html#a67c0cfdb133df2c0a65801a35b152ed5',1,'TileRendererDebugStats']]],
-  ['dump_5fpipeline_5ftrace_5fto_5ffile_91',['dump_pipeline_trace_to_file',['../classGaussianSplatRenderer.html#a5b6379004903ff323b29abf7a70ca706',1,'GaussianSplatRenderer::dump_pipeline_trace_to_file()'],['../classRenderDebugStateOrchestrator.html#a1f94e8bd81383aeb58bb90ab2efac1fd',1,'RenderDebugStateOrchestrator::dump_pipeline_trace_to_file()']]]
+  ['drawn_5fsplat_5fcap_5fwould_5fbind_89',['drawn_splat_cap_would_bind',['../classGaussianStreamingSystem.html#abc5766e840375f927d91e92b29c48e8a',1,'GaussianStreamingSystem']]],
+  ['draws_90',['draws',['../structgs__shadow__caster_1_1PassPlan.html#aac658765232d9ebeb0858416fdd7f877',1,'gs_shadow_caster::PassPlan']]],
+  ['dump_5fgpu_5fdebug_5fcounters_91',['dump_gpu_debug_counters',['../structTileRendererDebugStats.html#a67c0cfdb133df2c0a65801a35b152ed5',1,'TileRendererDebugStats']]],
+  ['dump_5fpipeline_5ftrace_5fto_5ffile_92',['dump_pipeline_trace_to_file',['../classGaussianSplatRenderer.html#a5b6379004903ff323b29abf7a70ca706',1,'GaussianSplatRenderer::dump_pipeline_trace_to_file()'],['../classRenderDebugStateOrchestrator.html#a1f94e8bd81383aeb58bb90ab2efac1fd',1,'RenderDebugStateOrchestrator::dump_pipeline_trace_to_file()']]]
 ];

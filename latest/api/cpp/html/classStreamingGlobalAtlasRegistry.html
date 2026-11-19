@@ -104,7 +104,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ae613964fe3acff8cd6dd131ed3698d9e" id="r_ae613964fe3acff8cd6dd131ed3698d9e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae613964fe3acff8cd6dd131ed3698d9e">cleanup</a> (RenderingDevice *p_rd)</td></tr>
 <tr class="memitem:a2778fecb138c1779e7a24dff067e65f4" id="r_a2778fecb138c1779e7a24dff067e65f4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2778fecb138c1779e7a24dff067e65f4">mark_asset_registry_dirty</a> ()</td></tr>
 <tr class="memitem:ab46882d54cdbe284ea845c99d685c6f4" id="r_ab46882d54cdbe284ea845c99d685c6f4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab46882d54cdbe284ea845c99d685c6f4">build_cpu_state</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
-<tr class="memitem:a2b37cc1a334632ea00f8833491298440" id="r_a2b37cc1a334632ea00f8833491298440"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2b37cc1a334632ea00f8833491298440">update_chunk_meta_entry</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t asset_id, uint32_t chunk_idx)</td></tr>
+<tr class="memitem:a5c17e3a273ed2a50da2d2471bd4c7f01" id="r_a5c17e3a273ed2a50da2d2471bd4c7f01"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5c17e3a273ed2a50da2d2471bd4c7f01">update_chunk_meta_entry</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t asset_id, uint32_t chunk_idx)</td></tr>
 <tr class="memitem:a324a471de9d8d18fe31e689f17b7e7dc" id="r_a324a471de9d8d18fe31e689f17b7e7dc"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a324a471de9d8d18fe31e689f17b7e7dc">mark_chunk_meta_dirty</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t chunk_idx)</td></tr>
 <tr class="memitem:a584e18f4ecad8d7befde3df5fa915df9" id="r_a584e18f4ecad8d7befde3df5fa915df9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a584e18f4ecad8d7befde3df5fa915df9">mark_chunk_meta_dirty</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t asset_id, uint32_t chunk_idx)</td></tr>
 <tr class="memitem:a355322d3d249da491a2cf40b0b5c10d6" id="r_a355322d3d249da491a2cf40b0b5c10d6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a355322d3d249da491a2cf40b0b5c10d6">sync_to_gpu</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, RenderingDevice *p_rd)</td></tr>
@@ -415,14 +415,14 @@ Friends</h2></td></tr>
 
 </div>
 </div>
-<a id="a2b37cc1a334632ea00f8833491298440" name="a2b37cc1a334632ea00f8833491298440"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2b37cc1a334632ea00f8833491298440">&#9670;&#160;</a></span>update_chunk_meta_entry()</h2>
+<a id="a5c17e3a273ed2a50da2d2471bd4c7f01" name="a5c17e3a273ed2a50da2d2471bd4c7f01"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5c17e3a273ed2a50da2d2471bd4c7f01">&#9670;&#160;</a></span>update_chunk_meta_entry()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void StreamingGlobalAtlasRegistry::update_chunk_meta_entry </td>
+          <td class="memname">bool StreamingGlobalAtlasRegistry::update_chunk_meta_entry </td>
           <td>(</td>
           <td class="paramtype"><a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>system</em></span>, </td>
         </tr>

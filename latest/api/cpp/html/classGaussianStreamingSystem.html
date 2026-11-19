@@ -126,6 +126,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aa2657b393ce7a5fb7cf2e5c94989766a" id="r_aa2657b393ce7a5fb7cf2e5c94989766a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa2657b393ce7a5fb7cf2e5c94989766a">has_config_overrides</a> () const</td></tr>
 <tr class="memitem:a2eefefb5b5b5c4c2dad4cd1600442516" id="r_a2eefefb5b5b5c4c2dad4cd1600442516"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="#a88ab617b6312a13613cf8d99202ead4a">ConfigOverrides</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2eefefb5b5b5c4c2dad4cd1600442516">get_config_overrides</a> () const</td></tr>
 <tr class="memitem:aa0089185aeb591fc727fafc675fb30b1" id="r_aa0089185aeb591fc727fafc675fb30b1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa0089185aeb591fc727fafc675fb30b1">update_streaming</a> (const Transform3D &amp;camera_transform, const Projection &amp;projection, float frame_delta_seconds=-1.0f)</td></tr>
+<tr class="memitem:a2f0af5c352e8ca44fd86f31bb9a7fae0" id="r_a2f0af5c352e8ca44fd86f31bb9a7fae0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2f0af5c352e8ca44fd86f31bb9a7fae0">update_streaming_for_admission</a> (const Transform3D &amp;camera_transform, const Projection &amp;projection)</td></tr>
 <tr class="memitem:a27557525eb8d9d00429f9eaec4737784" id="r_a27557525eb8d9d00429f9eaec4737784"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a27557525eb8d9d00429f9eaec4737784">begin_residency_requests</a> ()</td></tr>
 <tr class="memitem:a8a43fca101e2bab12fb7af78ba148e61" id="r_a8a43fca101e2bab12fb7af78ba148e61"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8a43fca101e2bab12fb7af78ba148e61">request_chunk_residency</a> (uint32_t asset_id, uint32_t chunk_id, uint32_t lod_level)</td></tr>
 <tr class="memitem:a7a039f882997cb43eab53339365f8c60" id="r_a7a039f882997cb43eab53339365f8c60"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7a039f882997cb43eab53339365f8c60">request_asset_residency</a> (uint32_t asset_id, uint32_t lod_level)</td></tr>
@@ -162,6 +163,13 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a9bed96dbf065da5dd8ef627453180fdc" id="r_a9bed96dbf065da5dd8ef627453180fdc"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9bed96dbf065da5dd8ef627453180fdc">get_chunk_radius_multiplier</a> () const</td></tr>
 <tr class="memitem:a1a241833868171dee44a0e1142a08236" id="r_a1a241833868171dee44a0e1142a08236"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1a241833868171dee44a0e1142a08236">set_load_distance_limit</a> (float p_limit)</td></tr>
 <tr class="memitem:a3416bdefccf364f4d15d97a65fcf9320" id="r_a3416bdefccf364f4d15d97a65fcf9320"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3416bdefccf364f4d15d97a65fcf9320">get_load_distance_limit</a> () const</td></tr>
+<tr class="memitem:abc5766e840375f927d91e92b29c48e8a" id="r_abc5766e840375f927d91e92b29c48e8a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abc5766e840375f927d91e92b29c48e8a">drawn_splat_cap_would_bind</a> (uint64_t p_cap, const HashMap&lt; uint32_t, uint32_t &gt; &amp;p_instance_counts)</td></tr>
+<tr class="memitem:af70a47c595b8c395aad74b49e9c2800b" id="r_af70a47c595b8c395aad74b49e9c2800b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af70a47c595b8c395aad74b49e9c2800b">has_draw_cap_metadata</a> () const</td></tr>
+<tr class="memitem:afcd3bb422e804021490e6f37e9bb7dcb" id="r_afcd3bb422e804021490e6f37e9bb7dcb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afcd3bb422e804021490e6f37e9bb7dcb">publish_drawn_splat_metadata</a> ()</td></tr>
+<tr class="memitem:aa5396af9668b34be51c6e5644ef3eec9" id="r_aa5396af9668b34be51c6e5644ef3eec9"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa5396af9668b34be51c6e5644ef3eec9">get_cpu_draw_domain_count</a> (const HashMap&lt; uint32_t, uint32_t &gt; &amp;p_instance_counts) const</td></tr>
+<tr class="memitem:acbd12006911149e423a7be2698f74150" id="r_acbd12006911149e423a7be2698f74150"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acbd12006911149e423a7be2698f74150">apply_drawn_splat_admission</a> (uint64_t p_cap, const LocalVector&lt; <a class="el" href="structStreamingVisibilityController_1_1DrawInstance.html">StreamingVisibilityController::DrawInstance</a> &gt; &amp;p_instances, const Transform3D &amp;p_camera_transform, const Projection &amp;p_projection, bool p_frustum_culling_enabled, float p_frustum_plane_slack)</td></tr>
+<tr class="memitem:a1b4551ae1651ed8f1b4ac5195c4697db" id="r_a1b4551ae1651ed8f1b4ac5195c4697db"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b4551ae1651ed8f1b4ac5195c4697db">is_drawn_splat_admission_engaged</a> () const</td></tr>
+<tr class="memitem:a72169d191c68209537b7316d1b6b6dee" id="r_a72169d191c68209537b7316d1b6b6dee"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a72169d191c68209537b7316d1b6b6dee">get_engaged_drawn_splat_cap</a> () const</td></tr>
 <tr class="memitem:a4d4c0682345804805e7d8a7f40394a7f" id="r_a4d4c0682345804805e7d8a7f40394a7f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d4c0682345804805e7d8a7f40394a7f">reload_config_if_dirty</a> ()</td></tr>
 <tr class="memitem:a6be2c0cf4d6c2883cbc2b9fcbdf1c178" id="r_a6be2c0cf4d6c2883cbc2b9fcbdf1c178"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6be2c0cf4d6c2883cbc2b9fcbdf1c178">get_chunk_culling_stats</a> () const</td></tr>
 <tr class="memitem:a00789389cb6237850ec5c07944e8de2c" id="r_a00789389cb6237850ec5c07944e8de2c"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classVRAMBudgetRegulator.html">VRAMBudgetRegulator</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a00789389cb6237850ec5c07944e8de2c">get_vram_regulator</a> () const</td></tr>
@@ -368,6 +376,47 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="acbd12006911149e423a7be2698f74150" name="acbd12006911149e423a7be2698f74150"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acbd12006911149e423a7be2698f74150">&#9670;&#160;</a></span>apply_drawn_splat_admission()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianStreamingSystem::apply_drawn_splat_admission </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const LocalVector&lt; <a class="el" href="structStreamingVisibilityController_1_1DrawInstance.html">StreamingVisibilityController::DrawInstance</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_instances</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Transform3D &amp;</td>          <td class="paramname"><span class="paramname"><em>p_camera_transform</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Projection &amp;</td>          <td class="paramname"><span class="paramname"><em>p_projection</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_frustum_culling_enabled</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em>p_frustum_plane_slack</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a00df32a7246a4f55331bba4bdda4e62a" name="a00df32a7246a4f55331bba4bdda4e62a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a00df32a7246a4f55331bba4bdda4e62a">&#9670;&#160;</a></span>atlas_pages_for_splats()</h2>
 
@@ -493,6 +542,27 @@ Friends</h2></td></tr>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>asset_id</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abc5766e840375f927d91e92b29c48e8a" name="abc5766e840375f927d91e92b29c48e8a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abc5766e840375f927d91e92b29c48e8a">&#9670;&#160;</a></span>drawn_splat_cap_would_bind()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingSystem::drawn_splat_cap_would_bind </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const HashMap&lt; uint32_t, uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_instance_counts</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -901,6 +971,23 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="aa5396af9668b34be51c6e5644ef3eec9" name="aa5396af9668b34be51c6e5644ef3eec9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa5396af9668b34be51c6e5644ef3eec9">&#9670;&#160;</a></span>get_cpu_draw_domain_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianStreamingSystem::get_cpu_draw_domain_count </td>
+          <td>(</td>
+          <td class="paramtype">const HashMap&lt; uint32_t, uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_instance_counts</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="af2fdcb01ed22f8bb5b583d1fe74bdd76" name="af2fdcb01ed22f8bb5b583d1fe74bdd76"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#af2fdcb01ed22f8bb5b583d1fe74bdd76">&#9670;&#160;</a></span>get_dense_asset_id()</h2>
 
@@ -965,6 +1052,31 @@ Friends</h2></td></tr>
           <td> const</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a72169d191c68209537b7316d1b6b6dee" name="a72169d191c68209537b7316d1b6b6dee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a72169d191c68209537b7316d1b6b6dee">&#9670;&#160;</a></span>get_engaged_drawn_splat_cap()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianStreamingSystem::get_engaged_drawn_splat_cap </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -1780,6 +1892,31 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="af70a47c595b8c395aad74b49e9c2800b" name="af70a47c595b8c395aad74b49e9c2800b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af70a47c595b8c395aad74b49e9c2800b">&#9670;&#160;</a></span>has_draw_cap_metadata()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingSystem::has_draw_cap_metadata </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="acba0c69e1558109438775953a8d3cd53" name="acba0c69e1558109438775953a8d3cd53"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#acba0c69e1558109438775953a8d3cd53">&#9670;&#160;</a></span>initialize()</h2>
 
@@ -1871,6 +2008,31 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool GaussianStreamingSystem::is_chunk_frustum_culling_enabled </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1b4551ae1651ed8f1b4ac5195c4697db" name="a1b4551ae1651ed8f1b4ac5195c4697db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1b4551ae1651ed8f1b4ac5195c4697db">&#9670;&#160;</a></span>is_drawn_splat_admission_engaged()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingSystem::is_drawn_splat_admission_engaged </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -2068,6 +2230,23 @@ Friends</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>out_source_index</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afcd3bb422e804021490e6f37e9bb7dcb" name="afcd3bb422e804021490e6f37e9bb7dcb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afcd3bb422e804021490e6f37e9bb7dcb">&#9670;&#160;</a></span>publish_drawn_splat_metadata()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianStreamingSystem::publish_drawn_splat_metadata </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -2489,6 +2668,27 @@ Friends</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em>frame_delta_seconds</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1.0f</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2f0af5c352e8ca44fd86f31bb9a7fae0" name="a2f0af5c352e8ca44fd86f31bb9a7fae0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2f0af5c352e8ca44fd86f31bb9a7fae0">&#9670;&#160;</a></span>update_streaming_for_admission()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianStreamingSystem::update_streaming_for_admission </td>
+          <td>(</td>
+          <td class="paramtype">const Transform3D &amp;</td>          <td class="paramname"><span class="paramname"><em>camera_transform</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Projection &amp;</td>          <td class="paramname"><span class="paramname"><em>projection</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

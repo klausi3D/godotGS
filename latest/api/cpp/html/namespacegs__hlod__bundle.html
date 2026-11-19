@@ -95,6 +95,9 @@ $(function(){initNavTree('namespacegs__hlod__bundle.html','',''); });
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
 <tr class="memitem:Rows" id="r_Rows"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a></td></tr>
+<tr class="memitem:ContractChange" id="r_ContractChange"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1ContractChange.html">ContractChange</a></td></tr>
+<tr class="memitem:ContractChangeDecision" id="r_ContractChangeDecision"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1ContractChangeDecision.html">ContractChangeDecision</a></td></tr>
+<tr class="memitem:ObjectTailPlacement" id="r_ObjectTailPlacement"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1ObjectTailPlacement.html">ObjectTailPlacement</a></td></tr>
 <tr class="memitem:InstanceAsset" id="r_InstanceAsset"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1InstanceAsset.html">InstanceAsset</a></td></tr>
 <tr class="memitem:InstanceRegion" id="r_InstanceRegion"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a></td></tr>
 <tr class="memitem:OverlapWorldNeed" id="r_OverlapWorldNeed"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1OverlapWorldNeed.html">OverlapWorldNeed</a></td></tr>
@@ -108,6 +111,21 @@ Enumerations</h2></td></tr>
 , <a class="el" href="#af66c1700ac5f6460060b8b0b095067aaa1cf3710c6436c42d13ff716b8223defa">REUPLOAD</a>
 , <a class="el" href="#af66c1700ac5f6460060b8b0b095067aaac75592fa549dce0833e49b89944bf685">REBUILD</a>
  }</td></tr>
+<tr class="memitem:aad55d73c0176cdecd261f962d09e0bd1" id="r_aad55d73c0176cdecd261f962d09e0bd1"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aad55d73c0176cdecd261f962d09e0bd1">ContractChangeAction</a> { <a class="el" href="#aad55d73c0176cdecd261f962d09e0bd1a0a49f947dd3c7130f1a5b1127f5c1a43">ROWS_ONLY</a>
+, <a class="el" href="#aad55d73c0176cdecd261f962d09e0bd1a5576fa3be705a1c3bc7108ede7077f44">INSTANCE_REGION_ONLY</a>
+, <a class="el" href="#aad55d73c0176cdecd261f962d09e0bd1aeb53875742efdfa97535090442db6799">FULL_REBUILD</a>
+ }</td></tr>
+<tr class="memitem:ade33512ce6b6d854bb1b8ed4965ad05d" id="r_ade33512ce6b6d854bb1b8ed4965ad05d"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05d">ContractChangeReason</a> { <br />
+&#160;&#160;<a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05da46335765005ff44b1fe1e38e5d2ddfcc">UNCHANGED</a>
+, <a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05dac09045b8431c091163c2992ff51b9ed9">ROWS_CHANGED</a>
+, <a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05da5fff42bc63a97dc25b67c564a06eec64">ASSETS_CHANGED</a>
+, <a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05dada70af4e295b96d281abb65bb44dc43b">OBJECT_TAIL_OVERFLOW</a>
+, <br />
+&#160;&#160;<a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05da7f177ebb68b9d91c9a1e973540245ea2">WORLD_DEVICE_SOURCE_CHANGED</a>
+, <a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05da14916a41c2614189aa28b141266dd0e7">RESOURCES_CHANGED</a>
+, <a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05da6dd97f52ea2d60c1da260665dd5b315d">INSTANCE_REFRESH_FAILED</a>
+<br />
+ }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -118,6 +136,11 @@ Functions</h2></td></tr>
 <tr class="memitem:a9ecd045189c49de7045e04f9f2f4bb9d" id="r_a9ecd045189c49de7045e04f9f2f4bb9d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ecd045189c49de7045e04f9f2f4bb9d">bundle_bytes</a> (uint64_t p_node_count, uint64_t p_records, bool p_relative, bool p_quantized, uint32_t p_capacity, uint32_t p_rows)</td></tr>
 <tr class="memitem:af9f720af74313a654566d6ebebb0157e" id="r_af9f720af74313a654566d6ebebb0157e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af9f720af74313a654566d6ebebb0157e">creation_host_staged_bytes</a> (uint64_t p_bytes, bool p_has_host_payload)</td></tr>
 <tr class="memitem:a40fc17a3d3c3e96b93d1dc87fc4a4dfc" id="r_a40fc17a3d3c3e96b93d1dc87fc4a4dfc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#af66c1700ac5f6460060b8b0b095067aa">PreparedRows</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a40fc17a3d3c3e96b93d1dc87fc4a4dfc">prepared_rows_action</a> (uint64_t p_prepared_asset_generation, uint64_t p_asset_generation, uint64_t p_prepared_row_generation, uint64_t p_row_generation, uint32_t p_prepared_rows, uint32_t p_row_count)</td></tr>
+<tr class="memitem:ac0f506feec3593adc65f3b8f7a324e6b" id="r_ac0f506feec3593adc65f3b8f7a324e6b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__bundle_1_1ContractChangeDecision.html">ContractChangeDecision</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac0f506feec3593adc65f3b8f7a324e6b">hlod_contract_change_action</a> (const <a class="el" href="structgs__hlod__bundle_1_1ContractChange.html">ContractChange</a> &amp;p_change)</td></tr>
+<tr class="memitem:a0e3538bc81af8f0f84a3c98a96208849" id="r_a0e3538bc81af8f0f84a3c98a96208849"><td class="memTemplParams" colspan="2">template&lt;typename Upload, typename Commit, typename Discard, typename Teardown&gt; </td></tr>
+<tr class="memitem:a0e3538bc81af8f0f84a3c98a96208849 template"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e3538bc81af8f0f84a3c98a96208849">publish_instance_tail</a> (Upload p_upload, Commit p_commit, Discard p_discard, Teardown p_teardown)</td></tr>
+<tr class="memitem:ad66ec887a0ee65c17dd3418121fc4a2d" id="r_ad66ec887a0ee65c17dd3418121fc4a2d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad66ec887a0ee65c17dd3418121fc4a2d">object_tail_pages</a> (uint64_t p_pages, uint32_t p_percent)</td></tr>
+<tr class="memitem:a8c54fd38cbbaba9b9ce02489c4160d19" id="r_a8c54fd38cbbaba9b9ce02489c4160d19"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__bundle_1_1ObjectTailPlacement.html">ObjectTailPlacement</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8c54fd38cbbaba9b9ce02489c4160d19">place_object_tail</a> (uint64_t p_total_node_pages, uint64_t p_page_budget, uint32_t p_percent)</td></tr>
 <tr class="memitem:a3b584f5a796f2a4fe8de8d645f053a13" id="r_a3b584f5a796f2a4fe8de8d645f053a13"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3b584f5a796f2a4fe8de8d645f053a13">dense_id_for_asset</a> (uint64_t p_asset_id, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
 <tr class="memitem:a84ea7cd0bbb53ca7859883b6ba584688" id="r_a84ea7cd0bbb53ca7859883b6ba584688"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a84ea7cd0bbb53ca7859883b6ba584688">tally_rows</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;r_region)</td></tr>
 <tr class="memitem:a461196fc677f4afb6399acc8052ef838" id="r_a461196fc677f4afb6399acc8052ef838"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a461196fc677f4afb6399acc8052ef838">visible_chunk_capacity</a> (uint64_t p_node_count, bool p_relative, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
@@ -157,6 +180,64 @@ Variables</h2></td></tr>
 <tr class="memitem:a2b4edf47ebc32cbca8f264e5d690047a" id="r_a2b4edf47ebc32cbca8f264e5d690047a"><td class="memItemLeft" align="right" valign="top">constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2b4edf47ebc32cbca8f264e5d690047a">WORLD_OVERLAP_SEED_FLOOR_RECORDS</a> = uint64_t(1) &lt;&lt; 20</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Enumeration Type Documentation</h2>
+<a id="aad55d73c0176cdecd261f962d09e0bd1" name="aad55d73c0176cdecd261f962d09e0bd1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aad55d73c0176cdecd261f962d09e0bd1">&#9670;&#160;</a></span>ContractChangeAction</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum class <a class="el" href="#aad55d73c0176cdecd261f962d09e0bd1">gs_hlod_bundle::ContractChangeAction</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel strong">strong</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="aad55d73c0176cdecd261f962d09e0bd1a0a49f947dd3c7130f1a5b1127f5c1a43" name="aad55d73c0176cdecd261f962d09e0bd1a0a49f947dd3c7130f1a5b1127f5c1a43"></a>ROWS_ONLY&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="aad55d73c0176cdecd261f962d09e0bd1a5576fa3be705a1c3bc7108ede7077f44" name="aad55d73c0176cdecd261f962d09e0bd1a5576fa3be705a1c3bc7108ede7077f44"></a>INSTANCE_REGION_ONLY&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="aad55d73c0176cdecd261f962d09e0bd1aeb53875742efdfa97535090442db6799" name="aad55d73c0176cdecd261f962d09e0bd1aeb53875742efdfa97535090442db6799"></a>FULL_REBUILD&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="ade33512ce6b6d854bb1b8ed4965ad05d" name="ade33512ce6b6d854bb1b8ed4965ad05d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ade33512ce6b6d854bb1b8ed4965ad05d">&#9670;&#160;</a></span>ContractChangeReason</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum class <a class="el" href="#ade33512ce6b6d854bb1b8ed4965ad05d">gs_hlod_bundle::ContractChangeReason</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel strong">strong</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05da46335765005ff44b1fe1e38e5d2ddfcc" name="ade33512ce6b6d854bb1b8ed4965ad05da46335765005ff44b1fe1e38e5d2ddfcc"></a>UNCHANGED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05dac09045b8431c091163c2992ff51b9ed9" name="ade33512ce6b6d854bb1b8ed4965ad05dac09045b8431c091163c2992ff51b9ed9"></a>ROWS_CHANGED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05da5fff42bc63a97dc25b67c564a06eec64" name="ade33512ce6b6d854bb1b8ed4965ad05da5fff42bc63a97dc25b67c564a06eec64"></a>ASSETS_CHANGED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05dada70af4e295b96d281abb65bb44dc43b" name="ade33512ce6b6d854bb1b8ed4965ad05dada70af4e295b96d281abb65bb44dc43b"></a>OBJECT_TAIL_OVERFLOW&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05da7f177ebb68b9d91c9a1e973540245ea2" name="ade33512ce6b6d854bb1b8ed4965ad05da7f177ebb68b9d91c9a1e973540245ea2"></a>WORLD_DEVICE_SOURCE_CHANGED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05da14916a41c2614189aa28b141266dd0e7" name="ade33512ce6b6d854bb1b8ed4965ad05da14916a41c2614189aa28b141266dd0e7"></a>RESOURCES_CHANGED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ade33512ce6b6d854bb1b8ed4965ad05da6dd97f52ea2d60c1da260665dd5b315d" name="ade33512ce6b6d854bb1b8ed4965ad05da6dd97f52ea2d60c1da260665dd5b315d"></a>INSTANCE_REFRESH_FAILED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a id="af66c1700ac5f6460060b8b0b095067aa" name="af66c1700ac5f6460060b8b0b095067aa"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#af66c1700ac5f6460060b8b0b095067aa">&#9670;&#160;</a></span>PreparedRows</h2>
 
@@ -517,6 +598,31 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="ac0f506feec3593adc65f3b8f7a324e6b" name="ac0f506feec3593adc65f3b8f7a324e6b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac0f506feec3593adc65f3b8f7a324e6b">&#9670;&#160;</a></span>hlod_contract_change_action()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__hlod__bundle_1_1ContractChangeDecision.html">ContractChangeDecision</a> gs_hlod_bundle::hlod_contract_change_action </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1ContractChange.html">ContractChange</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_change</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a16414fbf154011e40982799ac0ee909e" name="a16414fbf154011e40982799ac0ee909e"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a16414fbf154011e40982799ac0ee909e">&#9670;&#160;</a></span>instance_camera_offset()</h2>
 
@@ -629,6 +735,35 @@ Variables</h2></td></tr>
           <td>(</td>
           <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad66ec887a0ee65c17dd3418121fc4a2d" name="ad66ec887a0ee65c17dd3418121fc4a2d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad66ec887a0ee65c17dd3418121fc4a2d">&#9670;&#160;</a></span>object_tail_pages()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::object_tail_pages </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_pages</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_percent</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -772,6 +907,40 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a8c54fd38cbbaba9b9ce02489c4160d19" name="a8c54fd38cbbaba9b9ce02489c4160d19"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8c54fd38cbbaba9b9ce02489c4160d19">&#9670;&#160;</a></span>place_object_tail()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__hlod__bundle_1_1ObjectTailPlacement.html">ObjectTailPlacement</a> gs_hlod_bundle::place_object_tail </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_total_node_pages</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_page_budget</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_percent</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a40fc17a3d3c3e96b93d1dc87fc4a4dfc" name="a40fc17a3d3c3e96b93d1dc87fc4a4dfc"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a40fc17a3d3c3e96b93d1dc87fc4a4dfc">&#9670;&#160;</a></span>prepared_rows_action()</h2>
 
@@ -817,6 +986,39 @@ Variables</h2></td></tr>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0e3538bc81af8f0f84a3c98a96208849" name="a0e3538bc81af8f0f84a3c98a96208849"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0e3538bc81af8f0f84a3c98a96208849">&#9670;&#160;</a></span>publish_instance_tail()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename Upload, typename Commit, typename Discard, typename Teardown&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_bundle::publish_instance_tail </td>
+          <td>(</td>
+          <td class="paramtype">Upload</td>          <td class="paramname"><span class="paramname"><em>p_upload</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Commit</td>          <td class="paramname"><span class="paramname"><em>p_commit</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Discard</td>          <td class="paramname"><span class="paramname"><em>p_discard</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Teardown</td>          <td class="paramname"><span class="paramname"><em>p_teardown</em></span>&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

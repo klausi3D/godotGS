@@ -7,6 +7,7 @@ var structGaussianRenderPipeline_1_1InstancePipelineBuffers =
     [ "chunk_dispatch_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ad31b561ebc4f6362ced01ea10e7b3c53", null ],
     [ "chunk_meta_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ac0910c7653e0c51cbf45821c05c17d30", null ],
     [ "counter_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a8a4a6099dea18547e03410e7afcc8722", null ],
+    [ "current_cpu_draw_domain_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ad5a95714d079186a0dbdba7b14fb9785", null ],
     [ "dispatch_chunk_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a165a549031d6c0bc8574f87141071371", null ],
     [ "hlod_content_generation", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a7d1e352a6ca8364abfef93ad2df27780", null ],
     [ "hlod_draw_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30", null ],

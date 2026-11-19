@@ -28,6 +28,7 @@ var searchData=
   ['devicestate_25',['DeviceState',['../structGaussianRenderFacadeState_1_1DeviceState.html',1,'GaussianRenderFacadeState']]],
   ['devicevramledger_26',['DeviceVramLedger',['../classDeviceVramLedger.html',1,'']]],
   ['diagnosticsstate_27',['DiagnosticsState',['../structGaussianRenderFrame_1_1DiagnosticsState.html',1,'GaussianRenderFrame::DiagnosticsState'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html',1,'GaussianStreamingTypes::DiagnosticsState']]],
-  ['drawnnodegpu_28',['DrawnNodeGPU',['../structDrawnNodeGPU.html',1,'']]],
-  ['drawrecord_29',['DrawRecord',['../structgs__hlod__runtime_1_1DrawRecord.html',1,'gs_hlod_runtime']]]
+  ['drawinstance_28',['DrawInstance',['../structStreamingVisibilityController_1_1DrawInstance.html',1,'StreamingVisibilityController']]],
+  ['drawnnodegpu_29',['DrawnNodeGPU',['../structDrawnNodeGPU.html',1,'']]],
+  ['drawrecord_30',['DrawRecord',['../structgs__hlod__runtime_1_1DrawRecord.html',1,'gs_hlod_runtime']]]
 ];

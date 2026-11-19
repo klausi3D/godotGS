@@ -17,5 +17,6 @@ var searchData=
   ['not_5fadmitted_14',['NOT_ADMITTED',['../classgs__hlod__runtime_1_1ViewSet.html#a06d5685034fdcb3ae0ca9d9de819ba5fa0f648c2726a479c890b239670723dd9e',1,'gs_hlod_runtime::ViewSet']]],
   ['not_5fattempted_15',['NOT_ATTEMPTED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a44351b1ee085a81f2c6fe6fb26d6e379',1,'GaussianSplatting']]],
   ['not_5fdirectional_16',['NOT_DIRECTIONAL',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a3ecd9e034c6d3232eb10f6bfa13195a9',1,'gs_shadow_caster']]],
-  ['not_5fsubmitted_17',['NOT_SUBMITTED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9ae8febcf6d969e4bd372c3ff45caef9e1',1,'GaussianSplatting']]]
+  ['not_5fsubmitted_17',['NOT_SUBMITTED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9ae8febcf6d969e4bd372c3ff45caef9e1',1,'GaussianSplatting']]],
+  ['not_5fvisible_18',['NOT_VISIBLE',['../namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785a98d676443126a0ffacaf307d669093a2',1,'GaussianSplatting']]]
 ];

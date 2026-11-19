@@ -1,5 +1,11 @@
 var NAVTREEINDEX7 =
 {
+"classGaussianSplatSceneDirector.html#a4f80683e3fa4efb9d6bbfd03a7057eb0":[1,0,107,44],
+"classGaussianSplatSceneDirector.html#a4f8530c78df1fcdefe8dd0a8881e6eaa":[1,0,107,48],
+"classGaussianSplatSceneDirector.html#a546e1349e92792a1cbc6e4e7fa5c5486":[1,0,107,23],
+"classGaussianSplatSceneDirector.html#a557bbb32e424f3789ec688ec11a3f85a":[1,0,107,56],
+"classGaussianSplatSceneDirector.html#a5670cbca46851dc2890c3c2bc8634fee":[1,0,107,71],
+"classGaussianSplatSceneDirector.html#a5c03a8a51ab8cc7350b3896d64aa86c0":[1,0,107,32],
 "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3":[1,0,107,17],
 "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c":[1,0,107,17,1],
 "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187":[1,0,107,17,0],
@@ -217,12 +223,12 @@ var NAVTREEINDEX7 =
 "classGaussianSplattingPerformanceMonitors.html#adc6e27db7451ca9c781b1913479e3efc":[1,0,109,1],
 "classGaussianSplattingPerformanceMonitors.html#aecdac0c477913bf04b1e2d7f0f0054ea":[1,0,109,2],
 "classGaussianSplattingPerformanceMonitors.html#af59edc5c79f38438cc17bd172f650972":[1,0,109,8],
-"classGaussianSplatting_1_1CameraCutDetector.html":[0,0,12,25],
-"classGaussianSplatting_1_1CameraCutDetector.html":[1,0,9,24],
-"classGaussianSplatting_1_1CameraCutDetector.html#a2d31229056ffc60e155d3ceae580f087":[0,0,12,25,1],
-"classGaussianSplatting_1_1CameraCutDetector.html#a2d31229056ffc60e155d3ceae580f087":[1,0,9,24,1],
-"classGaussianSplatting_1_1CameraCutDetector.html#af63e916c10ab2944700fd54ec9e8917a":[0,0,12,25,0],
-"classGaussianSplatting_1_1CameraCutDetector.html#af63e916c10ab2944700fd54ec9e8917a":[1,0,9,24,0],
+"classGaussianSplatting_1_1CameraCutDetector.html":[0,0,12,28],
+"classGaussianSplatting_1_1CameraCutDetector.html":[1,0,9,27],
+"classGaussianSplatting_1_1CameraCutDetector.html#a2d31229056ffc60e155d3ceae580f087":[0,0,12,28,1],
+"classGaussianSplatting_1_1CameraCutDetector.html#a2d31229056ffc60e155d3ceae580f087":[1,0,9,27,1],
+"classGaussianSplatting_1_1CameraCutDetector.html#af63e916c10ab2944700fd54ec9e8917a":[0,0,12,28,0],
+"classGaussianSplatting_1_1CameraCutDetector.html#af63e916c10ab2944700fd54ec9e8917a":[1,0,9,27,0],
 "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html":[0,0,12,0,6],
 "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html":[1,0,9,0,6],
 "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html#a57a62158cad5c1ad43b8a272c3e57efc":[0,0,12,0,6,4],
@@ -243,11 +249,5 @@ var NAVTREEINDEX7 =
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0490847cc87604677bf65a94c2f3e51e":[1,0,9,5,1],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0b06919bb2c0a770be6472a2e5f7b497":[0,0,12,6,24],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0b06919bb2c0a770be6472a2e5f7b497":[1,0,9,5,24],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1607b898fab77ff459ceb5a5b74f3a7e":[0,0,12,6,48],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1607b898fab77ff459ceb5a5b74f3a7e":[1,0,9,5,48],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a174d2540a67dee9c29346b40d04fec08":[0,0,12,6,31],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a174d2540a67dee9c29346b40d04fec08":[1,0,9,5,31],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a19fab6622c574d79a5e102e4f9c9a10f":[0,0,12,6,17],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a19fab6622c574d79a5e102e4f9c9a10f":[1,0,9,5,17],
-"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1d5e1e6b7013309bd17c97f0b21cbf80":[0,0,12,6,2]
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1607b898fab77ff459ceb5a5b74f3a7e":[0,0,12,6,48]
 };

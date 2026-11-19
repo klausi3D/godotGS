@@ -15,6 +15,6 @@ var classStreamingGlobalAtlasRegistry =
     [ "mark_chunk_meta_dirty", "classStreamingGlobalAtlasRegistry.html#a584e18f4ecad8d7befde3df5fa915df9", null ],
     [ "mark_chunk_meta_dirty", "classStreamingGlobalAtlasRegistry.html#a324a471de9d8d18fe31e689f17b7e7dc", null ],
     [ "sync_to_gpu", "classStreamingGlobalAtlasRegistry.html#a355322d3d249da491a2cf40b0b5c10d6", null ],
-    [ "update_chunk_meta_entry", "classStreamingGlobalAtlasRegistry.html#a2b37cc1a334632ea00f8833491298440", null ],
+    [ "update_chunk_meta_entry", "classStreamingGlobalAtlasRegistry.html#a5c17e3a273ed2a50da2d2471bd4c7f01", null ],
     [ "GaussianStreamingSystem", "classStreamingGlobalAtlasRegistry.html#ab8502788321cd608deaf44e722b1ff02", null ]
 ];

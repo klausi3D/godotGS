@@ -1,5 +1,6 @@
 var classStreamingVisibilityController =
 [
+    [ "DrawInstance", "structStreamingVisibilityController_1_1DrawInstance.html", "structStreamingVisibilityController_1_1DrawInstance" ],
     [ "ChunkCullingStats", "structStreamingVisibilityController_1_1ChunkCullingStats.html", "structStreamingVisibilityController_1_1ChunkCullingStats" ],
     [ "CameraVelocityTracker", "structStreamingVisibilityController_1_1CameraVelocityTracker.html", "structStreamingVisibilityController_1_1CameraVelocityTracker" ],
     [ "ZeroVisibleRecoveryState", "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html", "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState" ],

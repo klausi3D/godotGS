@@ -12,6 +12,7 @@ var structGaussianSplatting_1_1TileRenderParams =
     [ "color_grading", "structGaussianSplatting_1_1TileRenderParams.html#a3eb68b6a1daf06dc108fba8388b1160f", null ],
     [ "compute_raster_policy", "structGaussianSplatting_1_1TileRenderParams.html#a01c8e5e13716df2998e46b80dc54ad55", null ],
     [ "cull_far_tolerance", "structGaussianSplatting_1_1TileRenderParams.html#a7560858e4ce72b1ca7111ff8e4e0d16c", null ],
+    [ "current_cpu_draw_domain_count", "structGaussianSplatting_1_1TileRenderParams.html#a3b55efc209dbbc4f1d4b0fec57cebb33", null ],
     [ "debug_dump_gpu_counters", "structGaussianSplatting_1_1TileRenderParams.html#abcb260a03043abb8cc1b81dc6c6eb5f2", null ],
     [ "debug_enable_gpu_counter_logs", "structGaussianSplatting_1_1TileRenderParams.html#aa9206909590487b10eb78711a56593f5", null ],
     [ "debug_enable_splat_audit", "structGaussianSplatting_1_1TileRenderParams.html#a0f4a650ba1dd8ce638e02ef3392a782b", null ],

@@ -1,5 +1,9 @@
 var NAVTREEINDEX3 =
 {
+"classGaussianSplatContainer.html#ad7fab994b681d514adbac0b7fdc337d0":[1,0,84,10],
+"classGaussianSplatContainer.html#add21875665643de5e438f2858be2512c":[1,0,84,0],
+"classGaussianSplatContainer.html#add2f5ba889beeb3e95e9f8833c571b7a":[1,0,84,22],
+"classGaussianSplatContainer.html#afa390d51c95225195d1705fba2c6bf96":[1,0,84,18],
 "classGaussianSplatDebugHUD.html":[1,0,85],
 "classGaussianSplatDebugHUD.html#a078cc51b16d9b0b887a302ef22c85739":[1,0,85,8],
 "classGaussianSplatDebugHUD.html#a08bb2d3d0ef60e7397b8c632a4bcf44b":[1,0,85,14],
@@ -245,9 +249,5 @@ var NAVTREEINDEX3 =
 "classGaussianSplatNode3D.html#ac3bbe18a568c76b1dfafb7096c2d9093":[1,0,98,127],
 "classGaussianSplatNode3D.html#ac461e0eacc0cb67a3e27191e41f246b4":[1,0,98,42],
 "classGaussianSplatNode3D.html#ac4c63f6f9297817d0131e6be600ea910":[1,0,98,4],
-"classGaussianSplatNode3D.html#ac69e59b9d047c0d1c9b2e5caef1d59c2":[1,0,98,121],
-"classGaussianSplatNode3D.html#ac707db09e41067913d605004fe0fa42f":[1,0,98,54],
-"classGaussianSplatNode3D.html#ac838c6c277911c0136e04e52896616d4":[1,0,98,109],
-"classGaussianSplatNode3D.html#acbc2d9c1b9be00a893fab9f225cd8e8b":[1,0,98,45],
-"classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0":[1,0,98,112]
+"classGaussianSplatNode3D.html#ac69e59b9d047c0d1c9b2e5caef1d59c2":[1,0,98,121]
 };
