@@ -1091,6 +1091,214 @@ class ComparisonContract(unittest.TestCase):
                     base["payload_behavior"]["native_payload"]["hlod_stream_payload_read_failures_total"] = 1
                     self.assert_verdict("UNUSABLE", "payload_failure")
 
+    def use_residency_pass_endpoints_1474(self):
+        """Construct endpoint arithmetic scenarios from captured native observations.
+
+        These are NEW comparison-owned policy inputs, not captured pass boundaries
+        or an invented probe-output fixture. Reuse make_experiment's captures and
+        the actual payload_behavior producer for each snapshot. The new envelope is
+        payload_behavior.residency_pass_endpoints: pass_index + start/end snapshots.
+        Offsets, gaps and digest-map subsets below are deliberate numeric mutations;
+        they cannot certify runtime residency. The checked-in captures stay intact.
+        """
+        counters = {
+            "evicted": "hlod_stream_evicted_total",
+            "skipped_groups": "hlod_stream_skipped_groups_total",
+            "cancelled": "hlod_stream_cancelled_total",
+            "payload_reads": "hlod_stream_payload_reads_total",
+            "bytes_read": "hlod_stream_payload_bytes_read_total",
+        }
+        expected = {}
+        for name, arm in self.experiment["migration"]["arms"].items():
+            captured = self.migration_capture["arms"][name]["final_render_stats"]
+            seed = self.hlod_capture["completed"]
+            step = {key: captured.get(key, seed[key]) for key in counters.values()}
+            # Exercise a positive skip delta as well as the separately tested zero.
+            step[counters["skipped_groups"]] += captured[counters["cancelled"]]
+            digests = self.content_capture["migration"]["arms"][name]["payload_behavior"]["content_digests"]
+
+            def snapshot(pass_index, *, end, distinct):
+                result = copy.deepcopy(self.result)
+                stats = copy.deepcopy(captured)
+                for key in counters.values():
+                    start = seed[key] + (3 * pass_index + 1) * step[key]
+                    stats[key] = start + ((pass_index + 1) * step[key] if end else 0)
+                result.update(route="hlod", final_render_stats=stats,
+                              payload_telemetry={"content_digests": (
+                                  dict(list(digests.items())[:distinct]) if digests is not None else None)})
+                behavior = shared.payload_behavior(result, None)
+                return {key: behavior[key] for key in ("native_payload", "content_digests")}
+
+            endpoints, rows = [], []
+            for index, (before, after) in enumerate(((10, 50), (80, 100))):
+                endpoints.append({"pass_index": index,
+                                  "start": snapshot(index, end=False, distinct=before),
+                                  "end": snapshot(index, end=True, distinct=after)})
+                values = {metric: (index + 1) * step[key] for metric, key in counters.items()}
+                values["excess_read_proxy"] = (values["payload_reads"] - (after - before)
+                                                if digests is not None else None)
+                rows.append(values)
+            arm["payload_behavior"]["residency_pass_endpoints"] = endpoints
+            expected[name] = rows
+        return counters, expected
+
+    def residency_rows_1474(self, report, name):
+        rows = report["migration_observations"]["residency_by_pass"][name]
+        self.assertEqual([row["pass_index"] for row in rows], [0, 1])
+        return rows
+
+    def assert_unmeasured_residency_1474(self, value):
+        self.assertIs(value["measured"], False)
+        self.assertIsNone(value["value"])
+        self.assertTrue(value["reason"].strip(), "absence needs an explanation, not a zero")
+
+    def test_1474_residency_deltas_use_each_pass_start_and_end(self):
+        _, expected = self.use_residency_pass_endpoints_1474()
+        report = self.assert_verdict("VALID")
+        for name, values in expected.items():
+            for row, wanted in zip(self.residency_rows_1474(report, name), values):
+                for metric, value in wanted.items():
+                    with self.subTest(arm=name, pass_index=row["pass_index"], metric=metric):
+                        if value is None:
+                            self.assert_unmeasured_residency_1474(row[metric])
+                        else:
+                            self.assertIs(row[metric]["measured"], True)
+                            self.assertEqual(row[metric]["value"], value)
+
+    def test_1474_absent_pass_endpoints_are_not_measured_even_with_aggregate_work(self):
+        # The unmodified builders have real aggregate work and checkpoint counts,
+        # but no pass boundaries. Neither source may stand in for those boundaries.
+        report = self.assert_verdict("VALID")
+        for name in ("base", "candidate"):
+            for row in self.residency_rows_1474(report, name):
+                for metric in ("evicted", "skipped_groups", "cancelled", "payload_reads",
+                               "bytes_read", "excess_read_proxy"):
+                    self.assert_unmeasured_residency_1474(row[metric])
+
+    def test_1474_identical_endpoints_are_measured_zero_including_the_proxy(self):
+        counters, _ = self.use_residency_pass_endpoints_1474()
+        for arm in self.experiment["migration"]["arms"].values():
+            for entry in arm["payload_behavior"]["residency_pass_endpoints"]:
+                entry["end"] = copy.deepcopy(entry["start"])
+        report = self.assert_verdict("VALID")
+        for name in ("base", "candidate"):
+            for row in self.residency_rows_1474(report, name):
+                for metric in counters:
+                    self.assertIs(row[metric]["measured"], True)
+                    self.assertEqual(row[metric]["value"], 0)
+                if name == "candidate":
+                    self.assertIs(row["excess_read_proxy"]["measured"], True)
+                    self.assertEqual(row["excess_read_proxy"]["value"], 0)
+                else:
+                    self.assert_unmeasured_residency_1474(row["excess_read_proxy"])
+
+    def test_1474_missing_one_endpoint_counter_or_digest_is_not_zero(self):
+        counters, expected = self.use_residency_pass_endpoints_1474()
+        for arm in self.experiment["migration"]["arms"].values():
+            cold = arm["payload_behavior"]["residency_pass_endpoints"][0]
+            for index, key in enumerate(counters.values()):
+                cold["start" if index % 2 else "end"]["native_payload"].pop(key)
+            cold["end"].pop("content_digests")
+        report = self.assert_verdict("VALID")
+        for name in ("base", "candidate"):
+            cold, repeat = self.residency_rows_1474(report, name)
+            for metric in (*counters, "excess_read_proxy"):
+                self.assert_unmeasured_residency_1474(cold[metric])
+            for metric in counters:
+                self.assertIs(repeat[metric]["measured"], True)
+                self.assertEqual(repeat[metric]["value"], expected[name][1][metric])
+
+    def test_1474_absent_digest_endpoint_does_not_hide_measured_reads(self):
+        _, expected = self.use_residency_pass_endpoints_1474()
+        candidate = self.experiment["migration"]["arms"]["candidate"]["payload_behavior"]
+        candidate["residency_pass_endpoints"][0]["start"].pop("content_digests")
+        candidate["residency_pass_endpoints"][1]["end"].pop("content_digests")
+        report = self.assert_verdict("VALID")
+        for row, wanted in zip(self.residency_rows_1474(report, "candidate"), expected["candidate"]):
+            self.assertIs(row["payload_reads"]["measured"], True)
+            self.assertEqual(row["payload_reads"]["value"], wanted["payload_reads"])
+            self.assert_unmeasured_residency_1474(row["excess_read_proxy"])
+
+    def test_1474_cli_writes_residency_observations_to_json_and_markdown(self):
+        _, expected = self.use_residency_pass_endpoints_1474()
+        source = self.tmp / "residency-experiment.json"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        out = self.tmp / "residency-comparison"
+        self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out)]), 0)
+        report = json.loads((out / "comparison.json").read_text(encoding="utf-8"))
+        markdown = (out / "comparison.md").read_text(encoding="utf-8")
+        for name in ("base", "candidate"):
+            for row, wanted in zip(self.residency_rows_1474(report, name), expected[name]):
+                cells = [str(wanted[key]) if wanted[key] is not None else
+                         "not measured: " + row[key]["reason"] for key in wanted]
+                self.assertIn(f"| {name} | {row['pass_index']} | " + " | ".join(cells) + " |", markdown)
+
+    def test_1474_markdown_explains_report_only_residency_and_absence(self):
+        markdown = driver.render_markdown(self.assert_verdict("VALID"))
+        header = ("| Arm | Pass | Evicted | Skipped groups | Cancelled | Payload reads | "
+                  "Bytes read | Excess-read proxy |")
+        self.assertTrue(header in markdown, "per-pass residency Markdown table is absent")
+        self.assertGreater(markdown.index(header), markdown.index("Aggregate payload work"))
+        self.assertIn("An unconstrained repeat should predominantly reuse residency; additional evictions "
+                      "and rereads warrant investigation. Pressure runs are compared at identical constraints. "
+                      "These observations do not affect the verdict.", markdown)
+        for name in ("base", "candidate"):
+            for index in (0, 1):
+                line = next(line for line in markdown.splitlines() if line.startswith(f"| {name} | {index} |"))
+                self.assertEqual(line.count("not measured:"), 6)
+
+    def test_1474_residency_has_no_route_to_change_verdict_or_reason_bytes(self):
+        def verdict_bytes(report):
+            return json.dumps({key: report[key] for key in ("verdict", "reasons", "exit_code", "control_verdict")},
+                              sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+        for variant in ("unconstrained", "pressure"):
+            for verdict in ("VALID", "UNUSABLE", "NOT_RUN"):
+                with self.scenario(variant=variant, verdict=verdict):
+                    if variant == "pressure":
+                        self.use_pressure_policy()
+                    if verdict == "UNUSABLE":
+                        self.arm()["observed"]["exit_code"] = 91
+                    elif verdict == "NOT_RUN":
+                        self.arm()["execution"] = "NOT_RUN"
+                    baseline = self.assert_verdict(verdict)
+                    baseline_bytes = verdict_bytes(baseline)
+                    source = self.tmp / "residency-property.json"
+                    out = self.tmp / "residency-property-report"
+                    source.write_text(json.dumps(self.experiment), encoding="utf-8")
+                    self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out),
+                                                  "--variant", variant]), baseline["exit_code"])
+                    without = json.loads((out / "comparison.json").read_text(encoding="utf-8"))
+                    self.assertEqual(verdict_bytes(without), baseline_bytes)
+                    counters, _ = self.use_residency_pass_endpoints_1474()
+                    measured = copy.deepcopy(self.experiment)
+                    for state in ("measured", "zero", "large", "missing", "malformed"):
+                        with self.subTest(state=state):
+                            changed = copy.deepcopy(measured)
+                            for arm in changed["migration"]["arms"].values():
+                                behavior = arm["payload_behavior"]
+                                for entry in behavior["residency_pass_endpoints"]:
+                                    if state == "zero":
+                                        entry["end"] = copy.deepcopy(entry["start"])
+                                    elif state == "large":
+                                        for key in counters.values():
+                                            entry["end"]["native_payload"][key] += 10**12
+                                    elif state == "missing":
+                                        entry.pop("start")
+                                if state == "malformed":
+                                    behavior["residency_pass_endpoints"] = {"verdict": "UNUSABLE", "reasons": ["diagnostic only"]}
+                            report = driver.compare(changed)
+                            self.assertEqual(verdict_bytes(report), baseline_bytes)
+                            # Require the new observation to be wired, rather than
+                            # letting a comparator that ignores every input pass.
+                            self.assertTrue("residency_by_pass" in report["migration_observations"],
+                                            "report-only residency observation is absent")
+                            source.write_text(json.dumps(changed), encoding="utf-8")
+                            self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out),
+                                                          "--variant", variant]), baseline["exit_code"])
+                            written = json.loads((out / "comparison.json").read_text(encoding="utf-8"))
+                            self.assertEqual(verdict_bytes(written), baseline_bytes)
+
     def use_real_migration_observations(self):
         for name, arm in self.experiment["migration"]["arms"].items():
             native = self.migration_capture["arms"][name]

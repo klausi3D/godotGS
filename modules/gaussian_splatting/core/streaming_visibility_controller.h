@@ -1,12 +1,14 @@
 #ifndef STREAMING_VISIBILITY_CONTROLLER_H
 #define STREAMING_VISIBILITY_CONTROLLER_H
 
+#include "chunk_lod_selection.h"
 #include "core/math/aabb.h"
 #include "core/math/math_funcs.h"
 #include "core/math/plane.h"
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector3.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/vector.h"
 #include "streaming_vram_regulator.h"
@@ -54,6 +56,11 @@ class StreamingVisibilityController {
     friend class GaussianStreamingSystem;
 
 public:
+    struct DrawInstance {
+        uint32_t asset_id = 0; // Streaming registry identity, not the dense GPU id.
+        Transform3D transform;
+    };
+
     struct ChunkCullingStats {
         uint32_t total_chunks = 0;
         uint32_t visible_chunks = 0;
@@ -146,6 +153,10 @@ private:
     void append_lod_worklist(const LocalVector<uint32_t> &chunk_indices, uint32_t chunk_count);
     bool lod_parameter_config_matches(const LODConfig &lod_config) const;
     void remember_lod_parameter_config(const LODConfig &lod_config, uint32_t chunk_count);
+    bool drawn_splat_cap_would_bind(const GaussianStreamingSystem &system, uint64_t cap,
+            const HashMap<uint32_t, uint32_t> &instance_counts) const;
+    void restore_draw_cap_lod_parameters(GaussianStreamingSystem &system, bool p_publish_nominal = false);
+    void update_draw_cap_lod_parameters(GaussianStreamingSystem &system, const Vector3 &camera_pos);
     bool lod_blend_config_matches() const;
     void remember_lod_blend_config(uint32_t chunk_count);
 
@@ -171,11 +182,34 @@ private:
     float current_lod_blend_factor = 1.0f;
     int global_sh_band_level = 4;
     uint32_t lod_transitions_this_frame = 0;
+    // Render/streaming owner thread only, like the LOD worklists below.
+    uint64_t effective_drawn_splat_cap = UINT64_MAX;
+    bool draw_cap_admission_engaged = false;
+    bool draw_cap_metadata_active = false;
+    LocalVector<DrawInstance> draw_instances;
+    bool draw_frustum_culling_enabled = true;
+    float draw_frustum_plane_slack = 1.0f;
+    Vector<Plane> draw_frustum_planes;
+    uint32_t draw_cap_coarsened_chunks_this_frame = 0;
+    uint32_t draw_cap_refused_chunks_this_frame = 0;
+    uint64_t draw_cap_coarsened_chunks_total = 0;
+    uint64_t draw_cap_refused_chunks_total = 0;
+    uint64_t draw_cap_admission_cpu_usec_this_frame = 0;
+    uint64_t draw_cap_admission_cpu_usec_total = 0;
     uint32_t prev_visible_count = 0;
     bool visibility_flags_initialized = false;
     uint32_t visibility_flags_chunk_count = 0;
     LocalVector<uint32_t> lod_worklist_indices;
     LocalVector<uint32_t> lod_worklist_marks;
+    LocalVector<GaussianSplatting::ChunkLODCandidate> lod_selection_candidates;
+    GaussianSplatting::ChunkLODPlan lod_selection_plan;
+    LocalVector<GaussianSplatting::ChunkLODCandidate> draw_cap_candidates;
+    GaussianSplatting::ChunkLODPlan draw_cap_plan;
+    struct ChunkLODTarget {
+        uint32_t asset_id = 0;
+        uint32_t chunk_idx = 0;
+    };
+    LocalVector<ChunkLODTarget> lod_selection_targets;
     uint32_t lod_worklist_generation = 1;
     bool lod_parameter_state_initialized = false;
     uint32_t lod_parameter_state_chunk_count = 0;

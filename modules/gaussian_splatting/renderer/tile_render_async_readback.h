@@ -11,6 +11,11 @@
             uint32_t last_unclamped_total = 0;    // Raw total before clamping (offset 20)
             bool first_frame_complete = false;
             uint64_t requested_frame_serial = 0;
+            // Owner/render-thread metadata: COUNT snapshot -> outstanding request -> completed pair.
+            uint32_t count_cpu_draw_domain_count = 0;
+            uint32_t requested_cpu_draw_domain_count = 0;
+            uint32_t sampled_records = 0;
+            uint32_t sampled_cpu_draw_domain_count = 0;
         };
 
         struct AsyncTileCountsState {

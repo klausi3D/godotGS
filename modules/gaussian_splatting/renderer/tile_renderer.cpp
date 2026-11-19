@@ -666,11 +666,8 @@ private:
 		// (params.splat_count). The projection_buffer and other per-splat buffers
 		// must be large enough for the maximum the GPU can produce, otherwise the
 		// EMIT pass writes out-of-bounds causing tile corruption.
-		if (renderer.instance_pipeline_buffers.indirect_dispatch_buffer.is_valid() &&
-				params.max_visible_splats > 0) {
-			return MAX(params.splat_count, params.max_visible_splats);
-		}
-		return params.splat_count;
+		return GaussianSplatting::overlap_effective_visible_splats(params.splat_count, params.max_visible_splats,
+				renderer.instance_pipeline_buffers.indirect_dispatch_buffer.is_valid());
 	}
 
 	bool _validate_viewport_and_resources() {
@@ -870,10 +867,11 @@ private:
 				// Async auto-resize: If the previous frame detected overflow via async readback,
 				// proactively resize buffers BEFORE the count pass. This allows disabling sync
 				// readback for a pure GPU-driven pipeline with no CPU stalls.
-				if (!params.hlod_relative && renderer.async_readback.overflow_state.first_frame_complete && renderer.async_readback.overflow_state.overflow_detected) {
-					const uint32_t headroom_factor = 3u; // 50% headroom = multiply by 1.5 ≈ 3/2
-					const uint64_t needed64 = uint64_t(renderer.async_readback.overflow_state.last_unclamped_total) * headroom_factor / 2u;
-					const uint32_t needed = needed64 > UINT32_MAX ? UINT32_MAX : uint32_t(needed64);
+				const auto overflow_recovery = GaussianSplatting::overlap_overflow_recovery_plan(params.hlod_relative,
+						renderer.async_readback.overflow_state.first_frame_complete, renderer.async_readback.overflow_state.overflow_detected,
+						renderer.async_readback.overflow_state.last_unclamped_total);
+				if (overflow_recovery.handle_overflow) {
+					const uint32_t needed = overflow_recovery.requested_records;
 					if (needed > renderer.global_sort_resources.capacity) {
 						if (renderer.diagnostics.debug_tile_logs_enabled) {
 							GS_LOG_GPU_SORT_DEBUG(vformat("[TileRenderer] Async auto-resize: overflow detected (unclamped=%d, capacity=%d), resizing to %d",
@@ -890,38 +888,24 @@ private:
 				// below and grows in the same frame, so the seed never drops a record.
 				// Use effective_visible_splats (accounts for max_visible_splats from instance pipeline)
 				// to avoid undersized initial allocation when CPU readback is stale.
-				const uint32_t overlap_base_count = MAX(params.splat_count, effective_visible_splats);
-				const uint32_t measured_records_per_splat_q8 = renderer.global_sort_resources.measured_records_per_splat_q8;
-				uint32_t overlap_estimate = GaussianSplatting::overlap_demand_estimate(overlap_base_count, measured_records_per_splat_q8);
-				if (renderer.global_sort_resources.capacity == 0 &&
-						params.total_gaussians > 0 &&
-						overlap_base_count < 1024u) {
-					// Streaming warm-up can report a tiny visible set on the first frame while the
-					// atlas already represents a much larger world. Avoid initializing sort capacity
-					// to unusably small values (for example 50) that would hard-clamp overlap records.
-					const uint32_t bootstrap_cap = 8000000u;
-					const uint32_t bootstrap_floor = MIN(params.total_gaussians, bootstrap_cap);
-					overlap_estimate = MAX(overlap_estimate, bootstrap_floor);
-					if (renderer.diagnostics.debug_tile_logs_enabled) {
-						GS_LOG_GPU_SORT_DEBUG(vformat("[TileRenderer] Bootstrap overlap estimate: splat_count=%u total_gaussians=%u estimate=%u",
-								params.splat_count, params.total_gaussians, overlap_estimate));
-					}
-					}
-					const uint32_t adaptive_overlap_floor = _get_adaptive_overlap_budget_floor(&renderer);
-					if (adaptive_overlap_floor > 0u) {
-						if (_adaptive_overlap_budget_has_history(&renderer)) {
-							// After we have raw usage history, drive allocation from adaptive budget, and
-							// lead it by visible * records/splat: the budget only sees a rise in visible
-							// splats a readback later.
-							overlap_estimate = measured_records_per_splat_q8 > 0u
-									? MAX(overlap_estimate, adaptive_overlap_floor)
-									: adaptive_overlap_floor;
-						} else {
-							// Bootstrap from coarse estimate before first reliable overlap sample is available.
-							overlap_estimate = MAX(overlap_estimate, adaptive_overlap_floor);
-						}
-					}
-					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate, true); }
+				GaussianSplatting::OverlapFrameSizingInput sizing_input;
+				sizing_input.splat_count = params.splat_count;
+				sizing_input.effective_visible_splats = effective_visible_splats;
+				sizing_input.current_cpu_draw_domain_count = params.hlod_relative ? 0u : params.current_cpu_draw_domain_count;
+				sizing_input.sampled_records = renderer.async_readback.overflow_state.sampled_records;
+				sizing_input.sampled_cpu_draw_domain_count = renderer.async_readback.overflow_state.sampled_cpu_draw_domain_count;
+				sizing_input.total_gaussians = params.total_gaussians;
+				sizing_input.capacity = renderer.global_sort_resources.capacity;
+				sizing_input.measured_records_per_splat_q8 = renderer.global_sort_resources.measured_records_per_splat_q8;
+				sizing_input.adaptive_overlap_floor = _get_adaptive_overlap_budget_floor(&renderer);
+				sizing_input.adaptive_has_history = sizing_input.adaptive_overlap_floor > 0u && _adaptive_overlap_budget_has_history(&renderer);
+				const auto sizing_plan = GaussianSplatting::overlap_frame_sizing_plan(sizing_input);
+				const uint32_t overlap_base_count = sizing_plan.overlap_base_count;
+				if (sizing_plan.bootstrap_floor_applied && renderer.diagnostics.debug_tile_logs_enabled) {
+					GS_LOG_GPU_SORT_DEBUG(vformat("[TileRenderer] Bootstrap overlap estimate: splat_count=%u total_gaussians=%u estimate=%u",
+							params.splat_count, params.total_gaussians, sizing_plan.bootstrap_estimate));
+				}
+					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(sizing_plan.requested_records, true); }
 					// The one synchronous overlap sample of the bootstrap (policy allow_sync_bootstrap,
 					// same rule as the instance-count bootstrap): it gives the prefix pass a real total
 					// so the same-frame grow below runs. STRICT_ASYNC profiling keeps its timestamps
@@ -994,6 +978,7 @@ private:
 			}
 
 			// Sync only when prefix readback/validation is enabled.
+			renderer.async_readback.overflow_state.count_cpu_draw_domain_count = sizing_input.current_cpu_draw_domain_count;
 			renderer._dispatch_tile_binning_count(params.splat_count, count_sets.buffer_uniform_set, count_sets.param_uniform_set,
 					count_sets.lighting_uniform_set,
 					uniform_device, allow_sync_readback);
@@ -1101,6 +1086,7 @@ private:
 						return false;
 					}
 
+					renderer.async_readback.overflow_state.count_cpu_draw_domain_count = sizing_input.current_cpu_draw_domain_count;
 					renderer._dispatch_tile_binning_count(params.splat_count,
 							count_sets.buffer_uniform_set, count_sets.param_uniform_set,
 							count_sets.lighting_uniform_set, uniform_device, allow_sync_readback);
@@ -1991,6 +1977,7 @@ Error TileRenderer::initialize(RenderingDevice *p_rendering_device, const Vector
 void TileRenderer::cleanup() {
 	clear_output_resource_tracking();
 	clear_adaptive_overlap_budget_runtime_state();
+	async_readback.overflow_state = TileAsyncReadback::AsyncOverflowState();
     RenderingDevice *device = _get_resource_device();
     if (device) {
         projection_buffers.release(device);

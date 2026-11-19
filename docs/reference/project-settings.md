@@ -99,8 +99,8 @@ A default is shown as the C++ expression passed at registration (for example a n
 
 | Coverage | Count |
 | --- | ---: |
-| Keys in the manifest | 199 |
-| Registered by the module at startup | 187 |
+| Keys in the manifest | 200 |
+| Registered by the module at startup | 188 |
 | Read by the module but not registered | 7 |
 | Deprecated aliases (read only, never registered) | 5 |
 
@@ -756,6 +756,11 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><pre><code>rendering/gaussian_splatting/hlod/object_tail_reservation_percent</code></pre></td>
+      <td><pre><code>10</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/register_types.cpp</code></pre></td>
+    </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/hlod/runtime_full_payload_validation</code></pre></td>
       <td><pre><code>true</code></pre></td>

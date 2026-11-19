@@ -1003,9 +1003,55 @@ def _migration_observations(arms, checkpoint_rows):
     return {"scope": "same V4 source digest, actual common payload work and failure observations; aggregate work is scheduling-dependent",
             "native_payload": metrics, "draw_differences": differences, "within_binary_changes": changes,
             "checkpoint_pairs": pairs,
+            "residency_by_pass": _residency_by_pass(behaviors, checkpoint_rows),
             "candidate_drawn_id_repeat": _candidate_drawn_id_repeat(checkpoint_rows.get("candidate", [])),
             "decode": {name: {key: measurement(behavior.get(key)) for key in (
                 "decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats")} for name, behavior in behaviors.items()}}
+
+
+RESIDENCY_COUNTERS = {
+    "evicted": "hlod_stream_evicted_total",
+    "skipped_groups": "hlod_stream_skipped_groups_total",
+    "cancelled": "hlod_stream_cancelled_total",
+    "payload_reads": "hlod_stream_payload_reads_total",
+    "bytes_read": "hlod_stream_payload_bytes_read_total",
+}
+
+
+def _residency_by_pass(behaviors, checkpoint_rows):
+    """Report-only boundary deltas; aggregate totals and checkpoints are not endpoints."""
+    indices = {row["pass_index"] for rows in checkpoint_rows.values() for row in rows
+               if isinstance(row, dict) and type(row.get("pass_index")) is int and row["pass_index"] >= 0}
+    out = {}
+    for name, behavior in behaviors.items():
+        entries = behavior.get("residency_pass_endpoints")
+        entries = [entry for entry in entries if isinstance(entry, dict)] if isinstance(entries, list) else []
+        observed = {entry["pass_index"] for entry in entries
+                    if type(entry.get("pass_index")) is int and entry["pass_index"] >= 0}
+        rows = []
+        for index in sorted(indices | observed):
+            matches = [entry for entry in entries if type(entry.get("pass_index")) is int and entry["pass_index"] == index]
+            entry = matches[0] if len(matches) == 1 else {}
+            snapshots = [_dict(entry.get(edge)) for edge in ("start", "end")]
+            row = {"pass_index": index}
+            for metric, key in RESIDENCY_COUNTERS.items():
+                values = [_dict(snapshot.get("native_payload")).get(key) for snapshot in snapshots]
+                row[metric] = (measurement(values[1] - values[0])
+                    if all(_count(value) for value in values) and values[1] >= values[0] else
+                    not_measured(f"{key}: two unique pass-boundary endpoints with nondecreasing counters are unavailable"))
+            digests = [snapshot.get("content_digests") for snapshot in snapshots]
+            reads = row["payload_reads"]
+            if (reads["measured"] and all(isinstance(nodes, dict) and all(_is_sha(d) for d in nodes.values())
+                                          for nodes in digests)
+                    and digests[0].keys() <= digests[1].keys()
+                    and reads["value"] >= len(digests[1]) - len(digests[0])):
+                row["excess_read_proxy"] = measurement(reads["value"] - (len(digests[1]) - len(digests[0])))
+            else:
+                row["excess_read_proxy"] = not_measured(
+                    "pass-boundary reads and cumulative decoded-node digest maps are unavailable or inconsistent")
+            rows.append(row)
+        out[name] = rows
+    return out
 
 
 def _candidate_drawn_id_repeat(rows):
@@ -1459,6 +1505,16 @@ def render_markdown(report: dict) -> str:
               "| Common payload observation | pre-D3 | candidate | candidate minus pre-D3 |", "| --- | --- | --- | --- |"]
     for key, values in _dict(migration.get("native_payload")).items():
         lines.append(f"| {key} | {cell(values.get('base'))} | {cell(values.get('candidate'))} | {cell(values.get('candidate_minus_base'))} |")
+    lines += ["", "An unconstrained repeat should predominantly reuse residency; additional evictions and rereads "
+              "warrant investigation. Pressure runs are compared at identical constraints. "
+              "These observations do not affect the verdict.",
+              "Excess-read proxy = pass reads minus the increase in distinct decoded-node digest IDs; not exact reread telemetry.", "",
+              "| Arm | Pass | Evicted | Skipped groups | Cancelled | Payload reads | Bytes read | Excess-read proxy |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for name, rows in _dict(migration.get("residency_by_pass")).items():
+        for row in rows:
+            values = [cell(row.get(key)) for key in (*RESIDENCY_COUNTERS, "excess_read_proxy")]
+            lines.append(f"| {name} | {row['pass_index']} | " + " | ".join(values) + " |")
     for difference in migration.get("draw_differences", []):
         lines.append(f"Migration draw observation: {json.dumps(difference, sort_keys=True)}.")
     for change in migration.get("within_binary_changes", []):

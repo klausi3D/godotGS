@@ -58,6 +58,7 @@ struct InstanceRegion {
 	LocalVector<InstanceAsset> assets; // Ascending asset_id; dense id = 1 + index (0 is the world).
 	uint32_t chunk_count = 0;
 	uint64_t records = 0;
+	uint64_t reserved_records = 0; // Fixed atlas tail; charged even when empty. Zero retains the legacy exact tail.
 	uint32_t max_chunk_splats = 0;
 	// Row tallies (tally_rows): rows that name a packed node asset add that asset's chunks and splats; world rows count
 	// separately (exactly one in a director-built bundle; the PR1a helpers take any number of world rows).
@@ -153,7 +154,7 @@ inline void pack_instance_rows(const Rows &p_rows, const InstanceRegion &p_regio
 // bundle_bytes(..., p_rows) of hlod_bundle_rows.h exactly (world_rows == p_rows).
 inline uint64_t bundle_bytes(uint64_t p_node_count, uint64_t p_records, bool p_relative, bool p_quantized, uint32_t p_capacity,
 		uint32_t p_rows, const InstanceRegion &p_region) {
-	return (p_records + p_region.records) * (p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) +
+	return (p_records + MAX(p_region.records, p_region.reserved_records)) * (p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) +
 			(p_node_count + p_region.chunk_count) * (sizeof(ChunkMetaGPU) + sizeof(AssetChunkIndexGPU) + (p_quantized ? sizeof(ChunkQuantizationGPU) : 0)) +
 			visible_chunk_capacity(p_node_count, p_relative, p_region) * (p_relative ? sizeof(DrawnNodeGPU) : sizeof(VisibleChunkRefGPU)) +
 			(1u + uint64_t(p_region.assets.size())) * sizeof(AssetMetaGPU) + uint64_t(p_rows) * (sizeof(InstanceDataGPU) + sizeof(InstanceGradingGPU)) +

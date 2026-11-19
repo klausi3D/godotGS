@@ -170,6 +170,46 @@ class RunnerPlumbing(unittest.TestCase):
                 receipt["settle"]["settled"] = "changed"
                 self.assertIs(native_cp["settle"]["settled"], name != "base")
 
+    def test_residency_boundaries_use_payload_behavior_and_survive_migration(self):
+        # Construct the new boundary envelope from existing captured snapshots;
+        # these are not claimed to be captured pass endpoints.
+        native = self.captured("d3_6/run43602195987_migration.json")["arms"]
+        content = self.captured("d3_6/run43629131401_content.json")["migration"]["arms"]
+        for name in ("base", "candidate"):
+            with self.subTest(arm=name):
+                snapshot = copy.deepcopy(native[name])
+                snapshot["payload_telemetry"] = {"content_digests": copy.deepcopy(
+                    content[name]["payload_behavior"]["content_digests"])}
+                result = {"residency_pass_endpoints": [{"pass_index": 0,
+                          "start": copy.deepcopy(snapshot), "end": copy.deepcopy(snapshot)}]}
+                behavior = shared.payload_behavior(result, None)
+                entry = behavior["residency_pass_endpoints"][0]
+                self.assertEqual(entry["pass_index"], 0)
+                for edge in ("start", "end"):
+                    self.assertEqual(entry[edge], shared.payload_behavior(snapshot, None))
+                arm = {"execution": "RAN", "observed": {"exit_code": 0, "final_marker": True, "settings": {}},
+                       "source": {"loaded_file_sha256": "a" * 64}, "trace": {"file": "trace.bin"},
+                       "payload_behavior": behavior, "cache": {}, "probe": {}}
+                migration = shared.migration_arm(arm, {"commit": "c" * 40, "sha256": "d" * 64})
+                self.assertEqual(migration["payload_behavior"]["residency_pass_endpoints"], [entry])
+                entry["end"]["native_payload"]["hlod_stream_evicted_total"] = -1
+                self.assertEqual(result["residency_pass_endpoints"][0]["end"], snapshot)
+        self.assertNotIn("residency_pass_endpoints", shared.payload_behavior({}, None))
+
+    def test_residency_probe_snapshots_bracket_passes_without_advancing_frames(self):
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        snapshot = gd.split("func _residency_snapshot()", 1)[1].split("\n\n\nfunc ", 1)[0]
+        for forbidden in ("await ", "_frame(", "_pump", "_last_stats ="):
+            self.assertNotIn(forbidden, snapshot)
+        self.assertIn("renderer.get_render_stats()", snapshot)
+        self.assertIn('payload.get("content_digests") is Dictionary', snapshot)
+        path = gd.split("func _run_path()", 1)[1].split("\n\n\nfunc ", 1)[0]
+        self.assertIn('_result["residency_pass_endpoints"] = residency_pass_endpoints', path)
+        start = path.index('"start": _residency_snapshot()')
+        self.assertLess(path.index("for pass_index in range(passes):"), start)
+        self.assertLess(start, path.index("for si in range(segs.size()):"))
+        self.assertLess(path.index("seg_log.append(entry)"), path.index('residency_entry["end"] = _residency_snapshot()'))
+
     def test_observations_deadline_miss_survives_successful_process_completion(self):
         result = self.settle_capture_1454("base")
         observed = shared.observations(result, 0)
@@ -857,6 +897,29 @@ class PressureVariant(unittest.TestCase):
                 self.assertEqual(arm["pressure"]["route"], route)
                 persisted = json.loads((Path(arm["artifact_root"]) / "arm.json").read_text(encoding="utf-8"))
                 self.assertEqual(persisted["pressure"], arm["pressure"])
+
+    def test_pressure_disables_object_tail_for_comparable_migration_capacity_only(self):
+        setting = "rendering/gaussian_splatting/hlod/object_tail_reservation_percent"
+        request = self.request()
+        self.assertEqual(request["object_tail_setting"], setting)
+        self.assertEqual(request["object_tail_reservation_percent"], 0)
+        self.assertIsInstance(request["object_tail_reason"], str)
+        self.assertTrue(request["object_tail_reason"].strip())
+
+        for variant in ("pressure", "unconstrained"):
+            rc, calls, experiment = self.orchestrate(variant)
+            self.assertEqual(rc, 0)
+            self.assertEqual([name for name, _ in calls], ["chunk", "hlod", "base", "candidate"])
+            if variant == "pressure":
+                self.assertEqual(experiment["variant"], request)
+            for name, extra in calls:
+                with self.subTest(variant=variant, arm=name):
+                    route = "chunk" if name == "chunk" else "hlod"
+                    _, plan = self.run_arm(route, extra.get("pressure"))
+                    if variant == "pressure":
+                        self.assertEqual(plan["project_settings"][setting], 0)
+                    else:
+                        self.assertNotIn(setting, plan["project_settings"])
 
     def test_absent_pressure_observations_stay_not_measured_never_zero(self):
         request = self.request()

@@ -6,9 +6,11 @@ extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 #include "../io/gs_payload_page_store.h"
 #include "../lod/hlod_edit.h"
 #include "../renderer/hlod_node_streamer.h"
+#include "../renderer/hlod_contract_lifecycle.h"
 #include "../core/gs_upload_sizing.h"
 
 #include <cstring>
+#include <memory>
 
 namespace TestHlodPageStoreStreamer {
 
@@ -1668,6 +1670,164 @@ struct SlowRead {
 		}
 	}
 };
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] partial object tail upload tears down the shared world owner (#1473)") {
+	Harness h;
+	if (!h.init() || !reach_holder(h, WORKER)) { return; }
+	if (h.sample.pending_tickets == 0 || h.sample.jobs_in_flight == 0) {
+		FAIL("#1473 upload failure requires a real admitted world request held before IO"); return;
+	}
+	uint8_t tail[] = { 1, 2 };
+	bool committed = false, discarded = false;
+	const bool published = gs_hlod_bundle::publish_instance_tail([&]() {
+		tail[0] = 7; // Model RD accepting a first slice before a later slice fails.
+		return false;
+	}, [&]() { committed = true; }, [&]() {
+		discarded = true;
+		CHECK(h.streamer.is_active()); // Candidate disposal must not free the borrowed atlas/world owner.
+		CHECK(h.streamer.uses_page_store(&h.store));
+	}, [&]() {
+		h.streamer.shutdown(); // Same production teardown order, including cancel-before-join.
+		h.store.shutdown();
+	});
+	CHECK_FALSE(published);
+	CHECK_FALSE(committed);
+	CHECK(discarded);
+	CHECK(tail[0] == 7);
+	CHECK(tail[1] == 2);
+	CHECK_FALSE(h.streamer.is_active());
+	CHECK_FALSE(h.streamer.uses_page_store(&h.store));
+	CHECK(h.streamer._test_snapshot().tasks_outstanding == 0);
+	CHECK(h.streamer._test_snapshot().pending_tickets == 0);
+	CHECK(h.streamer._test_snapshot().live_reservations == 0);
+	CHECK(h.store.stats().live_reservations == 0);
+	CHECK(h.store.stats().reads.bytes_in_flight == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] successful tail publication retains the held world request (#1473)") {
+	Harness h;
+	if (!h.init() || !reach_holder(h, WORKER)) { return; }
+	const auto before = h.streamer._test_snapshot();
+	const uint64_t identity = h.streamer.get_telemetry().pressure_epoch;
+	bool committed = false, discarded = false, torn_down = false;
+	CHECK(gs_hlod_bundle::publish_instance_tail([]() { return true; }, [&]() { committed = true; },
+			[&]() { discarded = true; }, [&]() { torn_down = true; }));
+	CHECK(committed);
+	CHECK_FALSE(discarded);
+	CHECK_FALSE(torn_down);
+	CHECK(h.streamer.is_active());
+	CHECK(h.streamer.uses_page_store(&h.store));
+	CHECK(h.streamer.get_telemetry().pressure_epoch == identity);
+	CHECK(h.streamer._test_snapshot().pending_tickets == before.pending_tickets);
+	CHECK(h.streamer._test_snapshot().live_reservations == before.live_reservations);
+}
+
+// The publisher requires RD/sort resources. Replay its production lifecycle decision
+// against real host owners; generation/page inputs model the director's four edits.
+// This covers host residency/request lifetime, not publisher wiring or GPU RID identity.
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] object add add remove remove-last preserves world identity and a live read (#1473)") {
+	using namespace gs_hlod_bundle;
+	SlowRead slow; // Outlives the store readers on every early return.
+	auto owner = std::make_unique<Harness>();
+	slow.store = &owner->store;
+	slow.released.store(true);
+	owner->store._test_set_read_hook(&SlowRead::hook, &slow);
+	if (!owner->init()) { return; }
+	owner->control.hold_uploads = false;
+	if (!owner->set_control()) { return; }
+	owner->demand.clear();
+	for (uint32_t node : { 0u, 3u }) {
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		owner->demand.push_back(wanted);
+	}
+	const auto seeded = gs_pump_until([&]() {
+		owner->step();
+		return !owner->observations_ok || (owner->streamer.get_residency().stats().resident == 2 &&
+				owner->sample.live_reservations == 0 && owner->sample.jobs_in_flight == 0);
+	});
+	if (!seeded.ready() || !owner->observations_ok || owner->store.stats().reads.completed_ok != 2) {
+		FAIL("#1473 requires two actually uploaded world nodes backed by real store reads"); return;
+	}
+	const auto resident_mask = owner->streamer.resident_mask();
+	if (resident_mask.size() != owner->fixture.node_count) {
+		FAIL("#1473 resident mask must cover the complete fixture topology"); return;
+	}
+	LocalVector<uint32_t> first_pages, page_counts;
+	for (uint32_t node = 0; node < owner->fixture.node_count; ++node) {
+		uint32_t first = 0, count = 0;
+		if (resident_mask[node] && !owner->streamer.get_residency().run(node, first, count)) {
+			FAIL("#1473 resident world node must have a page run"); return;
+		}
+		first_pages.push_back(first);
+		page_counts.push_back(count);
+	}
+	slow.entered.store(false);
+	slow.deadline_usec.store(0);
+	slow.released.store(false);
+	gs_hlod_runtime::DesiredRecord held;
+	held.node = 4;
+	owner->demand.push_back(held);
+	const auto reading = gs_pump_until([&]() {
+		owner->step();
+		return !owner->observations_ok || (slow.entered.load() && owner->store.stats().reads.reading == 1 &&
+				owner->sample.jobs_in_flight == 1 && owner->streamer.get_residency().state(4) == Residency::LOADING);
+	});
+	if (!reading.ready() || !owner->observations_ok || slow.saw_cancel.load() ||
+			OS::get_singleton()->get_ticks_usec() + 2 * 1000 * 1000 >= slow.deadline_usec.load()) {
+		FAIL("#1473 requires an uncancelled world read held at a real store slice boundary"); return;
+	}
+	const uint64_t init_id = owner->streamer.get_telemetry().pressure_epoch;
+	const auto store_before = owner->store.stats();
+	if (init_id == 0 || store_before.source_generation == 0 || store_before.live_reservations == 0) {
+		FAIL("#1473 requires measured initialization/source identities and a live store reservation"); return;
+	}
+	ContractChange change;
+	change.reserved_object_pages = 10; // Synthetic input only; phase A allocates no tail.
+	change.prepared_asset_generation = change.asset_generation = 4;
+	change.prepared_row_generation = change.row_generation = 9;
+	const char *edits[] = { "asset add", "instance add", "instance remove", "remove-last asset" };
+	for (uint32_t edit = 0; edit < 4; ++edit) {
+		CAPTURE(edits[edit]);
+		++change.asset_generation; // Registration/removal currently bumps both counters, including shared assets.
+		++change.row_generation;
+		change.object_pages = edit == 3 ? 0 : 1;
+		const auto decision = hlod_contract_change_action(change);
+		if (decision.action == ContractChangeAction::FULL_REBUILD) {
+			// Same owner ordering as release_hlod_resources(), then host reinitialization.
+			owner->streamer.shutdown();
+			owner->store.shutdown();
+			owner = std::make_unique<Harness>();
+			slow.store = &owner->store;
+			owner->store._test_set_read_hook(&SlowRead::hook, &slow);
+			if (!owner->init()) { return; }
+		}
+		CHECK(decision.action == ContractChangeAction::INSTANCE_REGION_ONLY);
+		CHECK(owner->streamer.is_active());
+		CHECK(owner->streamer.uses_page_store(&owner->store));
+		CHECK(owner->streamer.get_telemetry().pressure_epoch == init_id);
+		CHECK(owner->store.stats().source_generation == store_before.source_generation);
+		CHECK(owner->store.stats().collection_epoch == store_before.collection_epoch);
+		CHECK(owner->streamer.get_residency().world_generation() == owner->world);
+		CHECK(owner->streamer.get_residency().device_generation() == owner->device);
+		for (uint32_t node = 0; node < owner->fixture.node_count; ++node) {
+			CHECK(bool(owner->streamer.get_residency().state(node) == Residency::RESIDENT) == bool(resident_mask[node]));
+			if (!resident_mask[node]) { continue; }
+			uint32_t first = 0, count = 0;
+			CHECK(owner->streamer.get_residency().run(node, first, count));
+			CHECK(first == first_pages[node]);
+			CHECK(count == page_counts[node]);
+		}
+		CHECK_FALSE(slow.saw_cancel.load());
+		CHECK(owner->store.stats().reads.submitted == store_before.reads.submitted);
+		CHECK(owner->store.stats().reads.reading == 1);
+		CHECK(owner->store.stats().live_reservations == store_before.live_reservations);
+		CHECK(owner->streamer.get_residency().state(4) == Residency::LOADING);
+		change.prepared_asset_generation = change.asset_generation;
+		change.prepared_row_generation = change.row_generation;
+	}
+	slow.released.store(true);
+}
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] an abandoned in-flight read counts as cancellation without capture or payload read failures (#1483 B)") {
 	SlowRead slow; // Outlives readers even when a precondition fails.

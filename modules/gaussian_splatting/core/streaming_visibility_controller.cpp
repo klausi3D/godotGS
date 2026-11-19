@@ -154,6 +154,14 @@ void StreamingVisibilityController::reset_runtime_state() {
     camera_tracker = CameraVelocityTracker();
     current_lod_blend_factor = 1.0f;
     lod_transitions_this_frame = 0;
+    effective_drawn_splat_cap = UINT64_MAX;
+    draw_cap_admission_engaged = false;
+    draw_cap_metadata_active = false;
+    draw_instances.clear();
+    draw_cap_coarsened_chunks_total = 0;
+    draw_cap_refused_chunks_total = 0;
+    draw_cap_admission_cpu_usec_this_frame = 0;
+    draw_cap_admission_cpu_usec_total = 0;
     prev_visible_count = 0;
     visibility_flags_initialized = false;
     visibility_flags_chunk_count = 0;
@@ -169,6 +177,8 @@ void StreamingVisibilityController::reset_runtime_state() {
 }
 
 void StreamingVisibilityController::clear_visible_state() {
+    draw_cap_coarsened_chunks_this_frame = 0;
+    draw_cap_refused_chunks_this_frame = 0;
     visible_chunk_indices.clear();
     previous_visible_chunk_indices.clear();
     culling_stats.reset();
@@ -178,6 +188,7 @@ void StreamingVisibilityController::clear_visible_state() {
     visibility_flags_initialized = false;
     visibility_flags_chunk_count = 0;
     lod_worklist_indices.clear();
+    lod_selection_targets.clear();
     lod_worklist_marks.clear();
     lod_worklist_generation = 1;
     lod_parameter_state_initialized = false;
@@ -890,38 +901,13 @@ void StreamingVisibilityController::update_chunk_lod_parameters(GaussianStreamin
         }
     };
 
-    if (!lod_config.enabled) {
-        if (!lod_config_changed) {
-            culling_stats.lod_parameter_update_scan_count = 0;
-            remember_lod_parameter_config(lod_config, chunk_count);
-            return;
-        }
-
-        for (uint32_t i = 0; i < chunk_count; i++) {
-            GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
-            const uint32_t prev_effective_count = chunk.effective_count;
-            const uint32_t prev_lod_level = chunk.current_lod_level;
-            const uint32_t prev_target_lod_level = chunk.target_lod_level;
-            const int prev_sh_band_level = chunk.sh_band_level;
-            chunk.current_lod_level = 0;
-            chunk.target_lod_level = 0;
-            chunk.sh_band_level = global_sh_band_level;
-            chunk.splat_skip_factor = 1;
-            chunk.opacity_multiplier = 1.0f;
-            chunk.effective_count = chunk.count;
-            if (prev_lod_level != chunk.current_lod_level ||
-                    prev_target_lod_level != chunk.target_lod_level) {
-                lod_transitions_this_frame++;
-            }
-
-            mark_resident_chunk_meta_if_lod_changed(i, chunk, prev_effective_count, prev_lod_level, prev_sh_band_level);
-        }
-        culling_stats.lod_parameter_update_scan_count = chunk_count;
+    if (!lod_config.enabled && !lod_config_changed) {
+        culling_stats.lod_parameter_update_scan_count = 0;
         remember_lod_parameter_config(lod_config, chunk_count);
         return;
     }
 
-    const bool full_scan = chunk_count < SPATIAL_GRID_MIN_CHUNKS ||
+    const bool full_scan = !lod_config.enabled || chunk_count < SPATIAL_GRID_MIN_CHUNKS ||
             !visibility_flags_initialized ||
             lod_config_changed;
     if (!full_scan) {
@@ -931,39 +917,175 @@ void StreamingVisibilityController::update_chunk_lod_parameters(GaussianStreamin
     }
 
     const uint32_t scan_count = full_scan ? chunk_count : lod_worklist_indices.size();
+    lod_selection_candidates.resize(scan_count);
+    for (uint32_t scan_idx = 0; scan_idx < scan_count; scan_idx++) {
+        const uint32_t i = full_scan ? scan_idx : lod_worklist_indices[scan_idx];
+        const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
+        GaussianSplatting::ChunkLODCandidate &candidate = lod_selection_candidates[scan_idx];
+        candidate.splat_count = chunk.count;
+        candidate.distance = chunk.distance;
+        candidate.previous_lod = chunk.current_lod_level;
+        candidate.previous_target_lod = chunk.target_lod_level;
+        candidate.visible = chunk.is_visible;
+    }
+    GaussianSplatting::select_chunk_lods(lod_selection_candidates, lod_config, global_sh_band_level,
+            UINT64_MAX, lod_selection_plan);
+    lod_transitions_this_frame = lod_selection_plan.lod_transitions;
     for (uint32_t scan_idx = 0; scan_idx < scan_count; scan_idx++) {
         const uint32_t i = full_scan ? scan_idx : lod_worklist_indices[scan_idx];
         GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
         const uint32_t prev_effective_count = chunk.effective_count;
         const uint32_t prev_lod_level = chunk.current_lod_level;
-        const uint32_t prev_target_lod_level = chunk.target_lod_level;
         const int prev_sh_band_level = chunk.sh_band_level;
-
-        float distance = chunk.distance;
-        int lod_level = lod_config.calculate_lod_level(distance);
-        if (prev_lod_level != uint32_t(lod_level)) {
-            lod_transitions_this_frame++;
-        }
-
-        chunk.target_lod_level = lod_level;
-        chunk.current_lod_level = lod_level;
-        if (prev_lod_level != chunk.current_lod_level ||
-                prev_target_lod_level != chunk.target_lod_level) {
-            lod_transitions_this_frame++;
-        }
-
-        chunk.sh_band_level = lod_config.get_sh_band_for_lod(lod_level, global_sh_band_level);
-        chunk.splat_skip_factor = lod_config.get_splat_skip_factor(lod_level);
-        chunk.opacity_multiplier = lod_config.get_opacity_multiplier(distance);
-        chunk.effective_count = chunk.count / chunk.splat_skip_factor;
-        if (chunk.effective_count == 0 && chunk.count > 0) {
-            chunk.effective_count = 1;
-        }
+        const GaussianSplatting::ChunkLODSelection &selection = lod_selection_plan.selections[scan_idx];
+        chunk.target_lod_level = selection.lod;
+        chunk.current_lod_level = selection.lod;
+        chunk.sh_band_level = selection.sh_band_level;
+        chunk.splat_skip_factor = selection.splat_skip_factor;
+        chunk.opacity_multiplier = selection.opacity_multiplier;
+        chunk.effective_count = selection.effective_count;
 
         mark_resident_chunk_meta_if_lod_changed(i, chunk, prev_effective_count, prev_lod_level, prev_sh_band_level);
     }
     culling_stats.lod_parameter_update_scan_count = scan_count;
     remember_lod_parameter_config(lod_config, chunk_count);
+}
+
+bool StreamingVisibilityController::drawn_splat_cap_would_bind(const GaussianStreamingSystem &system,
+        uint64_t cap, const HashMap<uint32_t, uint32_t> &instance_counts) const {
+    uint64_t demand = 0;
+    for (uint32_t asset_id : system.asset_registry.atlas_asset_order) {
+        const uint32_t *count = instance_counts.getptr(asset_id);
+        const GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(asset_id);
+        if (!count || !asset) {
+            continue;
+        }
+        for (const GaussianStreamingSystem::StreamingChunk &chunk : system._get_asset_chunks(*asset)) {
+            if (!chunk.is_loaded || !chunk.gpu_resident || chunk.upload_pending || chunk.buffer_slot == UINT32_MAX) {
+                continue;
+            }
+            // No frustum test: every possible GPU emitter is charged, including
+            // CPU-invisible chunks. Early exit also prevents uint64 sum overflow.
+            const uint64_t cost = uint64_t(chunk.effective_count) * *count;
+            if (cost > cap - demand) {
+                return true;
+            }
+            demand += cost;
+        }
+    }
+    return false;
+}
+
+void StreamingVisibilityController::restore_draw_cap_lod_parameters(GaussianStreamingSystem &system, bool p_publish_nominal) {
+    // Retain the published view across begin_frame and nominal LOD updates.
+    // Only the final non-binding decision (or a streaming-only update) releases it.
+    if (p_publish_nominal && draw_cap_metadata_active) {
+        for (uint32_t asset_id : system.asset_registry.atlas_asset_order) {
+            auto *asset = system._get_asset_state(asset_id);
+            if (!asset) { continue; }
+            auto &asset_chunks = system._get_asset_chunks(*asset);
+            for (uint32_t i = 0; i < asset_chunks.size(); i++) {
+                auto &chunk = asset_chunks[i];
+                if (chunk.draw_cap_override) {
+                    chunk.draw_cap_override = false;
+                    system.global_atlas_registry.mark_chunk_meta_dirty(system, asset_id, i);
+                }
+            }
+        }
+    }
+    draw_cap_admission_engaged = false;
+    effective_drawn_splat_cap = UINT64_MAX;
+    draw_cap_coarsened_chunks_this_frame = 0;
+    draw_cap_refused_chunks_this_frame = 0;
+    if (p_publish_nominal) { draw_cap_metadata_active = false; }
+}
+
+void StreamingVisibilityController::update_draw_cap_lod_parameters(GaussianStreamingSystem &system, const Vector3 &camera_pos) {
+    // Full draw domain only on binding frames, including assets and chunks outside
+    // the CPU discovery/worklist. The GPU tests transformed spheres, not the CPU's
+    // padded AABBs, and can draw any resident chunk of a submitted asset.
+    draw_cap_candidates.clear();
+    lod_selection_targets.clear();
+    for (uint32_t asset_id : system.asset_registry.atlas_asset_order) {
+        GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(asset_id);
+        if (!asset) {
+            continue;
+        }
+        LocalVector<GaussianStreamingSystem::StreamingChunk> &asset_chunks = system._get_asset_chunks(*asset);
+        for (uint32_t i = 0; i < asset_chunks.size(); i++) {
+            const GaussianStreamingSystem::StreamingChunk &chunk = asset_chunks[i];
+            if (!chunk.is_loaded || !chunk.gpu_resident || chunk.upload_pending || chunk.buffer_slot == UINT32_MAX) {
+                continue; // Nonresident chunks cannot emit before the next begin_frame().
+            }
+            GaussianSplatting::ChunkLODCandidate candidate;
+            candidate.splat_count = chunk.count;
+            candidate.distance = FLT_MAX;
+            candidate.previous_lod = chunk.current_lod_level;
+            candidate.previous_target_lod = chunk.target_lod_level;
+            candidate.has_nominal_selection = true;
+            candidate.nominal_selection.lod = chunk.current_lod_level;
+            candidate.nominal_selection.effective_count = chunk.effective_count;
+            candidate.nominal_selection.sh_band_level = chunk.sh_band_level;
+            candidate.nominal_selection.opacity_multiplier = chunk.opacity_multiplier;
+            candidate.nominal_selection.splat_skip_factor = chunk.splat_skip_factor;
+            candidate.draw_instance_count = 0;
+            for (const DrawInstance &instance : draw_instances) {
+                if (instance.asset_id != asset_id) {
+                    continue;
+                }
+                // Charge every submitted instance of this shared chunk. Even if
+                // only one is visible, this bounds all GPU instance-splat pairs.
+                candidate.draw_instance_count++;
+                bool visible = true;
+                if (draw_frustum_culling_enabled) {
+                    const Vector3 center = instance.transform.xform(chunk.bounds.get_center());
+                    const float radius = chunk.bounds.size.length() * 0.5f * instance.transform.basis.get_column(0).length() * draw_frustum_plane_slack;
+                    // Leaving NOT_VISIBLE chunks untouched assumes this test is a
+                    // superset of compute/frustum_cull.glsl:sphere_frustum_visible.
+                    // The same transformed sphere/slack plus a positive margin is
+                    // conservative in exact arithmetic; CPU/GPU rounding can differ.
+                    const float margin = MAX(1.0f, radius) * 0.0001f;
+                    for (const Plane &plane : draw_frustum_planes) {
+                        if (plane.distance_to(center) > radius + margin) {
+                            visible = false;
+                            break;
+                        }
+                    }
+                }
+                if (visible) {
+                    candidate.distance = MIN(candidate.distance, float(camera_pos.distance_to(instance.transform.xform(chunk.center))));
+                }
+                candidate.visible = candidate.visible || visible;
+            }
+            draw_cap_candidates.push_back(candidate);
+            lod_selection_targets.push_back({ asset_id, i });
+        }
+    }
+    GaussianSplatting::select_chunk_lods(draw_cap_candidates, system._get_lod_config(), global_sh_band_level,
+            effective_drawn_splat_cap, draw_cap_plan);
+    lod_transitions_this_frame += draw_cap_plan.lod_transitions;
+    draw_cap_coarsened_chunks_this_frame = draw_cap_plan.coarsened_visible_chunks;
+    draw_cap_refused_chunks_this_frame = draw_cap_plan.refused_visible_chunks;
+    // Counts are chunk-frame decisions (a persistently coarsened/refused chunk
+    // contributes each frame), not unique chunks or LOD transition counts.
+    draw_cap_coarsened_chunks_total += draw_cap_coarsened_chunks_this_frame;
+    draw_cap_refused_chunks_total += draw_cap_refused_chunks_this_frame;
+    for (uint32_t i = 0; i < lod_selection_targets.size(); i++) {
+        const GaussianSplatting::ChunkLODSelection &selection = draw_cap_plan.selections[i];
+        const ChunkLODTarget &target = lod_selection_targets[i];
+        GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(target.asset_id);
+        GaussianStreamingSystem::StreamingChunk &chunk = system._get_asset_chunks(*asset)[target.chunk_idx];
+        if (!chunk.is_loaded || !chunk.gpu_resident || chunk.upload_pending || chunk.buffer_slot == UINT32_MAX) {
+            continue; // No more retirements occur before culling this frame.
+        }
+        // Latch every candidate, including nominal-fitting chunks: a later
+        // nominal update must not overwrite an unchanged admitted view.
+        draw_cap_metadata_active = true;
+        chunk.draw_cap_override = true;
+        chunk.draw_cap_parameters = selection;
+        // ChunkMetaGPU.splat_count=0 is the culler's existing exclusion rule.
+        system.global_atlas_registry.mark_chunk_meta_dirty(system, target.asset_id, target.chunk_idx);
+    }
 }
 
 uint32_t StreamingVisibilityController::prefetch_chunks_at_predicted_position(

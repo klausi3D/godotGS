@@ -136,6 +136,12 @@
     X(lod_enabled) \
     X(effective_splat_count) \
     X(lod_reduction_ratio) \
+    X(draw_cap_coarsened_chunks_this_frame) \
+    X(draw_cap_refused_chunks_this_frame) \
+    X(draw_cap_coarsened_chunks_total) \
+    X(draw_cap_refused_chunks_total) \
+    X(draw_cap_admission_cpu_usec_this_frame) \
+    X(draw_cap_admission_cpu_usec_total) \
     X(pack_avg_ms) \
     X(pack_max_ms) \
     X(pack_jobs_completed) \

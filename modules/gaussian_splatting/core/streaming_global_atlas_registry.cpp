@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdint>
+#include <cstring>
 
 namespace {
 
@@ -277,6 +278,8 @@ void StreamingGlobalAtlasRegistry::cleanup(RenderingDevice *p_rd) {
 }
 
 void StreamingGlobalAtlasRegistry::build_cpu_state(GaussianStreamingSystem &system) {
+	const bool retain_metadata = system.has_draw_cap_metadata() && cpu_state_valid && !chunk_meta_dirty_all;
+	const uint32_t previous_count = chunk_meta_cpu.size();
 	asset_registry_dirty = false;
 	const bool log_enabled = _is_streaming_debug_enabled();
 
@@ -305,11 +308,16 @@ void StreamingGlobalAtlasRegistry::build_cpu_state(GaussianStreamingSystem &syst
 	}
 
 	chunk_meta_cpu.resize(total_chunks);
+	for (uint32_t i = previous_count; i < total_chunks; i++) { chunk_meta_cpu[i] = {}; }
 	asset_chunk_index_cpu.resize(total_chunks);
 	chunk_meta_dirty_flags.resize(total_chunks);
-	_clear_dirty_flags(chunk_meta_dirty_flags);
-	chunk_meta_dirty_indices.clear();
-	chunk_meta_dirty_indices.reserve(total_chunks);
+	if (!retain_metadata) {
+		_clear_dirty_flags(chunk_meta_dirty_flags);
+		chunk_meta_dirty_indices.clear();
+	} else {
+		for (uint32_t i = previous_count; i < total_chunks; i++) { chunk_meta_dirty_flags[i] = 0; }
+	}
+	chunk_meta_dirty_indices.reserve(MAX(total_chunks, chunk_meta_dirty_indices.size()));
 
 	uint32_t chunk_meta_cursor = 0;
 	uint32_t chunk_index_cursor = 0;
@@ -389,7 +397,11 @@ void StreamingGlobalAtlasRegistry::build_cpu_state(GaussianStreamingSystem &syst
 			if (chunk_index_cursor < asset_chunk_index_cpu.size()) {
 				asset_chunk_index_cpu[chunk_index_cursor].chunk_id = global_idx;
 			}
-			update_chunk_meta_entry(system, asset_id, i);
+			const bool changed = update_chunk_meta_entry(system, asset_id, i);
+			if (retain_metadata && (global_idx >= previous_count || changed) && !chunk_meta_dirty_flags[global_idx]) {
+				chunk_meta_dirty_flags[global_idx] = 1;
+				chunk_meta_dirty_indices.push_back(global_idx);
+			}
 			chunk_index_cursor++;
 		}
 
@@ -412,28 +424,28 @@ void StreamingGlobalAtlasRegistry::build_cpu_state(GaussianStreamingSystem &syst
 
 	asset_meta_dirty = true;
 	asset_chunk_index_dirty = true;
-	chunk_meta_dirty_all = true;
+	if (!retain_metadata) { chunk_meta_dirty_all = true; }
 	asset_registry_dirty = false;
 }
 
-void StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx) {
+bool StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx) {
 	if (asset_registry_dirty) {
 		build_cpu_state(system);
 	}
 
 	GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(asset_id);
 	if (!asset) {
-		return;
+		return false;
 	}
 
 	LocalVector<GaussianStreamingSystem::StreamingChunk> &asset_chunks = system._get_asset_chunks(*asset);
 	if (chunk_idx >= asset_chunks.size()) {
-		return;
+		return false;
 	}
 
 	const uint32_t global_idx = asset->chunk_meta_base + chunk_idx;
 	if (global_idx >= chunk_meta_cpu.size()) {
-		return;
+		return false;
 	}
 
 	const GaussianStreamingSystem::StreamingChunk &chunk = asset_chunks[chunk_idx];
@@ -446,9 +458,9 @@ void StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 			run.first_page == chunk.buffer_slot;
 	const bool resident = chunk.is_loaded && chunk.gpu_resident && !chunk.upload_pending && has_run;
 	const uint32_t effective_splat_count = has_run
-			? MIN(MIN(chunk.effective_count, chunk.count), run.page_count * GaussianStreamingSystem::ATLAS_PAGE_SPLATS)
+			? MIN(MIN(chunk.get_draw_count(), chunk.count), run.page_count * GaussianStreamingSystem::ATLAS_PAGE_SPLATS)
 			: 0u;
-	const uint32_t sh_band_limit = uint32_t(CLAMP(chunk.sh_band_level, 0, 4));
+	const uint32_t sh_band_limit = uint32_t(CLAMP(chunk.get_draw_sh_band(), 0, 4));
 	if (resident) {
 		// #1088: buffer_slot is the first page of the chunk's run.
 		meta.atlas_base = run.first_page * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
@@ -478,7 +490,7 @@ void StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 	meta.bounds_radius_local = radius;
 
 	meta.asset_id = asset->dense_id;
-	meta.lod_level = chunk.current_lod_level;
+	meta.lod_level = chunk.get_draw_lod();
 	meta.flags = _pack_data_gpu_flags(asset->data);
 	meta.sh_limit = sh_band_limit;
 
@@ -493,7 +505,11 @@ void StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 		atlas_published_chunk_count++;
 	}
 
+	// Exclude only trailing alignment padding; compare every serialized field.
+	const bool changed = std::memcmp(&chunk_meta_cpu[global_idx], &meta,
+			offsetof(ChunkMetaGPU, node_center_z) + sizeof(meta.node_center_z)) != 0;
 	chunk_meta_cpu[global_idx] = meta;
+	return changed;
 }
 
 void StreamingGlobalAtlasRegistry::mark_chunk_meta_dirty(GaussianStreamingSystem &system, uint32_t chunk_idx) {
@@ -538,7 +554,8 @@ void StreamingGlobalAtlasRegistry::mark_chunk_meta_dirty(GaussianStreamingSystem
 		return;
 	}
 
-	update_chunk_meta_entry(system, asset_id, chunk_idx);
+	const bool changed = update_chunk_meta_entry(system, asset_id, chunk_idx);
+	if (system.has_draw_cap_metadata() && !changed) { return; }
 
 	if (chunk_meta_dirty_all) {
 		return;

@@ -549,6 +549,8 @@ void GPUSortingPipeline::shutdown() {
     }
 
     sorter_needs_rebuild = true;
+    last_fallback_sorter_valid = false;
+    last_fallback_sorter_max_elements = 0;
     sorting_in_progress = false;
     current_sort_timeline_value = 0;
     last_sort_submission_value = 0;
@@ -754,6 +756,11 @@ uint32_t GPUSortingPipeline::get_max_elements() const {
         return gpu_sorter->get_max_elements();
     }
     return 0;
+}
+
+uint32_t GPUSortingPipeline::get_instance_sorter_capacity() const {
+    return gpu_sorter.is_valid() ? gpu_sorter->get_max_elements()
+            : (last_fallback_sorter_valid ? last_fallback_sorter_max_elements : 0);
 }
 
 void GPUSortingPipeline::release_buffers() {
@@ -2270,6 +2277,8 @@ bool GPUSortingPipeline::populate_gpu_positions(RID p_buffer, uint32_t p_total_g
 }
 
 bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transform, const SortFrameContext &p_sort_context) {
+    last_fallback_sorter_valid = p_sort_context.runtime.fallback_sorter_valid;
+    last_fallback_sorter_max_elements = p_sort_context.runtime.fallback_sorter_max_elements;
     const bool trace_enabled = GaussianSplatting::debug_trace_is_enabled();
     if (trace_enabled) {
         GaussianSplatting::debug_trace_record_event("sort",

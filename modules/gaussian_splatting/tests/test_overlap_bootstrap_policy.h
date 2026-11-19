@@ -62,6 +62,82 @@ TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] a measurement replaces 
 	CHECK(GaussianSplatting::overlap_demand_estimate(UINT32_MAX, UINT32_MAX) == UINT32_MAX);
 }
 
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] two-frame-old demand covers CPU draw-domain growth before COUNT") {
+	const uint32_t reserved_maximum = 1000000u;
+	const uint32_t sampled_cpu_domain_count = 100000u;
+	const uint32_t sampled_records = 100000u;
+	GaussianSplatting::OverlapFrameSizingInput input;
+	input.splat_count = sampled_cpu_domain_count;
+	input.effective_visible_splats = GaussianSplatting::overlap_effective_visible_splats(input.splat_count, reserved_maximum, true);
+	input.total_gaussians = reserved_maximum;
+	input.capacity = 150000u; // Warmed sorter, well below the unchanged 100M hard cap.
+	input.sampled_records = sampled_records;
+	input.sampled_cpu_draw_domain_count = sampled_cpu_domain_count;
+	// Today's rate divides raw demand by the reservation, not the sample's CPU draw domain.
+	input.measured_records_per_splat_q8 = GaussianSplatting::overlap_records_per_splat_q8(sampled_records, input.effective_visible_splats);
+	if (input.measured_records_per_splat_q8 == 0u) {
+		FAIL("the completed overlap sample must provide a measured rate, not the bootstrap seed");
+		return;
+	}
+
+	// Frames 0 and 1 each sampled 100k records from a 100k-splat CPU domain. Their completions
+	// arrive two frames later, on frames 2 and 3, as the current domain doubles each frame.
+	const uint32_t current_cpu_domains[] = { 200000u, 400000u };
+	for (uint32_t current_cpu_domain_count : current_cpu_domains) {
+		input.current_cpu_draw_domain_count = current_cpu_domain_count;
+		const uint32_t attempted_records = current_cpu_domain_count; // One overlap per domain splat.
+		const auto plan = GaussianSplatting::overlap_frame_sizing_plan(input);
+		CHECK(attempted_records <= plan.capacity);
+		input.capacity = plan.capacity;
+	}
+}
+
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] a steady CPU draw domain retains today's warmed capacity") {
+	const uint32_t reserved_maximum = 1000000u;
+	const uint32_t sampled_cpu_domain_count = 100000u;
+	const uint32_t sampled_records = 100000u;
+	const uint32_t warmed_capacity = 150000u;
+	GaussianSplatting::OverlapFrameSizingInput input;
+	input.splat_count = sampled_cpu_domain_count;
+	input.effective_visible_splats = GaussianSplatting::overlap_effective_visible_splats(input.splat_count, reserved_maximum, true);
+	input.current_cpu_draw_domain_count = sampled_cpu_domain_count;
+	input.total_gaussians = reserved_maximum;
+	input.capacity = warmed_capacity;
+	input.sampled_records = sampled_records;
+	input.sampled_cpu_draw_domain_count = sampled_cpu_domain_count;
+	input.measured_records_per_splat_q8 = GaussianSplatting::overlap_records_per_splat_q8(sampled_records, input.effective_visible_splats);
+	if (input.measured_records_per_splat_q8 == 0u) {
+		FAIL("the steady-domain control needs a completed nonempty overlap sample");
+		return;
+	}
+
+	const auto plan = GaussianSplatting::overlap_frame_sizing_plan(input);
+	CHECK(plan.capacity == warmed_capacity);
+	const uint32_t attempted_records = input.current_cpu_draw_domain_count;
+	CHECK(attempted_records <= plan.capacity);
+}
+
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] unchanged or shrinking CPU domains leave today's request exactly") {
+	GaussianSplatting::OverlapFrameSizingInput input;
+	input.splat_count = 100000u;
+	input.effective_visible_splats = 1000000u;
+	input.capacity = 150000u;
+	input.measured_records_per_splat_q8 = GaussianSplatting::overlap_records_per_splat_q8(100000u, input.effective_visible_splats);
+	input.sampled_records = 100000u;
+	input.sampled_cpu_draw_domain_count = 100000u;
+	if (input.measured_records_per_splat_q8 == 0u) {
+		FAIL("the no-inflation control needs a completed nonempty overlap sample");
+		return;
+	}
+	const auto today = GaussianSplatting::overlap_frame_sizing_plan(input);
+	const uint32_t current_cpu_domains[] = { 50000u, 100000u };
+	for (uint32_t current_cpu_domain_count : current_cpu_domains) {
+		input.current_cpu_draw_domain_count = current_cpu_domain_count;
+		const auto plan = GaussianSplatting::overlap_frame_sizing_plan(input);
+		CHECK(plan.requested_records == today.requested_records);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] a grow pads geometrically and never below the request") {
 	CHECK(GaussianSplatting::overlap_grow_target(11000000u, 10000000u, 100000000u) == 15000000u);
 	CHECK(GaussianSplatting::overlap_grow_target(40000000u, 10000000u, 100000000u) == 40000000u);

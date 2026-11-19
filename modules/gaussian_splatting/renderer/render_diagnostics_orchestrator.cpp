@@ -1825,6 +1825,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_cpu_prepare_timing_scope"] = "cpu_view_admission_selection_draw_upload";
     stats["hlod_preparation_usec"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->preparation_usec) : int64_t(0);
     stats["hlod_budget_bound_frames"] = int64_t(resource_state.hlod_budget_bound_frames);
+    stats["hlod_object_tail_overflow_rebuilds"] = int64_t(resource_state.hlod_object_tail_overflow_rebuilds);
+    stats["hlod_object_tail_reserved_records"] = int64_t(resource_state.hlod_instance_region.reserved_records);
     stats["hlod_root_dropped_frames"] = int64_t(resource_state.hlod_root_dropped_frames);
     stats["hlod_estimated_records"] = resource_state.hlod_estimated_records;
     stats["hlod_gpu_byte_upper_bound"] = int64_t(ledger_snapshot.admitted_device_bytes);

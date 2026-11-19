@@ -719,6 +719,8 @@ struct TileRenderParams {
 	RID shadow_atlas;
 	uint32_t total_gaussians = 0;
 	uint32_t splat_count = 0;
+	// Resident/admitted CPU instance domain for this frame; 0 when unavailable or on HLOD.
+	uint32_t current_cpu_draw_domain_count = 0;
 	// Maximum visible splats the GPU instance pipeline can produce.
 	// Used to size projection_buffer for GPU-indirect dispatch paths where
 	// splat_count (CPU readback) may lag behind the actual GPU-side count.

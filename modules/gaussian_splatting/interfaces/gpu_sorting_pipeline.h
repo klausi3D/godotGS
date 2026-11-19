@@ -62,6 +62,7 @@ public:
     void mark_sorter_dirty() override { sorter_needs_rebuild = true; }
     String get_algorithm_name() const override;
     uint32_t get_max_elements() const override;
+    uint32_t get_instance_sorter_capacity() const;
 
     // IGPUSortingPipeline interface - Buffer management
     void ensure_buffers(uint32_t p_required_elements) override;
@@ -172,6 +173,11 @@ private:
 
     // GPU sorter
     Ref<IGPUSorter> gpu_sorter;
+    // Render-thread snapshot for pre-sort admission. Before the first instance
+    // sort, zero means unknown; admission uses buffers.max_visible_splats and
+    // the GPU clamp/overflow counter remain the backstop.
+    bool last_fallback_sorter_valid = false;
+    uint32_t last_fallback_sorter_max_elements = 0;
     bool sorter_needs_rebuild = true;
     GPUSorterFactory::SortingAlgorithm forced_sort_algorithm = GPUSorterFactory::ALGORITHM_AUTO;
     bool sorting_in_progress = false;

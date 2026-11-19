@@ -146,6 +146,8 @@ private:
 			uint64_t p_generation) const;
 
 	void invalidate_instance_pipeline_caches();
+	bool apply_chunk_drawn_cap(GaussianStreamingSystem *p_streaming_system, uint32_t p_cap,
+			const Transform3D &p_camera_transform, const Projection &p_projection);
 	bool refresh_instance_asset_snapshot(GaussianSplatSceneDirector *p_director, bool p_trace_enabled);
 	const VisibleLODSelection &produce_visible_lod_selection(GaussianSplatSceneDirector *p_director,
 			GaussianStreamingSystem *p_streaming_system, const Vector3 &p_camera_origin);

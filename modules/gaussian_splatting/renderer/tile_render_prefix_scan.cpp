@@ -291,8 +291,11 @@ bool TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback(RenderingDevice 
 
     owner.async_readback.overflow_state.pending_readback = false;
     owner.async_readback.overflow_state.requested_frame_serial = 0;
+    owner.async_readback.overflow_state.requested_cpu_draw_domain_count = 0;
     owner.async_readback.overflow_state.overflow_detected = cpu_result.indirect_dispatch.overflow_flag != 0u;
     owner.async_readback.overflow_state.last_unclamped_total = cpu_result.raw_total;
+    owner.async_readback.overflow_state.sampled_records = cpu_result.raw_total;
+    owner.async_readback.overflow_state.sampled_cpu_draw_domain_count = owner.async_readback.overflow_state.count_cpu_draw_domain_count;
     owner.async_readback.overflow_state.first_frame_complete = true;
 
     return true;
@@ -468,6 +471,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 				WARN_PRINT_ONCE("[TileRenderer] Async overlap readback timed out; retrying request");
 				owner.async_readback.overflow_state.pending_readback = false;
 				owner.async_readback.overflow_state.requested_frame_serial = 0;
+				owner.async_readback.overflow_state.requested_cpu_draw_domain_count = 0;
 			}
 		}
 
@@ -478,6 +482,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 			const uint64_t request_frame_serial = owner.frame_state.current_frame_serial;
 			owner.async_readback.overflow_state.pending_readback = true;
 			owner.async_readback.overflow_state.requested_frame_serial = request_frame_serial;
+			owner.async_readback.overflow_state.requested_cpu_draw_domain_count = owner.async_readback.overflow_state.count_cpu_draw_domain_count;
 			Callable callback = callable_mp(&owner, &TileRenderer::_on_overflow_flag_readback).bind(int64_t(request_frame_serial));
 			Error err = device->buffer_get_data_async(
 					owner.global_sort_resources.indirect_dispatch_buffer,
@@ -487,6 +492,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 			if (err != OK) {
 				owner.async_readback.overflow_state.pending_readback = false;
 				owner.async_readback.overflow_state.requested_frame_serial = 0;
+				owner.async_readback.overflow_state.requested_cpu_draw_domain_count = 0;
 			}
 		}
 
@@ -658,6 +664,10 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 
 	// Preserve the raw total before capping so callers can decide on resizing/retries.
 	r_raw_record_count = raw_total_records;
+	// Existing synchronous/bootstrap measurements also replace the prediction pair, without
+	// changing the legacy async overflow/recovery state or adding another readback.
+	owner.async_readback.overflow_state.sampled_records = raw_total_records;
+	owner.async_readback.overflow_state.sampled_cpu_draw_domain_count = owner.async_readback.overflow_state.count_cpu_draw_domain_count;
 
 	// Enforce the user-configurable overlap budget so emit/sort never write past buffer capacity.
 	// The budget is controlled via ProjectSettings: rendering/gaussian_splatting/gpu_sorting/max_overlap_records

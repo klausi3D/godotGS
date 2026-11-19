@@ -521,6 +521,12 @@ def pressure_request(tree: Path) -> dict:
     return {"name": "pressure", "issue": "#1471", "atlas_setting": PRESSURE_ATLAS_SETTING,
             "atlas_override_mb": megabytes, "tree_pages": total, "requested_atlas_pages": pages,
             "atlas_fraction_band": [low, high], "drawn_budget_splats": PRESSURE_DRAWN_BUDGET_SPLATS,
+            "object_tail_setting": "rendering/gaussian_splatting/hlod/object_tail_reservation_percent",
+            "object_tail_reservation_percent": 0,
+            "object_tail_reason": (
+                "T0 has no objects and the pre-D3 base binary has no object tail. A tail carved from a "
+                "pressure atlas without headroom would make migration capacities incomparable; "
+                "the unconstrained variant keeps the shipped default."),
             "page_splats": PRESSURE_PAGE_SPLATS, "record_bytes": PRESSURE_RECORD_BYTES,
             "tree_pages_source": "V4 node directory of the prepared tree, read before any arm runs",
             "chunk_arm": {"role": "unconstrained_reference", "reason": (
@@ -602,8 +608,9 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
     plan["node"]["lod_bias"] = 1.0
     if pressure is not None:
         # #1471 pressure variant only: an existing atlas limit and the node's drawn budget,
-        # identical for every arm. Nothing else differs from the unconstrained plan.
+        # identical for every arm, with #1473's object tail disabled for comparable T0 capacities.
         plan["project_settings"][pressure["atlas_setting"]] = pressure["atlas_override_mb"]
+        plan["project_settings"][pressure["object_tail_setting"]] = pressure["object_tail_reservation_percent"]
         plan["node"]["max_splat_count"] = pressure["drawn_budget_splats"]
     request = requested_settings(plan, prepared)
     cache = prepare_cold(world)
@@ -674,7 +681,7 @@ def payload_behavior(result: dict, trace) -> dict:
     # proof that the process served HLOD streaming rather than a fallback.
     actual_hlod = all(stats.get(key) is True for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged"))
     actual_chunk = (result.get("route") == "chunk" and isinstance(stats.get("streaming_state"), dict))
-    return {"route": "hlod" if actual_hlod else "chunk" if actual_chunk else None,
+    behavior = {"route": "hlod" if actual_hlod else "chunk" if actual_chunk else None,
             "route_evidence": {key: stats.get(key) for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged")},
             "loaded_file_sha256": result.get("loaded_file_sha256"),
             "world_payload": copy.deepcopy(result.get("world_payload_readback")),
@@ -693,6 +700,14 @@ def payload_behavior(result: dict, trace) -> dict:
                              for cp in result.get("checkpoints", [])],
             "trace_drawn_splats_max": max(trace.col("drawn_splats")) if trace and trace.rows else missing("no trace"),
             "D3_5_payload_stages": missing("not a pre-D3 common measurement; use per-route candidate summary")}
+    endpoints = result.get("residency_pass_endpoints")
+    if isinstance(endpoints, list):
+        behavior["residency_pass_endpoints"] = [
+            {"pass_index": entry.get("pass_index"),
+             **{edge: payload_behavior(entry[edge], None) for edge in ("start", "end")
+                if isinstance(entry.get(edge), dict)}}
+            for entry in endpoints if isinstance(entry, dict)]
+    return behavior
 
 
 def migration_arm(arm: dict, identity: dict) -> dict:

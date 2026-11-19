@@ -270,6 +270,7 @@ public:
     // Update visibility and load/unload chunks based on camera
     // Note: camera_transform is in the same space as the Gaussian data (camera-to-world or camera-to-local).
     void update_streaming(const Transform3D &camera_transform, const Projection &projection, float frame_delta_seconds = -1.0f);
+    void update_streaming_for_admission(const Transform3D &camera_transform, const Projection &projection);
 
     // Global atlas residency requests (instance pipeline).
     void begin_residency_requests();
@@ -329,6 +330,18 @@ public:
     // pushes its effective render distance every frame; <= 0 means unbounded.
     void set_load_distance_limit(float p_limit) { visibility.set_load_distance_limit(p_limit); }
     float get_load_distance_limit() const { return visibility.get_load_distance_limit(); }
+    // Owner-thread checks after streaming and the original sort allocation/clamp.
+    // A non-binding decision releases any retained draw metadata to nominal.
+    bool drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts);
+    bool has_draw_cap_metadata() const { return visibility.draw_cap_metadata_active; }
+    void publish_drawn_splat_metadata();
+    // Owner-thread, post-admission upper bound on this frame's resident instance draw domain.
+    uint32_t get_cpu_draw_domain_count(const HashMap<uint32_t, uint32_t> &p_instance_counts) const;
+    void apply_drawn_splat_admission(uint64_t p_cap, const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
+            const Transform3D &p_camera_transform, const Projection &p_projection,
+            bool p_frustum_culling_enabled, float p_frustum_plane_slack);
+    bool is_drawn_splat_admission_engaged() const { return visibility.draw_cap_admission_engaged; }
+    uint64_t get_engaged_drawn_splat_cap() const { return visibility.effective_drawn_splat_cap; }
     // #1087: apply a pending project-settings reload (g_lod_config included) now, so a
     // caller can derive this frame's load distance limit from current settings before
     // update_streaming() (which would otherwise reload them only after the push).
@@ -415,6 +428,11 @@ public:
         return global_atlas_registry.get_last_sync_diagnostics();
     }
     void _test_clear_atlas_cpu_dirty_state() { global_atlas_registry._test_clear_cpu_dirty_state(); }
+    const LocalVector<ChunkMetaGPU> &_test_get_chunk_meta_cpu() const { return global_atlas_registry.chunk_meta_cpu; }
+    void _test_prepare_drawn_splat_admission(uint64_t p_cap,
+            const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances, const Vector3 &p_camera_pos) {
+        _prepare_drawn_splat_admission(p_cap, p_instances, Transform3D(Basis(), p_camera_pos), Projection(), false, 1.0f);
+    }
     void _test_mark_chunk_meta_dirty(uint32_t asset_id, uint32_t chunk_idx) {
         global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     }
@@ -598,6 +616,7 @@ public:
     StreamingUploadPipeline &_internal_get_upload_pipeline() { return upload_pipeline; }
 
 private:
+    void _update_streaming(const Transform3D &camera_transform, const Projection &projection, float frame_delta_seconds, bool p_defer_draw_cap_decision);
     bool _create_chunks();
     void _build_chunks_for_data(const Ref<GaussianData> &p_data, LocalVector<StreamingChunk> &out_chunks);
     bool _populate_chunks_from_bake(const Ref<GaussianData> &p_data, LocalVector<StreamingChunk> &out_chunks, bool p_build_primary_spatial);
@@ -664,7 +683,7 @@ private:
     void _handle_zero_visible_chunk_recovery();
     void _run_streaming_frame_pipeline(const Transform3D &camera_transform, const Projection &projection,
             const Vector3 &camera_pos, float resolved_frame_delta_seconds, uint32_t regulated_max,
-            uint32_t effective_max, uint32_t runtime_capacity_max, OS *os, uint64_t scheduler_start_usec);
+            uint32_t effective_max, uint32_t runtime_capacity_max, OS *os, uint64_t scheduler_start_usec, bool p_defer_draw_cap_decision);
     void _reset_per_frame_counters();
     void _evict_for_vram_budget(uint32_t &evictions_left, bool &eviction_blocked);
     void _load_visible_chunks(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked);
@@ -777,6 +796,9 @@ private:
             bool p_vram_regulator_allows_load);
     void _apply_config_overrides();
     const LODConfig &_get_lod_config() const;
+    void _prepare_drawn_splat_admission(uint64_t p_cap, const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
+            const Transform3D &p_camera_transform, const Projection &p_projection,
+            bool p_frustum_culling_enabled, float p_frustum_plane_slack);
     void _update_culling_config_from_project_settings();
     uint32_t _prefetch_chunks_at_predicted_position(const Vector3 &predicted_pos,
             uint32_t available_slots, uint32_t load_budget, uint32_t max_scan_budget);
