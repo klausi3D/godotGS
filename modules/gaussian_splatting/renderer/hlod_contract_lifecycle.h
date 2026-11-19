@@ -33,6 +33,10 @@ inline ContractChangeDecision hlod_contract_change_action(const ContractChange &
 	if (!p_change.resources_current) {
 		return { ContractChangeAction::FULL_REBUILD, ContractChangeReason::RESOURCES_CHANGED };
 	}
+	if (p_change.instance_refresh_failed_asset_generation != 0 &&
+			p_change.instance_refresh_failed_asset_generation == p_change.asset_generation) {
+		return { ContractChangeAction::FULL_REBUILD, ContractChangeReason::INSTANCE_REFRESH_FAILED };
+	}
 	if (p_change.prepared_asset_generation != p_change.asset_generation) {
 		if (p_change.object_pages > p_change.reserved_object_pages) {
 			return { ContractChangeAction::FULL_REBUILD, ContractChangeReason::OBJECT_TAIL_OVERFLOW };

@@ -144,6 +144,8 @@ struct ResourceState {
     // content (a change re-uploads the rows), the asset-set generation what the bundle packs (a change rebuilds it).
     uint64_t hlod_instance_generation = 0;
     uint64_t hlod_instance_asset_generation = 0;
+    // Render-thread-only failure history; zero means no failed incremental refresh.
+    uint64_t hlod_instance_refresh_failed_asset_generation = 0;
     uint32_t hlod_instance_rows = 0; // Instance (and grading) rows of both prepared bundles; row 0 is the world.
     // PR1b (world + node instances in one frame, renderer/hlod_world_instances.h). Render-thread state of the prepared
     // bundles: the packed node assets (instance region), the rows as last uploaded (CPU copy: the per-view instance draw

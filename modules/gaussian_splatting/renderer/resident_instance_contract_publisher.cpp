@@ -1638,6 +1638,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = 0;
     state.hlod_instance_generation = state.hlod_instance_asset_generation = state.hlod_grading_generation = state.hlod_prepared_owner_key = 0;
+    state.hlod_instance_refresh_failed_asset_generation = 0;
     state.hlod_instance_rows = 0;
     state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord(); // The buffers it names are gone.
     state.hlod_instance_region = gs_hlod_bundle::InstanceRegion();
@@ -1681,6 +1682,7 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     }
     change.prepared_asset_generation = state.hlod_instance_asset_generation;
     change.asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    change.instance_refresh_failed_asset_generation = state.hlod_instance_refresh_failed_asset_generation;
     change.prepared_row_generation = state.hlod_instance_generation;
     change.row_generation = director->get_instance_generation_for_renderer(this);
     const bool quantized = g_quantization_config.per_chunk_quantization;
@@ -1871,8 +1873,15 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
     RenderingDevice *rd = get_device_state().rd;
     auto *director = GaussianSplatSceneDirector::get_singleton();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_prepared_snapshot;
-    if (!rd || !director || input.is_null() || !state.hlod_streaming || state.hlod_instance_region.reserved_records == 0) { return false; }
-    const uint64_t asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    const uint64_t asset_generation = director ? director->get_instance_asset_generation_for_renderer(this) : 0;
+    const auto refresh_failed = [&]() {
+        // Record the attempted generation, not a concurrently edited replacement.
+        if (asset_generation != 0) {
+            state.hlod_instance_refresh_failed_asset_generation = asset_generation;
+        }
+        return false;
+    };
+    if (!rd || !director || input.is_null() || !state.hlod_streaming || state.hlod_instance_region.reserved_records == 0) { return refresh_failed(); }
     const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     gs_hlod_bundle::Rows rows;
@@ -1883,22 +1892,22 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
     HlodInstancePayload payload;
     String reason;
     const bool quantized = state.hlod_relative.quantized;
-    if (!hlod_pack_instance_assets(registered, rows, input->nodes.size(), quantized, payload, reason)) { return false; }
+    if (!hlod_pack_instance_assets(registered, rows, input->nodes.size(), quantized, payload, reason)) { return refresh_failed(); }
     payload.region.reserved_records = state.hlod_instance_region.reserved_records;
     if (payload.region.records > payload.region.reserved_records ||
-            gs_hlod_bundle::rows_refusal(rows, input->nodes.size(), payload.region)) { return false; }
+            gs_hlod_bundle::rows_refusal(rows, input->nodes.size(), payload.region)) { return refresh_failed(); }
     const uint32_t capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, get_hlod_view_splat_cap(), payload.region);
     const uint32_t canonical_capacity = gs_hlod_bundle::canonical_capacity(input->leaf_count, payload.region);
-    if (canonical_capacity == UINT32_MAX) { return false; }
+    if (canonical_capacity == UINT32_MAX) { return refresh_failed(); }
     auto &sorter = subsystem_state.sorting_pipeline;
-    if (sorter.is_null()) { return false; }
+    if (sorter.is_null()) { return refresh_failed(); }
     auto sort = sorter->get_buffer_handles();
     if (!sort.valid || sort.capacity < capacity) {
         if (capacity > sorter->get_max_elements()) { sorter->rebuild_sorter(capacity); }
         sorter->ensure_buffers(capacity);
         sort = sorter->get_buffer_handles();
     }
-    if (!sort.valid || sort.capacity < capacity) { return false; }
+    if (!sort.valid || sort.capacity < capacity) { return refresh_failed(); }
     // Measure AFTER sort growth. This device superset includes the live atlas,
     // old tables and every deferred free; reserve only additional non-atlas bytes.
     auto &old = state.hlod_relative;
@@ -1908,14 +1917,14 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
     DeviceVramLedger &ledger = refresh_device_vram_ledger(state, rd);
     uint64_t live_bytes = 0;
     if (full_bytes < atlas_bytes || !get_hlod_owned_byte_upper_bound(live_bytes) ||
-            full_bytes > hlod_owned_cap_for(true, ledger.limit())) { return false; }
+            full_bytes > hlod_owned_cap_for(true, ledger.limit())) { return refresh_failed(); }
     ledger.observe_device_bytes(live_bytes);
     DeviceVramLedger::ScopedReservation reservation(ledger, DeviceVramLedger::VIEW);
-    if (!reservation.acquire(full_bytes - atlas_bytes)) { return false; }
+    if (!reservation.acquire(full_bytes - atlas_bytes)) { return refresh_failed(); }
     HlodBundle candidate;
     auto discard = [&]() { release_hlod_bundle(candidate); };
     if (!hlod_build_bundle(this, rd, *input.ptr(), true, quantized, capacity, state.hlod_position_bits, state.hlod_scale_bits,
-                rows, payload, candidate, true, state.hlod_stream_atlas_records, &old)) { discard(); return false; }
+                rows, payload, candidate, true, state.hlod_stream_atlas_records, &old)) { discard(); return refresh_failed(); }
     uint32_t atlas_owner = old.owned_count;
     for (uint32_t i = 0; i < old.owned_count; ++i) {
         if (old.owned[i] == old.buffers.atlas_gaussian_buffer) { atlas_owner = i; break; }
@@ -1929,7 +1938,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
             asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
             grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
             hlod_prepared_contract_change().action != gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY) {
-        discard(); return false;
+        discard(); return refresh_failed();
     }
     return gs_hlod_bundle::publish_instance_tail([&]() {
         if (payload.region.records == 0) { return true; }
@@ -1954,6 +1963,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
         state.hlod_canonical_capacity = canonical_capacity;
         state.hlod_instance_generation = row_generation;
         state.hlod_instance_asset_generation = asset_generation;
+        state.hlod_instance_refresh_failed_asset_generation = 0;
         state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord();
         state.hlod_instance_draws.clear();
         state.hlod_active = false;
