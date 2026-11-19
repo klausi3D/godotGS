@@ -313,6 +313,8 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
     analytics[AK::draw_cap_refused_chunks_this_frame] = visibility.draw_cap_refused_chunks_this_frame;
     analytics[AK::draw_cap_coarsened_chunks_total] = int64_t(visibility.draw_cap_coarsened_chunks_total);
     analytics[AK::draw_cap_refused_chunks_total] = int64_t(visibility.draw_cap_refused_chunks_total);
+    analytics[AK::draw_cap_admission_cpu_usec_this_frame] = int64_t(visibility.draw_cap_admission_cpu_usec_this_frame);
+    analytics[AK::draw_cap_admission_cpu_usec_total] = int64_t(visibility.draw_cap_admission_cpu_usec_total);
     if (lod_config.enabled) {
         Dictionary lod_stats = get_lod_debug_stats();
         analytics[AK::lod_reduction_ratio] = lod_stats.get("reduction_ratio", 0.0f);

@@ -14,6 +14,7 @@
 #include "gaussian_streaming.h"
 #include "../lod/lod_config.h"
 #include "core/math/math_funcs.h"
+#include "core/os/os.h"
 #include <cfloat>
 
 // ==============================================================================
@@ -46,10 +47,16 @@ void GaussianStreamingSystem::_update_chunk_lod_parameters(const Vector3 &camera
 }
 
 bool GaussianStreamingSystem::drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts) {
+	// CPU wall time on the render thread, not GPU time. Sum the host-reachable
+	// gate/restore, admission preparation and publication; exclude orchestrator instance setup.
+	const uint64_t start_usec = OS::get_singleton()->get_ticks_usec();
 	const bool binds = visibility.drawn_splat_cap_would_bind(*this, p_cap, p_instance_counts);
 	if (!binds) {
 		visibility.restore_draw_cap_lod_parameters(*this, true);
 	}
+	const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
+	visibility.draw_cap_admission_cpu_usec_this_frame += elapsed_usec;
+	visibility.draw_cap_admission_cpu_usec_total += elapsed_usec;
 	return binds;
 }
 
@@ -94,17 +101,26 @@ void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
 		const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
 		const Transform3D &p_camera_transform, const Projection &p_projection,
 		bool p_frustum_culling_enabled, float p_frustum_plane_slack) {
+	const uint64_t start_usec = OS::get_singleton()->get_ticks_usec();
 	_prepare_drawn_splat_admission(p_cap, p_instances, p_camera_transform, p_projection,
 			p_frustum_culling_enabled, p_frustum_plane_slack);
+	const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
+	visibility.draw_cap_admission_cpu_usec_this_frame += elapsed_usec;
+	visibility.draw_cap_admission_cpu_usec_total += elapsed_usec;
+	// Time publication separately so non-binding frames that restore nominal metadata count too.
 	publish_drawn_splat_metadata();
 }
 
 void GaussianStreamingSystem::publish_drawn_splat_metadata() {
+	const uint64_t start_usec = OS::get_singleton()->get_ticks_usec();
 	GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
 	RenderingDevice *rd = primary_device_override ? primary_device_override
 			: (last_upload_device ? last_upload_device : (manager ? manager->get_primary_rendering_device() : nullptr));
 	// Publish the final admitted view, or nominal metadata when admission disengages.
 	global_atlas_registry.sync_to_gpu(*this, rd);
+	const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
+	visibility.draw_cap_admission_cpu_usec_this_frame += elapsed_usec;
+	visibility.draw_cap_admission_cpu_usec_total += elapsed_usec;
 }
 
 Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
@@ -195,6 +211,8 @@ Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 	stats["draw_cap_refused_chunks_this_frame"] = visibility.draw_cap_refused_chunks_this_frame;
 	stats["draw_cap_coarsened_chunks_total"] = int64_t(visibility.draw_cap_coarsened_chunks_total);
 	stats["draw_cap_refused_chunks_total"] = int64_t(visibility.draw_cap_refused_chunks_total);
+	stats["draw_cap_admission_cpu_usec_this_frame"] = int64_t(visibility.draw_cap_admission_cpu_usec_this_frame);
+	stats["draw_cap_admission_cpu_usec_total"] = int64_t(visibility.draw_cap_admission_cpu_usec_total);
 
 	// LOD blend configuration (from LODBlendConfig)
 	stats["blend_distance"] = visibility.lod_blend_config.blend_distance;

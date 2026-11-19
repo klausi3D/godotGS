@@ -160,6 +160,8 @@ void StreamingVisibilityController::reset_runtime_state() {
     draw_instances.clear();
     draw_cap_coarsened_chunks_total = 0;
     draw_cap_refused_chunks_total = 0;
+    draw_cap_admission_cpu_usec_this_frame = 0;
+    draw_cap_admission_cpu_usec_total = 0;
     prev_visible_count = 0;
     visibility_flags_initialized = false;
     visibility_flags_chunk_count = 0;

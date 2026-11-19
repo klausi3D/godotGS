@@ -194,6 +194,8 @@ private:
     uint32_t draw_cap_refused_chunks_this_frame = 0;
     uint64_t draw_cap_coarsened_chunks_total = 0;
     uint64_t draw_cap_refused_chunks_total = 0;
+    uint64_t draw_cap_admission_cpu_usec_this_frame = 0;
+    uint64_t draw_cap_admission_cpu_usec_total = 0;
     uint32_t prev_visible_count = 0;
     bool visibility_flags_initialized = false;
     uint32_t visibility_flags_chunk_count = 0;

@@ -3038,6 +3038,7 @@ void GaussianStreamingSystem::_handle_zero_visible_chunk_recovery() {
 }
 
 void GaussianStreamingSystem::_reset_per_frame_counters() {
+    visibility.draw_cap_admission_cpu_usec_this_frame = 0;
     budget.chunks_loaded_this_frame = 0;
     budget.vram_chunk_cap_hit_this_frame = false;
     budget.retired_upload_bytes_this_frame = 0;
