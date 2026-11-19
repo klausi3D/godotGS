@@ -898,6 +898,29 @@ class PressureVariant(unittest.TestCase):
                 persisted = json.loads((Path(arm["artifact_root"]) / "arm.json").read_text(encoding="utf-8"))
                 self.assertEqual(persisted["pressure"], arm["pressure"])
 
+    def test_pressure_disables_object_tail_for_comparable_migration_capacity_only(self):
+        setting = "rendering/gaussian_splatting/hlod/object_tail_reservation_percent"
+        request = self.request()
+        self.assertEqual(request["object_tail_setting"], setting)
+        self.assertEqual(request["object_tail_reservation_percent"], 0)
+        self.assertIsInstance(request["object_tail_reason"], str)
+        self.assertTrue(request["object_tail_reason"].strip())
+
+        for variant in ("pressure", "unconstrained"):
+            rc, calls, experiment = self.orchestrate(variant)
+            self.assertEqual(rc, 0)
+            self.assertEqual([name for name, _ in calls], ["chunk", "hlod", "base", "candidate"])
+            if variant == "pressure":
+                self.assertEqual(experiment["variant"], request)
+            for name, extra in calls:
+                with self.subTest(variant=variant, arm=name):
+                    route = "chunk" if name == "chunk" else "hlod"
+                    _, plan = self.run_arm(route, extra.get("pressure"))
+                    if variant == "pressure":
+                        self.assertEqual(plan["project_settings"][setting], 0)
+                    else:
+                        self.assertNotIn(setting, plan["project_settings"])
+
     def test_absent_pressure_observations_stay_not_measured_never_zero(self):
         request = self.request()
         observed = shared.pressure_observations({}, None, "hlod", request)
