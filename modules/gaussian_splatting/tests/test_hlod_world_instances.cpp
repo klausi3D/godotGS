@@ -283,6 +283,78 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] moving world-scen
 	CHECK(String(rows_refusal(hidden, 7u, region)) == "hlod_bundle_rows_region_mismatch");
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] fixed object tail is charged empty and replacement tables overlap old allocations (#1473)") {
+	CHECK(object_tail_pages(100, 10) == 10);
+	CHECK(object_tail_pages(99, 10) == 9);
+	CHECK(object_tail_pages(100, 0) == 0);
+	CHECK(object_tail_pages(100, 100) == 100);
+	for (bool quantized : { false, true }) {
+		CAPTURE(quantized);
+		InstanceRegion region;
+		const uint64_t plain = bundle_bytes(3, 90 * 1024, true, quantized, 64, 1, region);
+		region.reserved_records = 10 * 1024;
+		const uint64_t stride = quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+		const uint64_t old_bytes = bundle_bytes(3, 90 * 1024, true, quantized, 64, 1, region);
+		CHECK(old_bytes - plain == 10 * 1024 * stride);
+		region.records = 1;
+		CHECK(bundle_bytes(3, 90 * 1024, true, quantized, 64, 1, region) == old_bytes);
+		region.chunk_count = 1;
+		const uint64_t replacement = bundle_bytes(3, 90 * 1024, true, quantized, 64, 2, region) - 100 * 1024 * stride;
+		DeviceVramLedger ledger;
+		ledger.configure(0, old_bytes + replacement - 1);
+		ledger.observe_device_bytes(old_bytes);
+		CHECK_FALSE(ledger.reserve(DeviceVramLedger::VIEW, replacement));
+		ledger.configure(0, old_bytes + replacement);
+		{
+			DeviceVramLedger::ScopedReservation held(ledger, DeviceVramLedger::VIEW);
+			CHECK(held.acquire(replacement));
+			CHECK(ledger.snapshot().device_bytes == old_bytes);
+			CHECK(ledger.snapshot().pending_bytes == replacement);
+		}
+		CHECK(ledger.snapshot().pending_bytes == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] an object-less tree keeps all world pages when the tail fits headroom (#1473)") {
+	const auto placement = place_object_tail(100, 150, 10);
+	CHECK(placement.world_pages == 100); // Identical to the existing tree-capped world budget.
+	CHECK(placement.tail_pages == 10); // Base is 100, not the uncapped 150 pages.
+	CHECK(placement.world_pages + placement.tail_pages <= 150);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] constrained tail placement carves exactly the remainder from world pages (#1473)") {
+	for (uint64_t budget : { 0u, 80u, 100u, 104u, 110u }) {
+		CAPTURE(budget);
+		const auto placement = place_object_tail(100, budget, 10);
+		const uint64_t base = MIN(uint64_t(100), budget);
+		const uint64_t headroom = budget > 100 ? budget - 100 : 0;
+		const uint64_t loss = base - placement.world_pages;
+		CHECK(loss <= placement.tail_pages);
+		CHECK(loss == placement.tail_pages - MIN(headroom, placement.tail_pages));
+		CHECK(placement.world_pages + placement.tail_pages <= budget);
+	}
+	CHECK(place_object_tail(100, 104, 10).world_pages == 94); // Four spare pages, six carved.
+	CHECK(place_object_tail(100, 80, 10).world_pages == 72); // No spare pages: carve all eight.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] first object spawn uses the tail prepared with zero objects (#1473)") {
+	const auto placement = place_object_tail(100, 110, 10);
+	InstanceRegion empty;
+	empty.reserved_records = placement.tail_pages * 1024;
+	if (empty.records != 0 || empty.reserved_records == 0) {
+		FAIL("#1473 first-spawn fixture requires a prepared empty object region with a real tail"); return;
+	}
+	ContractChange change;
+	change.prepared_asset_generation = 4;
+	change.asset_generation = 5;
+	change.prepared_row_generation = 9;
+	change.row_generation = 10;
+	change.reserved_object_pages = empty.reserved_records / 1024;
+	change.object_pages = 1;
+	CHECK(hlod_contract_change_action(change).action == ContractChangeAction::INSTANCE_REGION_ONLY);
+	CHECK(placement.world_pages == 100);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] the world-plus-instances ledger charges each node asset once and is PR1a's ledger without instances") {
 	// Empty region: exactly PR1a's ledger and capacities, in every bundle shape.
 	const uint64_t node_counts[] = { 1u, 7u, 4096u };

@@ -123,6 +123,8 @@ struct ResourceState {
     uint64_t hlod_origin_revision = 0; // Revision of the last uploaded HLOD draw list (diagnostics)
     uint64_t hlod_content_serial = 0;
     uint64_t hlod_budget_bound_frames = 0;
+    uint64_t hlod_object_tail_overflow_rebuilds = 0; // Cumulative fallback warnings, once per snapshot/asset generation.
+    uint64_t hlod_tail_warned_snapshot = 0, hlod_tail_warned_asset_generation = 0;
     uint64_t hlod_root_dropped_frames = 0;
     uint64_t hlod_cpu_cut_usec = 0;
     uint64_t hlod_cpu_prepare_usec = 0; // View admission, selection and draw-list upload; CPU elapsed only.

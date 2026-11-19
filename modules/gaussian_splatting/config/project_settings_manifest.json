@@ -753,6 +753,15 @@
       "test_coverage": "inventory_only"
     },
     {
+      "effective_state": "ResourceState.hlod_instance_region.reserved_records",
+      "key": "rendering/gaussian_splatting/hlod/object_tail_reservation_percent",
+      "notes": "Percent of the existing tree-capped streamed-world page budget reserved for object payload. Unused headroom inside the existing atlas/owned/ledger/scratch envelope supplies the tail first; only the remainder is carved from world pages. Default 10; the entire reservation is charged even when empty. Snapshotted on bundle creation; changes apply on the next full rebuild. Objects exceeding the tail use the legacy full rebuild with hlod_object_tail_overflow_rebuilds warning telemetry. Page counts round down; if carving the tail cannot leave a complete root run, the legacy layout is retained with a warning.",
+      "owner": "GaussianSplatRenderer",
+      "reload_semantics": "on_demand",
+      "test_coverage": "partial",
+      "visibility": "editor_visible"
+    },
+    {
       "effective_state": "GaussianSplatHlodPagedSource::runtime_full_payload_validation",
       "key": "rendering/gaussian_splatting/hlod/runtime_full_payload_validation",
       "notes": "Validate decoded runtime HLOD node payload fields, support bounds, and node metrics after record integrity verification. Defaults on: writer paths do not all validate the exact runtime decoded form, and record digests prove byte identity rather than semantic validity for buggy, older, or self-consistent producers. Snapshotted when a paged source is first installed in the page store; changing the setting affects new paged sources. Offline reads always retain full validation.",

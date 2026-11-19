@@ -76,6 +76,7 @@
     "rendering/gaussian_splatting/gpu_sorting/tile_bits",
     "rendering/gaussian_splatting/gpu_sorting/workgroup_size",
     "rendering/gaussian_splatting/gpu_sorting_enabled",
+    "rendering/gaussian_splatting/hlod/object_tail_reservation_percent",
     "rendering/gaussian_splatting/hlod/runtime_full_payload_validation",
     "rendering/gaussian_splatting/import/gsplatworld_compression_enabled",
     "rendering/gaussian_splatting/import/use_gsplatworld_cache",

@@ -907,6 +907,7 @@ public:
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
     bool is_hlod_prepared_contract_current() const;
     gs_hlod_bundle::ContractChangeDecision hlod_prepared_contract_change() const;
+    bool refresh_hlod_instance_region();
     bool publish_hlod_bundle(bool p_relative);
     // Re-uploads the prepared bundles' instance and grading rows in place when only the director's row generation moved
     // (gs_hlod_bundle::PreparedRows::REUPLOAD). False when the rows can no longer be served in place (the caller releases).

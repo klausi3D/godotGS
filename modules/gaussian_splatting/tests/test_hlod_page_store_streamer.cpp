@@ -1671,6 +1671,57 @@ struct SlowRead {
 	}
 };
 
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] partial object tail upload tears down the shared world owner (#1473)") {
+	Harness h;
+	if (!h.init() || !reach_holder(h, WORKER)) { return; }
+	if (h.sample.pending_tickets == 0 || h.sample.jobs_in_flight == 0) {
+		FAIL("#1473 upload failure requires a real admitted world request held before IO"); return;
+	}
+	uint8_t tail[] = { 1, 2 };
+	bool committed = false, discarded = false;
+	const bool published = gs_hlod_bundle::publish_instance_tail([&]() {
+		tail[0] = 7; // Model RD accepting a first slice before a later slice fails.
+		return false;
+	}, [&]() { committed = true; }, [&]() {
+		discarded = true;
+		CHECK(h.streamer.is_active()); // Candidate disposal must not free the borrowed atlas/world owner.
+		CHECK(h.streamer.uses_page_store(&h.store));
+	}, [&]() {
+		h.streamer.shutdown(); // Same production teardown order, including cancel-before-join.
+		h.store.shutdown();
+	});
+	CHECK_FALSE(published);
+	CHECK_FALSE(committed);
+	CHECK(discarded);
+	CHECK(tail[0] == 7);
+	CHECK(tail[1] == 2);
+	CHECK_FALSE(h.streamer.is_active());
+	CHECK_FALSE(h.streamer.uses_page_store(&h.store));
+	CHECK(h.streamer._test_snapshot().tasks_outstanding == 0);
+	CHECK(h.streamer._test_snapshot().pending_tickets == 0);
+	CHECK(h.streamer._test_snapshot().live_reservations == 0);
+	CHECK(h.store.stats().live_reservations == 0);
+	CHECK(h.store.stats().reads.bytes_in_flight == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] successful tail publication retains the held world request (#1473)") {
+	Harness h;
+	if (!h.init() || !reach_holder(h, WORKER)) { return; }
+	const auto before = h.streamer._test_snapshot();
+	const uint64_t identity = h.streamer.get_telemetry().pressure_epoch;
+	bool committed = false, discarded = false, torn_down = false;
+	CHECK(gs_hlod_bundle::publish_instance_tail([]() { return true; }, [&]() { committed = true; },
+			[&]() { discarded = true; }, [&]() { torn_down = true; }));
+	CHECK(committed);
+	CHECK_FALSE(discarded);
+	CHECK_FALSE(torn_down);
+	CHECK(h.streamer.is_active());
+	CHECK(h.streamer.uses_page_store(&h.store));
+	CHECK(h.streamer.get_telemetry().pressure_epoch == identity);
+	CHECK(h.streamer._test_snapshot().pending_tickets == before.pending_tickets);
+	CHECK(h.streamer._test_snapshot().live_reservations == before.live_reservations);
+}
+
 // The publisher requires RD/sort resources. Replay its production lifecycle decision
 // against real host owners; generation/page inputs model the director's four edits.
 // This covers host residency/request lifetime, not publisher wiring or GPU RID identity.

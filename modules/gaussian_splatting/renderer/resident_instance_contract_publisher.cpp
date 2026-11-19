@@ -1242,6 +1242,40 @@ struct HlodInstancePayload {
     LocalVector<AssetMetaGPU> asset_meta; // One per region asset; chunk_index_base region-local.
 };
 
+// Count only assets named by current rows, as the packer does, without packing payload twice.
+uint64_t hlod_instance_records(GaussianSplatSceneDirector *p_director, const GaussianSplatRenderer *p_renderer) {
+    gs_hlod_bundle::Rows rows;
+    LocalVector<uint64_t> keys;
+    LocalVector<InstanceAssetRegistration> registered;
+    p_director->build_hlod_instance_rows_for_renderer(p_renderer, rows.instances, rows.grading, rows.asset_ids, keys);
+    p_director->collect_registered_assets_for_renderer(p_renderer, registered);
+    HashSet<uint64_t> seen;
+    uint64_t records = 0;
+    for (uint64_t id : rows.asset_ids) {
+        if (id == gs_hlod_bundle::WORLD_ASSET_ID || seen.has(id)) { continue; }
+        seen.insert(id);
+        bool found = false;
+        for (const auto &entry : registered) {
+            if (entry.asset_id != id) { continue; }
+            if (entry.data.is_null() || entry.data->get_count() <= 0) { return UINT64_MAX; }
+            records += uint64_t(entry.data->get_count());
+            found = true;
+            break;
+        }
+        if (!found) { return UINT64_MAX; }
+    }
+    return records;
+}
+
+void hlod_warn_tail_overflow(GaussianRenderFacadeState::ResourceState &p_state, uint64_t p_asset_generation) {
+    const uint64_t snapshot = p_state.hlod_snapshot.is_valid() ? uint64_t(p_state.hlod_snapshot->get_instance_id()) : 0;
+    if (snapshot == p_state.hlod_tail_warned_snapshot && p_asset_generation == p_state.hlod_tail_warned_asset_generation) { return; }
+    p_state.hlod_tail_warned_snapshot = snapshot;
+    p_state.hlod_tail_warned_asset_generation = p_asset_generation;
+    ++p_state.hlod_object_tail_overflow_rebuilds;
+    WARN_PRINT("HLOD objects exceed the fixed atlas tail; using the legacy full rebuild.");
+}
+
 // Packs every distinct node asset the rows name, whole, in ascending asset id order, as the resident atlas packs a
 // node asset (contiguous chunks of GaussianStreamingSystem::CHUNK_SIZE, raw or per-chunk quantized). No thinning: an
 // object is drawn whole or refused (the budget rule), never partially. False with the reason on any failure.
@@ -1397,7 +1431,8 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
 bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         const GaussianSplatHlodRuntimeData &p_data, bool p_relative, bool p_quantized,
         uint32_t p_capacity, uint32_t p_position_bits, uint32_t p_scale_bits, const gs_hlod_bundle::Rows &p_rows,
-        const HlodInstancePayload &p_instances, HlodBundle &r_bundle, bool p_streaming = false, uint32_t p_atlas_records = 0) {
+        const HlodInstancePayload &p_instances, HlodBundle &r_bundle, bool p_streaming = false, uint32_t p_atlas_records = 0,
+        const HlodBundle *p_previous = nullptr) {
     // Package F1: a whole-tree bundle packs payload by base ranges; an edited snapshot is served by the streamer only.
     if (!p_streaming && p_data.has_edits()) { return false; }
     // Instance rows: row 0 is the world, rows 1..N name node assets packed in the instance region (PR1b).
@@ -1415,7 +1450,7 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     const uint32_t records = p_streaming ? p_atlas_records : p_data.leaf_count + (p_relative ? p_data.parent_count : 0);
     // The instance region follows the world: chunk tables [node_count, +chunk_count), atlas [records, +region.records).
     const uint32_t table_count = node_count + region.chunk_count;
-    const uint64_t total_records = uint64_t(records) + region.records;
+    const uint64_t total_records = uint64_t(records) + MAX(region.records, region.reserved_records);
     if (total_records > UINT32_MAX) { return false; }
     Vector<PackedGaussian> raw;
     Vector<PackedGaussianQuantized> quantized;
@@ -1506,8 +1541,14 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         return hlod_create_buffer(p_renderer, p_rd, r_bundle, r_rid, p_bytes, p_initial, p_indirect);
     };
     const uint64_t record_stride = p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
-    if (!create(b.atlas_gaussian_buffer, total_records * record_stride,
-                p_streaming ? nullptr : (p_quantized ? static_cast<const void *>(quantized.ptr()) : raw.ptr())) ||
+    // A refresh borrows the atlas until commit. Rollback owns/frees only the new tables.
+    if (p_previous) {
+        if (!p_streaming || !p_relative || p_previous->buffers.atlas_gaussian_count != total_records) { return false; }
+        b.atlas_gaussian_buffer = p_previous->buffers.atlas_gaussian_buffer;
+        b.max_chunk_splats = MAX(b.max_chunk_splats, p_previous->buffers.max_chunk_splats);
+    }
+    if ((!p_previous && !create(b.atlas_gaussian_buffer, total_records * record_stride,
+                p_streaming ? nullptr : (p_quantized ? static_cast<const void *>(quantized.ptr()) : raw.ptr()))) ||
             !create(b.asset_meta_buffer, uint64_t(assets.size()) * sizeof(AssetMetaGPU), assets.ptr()) ||
             !create(b.asset_chunk_index_buffer, uint64_t(table_count) * sizeof(AssetChunkIndexGPU), indices.ptr()) ||
             !create(b.chunk_meta_buffer, uint64_t(table_count) * sizeof(ChunkMetaGPU), metadata.ptr()) ||
@@ -1523,7 +1564,11 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
             !create(b.instance_count_buffer, sizeof(GaussianSplatting::IndirectDispatchLayout))) {
         return false;
     }
-    if (p_streaming && region.records != 0) {
+    if (p_previous && (p_rd->buffer_copy(p_previous->buffers.chunk_meta_buffer, b.chunk_meta_buffer, 0, 0,
+                              node_count * sizeof(ChunkMetaGPU)) != OK ||
+                (p_quantized && p_rd->buffer_copy(p_previous->buffers.quantization_buffer, b.quantization_buffer, 0, 0,
+                                       node_count * sizeof(ChunkQuantizationGPU)) != OK))) { return false; }
+    if (p_streaming && !p_previous && region.records != 0) {
         // The streamed atlas's world pages start empty; the instance tail is resident from the start (the streamer only
         // ever addresses its pages and the world's node-indexed tables, so the two regions are disjoint).
         const void *tail = p_quantized ? static_cast<const void *>(p_instances.quantized.ptr()) : static_cast<const void *>(p_instances.raw.ptr());
@@ -1547,7 +1592,8 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     r_bundle.generation = p_data.get_instance_id();
     r_bundle.device_id = p_rd->get_device_instance_id();
     r_bundle.quantized = p_quantized;
-    return r_bundle.bytes == hlod_bundle_bytes(p_data, p_relative, p_quantized, p_capacity, row_count, region, p_streaming ? p_atlas_records : 0);
+    return r_bundle.bytes == hlod_bundle_bytes(p_data, p_relative, p_quantized, p_capacity, row_count, region, p_streaming ? p_atlas_records : 0) -
+            (p_previous ? total_records * record_stride : 0u);
 }
 }
 
@@ -1637,8 +1683,6 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     change.asset_generation = director->get_instance_asset_generation_for_renderer(this);
     change.prepared_row_generation = state.hlod_instance_generation;
     change.row_generation = director->get_instance_generation_for_renderer(this);
-    const auto decision = gs_hlod_bundle::hlod_contract_change_action(change);
-    if (decision.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) { return decision; }
     const bool quantized = g_quantization_config.per_chunk_quantization;
     if (quantized && (!input->quantized_eligible ||
             state.hlod_position_bits != MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX) ||
@@ -1668,7 +1712,7 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
         if (bundle.generation != uint64_t(input->get_instance_id()) || bundle.device_id != rd->get_device_instance_id() ||
                 bundle.quantized != quantized || b.quantization_required != quantized || b.hlod_relative != relative ||
                 b.hlod_source_generation != bundle.generation || b.instance_count != state.hlod_instance_rows ||
-                uint64_t(b.atlas_gaussian_count) != (streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count) + (relative ? input->parent_count : 0)) + region.records ||
+                uint64_t(b.atlas_gaussian_count) != (streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count) + (relative ? input->parent_count : 0)) + MAX(region.records, region.reserved_records) ||
                 b.max_visible_splats != (relative ? relative_capacity : canonical_capacity) ||
                 uint64_t(b.max_visible_chunks) != gs_hlod_bundle::visible_chunk_capacity(input->nodes.size(), relative, region) ||
                 uint64_t(bundle.draw_entries.size()) != (relative ? gs_hlod_bundle::visible_chunk_capacity(input->nodes.size(), true, region) : 0u) ||
@@ -1698,16 +1742,27 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
     const uint64_t atlas_limit = DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
     uint64_t bytes = 0;
-    const bool fits = ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + region.records) *
+    const bool fits = ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + MAX(region.records, region.reserved_records)) *
                     (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
             get_hlod_owned_byte_upper_bound(bytes) &&
             ResidentAtlasBudget::hlod_prepared_fits(state.hlod_canonical.bytes + state.hlod_relative.bytes, bytes, limit,
                     hlod_owned_cap_for(streaming, limit));
-    return fits ? decision : resources_changed();
+    if (!fits) { return resources_changed(); }
+    if (change.prepared_asset_generation != change.asset_generation) {
+        if (!streaming || region.reserved_records == 0) { return resources_changed(); }
+        const uint32_t page = state.hlod_streamer->get_residency().config().page_splats;
+        const uint64_t records = hlod_instance_records(director, this);
+        change.object_pages = records == UINT64_MAX ? UINT64_MAX : records / page + uint64_t(records % page != 0);
+        change.reserved_object_pages = region.reserved_records / page;
+    }
+    return gs_hlod_bundle::hlod_contract_change_action(change);
 }
 
 bool GaussianSplatRenderer::idle_hlod_streaming_bundle(bool p_with_instances, uint64_t p_origin_revision) {
     auto &state = get_resource_state();
+    const auto change = hlod_prepared_contract_change();
+    if (change.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) { return publish_hlod_bundle(true); }
+    if (change.action == gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY && !refresh_hlod_instance_region()) { return false; }
     auto &bundle = state.hlod_relative;
     RenderingDevice *rd = get_device_state().rd;
     // A failure keeps a specific cause that is already there, and otherwise names itself (it used to leave last frame's reason).
@@ -1748,13 +1803,19 @@ bool GaussianSplatRenderer::idle_hlod_streaming_bundle(bool p_with_instances, ui
 
 bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     auto &state = get_resource_state();
-    if (state.hlod_streaming && !p_relative) {
-        return idle_hlod_streaming_bundle();
-    }
-    auto &bundle = p_relative ? state.hlod_relative : state.hlod_canonical;
     // This is also the only restore entry. Never bind retained A after current B
     // has fallen back, even if the caller captured its restore intent before B.
-    if (hlod_prepared_contract_change().action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
+    const auto change = hlod_prepared_contract_change();
+    if (change.action == gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY) {
+        if (!refresh_hlod_instance_region()) { return false; }
+        // A cut uploaded before a concurrent asset edit names the old rows/tables.
+        // Keep the refreshed world, but require selection before binding a relative list.
+        if (p_relative) { state.hlod_reason = "hlod_instance_region_changed_reprepare"; return false; }
+    }
+    if (change.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
+        if (change.reason == gs_hlod_bundle::ContractChangeReason::OBJECT_TAIL_OVERFLOW) {
+            hlod_warn_tail_overflow(state, GaussianSplatSceneDirector::get_singleton()->get_instance_asset_generation_for_renderer(this));
+        }
         if (state.hlod_prepared_snapshot.is_valid()) {
             release_hlod_resources();
             auto *lost_director = GaussianSplatSceneDirector::get_singleton();
@@ -1763,6 +1824,8 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
         }
         return false;
     }
+    if (state.hlod_streaming && !p_relative) { return idle_hlod_streaming_bundle(); }
+    auto &bundle = p_relative ? state.hlod_relative : state.hlod_canonical;
     // Row content moved without the asset set (a transform, parameter or grading edit): re-upload the rows in place.
     // A single-row world never gets here with a moved row generation (every bump it can see also moves the asset or the
     // grading-default generation, which the contract check above refuses).
@@ -1801,6 +1864,112 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     state.hlod_active = p_relative;
     state.instance_pipeline_content_generation = bundle.buffers.hlod_content_generation;
     return true;
+}
+
+bool GaussianSplatRenderer::refresh_hlod_instance_region() {
+    auto &state = get_resource_state();
+    RenderingDevice *rd = get_device_state().rd;
+    auto *director = GaussianSplatSceneDirector::get_singleton();
+    const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_prepared_snapshot;
+    if (!rd || !director || input.is_null() || !state.hlod_streaming || state.hlod_instance_region.reserved_records == 0) { return false; }
+    const uint64_t asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
+    gs_hlod_bundle::Rows rows;
+    LocalVector<uint64_t> keys;
+    LocalVector<InstanceAssetRegistration> registered;
+    director->build_hlod_instance_rows_for_renderer(this, rows.instances, rows.grading, rows.asset_ids, keys);
+    director->collect_registered_assets_for_renderer(this, registered);
+    HlodInstancePayload payload;
+    String reason;
+    const bool quantized = state.hlod_relative.quantized;
+    if (!hlod_pack_instance_assets(registered, rows, input->nodes.size(), quantized, payload, reason)) { return false; }
+    payload.region.reserved_records = state.hlod_instance_region.reserved_records;
+    if (payload.region.records > payload.region.reserved_records ||
+            gs_hlod_bundle::rows_refusal(rows, input->nodes.size(), payload.region)) { return false; }
+    const uint32_t capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, get_hlod_view_splat_cap(), payload.region);
+    const uint32_t canonical_capacity = gs_hlod_bundle::canonical_capacity(input->leaf_count, payload.region);
+    if (canonical_capacity == UINT32_MAX) { return false; }
+    auto &sorter = subsystem_state.sorting_pipeline;
+    if (sorter.is_null()) { return false; }
+    auto sort = sorter->get_buffer_handles();
+    if (!sort.valid || sort.capacity < capacity) {
+        if (capacity > sorter->get_max_elements()) { sorter->rebuild_sorter(capacity); }
+        sorter->ensure_buffers(capacity);
+        sort = sorter->get_buffer_handles();
+    }
+    if (!sort.valid || sort.capacity < capacity) { return false; }
+    // Measure AFTER sort growth. This device superset includes the live atlas,
+    // old tables and every deferred free; reserve only additional non-atlas bytes.
+    auto &old = state.hlod_relative;
+    const uint64_t stride = quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+    const uint64_t atlas_bytes = uint64_t(old.buffers.atlas_gaussian_count) * stride;
+    const uint64_t full_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, capacity, rows.count(), payload.region, state.hlod_stream_atlas_records);
+    DeviceVramLedger &ledger = refresh_device_vram_ledger(state, rd);
+    uint64_t live_bytes = 0;
+    if (full_bytes < atlas_bytes || !get_hlod_owned_byte_upper_bound(live_bytes) ||
+            full_bytes > hlod_owned_cap_for(true, ledger.limit())) { return false; }
+    ledger.observe_device_bytes(live_bytes);
+    DeviceVramLedger::ScopedReservation reservation(ledger, DeviceVramLedger::VIEW);
+    if (!reservation.acquire(full_bytes - atlas_bytes)) { return false; }
+    HlodBundle candidate;
+    auto discard = [&]() { release_hlod_bundle(candidate); };
+    if (!hlod_build_bundle(this, rd, *input.ptr(), true, quantized, capacity, state.hlod_position_bits, state.hlod_scale_bits,
+                rows, payload, candidate, true, state.hlod_stream_atlas_records, &old)) { discard(); return false; }
+    uint32_t atlas_owner = old.owned_count;
+    for (uint32_t i = 0; i < old.owned_count; ++i) {
+        if (old.owned[i] == old.buffers.atlas_gaussian_buffer) { atlas_owner = i; break; }
+    }
+    uint64_t after_bytes = 0;
+    if (atlas_owner == old.owned_count || candidate.owned_count >= 14 ||
+            !get_hlod_owned_byte_upper_bound(after_bytes) || after_bytes > ledger.limit() ||
+            input != state.hlod_snapshot || !input->is_current() || input->source_data != get_scene_state().gaussian_data ||
+            rd != get_device_state().rd || sorter->get_sort_resource_device() != rd ||
+            row_generation != director->get_instance_generation_for_renderer(this) ||
+            asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
+            grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
+            hlod_prepared_contract_change().action != gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY) {
+        discard(); return false;
+    }
+    return gs_hlod_bundle::publish_instance_tail([&]() {
+        if (payload.region.records == 0) { return true; }
+        const void *tail = quantized ? static_cast<const void *>(payload.quantized.ptr()) : static_cast<const void *>(payload.raw.ptr());
+        return rd->buffer_update(old.buffers.atlas_gaussian_buffer, uint32_t(uint64_t(state.hlod_stream_atlas_records) * stride),
+                       uint32_t(payload.region.records * stride), tail) == OK;
+    }, [&]() {
+        // Transfer sole atlas ownership before retiring old tables. No world service,
+        // request, page run, transition lease or view history is replaced.
+        candidate.owned[candidate.owned_count++] = old.buffers.atlas_gaussian_buffer;
+        candidate.bytes += atlas_bytes;
+        old.owned[atlas_owner] = old.owned[--old.owned_count];
+        old.bytes -= atlas_bytes;
+        clear_instance_pipeline_buffers();
+        release_hlod_bundle(old);
+        old = std::move(candidate);
+        state.hlod_instance_region = payload.region;
+        state.hlod_instance_row_data = rows;
+        state.hlod_instance_row_keys = keys;
+        state.hlod_instance_rows = rows.count();
+        state.hlod_relative_capacity = capacity;
+        state.hlod_canonical_capacity = canonical_capacity;
+        state.hlod_instance_generation = row_generation;
+        state.hlod_instance_asset_generation = asset_generation;
+        state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord();
+        state.hlod_instance_draws.clear();
+        state.hlod_active = false;
+        instance_asset_remap.asset_to_dense_id.clear();
+        instance_asset_remap.asset_to_dense_id.insert(gs_hlod_bundle::WORLD_ASSET_ID, gs_hlod_bundle::WORLD_DENSE_ID);
+        for (uint32_t a = 0; a < payload.region.assets.size(); ++a) {
+            instance_asset_remap.asset_to_dense_id.insert(payload.region.assets[a].asset_id, a + 1u);
+        }
+        instance_asset_remap.generation = old.generation;
+        instance_asset_remap.valid = true;
+        state.hlod_remap_asset_generation = asset_generation;
+        // The caller publishes buffers/content serial only after this complete commit.
+    }, discard, [&]() {
+        release_hlod_resources(); // Includes #1476 cancellation-before-join, then store shutdown.
+        state.hlod_reason = "hlod_instance_tail_upload_failed";
+    });
 }
 
 bool GaussianSplatRenderer::refresh_hlod_instance_rows() {
@@ -1941,7 +2110,7 @@ static void report_hlod_ledger_categories(GaussianRenderFacadeState::ResourceSta
     const uint64_t relative_world_records = p_state.hlod_streaming ? uint64_t(p_state.hlod_stream_atlas_records) :
             uint64_t(p_input.leaf_count) + p_input.parent_count;
     const uint64_t pool_bytes = (relative_world_records + (has_canonical ? uint64_t(p_input.leaf_count) : 0u)) * stride;
-    const uint64_t region_bytes = uint64_t(p_state.hlod_instance_region.records) * stride * (has_canonical ? 2u : 1u);
+    const uint64_t region_bytes = MAX(p_state.hlod_instance_region.records, p_state.hlod_instance_region.reserved_records) * stride * (has_canonical ? 2u : 1u);
     const uint64_t bundle_bytes = p_state.hlod_canonical.bytes + p_state.hlod_relative.bytes;
     const uint64_t atlas_bytes = pool_bytes + region_bytes;
     const uint64_t overlap_per_record = p_tile.get_hlod_overlap_bytes_per_record();
@@ -2039,9 +2208,14 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     if (hlod_edit_committed_here()) { state.hlod_reason = "hlod_publish_failed"; }
     auto *director = GaussianSplatSceneDirector::get_singleton();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
-    if (state.hlod_prepared_snapshot.is_valid() &&
-            hlod_prepared_contract_change().action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
-        release_hlod_resources();
+    if (state.hlod_prepared_snapshot.is_valid()) {
+        const auto change = hlod_prepared_contract_change();
+        if (change.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
+            if (change.reason == gs_hlod_bundle::ContractChangeReason::OBJECT_TAIL_OVERFLOW) {
+                hlod_warn_tail_overflow(state, director->get_instance_asset_generation_for_renderer(this));
+            }
+            release_hlod_resources();
+        } else if (change.action == gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY && !refresh_hlod_instance_region()) { return 0; }
     }
     if (!gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) || input.is_null() ||
             !director || !director->has_hlod_world_submission(this, state.hlod_owner_key)) {
@@ -2287,10 +2461,27 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             uint64_t scratch_fixed = 0, scratch_per_record = 0;
             TileRenderer::get_hlod_scratch_reservation(relative_capacity, scratch_fixed, scratch_per_record);
             // PR1b: the instance region's records get their frame scratch too (prepare_hlod_scratch sizes it from world + region).
-            const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(atlas_limit, region.records,
+            uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(atlas_limit, region.records,
                     record_stride, stream_config.page_splats,
                     node_pages, fixed_bytes, hlod_owned_cap_for(true, route_limit), route_limit, device_bytes,
                     scratch_fixed, scratch_per_record);
+            // Remove ONLY the tree cap to expose unused pages inside the existing
+            // atlas/owned/ledger/scratch envelope. Tail placement never raises it.
+            const uint64_t page_budget = ResidentAtlasBudget::hlod_stream_page_budget(atlas_limit, record_stride, stream_config.page_splats,
+                    UINT64_MAX, fixed_bytes - region.records * record_stride, hlod_owned_cap_for(true, route_limit), route_limit,
+                    device_bytes, scratch_fixed, scratch_per_record);
+            const auto placement = gs_hlod_bundle::place_object_tail(node_pages, page_budget, gs::settings::get_uint(stream_settings,
+                    "rendering/gaussian_splatting/hlod/object_tail_reservation_percent", 10u));
+            const uint64_t tail_records = placement.tail_pages * stream_config.page_splats;
+            const uint64_t root_pages = (uint64_t(served->nodes[0].topology.payload_count) + stream_config.page_splats - 1) / stream_config.page_splats;
+            if (placement.tail_pages && region.records <= tail_records && placement.world_pages >= root_pages) {
+                instance_payload.region.reserved_records = tail_records;
+                pages = placement.world_pages;
+            } else if (region.records > tail_records) {
+                hlod_warn_tail_overflow(state, instance_asset_generation);
+            } else if (placement.tail_pages && placement.world_pages < root_pages) {
+                WARN_PRINT_ONCE("HLOD tail reservation cannot leave a complete root run; using the legacy full rebuild layout.");
+            }
             if (pages == 0 || pages * stream_config.page_splats > UINT32_MAX) {
                 state.hlod_reason = whole_atlas_bytes > atlas_limit ? "hlod_existing_atlas_limit" : "hlod_candidate_memory_limit";
                 return 0;
@@ -2565,7 +2756,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // The frame's scratch request (admitted by prepare_hlod_scratch below). The scratch covers the atlas the frame draws
     // from (its total_gaussians), not the tree's splat count; PR1b: plus the instance region at the atlas tail.
     const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
-            input->leaf_count, input->parent_count) + uint32_t(state.hlod_instance_region.records);
+            input->leaf_count, input->parent_count) + uint32_t(MAX(state.hlod_instance_region.records, state.hlod_instance_region.reserved_records));
     const PipelineFeatureSet *features = p_context.deps.pipeline_features;
     if (!features) { return fallback("current_pipeline_features_unavailable"); }
     TileRenderer::RenderParams scratch_params;
