@@ -1606,6 +1606,16 @@ void GaussianSplatRenderer::release_hlod_resources() {
 }
 
 bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
+    return hlod_prepared_contract_change().action != gs_hlod_bundle::ContractChangeAction::FULL_REBUILD;
+}
+
+gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_contract_change() const {
+    gs_hlod_bundle::ContractChange change;
+    const auto resources_changed = [&]() {
+        auto invalid = change;
+        invalid.resources_current = false;
+        return gs_hlod_bundle::hlod_contract_change_action(invalid);
+    };
     const auto &state = get_resource_state();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_prepared_snapshot;
     RenderingDevice *rd = get_device_state().rd;
@@ -1614,36 +1624,43 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
             input->source_data != get_scene_state().gaussian_data || !rd || !director ||
             !gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) ||
             !director->has_hlod_world_submission(this, state.hlod_owner_key) ||
-            state.hlod_prepared_owner_key != state.hlod_owner_key || is_shadow_instance_filter_enabled() ||
-            // The asset set keys the bundle; a row-only change is re-uploaded in place by publish_hlod_bundle().
-            state.hlod_instance_rows == 0 ||
-            state.hlod_instance_asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
+            state.hlod_prepared_owner_key != state.hlod_owner_key) {
+        change.world_device_source_current = false;
+        return gs_hlod_bundle::hlod_contract_change_action(change);
+    }
+    if (is_shadow_instance_filter_enabled() || state.hlod_instance_rows == 0 ||
             state.hlod_grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
             subsystem_state.sorting_pipeline.is_null() || subsystem_state.sorting_pipeline->get_sort_resource_device() != rd) {
-        return false;
+        return resources_changed();
     }
+    change.prepared_asset_generation = state.hlod_instance_asset_generation;
+    change.asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    change.prepared_row_generation = state.hlod_instance_generation;
+    change.row_generation = director->get_instance_generation_for_renderer(this);
+    const auto decision = gs_hlod_bundle::hlod_contract_change_action(change);
+    if (decision.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) { return decision; }
     const bool quantized = g_quantization_config.per_chunk_quantization;
     if (quantized && (!input->quantized_eligible ||
             state.hlod_position_bits != MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX) ||
             state.hlod_scale_bits != MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX) ||
-            state.hlod_quantize_scales != g_quantization_config.quantize_scales)) { return false; }
+            state.hlod_quantize_scales != g_quantization_config.quantize_scales)) { return resources_changed(); }
     // PR1b: capacities include the packed node assets (an empty region gives PR1a's min(leaf_count, max_splats) and
     // leaf_count exactly); a max_splats change that moves them rebuilds.
     const gs_hlod_bundle::InstanceRegion &region = state.hlod_instance_region;
     const uint32_t relative_capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, get_hlod_view_splat_cap(), region);
     const uint32_t canonical_capacity = gs_hlod_bundle::canonical_capacity(input->leaf_count, region);
-    if (relative_capacity != state.hlod_relative_capacity || canonical_capacity != state.hlod_canonical_capacity) { return false; }
+    if (relative_capacity != state.hlod_relative_capacity || canonical_capacity != state.hlod_canonical_capacity) { return resources_changed(); }
     const bool streaming = state.hlod_streaming;
     const uint32_t sort_capacity = streaming ? relative_capacity : MAX(canonical_capacity, relative_capacity);
     const SortBufferHandles sort = subsystem_state.sorting_pipeline->get_buffer_handles();
     if (!sort.valid || sort.capacity < sort_capacity ||
-            !rd->buffer_is_valid(sort.keys_buffer) || !rd->buffer_is_valid(sort.indices_buffer)) { return false; }
-    if (streaming && hlod_streaming_unsupported_reason(nullptr) != nullptr) { return false; } // Release; republish decides again.
+            !rd->buffer_is_valid(sort.keys_buffer) || !rd->buffer_is_valid(sort.indices_buffer)) { return resources_changed(); }
+    if (streaming && hlod_streaming_unsupported_reason(nullptr) != nullptr) { return resources_changed(); } // Release; republish decides again.
     if (streaming && (state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
             (input->is_paged() && !state.hlod_page_store) ||
             state.hlod_streamer->get_residency().device_generation() != rd->get_device_instance_id() ||
             state.hlod_streamer->get_residency().world_generation() != uint64_t(input->get_instance_id()) ||
-            state.hlod_stream_atlas_records == 0)) { return false; }
+            state.hlod_stream_atlas_records == 0)) { return resources_changed(); }
     for (bool relative : { false, true }) {
         if (streaming && !relative) { continue; } // A streamed world has no canonical full-leaf copy.
         const auto &bundle = relative ? state.hlod_relative : state.hlod_canonical;
@@ -1657,10 +1674,10 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
                 uint64_t(bundle.draw_entries.size()) != (relative ? gs_hlod_bundle::visible_chunk_capacity(input->nodes.size(), true, region) : 0u) ||
                 bundle.owned_count != uint32_t(12 + int(relative) + int(quantized)) ||
                 bundle.bytes != hlod_bundle_bytes(*input.ptr(), relative, quantized, b.max_visible_splats, state.hlod_instance_rows,
-                        region, streaming ? state.hlod_stream_atlas_records : 0)) { return false; }
+                        region, streaming ? state.hlod_stream_atlas_records : 0)) { return resources_changed(); }
         for (uint32_t i = 0; i < bundle.owned_count; ++i) {
             if (!bundle.owned[i].is_valid() || get_resource_owner(bundle.owned[i], nullptr) != rd ||
-                    !rd->buffer_is_valid(bundle.owned[i])) { return false; }
+                    !rd->buffer_is_valid(bundle.owned[i])) { return resources_changed(); }
         }
         auto ready = b;
         ready.sort_key_buffer = sort.keys_buffer;
@@ -1670,22 +1687,23 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
         // is checked after assigning the real serial in publish_hlod_bundle().
         if (relative && (!b.hlod_draw_entry_buffer.is_valid() ||
                 get_resource_owner(b.hlod_draw_entry_buffer, nullptr) != rd ||
-                !rd->buffer_is_valid(b.hlod_draw_entry_buffer))) { return false; }
+                !rd->buffer_is_valid(b.hlod_draw_entry_buffer))) { return resources_changed(); }
         if (!GaussianSplatting::InstancePipelineContract::has_atlas_buffers(ready) ||
                 !GaussianSplatting::InstancePipelineContract::has_cull_buffers(ready) ||
                 GaussianSplatting::InstancePipelineContract::first_sort_violation(ready) != InvariantViolationReason::NONE ||
-                GaussianSplatting::InstancePipelineContract::first_raster_violation(ready) != InvariantViolationReason::NONE) { return false; }
+                GaussianSplatting::InstancePipelineContract::first_raster_violation(ready) != InvariantViolationReason::NONE) { return resources_changed(); }
     }
     const uint64_t budget = rd->get_device_memory_budget();
     const uint64_t limit = DeviceVramLedger::gs_limit_for_device(budget, GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT);
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
     const uint64_t atlas_limit = DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
     uint64_t bytes = 0;
-    return ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + region.records) *
+    const bool fits = ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + region.records) *
                     (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
             get_hlod_owned_byte_upper_bound(bytes) &&
             ResidentAtlasBudget::hlod_prepared_fits(state.hlod_canonical.bytes + state.hlod_relative.bytes, bytes, limit,
                     hlod_owned_cap_for(streaming, limit));
+    return fits ? decision : resources_changed();
 }
 
 bool GaussianSplatRenderer::idle_hlod_streaming_bundle(bool p_with_instances, uint64_t p_origin_revision) {
@@ -1736,7 +1754,7 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     auto &bundle = p_relative ? state.hlod_relative : state.hlod_canonical;
     // This is also the only restore entry. Never bind retained A after current B
     // has fallen back, even if the caller captured its restore intent before B.
-    if (!is_hlod_prepared_contract_current()) {
+    if (hlod_prepared_contract_change().action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
         if (state.hlod_prepared_snapshot.is_valid()) {
             release_hlod_resources();
             auto *lost_director = GaussianSplatSceneDirector::get_singleton();
@@ -2021,7 +2039,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     if (hlod_edit_committed_here()) { state.hlod_reason = "hlod_publish_failed"; }
     auto *director = GaussianSplatSceneDirector::get_singleton();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
-    if (state.hlod_prepared_snapshot.is_valid() && !is_hlod_prepared_contract_current()) {
+    if (state.hlod_prepared_snapshot.is_valid() &&
+            hlod_prepared_contract_change().action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
         release_hlod_resources();
     }
     if (!gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) || input.is_null() ||

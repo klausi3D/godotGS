@@ -3,6 +3,7 @@ extern "C" int test_hlod_bundle_rows_cpp_force_link() { return 0; }
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../renderer/hlod_bundle_rows.h"
+#include "../renderer/hlod_contract_lifecycle.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
@@ -233,6 +234,46 @@ TEST_CASE("[GaussianSplatting][HLOD] bundle rows that cannot be packed are refus
 	two.asset_ids.push_back(WORLD_ASSET_ID);
 	CHECK(String(rows_refusal(two, uint64_t(1u) << 31)) == "hlod_bundle_rows_exceed_capacity");
 	CHECK(rows_refusal(two, 1024u) == nullptr);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] object-only asset changes fitting the fixed tail preserve the world (#1473)") {
+	ContractChange change;
+	change.prepared_asset_generation = 4;
+	change.asset_generation = 5;
+	change.prepared_row_generation = change.row_generation = 9; // Asset generation ONLY.
+	change.reserved_object_pages = 10;
+	for (uint64_t pages : { 0u, 9u, 10u }) {
+		CAPTURE(pages);
+		change.object_pages = pages;
+		const auto decision = hlod_contract_change_action(change);
+		CHECK(decision.reason == ContractChangeReason::ASSETS_CHANGED);
+		CHECK_MESSAGE(decision.action == ContractChangeAction::INSTANCE_REGION_ONLY,
+				"#1473: an object tail that fits must not tear down streamed-world residency");
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] lifecycle replacement overflow and unchanged controls (#1473)") {
+	ContractChange change;
+	change.prepared_asset_generation = change.asset_generation = 4;
+	change.prepared_row_generation = change.row_generation = 9;
+	CHECK(hlod_contract_change_action(change).action == ContractChangeAction::ROWS_ONLY);
+	CHECK(hlod_contract_change_action(change).reason == ContractChangeReason::UNCHANGED);
+	++change.row_generation;
+	CHECK(hlod_contract_change_action(change).action == ContractChangeAction::ROWS_ONLY);
+	CHECK(hlod_contract_change_action(change).reason == ContractChangeReason::ROWS_CHANGED);
+	++change.asset_generation;
+	change.reserved_object_pages = 10;
+	change.object_pages = 11;
+	CHECK(hlod_contract_change_action(change).action == ContractChangeAction::FULL_REBUILD);
+	CHECK(hlod_contract_change_action(change).reason == ContractChangeReason::OBJECT_TAIL_OVERFLOW);
+	change.object_pages = 1;
+	change.world_device_source_current = false; // World, device or source replacement invalidates this identity.
+	CHECK(hlod_contract_change_action(change).action == ContractChangeAction::FULL_REBUILD);
+	CHECK(hlod_contract_change_action(change).reason == ContractChangeReason::WORLD_DEVICE_SOURCE_CHANGED);
+	change.world_device_source_current = true;
+	change.resources_current = false;
+	CHECK(hlod_contract_change_action(change).action == ContractChangeAction::FULL_REBUILD);
+	CHECK(hlod_contract_change_action(change).reason == ContractChangeReason::RESOURCES_CHANGED);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD] a prepared bundle rebuilds on an asset-set change and re-uploads on a row change") {
