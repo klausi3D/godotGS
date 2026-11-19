@@ -674,7 +674,7 @@ def payload_behavior(result: dict, trace) -> dict:
     # proof that the process served HLOD streaming rather than a fallback.
     actual_hlod = all(stats.get(key) is True for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged"))
     actual_chunk = (result.get("route") == "chunk" and isinstance(stats.get("streaming_state"), dict))
-    return {"route": "hlod" if actual_hlod else "chunk" if actual_chunk else None,
+    behavior = {"route": "hlod" if actual_hlod else "chunk" if actual_chunk else None,
             "route_evidence": {key: stats.get(key) for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged")},
             "loaded_file_sha256": result.get("loaded_file_sha256"),
             "world_payload": copy.deepcopy(result.get("world_payload_readback")),
@@ -693,6 +693,14 @@ def payload_behavior(result: dict, trace) -> dict:
                              for cp in result.get("checkpoints", [])],
             "trace_drawn_splats_max": max(trace.col("drawn_splats")) if trace and trace.rows else missing("no trace"),
             "D3_5_payload_stages": missing("not a pre-D3 common measurement; use per-route candidate summary")}
+    endpoints = result.get("residency_pass_endpoints")
+    if isinstance(endpoints, list):
+        behavior["residency_pass_endpoints"] = [
+            {"pass_index": entry.get("pass_index"),
+             **{edge: payload_behavior(entry[edge], None) for edge in ("start", "end")
+                if isinstance(entry.get(edge), dict)}}
+            for entry in endpoints if isinstance(entry, dict)]
+    return behavior
 
 
 def migration_arm(arm: dict, identity: dict) -> dict:

@@ -1099,6 +1099,23 @@ func _proc_read_bytes() -> int:
 	return -1
 
 
+func _residency_snapshot() -> Dictionary:
+	# Read the current native exports at the boundary, without pumping a frame
+	# or replacing the cached sample used by checkpoint/trace evidence.
+	var renderer = _node.get_renderer() if _node != null else null
+	var stats: Dictionary = renderer.get_render_stats() if renderer != null else {}
+	var counters := {}
+	for key in ["hlod_stream_evicted_total", "hlod_stream_skipped_groups_total", "hlod_stream_cancelled_total",
+			"hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total"]:
+		counters[key] = stats.get(key)
+	var digests = null
+	var payload = stats.get("payload_telemetry")
+	if bool(ProjectSettings.get_setting("rendering/gaussian_splatting/diagnostics/payload_content_digests", false)) \
+			and payload is Dictionary and payload.get("content_digests") is Dictionary:
+		digests = payload["content_digests"].duplicate(true)
+	return {"final_render_stats": counters, "payload_telemetry": {"content_digests": digests}}
+
+
 func _run_path() -> String:
 	var path: Dictionary = _plan["path"]
 	var segs: Array = path["segments"]
@@ -1111,10 +1128,17 @@ func _run_path() -> String:
 	# judges the cold (first) pass alone; the repeat pass and the sweep are warm evidence.
 	var pass_io := []
 	_result["pass_io"] = {"source": PROC_IO, "passes": pass_io}
+	var residency_pass_endpoints := []
+	if bool(_plan.get("shared_layers_t0", false)):
+		_result["residency_pass_endpoints"] = residency_pass_endpoints
 	for pass_index in range(passes):
 		_ctx["pass_index"] = pass_index
 		var io_entry := {"pass_index": pass_index, "read_bytes_start": _proc_read_bytes()}
 		pass_io.append(io_entry)
+		var residency_entry := {}
+		if bool(_plan.get("shared_layers_t0", false)):
+			residency_entry = {"pass_index": pass_index, "start": _residency_snapshot()}
+			residency_pass_endpoints.append(residency_entry)
 		for si in range(segs.size()):
 			var seg: Dictionary = segs[si]
 			_ctx["segment"] = si
@@ -1175,6 +1199,8 @@ func _run_path() -> String:
 			entry["end_usec"] = Time.get_ticks_usec()
 			seg_log.append(entry)
 		io_entry["read_bytes_end"] = _proc_read_bytes()
+		if bool(_plan.get("shared_layers_t0", false)):
+			residency_entry["end"] = _residency_snapshot()
 	_result["segments"] = seg_log
 	_result["checkpoints"] = checkpoints
 	return ""
