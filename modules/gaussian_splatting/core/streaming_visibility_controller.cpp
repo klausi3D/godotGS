@@ -156,7 +156,7 @@ void StreamingVisibilityController::reset_runtime_state() {
     lod_transitions_this_frame = 0;
     effective_drawn_splat_cap = UINT64_MAX;
     draw_cap_admission_engaged = false;
-    draw_cap_restore.clear();
+    draw_cap_metadata_active = false;
     draw_instances.clear();
     draw_cap_coarsened_chunks_total = 0;
     draw_cap_refused_chunks_total = 0;
@@ -974,32 +974,28 @@ bool StreamingVisibilityController::drawn_splat_cap_would_bind(const GaussianStr
     return false;
 }
 
-void StreamingVisibilityController::restore_draw_cap_lod_parameters(GaussianStreamingSystem &system) {
-    for (const DrawCapRestore &saved : draw_cap_restore) {
-        GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(saved.target.asset_id);
-        if (!asset || asset->generation != saved.asset_generation) {
-            continue; // Replaced/unregistered assets already have a new baseline.
-        }
-        LocalVector<GaussianStreamingSystem::StreamingChunk> &asset_chunks = system._get_asset_chunks(*asset);
-        if (saved.target.chunk_idx >= asset_chunks.size()) {
-            continue;
-        }
-        GaussianStreamingSystem::StreamingChunk &chunk = asset_chunks[saved.target.chunk_idx];
-        chunk.current_lod_level = saved.parameters.lod;
-        chunk.target_lod_level = saved.target_lod;
-        chunk.sh_band_level = saved.parameters.sh_band_level;
-        chunk.splat_skip_factor = saved.parameters.splat_skip_factor;
-        chunk.opacity_multiplier = saved.parameters.opacity_multiplier;
-        chunk.effective_count = saved.parameters.effective_count;
-        if (chunk.is_loaded && chunk.gpu_resident && !chunk.upload_pending && chunk.buffer_slot != UINT32_MAX) {
-            system.global_atlas_registry.mark_chunk_meta_dirty(system, saved.target.asset_id, saved.target.chunk_idx);
+void StreamingVisibilityController::restore_draw_cap_lod_parameters(GaussianStreamingSystem &system, bool p_publish_nominal) {
+    // Retain the published view across begin_frame and nominal LOD updates.
+    // Only the final non-binding decision (or a streaming-only update) releases it.
+    if (p_publish_nominal && draw_cap_metadata_active) {
+        for (uint32_t asset_id : system.asset_registry.atlas_asset_order) {
+            auto *asset = system._get_asset_state(asset_id);
+            if (!asset) { continue; }
+            auto &asset_chunks = system._get_asset_chunks(*asset);
+            for (uint32_t i = 0; i < asset_chunks.size(); i++) {
+                auto &chunk = asset_chunks[i];
+                if (chunk.draw_cap_override) {
+                    chunk.draw_cap_override = false;
+                    system.global_atlas_registry.mark_chunk_meta_dirty(system, asset_id, i);
+                }
+            }
         }
     }
-    draw_cap_restore.clear();
     draw_cap_admission_engaged = false;
     effective_drawn_splat_cap = UINT64_MAX;
     draw_cap_coarsened_chunks_this_frame = 0;
     draw_cap_refused_chunks_this_frame = 0;
+    if (p_publish_nominal) { draw_cap_metadata_active = false; }
 }
 
 void StreamingVisibilityController::update_draw_cap_lod_parameters(GaussianStreamingSystem &system, const Vector3 &camera_pos) {
@@ -1074,40 +1070,17 @@ void StreamingVisibilityController::update_draw_cap_lod_parameters(GaussianStrea
     draw_cap_refused_chunks_total += draw_cap_refused_chunks_this_frame;
     for (uint32_t i = 0; i < lod_selection_targets.size(); i++) {
         const GaussianSplatting::ChunkLODSelection &selection = draw_cap_plan.selections[i];
-        const bool coarsened = selection.admission == GaussianSplatting::ChunkLODAdmission::ADMITTED &&
-                selection.lod > draw_cap_candidates[i].nominal_selection.lod;
-        if (!coarsened && selection.admission != GaussianSplatting::ChunkLODAdmission::REFUSED_DRAW_CAP) {
-            continue; // Fitting and NOT_VISIBLE chunks keep their base parameters/metadata.
-        }
         const ChunkLODTarget &target = lod_selection_targets[i];
         GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(target.asset_id);
         GaussianStreamingSystem::StreamingChunk &chunk = system._get_asset_chunks(*asset)[target.chunk_idx];
         if (!chunk.is_loaded || !chunk.gpu_resident || chunk.upload_pending || chunk.buffer_slot == UINT32_MAX) {
             continue; // No more retirements occur before culling this frame.
         }
-        const uint32_t count = selection.effective_count;
-        const bool changed = chunk.effective_count != count || chunk.current_lod_level != selection.lod || chunk.target_lod_level != selection.lod ||
-                chunk.sh_band_level != selection.sh_band_level || chunk.splat_skip_factor != selection.splat_skip_factor ||
-                chunk.opacity_multiplier != selection.opacity_multiplier;
-        if (!changed) {
-            continue;
-        }
-        DrawCapRestore saved;
-        saved.target = target;
-        saved.asset_generation = asset->generation;
-        saved.parameters.lod = chunk.current_lod_level;
-        saved.target_lod = chunk.target_lod_level;
-        saved.parameters.sh_band_level = chunk.sh_band_level;
-        saved.parameters.splat_skip_factor = chunk.splat_skip_factor;
-        saved.parameters.opacity_multiplier = chunk.opacity_multiplier;
-        saved.parameters.effective_count = chunk.effective_count;
-        draw_cap_restore.push_back(saved);
-        chunk.target_lod_level = selection.lod;
-        chunk.current_lod_level = selection.lod;
-        chunk.sh_band_level = selection.sh_band_level;
-        chunk.splat_skip_factor = selection.splat_skip_factor;
-        chunk.opacity_multiplier = selection.opacity_multiplier;
-        chunk.effective_count = count;
+        // Latch every candidate, including nominal-fitting chunks: a later
+        // nominal update must not overwrite an unchanged admitted view.
+        draw_cap_metadata_active = true;
+        chunk.draw_cap_override = true;
+        chunk.draw_cap_parameters = selection;
         // ChunkMetaGPU.splat_count=0 is the culler's existing exclusion rule.
         system.global_atlas_registry.mark_chunk_meta_dirty(system, target.asset_id, target.chunk_idx);
     }

@@ -2,6 +2,7 @@
 #define STREAMING_ASSET_TYPES_H
 
 #include "gaussian_data.h"
+#include "chunk_lod_selection.h"
 #include "streaming_chunk_payload_source.h"
 #include "core/math/aabb.h"
 #include "core/math/vector3.h"
@@ -101,6 +102,12 @@ struct StreamingChunk {
     int splat_skip_factor = 1;
     float opacity_multiplier = 1.0f;
     uint32_t effective_count = 0;
+    // Owner-thread draw metadata; the fields above remain the nominal LOD policy state.
+    bool draw_cap_override = false;
+    GaussianSplatting::ChunkLODSelection draw_cap_parameters;
+    uint32_t get_draw_count() const { return draw_cap_override ? draw_cap_parameters.effective_count : effective_count; }
+    uint32_t get_draw_lod() const { return draw_cap_override ? draw_cap_parameters.lod : current_lod_level; }
+    int get_draw_sh_band() const { return draw_cap_override ? draw_cap_parameters.sh_band_level : sh_band_level; }
 
     ChunkQuantizationInfo quantization;
     bool quantization_computed = false;

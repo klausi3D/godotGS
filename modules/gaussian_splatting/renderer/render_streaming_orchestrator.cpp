@@ -842,10 +842,12 @@ bool RenderStreamingOrchestrator::apply_chunk_drawn_cap(GaussianStreamingSystem 
 			instance_counts[asset_id]++;
 		}
 	}
-	// O(chunks + instances), no transforms/frustum tests or writes. All resident
+	// O(chunks + instances), no transforms/frustum tests. All nominal resident
 	// effective counts are charged, including offscreen chunks, so this is an
 	// upper bound on GPU emission. A fitting frame retains the original plan.
+	const bool retained_admission = p_streaming_system->has_draw_cap_metadata();
 	if (!p_streaming_system->drawn_splat_cap_would_bind(p_cap, instance_counts)) {
+		if (retained_admission) { p_streaming_system->publish_drawn_splat_metadata(); }
 		return false;
 	}
 	GaussianSplatRenderer::FrameStateProvider state_provider(renderer);
@@ -1766,7 +1768,7 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 	streaming_state.current_streaming_system->reload_config_if_dirty();
 	streaming_state.current_streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 
-	streaming_state.current_streaming_system->update_streaming(streaming_camera_transform, cull_projection);
+	streaming_state.current_streaming_system->update_streaming_for_admission(streaming_camera_transform, cull_projection);
 	renderer->report_chunk_route_to_device_vram_ledger(streaming_state.current_streaming_system->get_vram_usage());
 
 	uint64_t instance_generation = 0;
@@ -2059,8 +2061,9 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 		// uses buffers.max_visible_splats; GPU clamp/overflow remain the backstop.
 		const uint32_t sorter_capacity = sorting_pipeline ? sorting_pipeline->get_instance_sorter_capacity() : 0;
 		const uint32_t admission_cap = sorter_capacity > 0 ? MIN(buffers.max_visible_splats, sorter_capacity) : buffers.max_visible_splats;
-		if (apply_chunk_drawn_cap(streaming_system, admission_cap, streaming_camera_transform, cull_projection)) {
-			buffers.max_visible_splats = admission_cap;
+		if (apply_chunk_drawn_cap(streaming_system, admission_cap, streaming_camera_transform, cull_projection) ||
+				atlas_generation != streaming_system->get_atlas_generation()) {
+			if (streaming_system->is_drawn_splat_admission_engaged()) { buffers.max_visible_splats = admission_cap; }
 			atlas_generation = streaming_system->get_atlas_generation();
 			base_content_generation = _mix_content_generation(instance_generation, atlas_generation);
 			contract_generation = _mix_content_generation(instance_asset_generation, atlas_generation);

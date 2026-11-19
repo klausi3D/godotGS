@@ -679,6 +679,7 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     failed_init_warning_emitted = false;
     invalid_camera_input_events = 0;
     last_invalid_camera_log_frame = UINT64_MAX;
+    visibility.restore_draw_cap_lod_parameters(*this, true);
     visibility.reset_runtime_state();
     diagnostics = DiagnosticsState();
     budget.pending_upload_bytes = 0;
@@ -2607,6 +2608,17 @@ void GaussianStreamingSystem::update_streaming(const Transform3D &camera_transfo
     // including early-return paths and all registered asset instances.
     _reload_sh_config_if_dirty();
     set_global_sh_band_level(int(g_sh_config.sh_bands));
+    _update_streaming(camera_transform, projection, frame_delta_seconds, false);
+}
+
+void GaussianStreamingSystem::update_streaming_for_admission(const Transform3D &camera_transform, const Projection &projection) {
+    _reload_sh_config_if_dirty();
+    set_global_sh_band_level(int(g_sh_config.sh_bands));
+    _update_streaming(camera_transform, projection, -1.0f, true);
+}
+
+void GaussianStreamingSystem::_update_streaming(const Transform3D &camera_transform, const Projection &projection, float frame_delta_seconds,
+        bool p_defer_draw_cap_decision) {
     // PR #352: short-circuit when initialize() previously failed. Without this
     // guard, every frame re-entered the full pipeline below, the runtime
     // capacity check below re-emitted the same ERR, and headless runs without
@@ -2683,12 +2695,12 @@ void GaussianStreamingSystem::update_streaming(const Transform3D &camera_transfo
     }
 
     _run_streaming_frame_pipeline(camera_transform, projection, camera_pos, resolved_frame_delta_seconds,
-            regulated_max, effective_max, runtime_capacity_max, os, scheduler_start_usec);
+            regulated_max, effective_max, runtime_capacity_max, os, scheduler_start_usec, p_defer_draw_cap_decision);
 }
 
 void GaussianStreamingSystem::_run_streaming_frame_pipeline(const Transform3D &camera_transform, const Projection &projection,
         const Vector3 &camera_pos, float resolved_frame_delta_seconds, uint32_t regulated_max,
-        uint32_t effective_max, uint32_t runtime_capacity_max, OS *os, uint64_t scheduler_start_usec) {
+        uint32_t effective_max, uint32_t runtime_capacity_max, OS *os, uint64_t scheduler_start_usec, bool p_defer_draw_cap_decision) {
     const auto sample_cpu_ms = [&](uint64_t p_start_usec) -> double {
         if (!os || p_start_usec == 0) {
             return 0.0;
@@ -2802,6 +2814,9 @@ void GaussianStreamingSystem::_run_streaming_frame_pipeline(const Transform3D &c
     _update_vram_regulator();
     _log_streaming_frame_stats(effective_max);
 
+    if (!p_defer_draw_cap_decision) {
+        visibility.restore_draw_cap_lod_parameters(*this, true);
+    }
     GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
     RenderingDevice *rd = primary_device_override ? primary_device_override
             : (last_upload_device ? last_upload_device
@@ -4517,8 +4532,8 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_prim
 }
 
 void GaussianStreamingSystem::begin_frame() {
-    // Remove last frame's draw-only decisions before the unchanged LOD policy
-    // and any upload retirement can observe chunk parameters.
+    // Nominal policy state is independent; retain the last published draw view
+    // until this frame's admission decision, including across retirements/rebuilds.
     visibility.restore_draw_cap_lod_parameters(*this);
     current_frame_idx = (current_frame_idx + 1) % RING_BUFFER_FRAMES;
     FrameData &frame = frame_data[current_frame_idx];

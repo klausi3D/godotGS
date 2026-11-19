@@ -42,7 +42,7 @@ public:
 	void cleanup(RenderingDevice *p_rd);
 	void mark_asset_registry_dirty() { asset_registry_dirty = true; }
 	void build_cpu_state(GaussianStreamingSystem &system);
-	void update_chunk_meta_entry(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx);
+	bool update_chunk_meta_entry(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx);
 	void mark_chunk_meta_dirty(GaussianStreamingSystem &system, uint32_t chunk_idx);
 	void mark_chunk_meta_dirty(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx);
 	void sync_to_gpu(GaussianStreamingSystem &system, RenderingDevice *p_rd);

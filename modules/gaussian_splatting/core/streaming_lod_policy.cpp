@@ -45,8 +45,12 @@ void GaussianStreamingSystem::_update_chunk_lod_parameters(const Vector3 &camera
 	visibility.update_chunk_lod_parameters(*this, camera_pos);
 }
 
-bool GaussianStreamingSystem::drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts) const {
-	return visibility.drawn_splat_cap_would_bind(*this, p_cap, p_instance_counts);
+bool GaussianStreamingSystem::drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts) {
+	const bool binds = visibility.drawn_splat_cap_would_bind(*this, p_cap, p_instance_counts);
+	if (!binds) {
+		visibility.restore_draw_cap_lod_parameters(*this, true);
+	}
+	return binds;
 }
 
 uint32_t GaussianStreamingSystem::get_cpu_draw_domain_count(const HashMap<uint32_t, uint32_t> &p_instance_counts) const {
@@ -63,7 +67,7 @@ uint32_t GaussianStreamingSystem::get_cpu_draw_domain_count(const HashMap<uint32
 			}
 			// GPU frustum culling is independent of CPU discovery visibility: include every
 			// possible resident emitter, using effective_count AFTER drawn-splat admission.
-			const uint64_t cost = uint64_t(chunk.effective_count) * *instances;
+			const uint64_t cost = uint64_t(chunk.get_draw_count()) * *instances;
 			if (cost > uint64_t(UINT32_MAX) - domain) {
 				return UINT32_MAX;
 			}
@@ -92,11 +96,14 @@ void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
 		bool p_frustum_culling_enabled, float p_frustum_plane_slack) {
 	_prepare_drawn_splat_admission(p_cap, p_instances, p_camera_transform, p_projection,
 			p_frustum_culling_enabled, p_frustum_plane_slack);
+	publish_drawn_splat_metadata();
+}
+
+void GaussianStreamingSystem::publish_drawn_splat_metadata() {
 	GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
 	RenderingDevice *rd = primary_device_override ? primary_device_override
 			: (last_upload_device ? last_upload_device : (manager ? manager->get_primary_rendering_device() : nullptr));
-	// Only binding frames need a second metadata publication. Allocation and
-	// the ordinary streaming/LOD/blend pipeline have already finished unchanged.
+	// Publish the final admitted view, or nominal metadata when admission disengages.
 	global_atlas_registry.sync_to_gpu(*this, rd);
 }
 

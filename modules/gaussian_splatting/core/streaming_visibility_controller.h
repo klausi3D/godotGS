@@ -155,7 +155,7 @@ private:
     void remember_lod_parameter_config(const LODConfig &lod_config, uint32_t chunk_count);
     bool drawn_splat_cap_would_bind(const GaussianStreamingSystem &system, uint64_t cap,
             const HashMap<uint32_t, uint32_t> &instance_counts) const;
-    void restore_draw_cap_lod_parameters(GaussianStreamingSystem &system);
+    void restore_draw_cap_lod_parameters(GaussianStreamingSystem &system, bool p_publish_nominal = false);
     void update_draw_cap_lod_parameters(GaussianStreamingSystem &system, const Vector3 &camera_pos);
     bool lod_blend_config_matches() const;
     void remember_lod_blend_config(uint32_t chunk_count);
@@ -185,6 +185,7 @@ private:
     // Render/streaming owner thread only, like the LOD worklists below.
     uint64_t effective_drawn_splat_cap = UINT64_MAX;
     bool draw_cap_admission_engaged = false;
+    bool draw_cap_metadata_active = false;
     LocalVector<DrawInstance> draw_instances;
     bool draw_frustum_culling_enabled = true;
     float draw_frustum_plane_slack = 1.0f;
@@ -207,13 +208,6 @@ private:
         uint32_t chunk_idx = 0;
     };
     LocalVector<ChunkLODTarget> lod_selection_targets;
-    struct DrawCapRestore {
-        ChunkLODTarget target;
-        uint32_t asset_generation = 0;
-        GaussianSplatting::ChunkLODSelection parameters;
-        uint32_t target_lod = 0;
-    };
-    LocalVector<DrawCapRestore> draw_cap_restore;
     uint32_t lod_worklist_generation = 1;
     bool lod_parameter_state_initialized = false;
     uint32_t lod_parameter_state_chunk_count = 0;
