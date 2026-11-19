@@ -54,6 +54,78 @@ inline uint32_t overlap_demand_estimate(uint32_t p_visible_splats, uint32_t p_me
 	return records > UINT32_MAX ? UINT32_MAX : uint32_t(records);
 }
 
+// Per-splat storage must cover the reservation on the indirect route, where the CPU visibility
+// readback can lag the GPU. Keep this selection shared with frame-start overlap sizing.
+inline uint32_t overlap_effective_visible_splats(uint32_t p_splat_count, uint32_t p_max_visible_splats, bool p_indirect_dispatch) {
+	return p_indirect_dispatch && p_max_visible_splats > p_splat_count ? p_max_visible_splats : p_splat_count;
+}
+
+struct OverlapOverflowRecoveryPlan {
+	bool handle_overflow = false;
+	uint32_t requested_records = 0u;
+};
+
+inline OverlapOverflowRecoveryPlan overlap_overflow_recovery_plan(bool p_hlod_relative, bool p_first_frame_complete,
+		bool p_overflow_detected, uint32_t p_last_unclamped_total) {
+	OverlapOverflowRecoveryPlan plan;
+	plan.handle_overflow = !p_hlod_relative && p_first_frame_complete && p_overflow_detected;
+	if (plan.handle_overflow) {
+		const uint64_t needed = uint64_t(p_last_unclamped_total) * 3u / 2u;
+		plan.requested_records = needed > UINT32_MAX ? UINT32_MAX : uint32_t(needed);
+	}
+	return plan;
+}
+
+struct OverlapFrameSizingInput {
+	uint32_t splat_count = 0u;
+	uint32_t effective_visible_splats = 0u;
+	// Reserved for draw-domain prediction (#1467 phase 2). Today's policy ignores this count.
+	uint32_t current_cpu_draw_domain_count = 0u;
+	uint32_t total_gaussians = 0u;
+	// Actual capacity AFTER any overflow recovery attempt, including a refused/failed resize.
+	uint32_t capacity = 0u;
+	uint32_t measured_records_per_splat_q8 = 0u;
+	uint32_t adaptive_overlap_floor = 0u;
+	bool adaptive_has_history = false;
+};
+
+struct OverlapFrameSizingPlan {
+	uint32_t overlap_base_count = 0u;
+	bool bootstrap_floor_applied = false;
+	uint32_t bootstrap_estimate = 0u;
+	uint32_t requested_records = 0u;
+	// Capacity needed if the request is served, retaining a larger warmed allocation. The resource
+	// owner still applies caps, optional growth padding, shrink hysteresis and resize preflight.
+	uint32_t capacity = 0u;
+};
+
+// Pure caller policy. Allocation and its failure paths remain with the resource owner.
+inline OverlapFrameSizingPlan overlap_frame_sizing_plan(const OverlapFrameSizingInput &p_input) {
+	OverlapFrameSizingPlan plan;
+	plan.overlap_base_count = p_input.splat_count > p_input.effective_visible_splats ? p_input.splat_count : p_input.effective_visible_splats;
+	uint32_t estimate = overlap_demand_estimate(plan.overlap_base_count, p_input.measured_records_per_splat_q8);
+	plan.bootstrap_floor_applied = p_input.capacity == 0u && p_input.total_gaussians > 0u && plan.overlap_base_count < 1024u;
+	if (plan.bootstrap_floor_applied) {
+		// Streaming warm-up can expose a tiny visible set while the atlas holds a larger world.
+		const uint32_t bootstrap_cap = 8000000u;
+		const uint32_t bootstrap_floor = p_input.total_gaussians < bootstrap_cap ? p_input.total_gaussians : bootstrap_cap;
+		estimate = estimate > bootstrap_floor ? estimate : bootstrap_floor;
+	}
+	plan.bootstrap_estimate = estimate;
+	if (p_input.adaptive_overlap_floor > 0u) {
+		// With history but no measured rate, use the adaptive budget alone. Otherwise the demand
+		// estimate can lead the budget, which only sees a rise in splats after readback completes.
+		if (p_input.adaptive_has_history && p_input.measured_records_per_splat_q8 == 0u) {
+			estimate = p_input.adaptive_overlap_floor;
+		} else {
+			estimate = estimate > p_input.adaptive_overlap_floor ? estimate : p_input.adaptive_overlap_floor;
+		}
+	}
+	plan.requested_records = estimate;
+	plan.capacity = p_input.capacity > estimate ? p_input.capacity : estimate;
+	return plan;
+}
+
 // Capacity a grow should aim for. Never below the request, and the padding never crosses the hard
 // cap (0 = no cap).
 inline uint32_t overlap_grow_target(uint32_t p_requested_records, uint32_t p_capacity, uint32_t p_hard_cap) {
