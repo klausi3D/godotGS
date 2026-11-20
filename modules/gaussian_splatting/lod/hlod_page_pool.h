@@ -17,7 +17,7 @@ public:
 		page_release_queued.clear(); slot_release_queued.clear();
 		free_count = slot_count = slot_width = 0;
 #ifdef TESTS_ENABLED
-		require_contiguous = false;
+		require_contiguous = true; // MUTATION (#1514 evidence, never merged): the pool requires contiguity again.
 #endif
 	}
 	bool reset(uint32_t p_capacity, uint32_t p_slot_width) {
