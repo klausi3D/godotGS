@@ -1139,7 +1139,7 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 	}
 	for (uint32_t i = 0; i < p_count; ++i) {
 		const uint32_t node = p_leaves[i].node;
-		if (node >= node_total || p_leaves[i].splat_count == 0 || uint64_t(p_leaves[i].splat_count) > uint64_t(allocator.max_pages_per_node()) * cfg.page_splats || has_child[node] || edited_flag[node] || nodes[node].stale) {
+		if (node >= node_total || p_leaves[i].splat_count == 0 || has_child[node] || edited_flag[node] || nodes[node].stale) {
 			return reject(EDIT_INVALID);
 		}
 		edited_flag[node] = 1;
@@ -1154,7 +1154,9 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 	LocalVector<uint32_t> pages;
 	pages.resize(p_count);
 	for (uint32_t i = 0; i < p_count; ++i) {
-		pages[i] = (p_leaves[i].splat_count + cfg.page_splats - 1u) / cfg.page_splats;
+		const uint64_t leaf_pages = (uint64_t(p_leaves[i].splat_count) + cfg.page_splats - 1u) / cfg.page_splats;
+		if (leaf_pages > allocator.max_pages_per_node()) { return reject(EDIT_NO_SPACE); }
+		pages[i] = uint32_t(leaf_pages);
 		total_pages += pages[i];
 	}
 	// Admission from free plus reclaimable pages, WITHOUT evicting: a refused edit changes nothing. The holds on the

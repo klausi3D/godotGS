@@ -360,6 +360,7 @@ public:
 		TEST_FAULT_IGNORE_STAGING_CLAMP,
 		TEST_FAULT_EARLY_FINAL_SLICE,
 		TEST_FAULT_ZERO_PAGE_TABLE_REF,
+		TEST_FAULT_MAX,
 	};
 	// Faults alter the REAL handoff/publication, never stats or a checker.
 	// These seam methods belong to the render thread, like update()/shutdown().

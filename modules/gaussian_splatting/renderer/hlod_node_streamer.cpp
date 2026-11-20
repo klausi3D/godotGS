@@ -480,7 +480,7 @@ Error HlodNodeStreamer::_test_set_fault(TestFault p_fault) {
 	if (ledger.is_null() || !active) { return ERR_UNAVAILABLE; }
 	MutexLock lock(ledger->mutex);
 	if (ledger->live != 0 || ledger->jobs != 0) { return ERR_BUSY; }
-	if (p_fault < TEST_FAULT_NONE || p_fault > TEST_FAULT_EARLY_FINAL_SLICE) { return ERR_INVALID_PARAMETER; }
+	if (p_fault < TEST_FAULT_NONE || p_fault >= TEST_FAULT_MAX) { return ERR_INVALID_PARAMETER; }
 	ledger->fault = p_fault;
 	ledger->faults_triggered = 0;
 	return OK;
@@ -1886,7 +1886,14 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 		ready.remove_at(p_ready_index);
 		return true;
 	}
-	const GSUploadSizing::Slice slice = page_slice(publication_ticket, bytes, r.uploaded_bytes, remaining, offset);
+	uint64_t slice_allowance = remaining;
+#ifdef TESTS_ENABLED
+	if (ledger->fault == TEST_FAULT_EARLY_FINAL_SLICE) {
+		// Leave room for the real publication batch, including both page tables.
+		slice_allowance = remaining > metadata_bytes ? remaining - metadata_bytes : 0;
+	}
+#endif
+	const GSUploadSizing::Slice slice = page_slice(publication_ticket, bytes, r.uploaded_bytes, slice_allowance, offset);
 	ok = ok && slice.valid;
 	bool progressed = false;
 #ifdef TESTS_ENABLED
