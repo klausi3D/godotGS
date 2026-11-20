@@ -1836,4 +1836,80 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay a
 	CHECK(res.state(6) == Residency::RESIDENT); // The third bystander was never needed.
 }
 
+static bool fragmented_page_pool(Residency &r_res) {
+	Vector<Residency::NodeInfo> infos;
+	if (infos.resize(11) != OK) { return false; }
+	const uint32_t parents[11] = { UINT32_MAX, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 };
+	for (uint32_t i = 0; i < 11; ++i) {
+		infos.write[i].splat_count = i == 2 || i == 3 ? 1500 : 1000;
+		infos.write[i].parent = parents[i];
+		infos.write[i].height = i == 0 ? 2 : (i == 1 ? 1 : 0);
+	}
+	if (!r_res.reset(infos, config(9, 3), 1, 1)) { return false; }
+	// Root and parent, then alternating fillers and bystanders, fill all nine pages.
+	uint64_t frame = 1;
+	for (uint32_t node : { 0u, 1u, 7u, 4u, 8u, 5u, 9u, 6u, 10u }) {
+		if (!make_resident_at(r_res, node, frame++)) { return false; }
+	}
+	r_res.begin_frame(20);
+	r_res.withdraw_transitions();
+	for (uint32_t node : { 7u, 8u, 9u, 10u }) {
+		if (!r_res.evict(node)) { return false; }
+	}
+	r_res.begin_frame(23); // Retired fillers leave isolated free pages 2, 4, 6 and 8.
+	return true;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a fragmented pool places a group in the same frame when the free pages suffice (#1514)") {
+	Residency res;
+	if (!fragmented_page_pool(res)) { FAIL("could not construct the fragmented page pool"); return; }
+	const auto before = res.stats();
+	if (before.pages_free != 4 || before.largest_free_run != 1 || before.pages_retiring != 0 ||
+			res.pages_for(2) != 2 || res.pages_for(3) != 2) {
+		FAIL("expected four isolated free pages for two two-page siblings"); return;
+	}
+	LocalVector<Residency::Ticket> tickets;
+	const uint32_t group[2] = { 2, 3 };
+	const auto result = res.request(group, 2, tickets);
+	CHECK(result.requested == 2);
+	CHECK(tickets.size() == 2);
+	for (uint32_t node : group) {
+		uint32_t matching_tickets = 0;
+		for (const auto &ticket : tickets) {
+			if (ticket.node == node && !ticket.shadow && res.is_pending(ticket)) { ++matching_tickets; }
+		}
+		CHECK(matching_tickets == 1);
+	}
+	const auto after = res.stats();
+	CHECK(result.fragmented_groups == 0);
+	CHECK(after.allocation_no_contiguous_run_total - before.allocation_no_contiguous_run_total == 0);
+	CHECK(after.evicted_total - before.evicted_total == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a fragmented pool places edit shadows in the same frame when the free pages suffice (#1514)") {
+	Residency res;
+	if (!fragmented_page_pool(res)) { FAIL("could not construct the fragmented page pool"); return; }
+	const auto before = res.stats();
+	if (before.pages_free != 4 || before.largest_free_run != 1 || before.pages_retiring != 0 ||
+			res.pages_for(2) != 2 || res.pages_for(3) != 2) {
+		FAIL("expected four isolated free pages for two two-page shadows"); return;
+	}
+	LocalVector<Residency::Ticket> tickets;
+	const Residency::EditedLeaf leaves[2] = { { 2, 1500 }, { 3, 1500 } };
+	CHECK(res.stage_edit(1, leaves, 2, tickets) == Residency::EDIT_OK);
+	res.advance_edit(tickets);
+	CHECK(tickets.size() == 2);
+	for (const auto &leaf : leaves) {
+		uint32_t matching_tickets = 0;
+		for (const auto &ticket : tickets) {
+			if (ticket.node == leaf.node && ticket.shadow && res.is_shadow_pending(ticket)) { ++matching_tickets; }
+		}
+		CHECK(matching_tickets == 1);
+	}
+	const auto after = res.stats();
+	CHECK(after.pages_shadow == 4);
+	CHECK_FALSE(after.edit_waiting_for_space);
+	CHECK(after.evicted_total - before.evicted_total == 0);
+}
+
 }
