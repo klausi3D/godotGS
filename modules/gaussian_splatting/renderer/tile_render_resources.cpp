@@ -777,7 +777,27 @@ bool TileSHCacheBuffers::clear_color_cache(RenderingDevice *p_default_device) {
 		return false;
 	}
 	// tile_binning.glsl treats cached_color == 0u as "not cached" and re-evaluates it.
-	return device->buffer_clear(sh_color_cache, 0, sh_color_cache_size) == OK;
+	return clear_color_cache_range(device, 0, sh_color_cache_size / sizeof(uint32_t));
+}
+
+bool TileSHCacheBuffers::clear_color_cache_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count) {
+	const uint32_t cache_records = sh_color_cache_size / sizeof(uint32_t);
+	if (p_record_count == 0 || !sh_color_cache.is_valid() || p_first_record >= cache_records) {
+		return true;
+	}
+	RenderingDevice *device = sh_color_cache_owner.device ? sh_color_cache_owner.device : p_default_device;
+	if (device == nullptr) {
+		return false;
+	}
+	const uint32_t count = MIN(p_record_count, cache_records - p_first_record);
+	// Widen before multiplying and check the byte end before narrowing to RD's uint32_t API.
+	// Complete uint32_t entries guarantee four-byte offset/size alignment, even with unaligned growth slack.
+	const uint64_t offset = uint64_t(p_first_record) * sizeof(uint32_t);
+	const uint64_t bytes = uint64_t(count) * sizeof(uint32_t);
+	if (offset > UINT32_MAX || bytes > UINT32_MAX - offset) {
+		return false;
+	}
+	return device->buffer_clear(sh_color_cache, uint32_t(offset), uint32_t(bytes)) == OK;
 }
 
 void TileSHCacheBuffers::reset_state() {
@@ -839,6 +859,8 @@ bool TileSHCacheBuffers::ensure_color_cache(uint32_t p_total_gaussians) {
 		return false;
 	}
 
+	// Full-update refreshes only visible records; unseen entries must also start at the zero sentinel.
+	clear_color_cache(device);
 	device->set_resource_name(sh_color_cache, "GS_TileRenderer_SHColorCache");
 	sh_color_cache_owner.set(device);
 	shrink_candidate_frames = 0;

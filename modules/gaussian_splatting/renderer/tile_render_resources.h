@@ -332,6 +332,8 @@ struct TileSHCacheBuffers {
 	bool ensure_color_cache(uint32_t p_total_gaussians);
 	// Resets every entry to 0, the shader's "not cached" sentinel (tile_binning.glsl).
 	bool clear_color_cache(RenderingDevice *p_default_device);
+	// Clears only complete records in the intersection with the allocated cache. Call outside compute/draw lists.
+	bool clear_color_cache_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count);
 
 	TileRenderer &owner;
 	RID sh_color_cache;
