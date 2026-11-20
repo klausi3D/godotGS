@@ -130,6 +130,8 @@ public:
     // Used by performance monitors to report real get_memory_usage() totals (the streaming
     // regulator's vram_current_usage_mb only accounts for the streaming atlas, not sort/projection buffers).
     RenderingDevice *get_active_device() const { return device_context.resource_rd; }
+    // Render-thread content rewrite hook; must run before binning and outside compute/draw lists.
+    void invalidate_sh_color_cache_range(uint32_t p_first_record, uint32_t p_record_count);
     RID get_tile_binning_pipeline() const { return shader_resources.tile_binning_pipeline; }
     RID get_tile_raster_pipeline() const { return shader_resources.tile_raster_pipeline; }
     uint64_t get_shader_defines_hash() const { return shader_resources.shader_defines_hash; }

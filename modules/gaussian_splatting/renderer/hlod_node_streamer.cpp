@@ -1446,8 +1446,10 @@ void HlodNodeStreamer::record_write(TestWrite::Kind p_kind, uint32_t p_node, uin
 
 Error HlodNodeStreamer::write_atlas(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node,
 		uint64_t p_offset, uint64_t p_bytes, const void *p_payload, bool p_shadow) {
+	const uint64_t stride = record_stride();
 	if (!p_payload || p_bytes == 0 || p_offset > UINT32_MAX || p_bytes > UINT32_MAX ||
-			p_offset > atlas_bytes_capacity() || p_bytes > atlas_bytes_capacity() - p_offset) { return ERR_INVALID_DATA; }
+			p_offset > atlas_bytes_capacity() || p_bytes > atlas_bytes_capacity() - p_offset ||
+			stride == 0 || p_offset % stride != 0 || p_bytes % stride != 0) { return ERR_INVALID_DATA; }
 	bool cpu_sink = false;
 #ifdef TESTS_ENABLED
 	{
@@ -1456,8 +1458,13 @@ Error HlodNodeStreamer::write_atlas(RenderingDevice *p_device, const Buffers &p_
 		if (ledger->control.fail_upload) { return ERR_CANT_CREATE; }
 	}
 #endif
+	if (!cpu_sink && !upload_available(p_device)) { return ERR_UNAVAILABLE; }
+	// Invalidate exactly this payload slice, before recording its write or publishing metadata/readiness.
+	// Keep the hook outside the device-only path so the CPU sink observes the same ordering.
+	if (p_buffers.invalidate_content_range) {
+		p_buffers.invalidate_content_range(p_buffers.invalidation_context, uint32_t(p_offset / stride), uint32_t(p_bytes / stride));
+	}
 	if (!cpu_sink) {
-		if (!upload_available(p_device)) { return ERR_UNAVAILABLE; }
 		const Error err = p_device->buffer_update(p_buffers.atlas, uint32_t(p_offset), uint32_t(p_bytes), p_payload);
 		if (err != OK) { return err; }
 	}

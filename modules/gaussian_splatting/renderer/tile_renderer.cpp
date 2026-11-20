@@ -4063,6 +4063,11 @@ bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_h
     return true;
 }
 
+void TileRenderer::invalidate_sh_color_cache_range(uint32_t p_first_record, uint32_t p_record_count) {
+    ERR_FAIL_COND_MSG(!sh_cache_buffers.clear_color_cache_range(_get_resource_device(), p_first_record, p_record_count),
+            "[TileRenderer] Failed to invalidate SH color cache content range");
+}
+
 void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record) {
     // Mirrors prepare_hlod_scratch(): projection at the power-of-two capacity of the cut (_compute_projection_buffer_bytes),
     // visibility per cut splat, history max(records, cut) <= records + cut, and the SH cache 4 B per record plus the

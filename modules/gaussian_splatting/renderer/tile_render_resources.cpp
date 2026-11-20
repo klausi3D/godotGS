@@ -123,6 +123,26 @@ TileSHCacheResizePlan tile_compute_sh_cache_resize_plan(uint32_t p_required_byte
 	return tile_compute_buffer_resize_plan(p_required_bytes, p_current_bytes, p_shrink_candidate_frames, policy);
 }
 
+TileSHCacheClearRange tile_compute_sh_cache_clear_range(uint32_t p_first_record, uint32_t p_record_count,
+		uint32_t p_cache_bytes) {
+	TileSHCacheClearRange range;
+	const uint32_t cache_records = p_cache_bytes / sizeof(uint32_t);
+	if (p_record_count == 0 || p_first_record >= cache_records) {
+		return range;
+	}
+	const uint32_t count = MIN(p_record_count, cache_records - p_first_record);
+	// Widen before multiplying and check the byte end before narrowing to RD's uint32_t API.
+	const uint64_t offset = uint64_t(p_first_record) * sizeof(uint32_t);
+	const uint64_t bytes = uint64_t(count) * sizeof(uint32_t);
+	if (offset > UINT32_MAX || bytes > UINT32_MAX - offset) {
+		range.ok = false;
+		return range;
+	}
+	range.offset = uint32_t(offset);
+	range.bytes = uint32_t(bytes);
+	return range;
+}
+
 void TileResourceController::set_contract_main_device(RenderingDevice *p_main_device) {
 	contract_main_device = p_main_device;
 }
@@ -780,6 +800,25 @@ bool TileSHCacheBuffers::clear_color_cache(RenderingDevice *p_default_device) {
 	return device->buffer_clear(sh_color_cache, 0, sh_color_cache_size) == OK;
 }
 
+bool TileSHCacheBuffers::clear_color_cache_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count) {
+	if (!sh_color_cache.is_valid()) {
+		return true;
+	}
+	const TileSHCacheClearRange range = tile_compute_sh_cache_clear_range(p_first_record, p_record_count, sh_color_cache_size);
+	if (!range.ok) {
+		return false;
+	}
+	if (range.bytes == 0) {
+		return true;
+	}
+	RenderingDevice *device = sh_color_cache_owner.device ? sh_color_cache_owner.device : p_default_device;
+	if (device == nullptr) {
+		return false;
+	}
+	// Complete uint32_t entries guarantee four-byte offset/size alignment, even with unaligned growth slack.
+	return device->buffer_clear(sh_color_cache, range.offset, range.bytes) == OK;
+}
+
 void TileSHCacheBuffers::reset_state() {
 	sh_color_cache = RID();
 	sh_color_cache_owner.clear();
@@ -839,6 +878,15 @@ bool TileSHCacheBuffers::ensure_color_cache(uint32_t p_total_gaussians) {
 		return false;
 	}
 
+	// Full-update refreshes only visible records; unseen entries must also start at the zero sentinel.
+	// The allocation's growth slack may end with fewer than four bytes, which are never indexable entries.
+	if (!clear_color_cache_range(device, 0, sh_color_cache_size / sizeof(uint32_t))) {
+		release(device);
+		// A resize may have freed the old cache; discard any descriptors that still reference it.
+		owner._invalidate_descriptor_cache();
+		GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to clear new SH color cache buffer");
+		return false;
+	}
 	device->set_resource_name(sh_color_cache, "GS_TileRenderer_SHColorCache");
 	sh_color_cache_owner.set(device);
 	shrink_candidate_frames = 0;

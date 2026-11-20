@@ -44,6 +44,41 @@ TEST_CASE("[GaussianSplatting][TileBufferResize] SH cache resize plan adds growt
 	CHECK(plan.next_shrink_candidate_frames == 0u);
 }
 
+TEST_CASE("[GaussianSplatting][ComputeInfra][TileBufferResize] SH cache clear range covers whole entries with odd growth slack") {
+	const uint32_t records = 20001u;
+	const GaussianSplatting::TileSHCacheResizePlan plan =
+			GaussianSplatting::tile_compute_sh_cache_resize_plan(records * sizeof(uint32_t), 0u, 0u);
+	CHECK(plan.should_resize);
+	CHECK(plan.target_bytes == 100005u);
+	CHECK(plan.target_bytes % sizeof(uint32_t) != 0u);
+
+	const uint32_t cache_records = plan.target_bytes / sizeof(uint32_t);
+	const GaussianSplatting::TileSHCacheClearRange full =
+			GaussianSplatting::tile_compute_sh_cache_clear_range(0u, cache_records, plan.target_bytes);
+	CHECK(full.ok);
+	CHECK(full.offset == 0u);
+	CHECK(full.bytes % sizeof(uint32_t) == 0u);
+	CHECK(full.bytes == cache_records * sizeof(uint32_t));
+	CHECK(full.bytes >= records * sizeof(uint32_t));
+	CHECK(plan.target_bytes - full.bytes < sizeof(uint32_t));
+
+	const GaussianSplatting::TileSHCacheClearRange clamped =
+			GaussianSplatting::tile_compute_sh_cache_clear_range(cache_records - 1u, UINT32_MAX, plan.target_bytes);
+	CHECK(clamped.ok);
+	CHECK(clamped.offset % sizeof(uint32_t) == 0u);
+	CHECK(clamped.bytes == sizeof(uint32_t));
+	CHECK(clamped.offset + clamped.bytes == full.bytes);
+
+	const GaussianSplatting::TileSHCacheClearRange past_end =
+			GaussianSplatting::tile_compute_sh_cache_clear_range(cache_records, UINT32_MAX, plan.target_bytes);
+	CHECK(past_end.ok);
+	CHECK(past_end.bytes == 0u);
+	const GaussianSplatting::TileSHCacheClearRange empty =
+			GaussianSplatting::tile_compute_sh_cache_clear_range(0u, 0u, plan.target_bytes);
+	CHECK(empty.ok);
+	CHECK(empty.bytes == 0u);
+}
+
 TEST_CASE("[GaussianSplatting][TileBufferResize] SH cache shrink hysteresis defers resize until threshold") {
 	const uint32_t required_bytes = 1024u;
 	const uint32_t current_bytes = 16u * 1024u;

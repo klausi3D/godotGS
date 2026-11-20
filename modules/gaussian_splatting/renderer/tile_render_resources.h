@@ -67,6 +67,16 @@ typedef TileBufferResizePlan TileSHCacheResizePlan;
 TileSHCacheResizePlan tile_compute_sh_cache_resize_plan(uint32_t p_required_bytes, uint32_t p_current_bytes,
 		uint32_t p_shrink_candidate_frames);
 
+struct TileSHCacheClearRange {
+	uint32_t offset = 0;
+	uint32_t bytes = 0;
+	bool ok = true;
+};
+
+// Pure byte range for complete uint32_t entries; clamps to capacity and ignores trailing slack bytes.
+TileSHCacheClearRange tile_compute_sh_cache_clear_range(uint32_t p_first_record, uint32_t p_record_count,
+		uint32_t p_cache_bytes);
+
 struct TileRenderTargets {
 	explicit TileRenderTargets(TileRenderer &p_owner) : owner(p_owner) {}
 
@@ -332,6 +342,8 @@ struct TileSHCacheBuffers {
 	bool ensure_color_cache(uint32_t p_total_gaussians);
 	// Resets every entry to 0, the shader's "not cached" sentinel (tile_binning.glsl).
 	bool clear_color_cache(RenderingDevice *p_default_device);
+	// Clears only complete records in the intersection with the allocated cache. Call outside compute/draw lists.
+	bool clear_color_cache_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count);
 
 	TileRenderer &owner;
 	RID sh_color_cache;

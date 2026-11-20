@@ -1428,6 +1428,15 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
     return true;
 }
 
+void hlod_invalidate_content_range(void *p_context, uint32_t p_first_record, uint32_t p_record_count) {
+    auto *renderer = static_cast<GaussianSplatRenderer *>(p_context);
+    if (!renderer) { return; }
+    Ref<TileRenderer> tile = renderer->get_tile_renderer();
+    if (tile.is_valid() && tile->get_active_device() == renderer->get_device_state().rd) {
+        tile->invalidate_sh_color_cache_range(p_first_record, p_record_count);
+    }
+}
+
 bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         const GaussianSplatHlodRuntimeData &p_data, bool p_relative, bool p_quantized,
         uint32_t p_capacity, uint32_t p_position_bits, uint32_t p_scale_bits, const gs_hlod_bundle::Rows &p_rows,
@@ -1547,6 +1556,10 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         b.atlas_gaussian_buffer = p_previous->buffers.atlas_gaussian_buffer;
         b.max_chunk_splats = MAX(b.max_chunk_splats, p_previous->buffers.max_chunk_splats);
     }
+    if (!p_previous && !p_streaming) {
+        // A rebuilt atlas can reuse cache indices even when its RID changes. Exclude the reserved tail padding.
+        hlod_invalidate_content_range(p_renderer, 0, uint32_t(uint64_t(records) + region.records));
+    }
     if ((!p_previous && !create(b.atlas_gaussian_buffer, total_records * record_stride,
                 p_streaming ? nullptr : (p_quantized ? static_cast<const void *>(quantized.ptr()) : raw.ptr()))) ||
             !create(b.asset_meta_buffer, uint64_t(assets.size()) * sizeof(AssetMetaGPU), assets.ptr()) ||
@@ -1572,6 +1585,7 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         // The streamed atlas's world pages start empty; the instance tail is resident from the start (the streamer only
         // ever addresses its pages and the world's node-indexed tables, so the two regions are disjoint).
         const void *tail = p_quantized ? static_cast<const void *>(p_instances.quantized.ptr()) : static_cast<const void *>(p_instances.raw.ptr());
+        hlod_invalidate_content_range(p_renderer, records, uint32_t(region.records));
         if (p_rd->buffer_update(b.atlas_gaussian_buffer, uint32_t(uint64_t(records) * record_stride), uint32_t(region.records * record_stride), tail) != OK) {
             return false;
         }
@@ -1943,6 +1957,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
     return gs_hlod_bundle::publish_instance_tail([&]() {
         if (payload.region.records == 0) { return true; }
         const void *tail = quantized ? static_cast<const void *>(payload.quantized.ptr()) : static_cast<const void *>(payload.raw.ptr());
+        hlod_invalidate_content_range(this, state.hlod_stream_atlas_records, uint32_t(payload.region.records));
         return rd->buffer_update(old.buffers.atlas_gaussian_buffer, uint32_t(uint64_t(state.hlod_stream_atlas_records) * stride),
                        uint32_t(payload.region.records * stride), tail) == OK;
     }, [&]() {
@@ -3155,6 +3170,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         stream_buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
         stream_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
         stream_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
+        stream_buffers.invalidate_content_range = hlod_invalidate_content_range;
+        stream_buffers.invalidation_context = this;
         state.hlod_streamer->update(get_device_state().rd, stream_buffers, desired, desired_count,
                 outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u,
                 RenderFrameContextManager::hlod_view_key(identity));
@@ -3759,6 +3776,8 @@ Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::hlod_stream_commit_boun
     frame_buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
     frame_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
     frame_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
+    frame_buffers.invalidate_content_range = hlod_invalidate_content_range;
+    frame_buffers.invalidation_context = this;
     // The publication boundary of a staged edit is inside begin_frame(): commit first.
     state.hlod_streamer->begin_frame(get_device_state().rd, &frame_buffers);
     if (!state.hlod_streamer->is_active()) {
