@@ -174,13 +174,17 @@ void main() {
             return;
         }
         atlas_index = page * GS_HLOD_PAGE_SPLATS + (splat_index_in_chunk & GS_HLOD_PAGE_MASK);
+        if (atlas_index >= atlas_count) {
+            atomicAdd(counters.overflowed_splats, 1u);
+            return;
+        }
     } else
 #endif
     if (atlas_index < chunk.atlas_base) {
         atomicAdd(counters.overflowed_splats, 1u);
         return;
     }
-    if (atlas_index >= uint(atlas_gaussian_buffer.gaussians.length()) || !gs_splat_ref_can_encode(atlas_index)) {
+    if (!gs_splat_ref_can_encode(atlas_index)) {
         atomicAdd(counters.overflowed_splats, 1u);
         return;
     }
