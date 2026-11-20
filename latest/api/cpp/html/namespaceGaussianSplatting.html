@@ -152,6 +152,7 @@ Classes</h2></td></tr>
 <tr class="memitem:TilePrefixCpuScanResult" id="r_TilePrefixCpuScanResult"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TilePrefixCpuScanResult.html">TilePrefixCpuScanResult</a></td></tr>
 <tr class="memitem:TileBufferShrinkPolicy" id="r_TileBufferShrinkPolicy"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileBufferShrinkPolicy.html">TileBufferShrinkPolicy</a></td></tr>
 <tr class="memitem:TileBufferResizePlan" id="r_TileBufferResizePlan"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileBufferResizePlan.html">TileBufferResizePlan</a></td></tr>
+<tr class="memitem:TileSHCacheClearRange" id="r_TileSHCacheClearRange"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileSHCacheClearRange.html">TileSHCacheClearRange</a></td></tr>
 <tr class="memitem:TileRenderTargets" id="r_TileRenderTargets"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileRenderTargets.html">TileRenderTargets</a></td></tr>
 <tr class="memitem:TileResourceController" id="r_TileResourceController"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileResourceController.html">TileResourceController</a></td></tr>
 <tr class="memitem:TileDeviceContext" id="r_TileDeviceContext"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDeviceContext.html">TileDeviceContext</a></td></tr>
@@ -330,6 +331,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a100859413391be23236e51dec6f52480" id="r_a100859413391be23236e51dec6f52480"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a100859413391be23236e51dec6f52480">compute_tile_prefix_cpu</a> (const uint32_t *p_tile_counts, uint32_t p_total_tiles, uint32_t *p_out_ranges_words, uint32_t p_global_sort_capacity, <a class="el" href="structGaussianSplatting_1_1TilePrefixCpuScanResult.html">TilePrefixCpuScanResult</a> &amp;r_result)</td></tr>
 <tr class="memitem:add1eda4da697191cbcf11989d62f20fc" id="r_add1eda4da697191cbcf11989d62f20fc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1TileBufferResizePlan.html">TileBufferResizePlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#add1eda4da697191cbcf11989d62f20fc">tile_compute_buffer_resize_plan</a> (uint32_t p_required_bytes, uint32_t p_current_bytes, uint32_t p_shrink_candidate_frames, const <a class="el" href="structGaussianSplatting_1_1TileBufferShrinkPolicy.html">TileBufferShrinkPolicy</a> &amp;p_policy)</td></tr>
 <tr class="memitem:ae7003815270d8db541b6864cc5ea38af" id="r_ae7003815270d8db541b6864cc5ea38af"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a1559a7b50f472064a9961d6dd38c58ca">TileSHCacheResizePlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae7003815270d8db541b6864cc5ea38af">tile_compute_sh_cache_resize_plan</a> (uint32_t p_required_bytes, uint32_t p_current_bytes, uint32_t p_shrink_candidate_frames)</td></tr>
+<tr class="memitem:a6fd54283352679d5bcf2f663eb729ae3" id="r_a6fd54283352679d5bcf2f663eb729ae3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1TileSHCacheClearRange.html">TileSHCacheClearRange</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6fd54283352679d5bcf2f663eb729ae3">tile_compute_sh_cache_clear_range</a> (uint32_t p_first_record, uint32_t p_record_count, uint32_t p_cache_bytes)</td></tr>
 <tr class="memitem:a40753859926ba19a389b042915f84ff1" id="r_a40753859926ba19a389b042915f84ff1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a40753859926ba19a389b042915f84ff1">apply_wind_to_render_params</a> (<a class="el" href="structGaussianSplatting_1_1TileRenderParams.html">TileRenderParams</a> &amp;r_params, const <a class="el" href="structgs_1_1settings_1_1GSWindSettings.html">gs::settings::GSWindSettings</a> &amp;p_settings, double p_animation_time_seconds)</td></tr>
 <tr class="memdesc:a40753859926ba19a389b042915f84ff1"><td class="mdescLeft">&#160;</td><td class="mdescRight">Write the whole wind field family into <a class="el" href="structGaussianSplatting_1_1TileRenderParams.html">TileRenderParams</a>.  <br /></td></tr>
 <tr class="memitem:a789b61c4b44603fb4f884658121156fd" id="r_a789b61c4b44603fb4f884658121156fd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a789b61c4b44603fb4f884658121156fd">apply_lighting_to_render_params</a> (<a class="el" href="structGaussianSplatting_1_1TileRenderParams.html">TileRenderParams</a> &amp;r_params, const <a class="el" href="structgs_1_1settings_1_1GSLightingSettings.html">gs::settings::GSLightingSettings</a> &amp;p_settings, const <a class="el" href="structGaussianSplatting_1_1TileSceneLightingInputs.html">TileSceneLightingInputs</a> &amp;p_scene)</td></tr>
@@ -1784,6 +1786,32 @@ Variables</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const <a class="el" href="structGaussianSplatting_1_1TileBufferShrinkPolicy.html">TileBufferShrinkPolicy</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_policy</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6fd54283352679d5bcf2f663eb729ae3" name="a6fd54283352679d5bcf2f663eb729ae3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6fd54283352679d5bcf2f663eb729ae3">&#9670;&#160;</a></span>tile_compute_sh_cache_clear_range()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1TileSHCacheClearRange.html">TileSHCacheClearRange</a> GaussianSplatting::tile_compute_sh_cache_clear_range </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_first_record</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_record_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_cache_bytes</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

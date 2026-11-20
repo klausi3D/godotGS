@@ -801,6 +801,7 @@ var hierarchy =
     [ "GaussianSplatting::TileSceneLightingInputs", "structGaussianSplatting_1_1TileSceneLightingInputs.html", null ],
     [ "GaussianSplatting::TileShaderResources", "structGaussianSplatting_1_1TileShaderResources.html", null ],
     [ "GaussianSplatting::TileSHCacheBuffers", "structGaussianSplatting_1_1TileSHCacheBuffers.html", null ],
+    [ "GaussianSplatting::TileSHCacheClearRange", "structGaussianSplatting_1_1TileSHCacheClearRange.html", null ],
     [ "GaussianSplatting::TileSplatAuditSnapshot", "structGaussianSplatting_1_1TileSplatAuditSnapshot.html", null ],
     [ "GaussianSplatting::TileSubpixelHistoryBuffers", "structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html", null ],
     [ "GaussianSplatting::TileSubpixelVisibilityBuffers", "structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html", null ],

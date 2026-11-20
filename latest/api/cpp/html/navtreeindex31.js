@@ -1,5 +1,7 @@
 var NAVTREEINDEX31 =
 {
+"structGaussianRenderDebug_1_1DebugConfigBase.html#a3b3eaea493636ecab26885d820e2be55":[0,0,3,1,4],
+"structGaussianRenderDebug_1_1DebugConfigBase.html#a3b3eaea493636ecab26885d820e2be55":[1,0,2,1,4],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a3fcee5ff79476cb8d8c9d307e451db95":[0,0,3,1,7],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a3fcee5ff79476cb8d8c9d307e451db95":[1,0,2,1,7],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a40bc78e9ad6166d48261010e26135352":[0,0,3,1,9],
@@ -247,7 +249,5 @@ var NAVTREEINDEX31 =
 "structGaussianRenderFacadeState_1_1ResourceState.html#a2258e7ded8fa045d9ddae9012bfb2815":[0,0,4,2,59],
 "structGaussianRenderFacadeState_1_1ResourceState.html#a2258e7ded8fa045d9ddae9012bfb2815":[1,0,3,2,59],
 "structGaussianRenderFacadeState_1_1ResourceState.html#a229befed11b654fc5fb5e6b89b9a2b1c":[0,0,4,2,75],
-"structGaussianRenderFacadeState_1_1ResourceState.html#a229befed11b654fc5fb5e6b89b9a2b1c":[1,0,3,2,75],
-"structGaussianRenderFacadeState_1_1ResourceState.html#a2316bf25be4b89a71b4012cec458b88d":[0,0,4,2,106],
-"structGaussianRenderFacadeState_1_1ResourceState.html#a2316bf25be4b89a71b4012cec458b88d":[1,0,3,2,106]
+"structGaussianRenderFacadeState_1_1ResourceState.html#a229befed11b654fc5fb5e6b89b9a2b1c":[1,0,3,2,75]
 };

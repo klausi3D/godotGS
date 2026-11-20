@@ -1,5 +1,6 @@
 var NAVTREEINDEX20 =
 {
+"functions_func_j.html":[1,3,1,10],
 "functions_func_k.html":[1,3,1,11],
 "functions_func_l.html":[1,3,1,12],
 "functions_func_m.html":[1,3,1,13],
@@ -248,6 +249,5 @@ var NAVTREEINDEX20 =
 "gaussian__splat__manager_8cpp.html#a1dc1bedaaa68c7c0737a2a1c4408b804":[2,0,0,0,3,39,1],
 "gaussian__splat__manager_8cpp.html#a8cab600c00e305409dbaa012757099f2":[2,0,0,0,3,39,0],
 "gaussian__splat__manager_8h.html":[2,0,0,0,3,40],
-"gaussian__splat__manager_8h_source.html":[2,0,0,0,3,40],
-"gaussian__splat__merge__utils_8cpp.html":[2,0,0,0,3,41]
+"gaussian__splat__manager_8h_source.html":[2,0,0,0,3,40]
 };

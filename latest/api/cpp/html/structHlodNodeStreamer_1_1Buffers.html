@@ -99,6 +99,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ab801110ba8117726301fc220c350e28b" id="r_ab801110ba8117726301fc220c350e28b"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab801110ba8117726301fc220c350e28b">atlas</a></td></tr>
 <tr class="memitem:afadf3aa6c4074346f232715a0565a343" id="r_afadf3aa6c4074346f232715a0565a343"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afadf3aa6c4074346f232715a0565a343">chunk_meta</a></td></tr>
 <tr class="memitem:a74d63b30142bdc2eafe391fe4b3c8ac4" id="r_a74d63b30142bdc2eafe391fe4b3c8ac4"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a74d63b30142bdc2eafe391fe4b3c8ac4">quantization</a></td></tr>
+<tr class="memitem:a0e59dc1ad4a3c8bd7f84dbc4faa6376e" id="r_a0e59dc1ad4a3c8bd7f84dbc4faa6376e"><td class="memItemLeft" align="right" valign="top">void(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e59dc1ad4a3c8bd7f84dbc4faa6376e">invalidate_content_range</a> )(void *p_context, uint32_t p_first_record, uint32_t p_record_count) = nullptr</td></tr>
+<tr class="memitem:a4067f22458f19b15205b7c83db3dff4c" id="r_a4067f22458f19b15205b7c83db3dff4c"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4067f22458f19b15205b7c83db3dff4c">invalidation_context</a> = nullptr</td></tr>
 </table>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="ab801110ba8117726301fc220c350e28b" name="ab801110ba8117726301fc220c350e28b"></a>
@@ -123,6 +125,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">RID HlodNodeStreamer::Buffers::chunk_meta</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0e59dc1ad4a3c8bd7f84dbc4faa6376e" name="a0e59dc1ad4a3c8bd7f84dbc4faa6376e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0e59dc1ad4a3c8bd7f84dbc4faa6376e">&#9670;&#160;</a></span>invalidate_content_range</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void(* HlodNodeStreamer::Buffers::invalidate_content_range) (void *p_context, uint32_t p_first_record, uint32_t p_record_count) = nullptr</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4067f22458f19b15205b7c83db3dff4c" name="a4067f22458f19b15205b7c83db3dff4c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4067f22458f19b15205b7c83db3dff4c">&#9670;&#160;</a></span>invalidation_context</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void* HlodNodeStreamer::Buffers::invalidation_context = nullptr</td>
         </tr>
       </table>
 </div><div class="memdoc">

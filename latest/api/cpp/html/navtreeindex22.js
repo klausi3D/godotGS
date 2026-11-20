@@ -1,5 +1,6 @@
 var NAVTREEINDEX22 =
 {
+"gs__logger_8h_source.html":[2,0,0,0,8,3],
 "gs__payload__page__store_8cpp.html":[2,0,0,0,6,18],
 "gs__payload__page__store_8h.html":[2,0,0,0,6,19],
 "gs__payload__page__store_8h_source.html":[2,0,0,0,6,19],
@@ -239,15 +240,14 @@ var NAVTREEINDEX22 =
 "namespaceGaussianSHRotation_1_1detail.html#aef036a4c356f103f60d36e54e5768c7c":[0,0,10,0,2],
 "namespaceGaussianSplatSourcePath.html":[0,0,11],
 "namespaceGaussianSplatting.html":[0,0,12],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887":[0,0,12,91],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3":[0,0,12,91,2],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082":[0,0,12,91,1],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b":[0,0,12,91,0],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73":[0,0,12,97],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a4cc58d806c6b6a9cd0c890f5104c1b45":[0,0,12,97,2],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a720b556cb0eb235fd8bbc3a3d28bc7aa":[0,0,12,97,3],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73ab50339a10e1de285ac99d4c3990b8693":[0,0,12,97,0],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73aed5137c562c73ba7dcee203d32c421c6":[0,0,12,97,4],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73af0c1640c1b7a985c2f3863b8c0fc9438":[0,0,12,97,1],
-"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785":[0,0,12,85]
+"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887":[0,0,12,92],
+"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3":[0,0,12,92,2],
+"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082":[0,0,12,92,1],
+"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b":[0,0,12,92,0],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73":[0,0,12,98],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a4cc58d806c6b6a9cd0c890f5104c1b45":[0,0,12,98,2],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a720b556cb0eb235fd8bbc3a3d28bc7aa":[0,0,12,98,3],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73ab50339a10e1de285ac99d4c3990b8693":[0,0,12,98,0],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73aed5137c562c73ba7dcee203d32c421c6":[0,0,12,98,4],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73af0c1640c1b7a985c2f3863b8c0fc9438":[0,0,12,98,1]
 };

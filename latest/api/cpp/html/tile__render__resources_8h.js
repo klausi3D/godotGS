@@ -2,6 +2,7 @@ var tile__render__resources_8h =
 [
     [ "GaussianSplatting::TileBufferShrinkPolicy", "structGaussianSplatting_1_1TileBufferShrinkPolicy.html", "structGaussianSplatting_1_1TileBufferShrinkPolicy" ],
     [ "GaussianSplatting::TileBufferResizePlan", "structGaussianSplatting_1_1TileBufferResizePlan.html", "structGaussianSplatting_1_1TileBufferResizePlan" ],
+    [ "GaussianSplatting::TileSHCacheClearRange", "structGaussianSplatting_1_1TileSHCacheClearRange.html", "structGaussianSplatting_1_1TileSHCacheClearRange" ],
     [ "GaussianSplatting::TileRenderTargets", "structGaussianSplatting_1_1TileRenderTargets.html", "structGaussianSplatting_1_1TileRenderTargets" ],
     [ "GaussianSplatting::TileResourceController", "structGaussianSplatting_1_1TileResourceController.html", "structGaussianSplatting_1_1TileResourceController" ],
     [ "GaussianSplatting::TileDeviceContext", "structGaussianSplatting_1_1TileDeviceContext.html", "structGaussianSplatting_1_1TileDeviceContext" ],
@@ -14,6 +15,7 @@ var tile__render__resources_8h =
     [ "GaussianSplatting::TileSubpixelVisibilityBuffers", "structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html", "structGaussianSplatting_1_1TileSubpixelVisibilityBuffers" ],
     [ "GaussianSplatting::TileSHCacheResizePlan", "namespaceGaussianSplatting.html#a1559a7b50f472064a9961d6dd38c58ca", null ],
     [ "GaussianSplatting::tile_compute_buffer_resize_plan", "namespaceGaussianSplatting.html#add1eda4da697191cbcf11989d62f20fc", null ],
+    [ "GaussianSplatting::tile_compute_sh_cache_clear_range", "namespaceGaussianSplatting.html#a6fd54283352679d5bcf2f663eb729ae3", null ],
     [ "GaussianSplatting::tile_compute_sh_cache_resize_plan", "namespaceGaussianSplatting.html#ae7003815270d8db541b6864cc5ea38af", null ],
     [ "GaussianSplatting::TILE_SCRATCH_SHRINK_HYSTERESIS_FRAMES", "namespaceGaussianSplatting.html#aebc212917f9a4504e67db1adadad1cc8", null ],
     [ "GaussianSplatting::TILE_SCRATCH_SHRINK_TRIGGER_PERCENT", "namespaceGaussianSplatting.html#aa3e56d2b15b97727badbc89665f28aec", null ],

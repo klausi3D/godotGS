@@ -139,6 +139,7 @@ var classTileRenderer =
     [ "grow_hlod_overlap_storage", "classTileRenderer.html#a0bfc49ff07d9ba50e2bf839403b3fcb3", null ],
     [ "has_depth_output", "classTileRenderer.html#a70f6f84f8aee08d15617e1b8c078e4bb", null ],
     [ "initialize", "classTileRenderer.html#aaa4a95997cc681d6042dc7aea374ecb2", null ],
+    [ "invalidate_sh_color_cache_range", "classTileRenderer.html#a520418c82286f55d46c747aaa66607f2", null ],
     [ "is_debug_binning_counters_enabled", "classTileRenderer.html#ac90bbd53f2f6190b9ac59158a1f4338a", null ],
     [ "is_depth_copy_compatible", "classTileRenderer.html#a14604aa112b7463f8c290a39a3ec5f8f", null ],
     [ "is_gpu_timestamp_capture_enabled", "classTileRenderer.html#afb045dd539250d673f7126a8a676aff8", null ],

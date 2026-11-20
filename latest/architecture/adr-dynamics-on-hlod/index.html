@@ -1,0 +1,7256 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Versioned documentation for the Godot Gaussian Splatting module.">
+      
+      
+      
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-dynamics-on-hlod/">
+      
+      
+        <link rel="prev" href="../adr-one-route-many-producers/">
+      
+      
+        <link rel="next" href="../adr-painterly-direction/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Dynamics on HLOD - Godot Gaussian Splatting Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/components.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/marketing.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adr-dynamics-on-hlod-streaming-static-world-tree-per-splat-semantic-word-lod-stable-wind-region-overrides" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Godot Gaussian Splatting Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Dynamics on HLOD
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../performance/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Performance
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../contributor/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    Godot Gaussian Splatting Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your First Splat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Your Own Editor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_5">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../troubleshooting/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_5" id="__nav_1_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Troubleshooting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recurring Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../user/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../workflows/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Importing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/importing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/GSPLATWORLD_BAKE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World Bake
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../features/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/artist_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artist Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/color-grading-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/animation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Animation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lighting Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/export-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Export Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2">
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project Settings
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/sh-quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spherical Harmonics Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/gaussian-project-settings-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/ply-loader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PLY Loader
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatNode3D
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_asset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatAsset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_world3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatWorld3D
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_container/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatContainer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianData
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatManager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_renderer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatRenderer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sphere_effector_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sphere Effectors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/effector_system_consumer_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effector Consumer Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GDScript Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/shader_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shader Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/api-stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API stability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/known-public-alpha-limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Public Alpha Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/release-channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../performance/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Performance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../timing_metrics_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timing Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/startup-trace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Startup Trace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/gs_quantization_tradeoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization Tradeoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked="">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Onboarding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reviewer Fast Path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BUILDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build / Test / CI Command Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development Docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_7">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../testing/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_7" id="__nav_5_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing Setup Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/unified-benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Benchmark Scene
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_8">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../governance/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Governance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_8" id="__nav_5_8_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Governance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribution Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/agentic-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/review-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/evidence-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence Integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/release-acceptance-bar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Acceptance Bar
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/real-scan-visual-pass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Real-Scan Visual Pass
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/github-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Repository Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_9">
+        
+          
+          <label class="md-nav__link" for="__nav_5_9" id="__nav_5_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs Site
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs Site
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/docs-site/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Versioned Docs Site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/media/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Media
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/screenshot-capture-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screenshot Capture Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_10">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../style/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Style
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_10" id="__nav_5_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Style
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Style Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11" checked="">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_11" id="__nav_5_11_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Engineering
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../render-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Render Pipeline Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lighting-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lighting System Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../culling-and-hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Culling and Hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11_6">
+        
+          
+          <label class="md-nav__link" for="__nav_5_11_6" id="__nav_5_11_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_11_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_11_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contracts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gaussian-project-settings-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian ProjectSettings Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gaussian-resident-instanced-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resident-Instanced Renderer Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../renderer-lifetime-ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Renderer Lifetime Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage-first-ownership-inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage-First Ownership Inventory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/engine-patch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engine Patch Report
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/renderer-release-gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Renderer Release Gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/test-quarantine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Test quarantine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/internal-classes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internal Classes Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../g2-malformed-corpus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    G2 — malformed-file corpus lane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11_12" checked="">
+        
+          
+          <label class="md-nav__link" for="__nav_5_11_12" id="__nav_5_11_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Records
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_11_12_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_11_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decision Records
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-advisory-lane-ledger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advisory Lane Result Ledger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-editor-download-picker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Editor Download Picker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose GaussianSplatNode3D
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-renderer-facade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose the Renderer Facade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-scene-director/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose the Scene Director
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-streaming-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose the Streaming System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-splat-colour-encoding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Splat Colour Encoding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-v1-splat-data-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complete v1 Splat Data Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-spz-v4-reference-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SPZ v4 Reference Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-sh4-quality-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SH4 Quality Selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-sh-basis-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SH Basis Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-full-sh-gpu-storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full SH GPU Storage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-hlod-streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical LOD for Streamed Worlds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-beyond-vram-worlds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worlds Beyond VRAM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-one-route-many-producers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    One Route, Many Demand Producers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamics on HLOD
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamics on HLOD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#0-program-decision-owner-2026-11-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Program decision (owner, 2026-11-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-decision-drivers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Decision drivers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-current-state-reused-unchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Current state reused unchanged
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Current state reused unchanged">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-free-bits-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Free bits (verified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-decision-overview-accepted-2026-11-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Decision overview (accepted 2026-11-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-authoring-rule-world-versus-instance-d1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Authoring rule: world versus instance (D1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-per-splat-semantic-word-d2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Per-splat semantic word (D2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.2 Per-splat semantic word (D2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#621-layout-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.1 Layout [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#622-merge-rules-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.2 Merge rules [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#623-persistence-and-the-timing-constraint-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.3 Persistence and the timing constraint [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-wind-model-for-games-d3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Wind model for games (D3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3 Wind model for games (D3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#631-displacement-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.1 Displacement [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#632-removing-the-project-global-refusal-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.2 Removing the project-global refusal [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#633-bound-inflation-max-displacement-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.3 Bound inflation (Max displacement) [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#634-shadow-caster-consistency-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.4 Shadow-caster consistency [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#635-two-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.5 Two steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-runtime-recolour-tint-emissive-and-hide-d4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Runtime recolour, tint, emissive and hide (D4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-atlas-address-keyed-state-d5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Atlas-address-keyed state (D5)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.5 Atlas-address-keyed state (D5)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#651-inventory-v" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.1 Inventory [V]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#652-sh-colour-cache-stale-colour-after-page-reuse-verified-mechanism-v-visibility-i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.2 SH colour cache: stale colour after page reuse, verified mechanism [V], visibility [I]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#653-decision-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.3 Decision [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-rigid-moving-objects-d6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Rigid moving objects (D6)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.6 Rigid moving objects (D6)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#661-one-frame-shadow-lag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6.1 One-frame shadow lag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#662-a4-and-a5-gs-combined-1-run-44532905736-from-the-deviation-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6.2 A4 and A5 (GS-COMBINED-1, run 44532905736, from the deviation report)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#663-object-lod-and-proxies-out-of-scope-for-the-first-gate-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6.3 Object LOD and proxies: out of scope for the first gate [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-skinning-and-deforming-splats-d7-out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 Skinning and deforming splats (D7): out of scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-acceptance-gs-game-1-vertical-slice-d8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Acceptance: GS-GAME-1 vertical slice (D8)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-work-packages-and-order-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Work packages and order [P]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-format-and-version-bumps-all-in-wp3-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Format and version bumps (all in WP3) [P]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-what-a-cheaper-version-would-force-to-redo-i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. What a cheaper version would force to redo [I]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-owner-decisions-2026-11-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Owner decisions (2026-11-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-what-was-not-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. What was not verified
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-painterly-direction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Painterly Direction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-v1-animation-collision-scope/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.0 Animation and Collision Scope
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-import-importance-pruning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Importance Pruning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-import-input-hardening/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Input Hardening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-overflow-drop-telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overflow Drop Telemetry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-gate-evaluates-pr-diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gate Evaluates the PR Diff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-phase1-guard-hardening/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase-1 Guard Hardening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-single-route-per-frame-node-coexistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single Route per Frame
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-test-quarantine-manifest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Test Quarantine Manifest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-alpha-envelope-widened-to-streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Alpha Envelope Widened to Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-open-world-proof-content-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open-World Proof Content Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-reference-quality-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference Quality Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-v1-platform-targets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.0 Platform Targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-review-merge-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and Merge Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-upstream-strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upstream Godot Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-next-program-alpha-correctness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Next Program
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#0-program-decision-owner-2026-11-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Program decision (owner, 2026-11-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-decision-drivers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Decision drivers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-current-state-reused-unchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Current state reused unchanged
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Current state reused unchanged">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-free-bits-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Free bits (verified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-decision-overview-accepted-2026-11-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Decision overview (accepted 2026-11-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-authoring-rule-world-versus-instance-d1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Authoring rule: world versus instance (D1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-per-splat-semantic-word-d2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Per-splat semantic word (D2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.2 Per-splat semantic word (D2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#621-layout-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.1 Layout [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#622-merge-rules-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.2 Merge rules [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#623-persistence-and-the-timing-constraint-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.3 Persistence and the timing constraint [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-wind-model-for-games-d3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Wind model for games (D3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3 Wind model for games (D3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#631-displacement-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.1 Displacement [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#632-removing-the-project-global-refusal-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.2 Removing the project-global refusal [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#633-bound-inflation-max-displacement-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.3 Bound inflation (Max displacement) [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#634-shadow-caster-consistency-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.4 Shadow-caster consistency [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#635-two-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.5 Two steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-runtime-recolour-tint-emissive-and-hide-d4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Runtime recolour, tint, emissive and hide (D4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-atlas-address-keyed-state-d5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Atlas-address-keyed state (D5)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.5 Atlas-address-keyed state (D5)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#651-inventory-v" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.1 Inventory [V]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#652-sh-colour-cache-stale-colour-after-page-reuse-verified-mechanism-v-visibility-i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.2 SH colour cache: stale colour after page reuse, verified mechanism [V], visibility [I]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#653-decision-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.3 Decision [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-rigid-moving-objects-d6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Rigid moving objects (D6)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.6 Rigid moving objects (D6)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#661-one-frame-shadow-lag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6.1 One-frame shadow lag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#662-a4-and-a5-gs-combined-1-run-44532905736-from-the-deviation-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6.2 A4 and A5 (GS-COMBINED-1, run 44532905736, from the deviation report)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#663-object-lod-and-proxies-out-of-scope-for-the-first-gate-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6.3 Object LOD and proxies: out of scope for the first gate [P]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-skinning-and-deforming-splats-d7-out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 Skinning and deforming splats (D7): out of scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-acceptance-gs-game-1-vertical-slice-d8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Acceptance: GS-GAME-1 vertical slice (D8)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-work-packages-and-order-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Work packages and order [P]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-format-and-version-bumps-all-in-wp3-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Format and version bumps (all in WP3) [P]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-what-a-cheaper-version-would-force-to-redo-i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. What a cheaper version would force to redo [I]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-owner-decisions-2026-11-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Owner decisions (2026-11-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-what-was-not-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. What was not verified
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+  <nav class="md-path" aria-label="Navigation">
+    <ol class="md-path__list">
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../../contributor/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Contributing
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Engineering
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../adr-advisory-lane-ledger/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Decision Records
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+  
+  
+    
+                  
+
+
+  
+  
+
+
+<h1 id="adr-dynamics-on-hlod-streaming-static-world-tree-per-splat-semantic-word-lod-stable-wind-region-overrides">ADR: Dynamics on HLOD streaming (static world tree, per-splat semantic word, LOD-stable wind, region overrides)<a class="headerlink" href="#adr-dynamics-on-hlod-streaming-static-world-tree-per-splat-semantic-word-lod-stable-wind-region-overrides" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> <strong>Accepted (owner decisions, 2026-11-20).</strong> The owner approved the <em>direction</em> on
+  2026-11-19 ("without it the large-world architecture makes no sense for games"). On
+  2026-11-20 the owner accepted the recommended option of every open decision (O1–O5, O7–O10);
+  O6 stays open with an interim rule. The decisions are recorded in §11, and the program
+  decision with its kill criteria in §0. D1–D8 (§5) are accepted. The design detail marked
+  <strong>[P]</strong> is what the work packages implement; each package carries its own evidence.
+  Acceptance of this record does not establish implementation or runtime acceptance.</li>
+<li><strong>Date:</strong> 2026-11-20 (drafted 2026-11-19).</li>
+<li><strong>Risk class:</strong> the file is R0 (<code>docs/**</code>). It is the <strong>R3 design record</strong> for the work it
+  describes. That work changes the persisted <code>Gaussian</code> layout (<code>GAUSSIAN_STRUCT_LAYOUT_VERSION</code>),
+  the GSQ page codec, the HLOD merge key, the renderer and its shaders, and the public node API.</li>
+<li><strong>Builds on:</strong> <a href="../adr-hlod-streaming/">adr-hlod-streaming.md</a> (§6.5, §6.9, §14.1, §14.4.1,
+  §14.5), <a href="../adr-one-route-many-producers/">adr-one-route-many-producers.md</a> (§4.5, §4.6, §8
+  GR-02/03/07/09/15, §9 GS-COMBINED-1) and <a href="../adr-v1-animation-collision-scope/">adr-v1-animation-collision-scope.md</a>
+  (D-6a: animation is kept and wired into rendering, through CLN-SH06; D-6b: collision proxies are
+  baked, through CLN-SH04).</li>
+<li><strong>Tracking:</strong> Refs #1499 (shader identity keyed by atlas address), #1245 (SH cache shared
+  across instances), #1424 (omni and spot lights cast no splat shadows on HLOD), #1473 (asset-set
+  change resets world residency), #1500 (pre-M3 batch), #1312 (picking stub), #1502 (SH colour
+  cache serves the previous tenant's colour after atlas page reuse; WP1), #487.</li>
+<li><strong>Inputs:</strong> an internal design check and deviation report (2026-11-19). They are not
+  repository documents. Figures taken from them are marked as such.</li>
+<li><strong>Source baseline:</strong> <code>origin/master</code> = <strong><code>265951b5ca2</code></strong>. Every <code>file:line</code> below was read at that
+  commit. Paths are relative to <code>modules/gaussian_splatting/</code> unless they start with <code>docs/</code>,
+  <code>tests/</code> or <code>.github/</code>.</li>
+<li><strong>Line drift at landing:</strong> this record lands on <code>9faecfb155a</code> (#1500). Between the two commits,
+  <code>shaders/</code>, <code>compute/</code>, <code>lod/</code>, <code>nodes/</code>, <code>io/gsq/</code>, <code>core/gaussian_splat_hlod_merge.cpp</code> and
+  <code>core/quality_tier_config.cpp</code> are unchanged, so those citations hold. #1500 changed
+  <code>renderer/resident_instance_contract_publisher.cpp</code> (<code>publisher.cpp</code>),
+  <code>renderer/tile_renderer.cpp</code> and <code>core/gaussian_streaming.h</code>. Citations into those three files
+  can be off by up to a few hundred lines on <code>9faecfb155a</code>. For example, the wind/effector refusal
+  is at <code>publisher.cpp:2064</code> and <code>request_sh_amortization</code> at <code>publisher.cpp:2778</code>; the
+  <code>sh_cache_needs_full_update</code> sites in <code>tile_renderer.cpp</code> are at <code>:605</code> and <code>:4165</code>.</li>
+</ul>
+<p><strong>Claim markers</strong> (every factual claim carries one):</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Marker</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>[V]</strong></td>
+<td>Verified: read in code at the cited <code>file:line</code> on the baseline.</td>
+</tr>
+<tr>
+<td><strong>[ADR]</strong></td>
+<td>Stated in an accepted ADR or in a repository doc, not re-checked in code here.</td>
+</tr>
+<tr>
+<td><strong>[I]</strong></td>
+<td>Inferred: follows from verified facts but was not measured or run.</td>
+</tr>
+<tr>
+<td><strong>[P]</strong></td>
+<td>Proposed: a decision or design of this ADR.</td>
+</tr>
+<tr>
+<td><strong>[Ext]</strong></td>
+<td>External practice (papers, engines). Not re-verified here.</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="0-program-decision-owner-2026-11-20">0. Program decision (owner, 2026-11-20)<a class="headerlink" href="#0-program-decision-owner-2026-11-20" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>HLOD is the route.</strong> Dynamics are built on the HLOD route described here. There is no return
+  to the chunk-streaming route; route retirement stays as decided in
+  <a href="../adr-one-route-many-producers/">one-route §12 (D-2)</a>.</li>
+<li><strong>Kill criteria.</strong> The architecture is re-opened if any of these is met:</li>
+<li>Tier A does not settle on HLOD.</li>
+<li>Frame p95 on the 3080 is above 25 ms, and profiling cannot explain it.</li>
+<li>GS-GAME-1 (§7) cannot be reached with this architecture.</li>
+<li>A kill criterion is met only by a measured result with its evidence. A run that did not
+  happen, or that is INVALID, meets none of them and passes none of them.</li>
+</ul>
+<h2 id="1-problem">1. Problem<a class="headerlink" href="#1-problem" title="Permanent link">¶</a></h2>
+<p>The HLOD route is now the one route for streamed worlds (<a href="../adr-one-route-many-producers/">one-route §12</a>).
+It draws the world and the node instances in one draw list and one sort [ADR], and it never
+draws an unsafe hole [ADR]. But for a game it is static.</p>
+<ol>
+<li><strong>Wind or one effector un-streams the whole world.</strong></li>
+<li>A V4 paged world is materialised into memory and handed to the resident route when project
+     wind is on or the project has a sphere effector: <code>nodes/gaussian_splat_world_3d.cpp:722-723</code>
+     and <code>:728-729</code> set <code>hlod_paged_deformation_or_instance_domain</code>, and <code>:737</code> calls
+     <code>materialize_paged_resident</code> [V].</li>
+<li>The same project-global test refuses the HLOD route in <code>_hlod_auto_route_refusal()</code>
+     (<code>nodes/gaussian_splat_world_3d.cpp:646</code>, <code>:657</code>) and in
+     <code>GaussianSplatRenderer::hlod_streaming_unsupported_reason()</code>
+     (<code>renderer/resident_instance_contract_publisher.cpp:1867-1869</code>) [V].</li>
+<li>One waving bush is therefore enough to load a 55 GiB world into memory. For Tier A this
+     means wind is impossible [I].</li>
+<li><strong>Wind is not a game wind model.</strong></li>
+<li>Stiffness is derived from opacity: "Reuse opacity as a rough 'stiffness' signal until a
+     dedicated attribute exists" (<code>shaders/includes/gs_deformation.glsl:238-240</code>) [V].</li>
+<li>The phase gets a random offset of 0 to 2π per splat (<code>gs_deformation.glsl:242-245</code>) [V].</li>
+<li>The seed of that offset is the <strong>atlas address</strong>: <code>atlas_index ^ instance_id * 0x9e3779b9</code>
+     (<code>compute/depth_compute.glsl:201</code>) and <code>gaussian_idx ^ ...</code> (<code>shaders/tile_binning.glsl:992</code>),
+     where <code>gaussian_idx</code> is the atlas index (<code>tile_binning.glsl:896</code>) [V].</li>
+<li>The splat shadow caster applies no deformation: <code>shaders/gs_shadow_caster.glsl</code> has no match
+     for <code>wind|deformation|effector</code> [V].</li>
+<li>Nothing inflates a bound for the displacement: a search for a wind margin or inflation in the
+     module finds nothing [V, search not exhaustive].</li>
+<li><strong>Splats carry no semantics.</strong></li>
+<li>The merge key is the cell coordinate plus the DC-encoding bit, and nothing else
+     (<code>core/gaussian_splat_hlod_merge.cpp:238-239</code>) [V].</li>
+<li>Every other field of a merged splat is copied from the heaviest member: <code>r_out = p_rep.gaussians[best]</code>
+     (<code>merge.cpp:467</code>) [V].</li>
+<li>The leaf's source index exists only during the bake (<code>core/gaussian_splat_hlod_bake.cpp:564</code>,
+     <code>:606</code>) and is dropped (<code>core/gaussian_splat_world.cpp:1051</code>) [V].</li>
+<li>There is therefore no runtime way to say "this house", "this tree" or "this bush waves".</li>
+<li><strong>No runtime recolour survives LOD and streaming.</strong></li>
+<li>The highlight is one global uniform per renderer (<code>shaders/includes/tile_raster_common.glsl:561-563</code>) [V].</li>
+<li>The per-instance row has opacity, wind and effector fields but no colour
+     (<code>shaders/includes/gs_instance_layout.glsl:29-38</code>) [V].</li>
+<li>Picking is a stub that returns no hit (<code>interfaces/interactive_state_manager.cpp:169-177</code>) [V].</li>
+<li>F1 edits replace at most 64 leaves (<code>lod/hlod_edit.h:48</code>), and the ancestors of an edited
+     leaf go stale (<code>lod/hlod_edit.h:7-12</code>) [V]. A recolour through F1 therefore forces full detail
+     and does not scale over distance [I].</li>
+<li><strong>Shader state keyed by atlas address breaks under streaming.</strong></li>
+<li>The wind seed, the sort tie-break (<code>compute/depth_compute.glsl:271</code>), the subpixel history
+     (<code>shaders/tile_binning.glsl:1182-1190</code>) and the <strong>SH colour cache</strong>
+     (<code>shaders/tile_binning.glsl:1445</code>) all index by atlas address [V].</li>
+<li>Atlas pages are reused: <code>lod/hlod_node_residency.cpp:110</code> and <code>:232</code> release slots, and
+     <code>:694</code> and <code>:874</code> allocate them to the next node through the best-fit allocator
+     (<code>core/streaming_atlas.cpp:66-88</code>) [V].</li>
+<li>The SH cache case is a <strong>live defect on master</strong> under SH amortization (§6.5). It is not only
+     a future relocation hazard as #1499 states.</li>
+</ol>
+<p>This ADR decides how dynamics live on top of the HLOD design <strong>without</strong> changing the cut, the
+residency or the V4 page structure.</p>
+<h2 id="2-decision-drivers">2. Decision drivers<a class="headerlink" href="#2-decision-drivers" title="Permanent link">¶</a></h2>
+<ol>
+<li><strong>Game first</strong> (owner, 2026-11-04): streamed world, static, dynamic and interactive objects,
+   and lighting in <strong>one</strong> frame. No feature may silently make the world exclusive or resident.</li>
+<li><strong>Every dynamic effect works at every LOD and survives eviction, readmission and compaction.</strong>
+   An effect that depends on which atlas page a splat sits on is a defect.</li>
+<li><strong>Re-bake at most once.</strong> A Tier A bake is 24,290 nodes and 9.87 GB (run 43288178399, from the
+   deviation report). Changes to the codec or the bake sources invalidate the world cache
+   (<code>tests/runtime/flythrough/world_cache.py:84-103</code> lists <code>io/gsq/gsq_codec.*</code> among the
+   generator sources; <code>:105-120</code> lists the bake and auto-tree sources as tree sources) [V].
+   Every format-relevant change therefore goes into <strong>one</strong> format step.</li>
+<li><strong>Fail closed, never drop silently.</strong> GSQ v1 already refuses heterogeneous page constants
+   (<code>io/gsq/gsq_codec.cpp:436-437</code>) [V]. A new per-splat field must be carried or refused, never
+   zeroed.</li>
+<li><strong>Evidence integrity.</strong> Every acceptance row needs a control that fails on the old behaviour
+   in the same job (<code>docs/governance/evidence-integrity.md</code>) [ADR].</li>
+</ol>
+<h2 id="3-current-state-reused-unchanged">3. Current state reused unchanged<a class="headerlink" href="#3-current-state-reused-unchanged" title="Permanent link">¶</a></h2>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Status</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Budgeted cut, "coarser rather than a hole", V4 pages, residency, ledger</td>
+<td>kept as is</td>
+<td>adr-hlod-streaming §6, §14 [ADR]</td>
+</tr>
+<tr>
+<td>One draw list and one sort for the world and instances; instance tail at the end of the atlas</td>
+<td>kept</td>
+<td><code>renderer/resident_instance_contract_publisher.cpp:1403-1418</code> [V]</td>
+</tr>
+<tr>
+<td>A transform change re-uploads rows only</td>
+<td>kept</td>
+<td><code>publisher.cpp:1748-1750</code> [V]</td>
+</tr>
+<tr>
+<td>Per-instance colour grading applied <strong>after</strong> the SH cache</td>
+<td>the pattern the override table copies</td>
+<td><code>shaders/tile_binning.glsl:1468-1469</code>, <code>InstanceGradingGPU</code> at <code>gs_instance_layout.glsl:134-140</code> [V]</td>
+</tr>
+<tr>
+<td>A wind time sampled once per frame and shared by every pass</td>
+<td>kept; the caster joins it</td>
+<td><code>core/gs_project_settings.h:274-285</code> [V]</td>
+</tr>
+<tr>
+<td>F1 leaf edits for local destruction</td>
+<td>kept; F2 rebake stays open</td>
+<td><code>lod/hlod_edit.h:4-19</code> [V]</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="31-free-bits-verified">3.1 Free bits (verified)<a class="headerlink" href="#31-free-bits-verified" title="Permanent link">¶</a></h3>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Where</th>
+<th>Field</th>
+<th>Size</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPU raw record <code>PackedGaussian</code> (176 B)</td>
+<td><code>_pad_rotation_align</code> @28</td>
+<td>32 bit</td>
+<td>Written as <code>0u</code> (<code>renderer/gaussian_gpu_layout.cpp:236</code>). Read by no shader; mirrored in <code>compute/depth_compute.glsl:28</code>, <code>shaders/tile_binning.glsl:63</code>, <code>shaders/tile_rasterizer*.glsl</code>, <code>shaders/gs_shadow_caster.glsl:22</code> [V].</td>
+</tr>
+<tr>
+<td>GPU quantized record <code>PackedGaussianQuantized</code> (160 B)</td>
+<td><code>_tail_padding[2]</code> @152</td>
+<td>2 × 32 bit</td>
+<td>Zeroed (<code>gaussian_gpu_layout.cpp:494-495</code>) [V]. <code>_pre_sh_padding</code> @30 is a further 16 bits (<code>gaussian_gpu_layout.h:403</code>) [V].</td>
+</tr>
+<tr>
+<td>Persisted authoring <code>Gaussian</code> (144 B)</td>
+<td><code>_padding</code> @116 (float), <code>_padding2[2]</code> @136</td>
+<td>4 B + 8 B</td>
+<td>Pinned by <code>GS_PIN_GAUSSIAN_FIELD</code> (<code>core/gaussian_data.h:244</code>, <code>:248</code>). Layout version 1 (<code>:216</code>) [V].</td>
+</tr>
+<tr>
+<td>V4 payload record</td>
+<td><code>count * 144</code> Gaussian bytes</td>
+<td>—</td>
+<td>Carries the authoring struct as is [ADR §14.4.1].</td>
+</tr>
+<tr>
+<td>GSQ v1 page (the Tier A codec)</td>
+<td>none per splat</td>
+<td>—</td>
+<td>It encodes position, scale, rotation, opacity, DC, SH and normals as planes. <code>painterly_meta</code>/<code>render_meta</code> are <strong>page constants</strong> (<code>io/gsq/gsq_codec.h:28</code>), and a page whose splats differ in them is refused (<code>gsq_codec.cpp:361-366</code>, <code>:436-437</code>). <code>_padding</code>/<code>_padding2</code> are not encoded, and the decoded digest excludes padding (<code>gsq_codec.h:121-123</code>) [V].</td>
+</tr>
+<tr>
+<td>Instance row <code>InstanceDataGPU</code></td>
+<td><code>lod.y</code> "reserved"</td>
+<td>32 bit</td>
+<td><code>shaders/includes/gs_instance_layout.glsl:35</code> [V].</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Consequence [I]:</strong> the GPU side has a free 32-bit word per splat on both routes. The <em>persisted</em>
+side does not: a word written into <code>Gaussian::_padding</code> today would survive a v3/V4-NONE file, but
+GSQ would silently drop it. A codec step is unavoidable.</p>
+<h2 id="4-options">4. Options<a class="headerlink" href="#4-options" title="Permanent link">¶</a></h2>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Summary</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. Static tree plus a semantic word plus instances</strong></td>
+<td>The world tree is static. Each splat carries a 32-bit semantic word (region ID, wind weight). Wind and effectors are functions of rest position and the word. Recolour goes through a region-indexed override table. Moving or deforming content is extracted into instances at bake time.</td>
+<td><strong>Chosen [P]</strong></td>
+</tr>
+<tr>
+<td>B. Stable per-splat identity in the shader (<code>NodeKey</code>, index) and per-splat override buffers</td>
+<td>Gives every splat an identity, plus side buffers keyed by it.</td>
+<td>Rejected: merged splats have no identity, so the effects would not hold across LOD. It also needs dense identity-keyed side buffers for billions of splats. Kept only for the sort tie-break (§6.5).</td>
+</tr>
+<tr>
+<td>C. Dynamic content in the tree, with F1/F2 rebake on change</td>
+<td>Moving or recoloured content stays in the world tree and is rebaked when it changes.</td>
+<td>Rejected: every change forces full detail and an upload, scales with the edit and not with the screen, and F2 does not exist [V <code>lod/hlod_edit.h:11-12</code>].</td>
+</tr>
+<tr>
+<td>D. Keep wind on the resident route only</td>
+<td>Wind stays where it works today.</td>
+<td>Rejected: it contradicts driver 1. A Tier A world cannot be resident [I].</td>
+</tr>
+</tbody>
+</table></div>
+<p>Practice elsewhere [Ext]: H3DGS and Octree-GS hierarchies are static. SC-GS drives motion as a
+field over a few control nodes, evaluated at the splat position. Nanite allows world-position
+offset (WPO) only with a declared <em>Max WPO Displacement</em> for cluster bounds, and Fortnite turns
+WPO off with distance. SpeedTree bakes wind weights at every LOD level. Unreal's World Partition
+HLOD covers static actors only. Every one of them separates bundled static content from movable
+content, and makes world dynamics a function of position plus a baked attribute with a declared
+bound. Option A does the same.</p>
+<hr>
+<h2 id="5-decision-overview-accepted-2026-11-20">5. Decision overview (accepted 2026-11-20)<a class="headerlink" href="#5-decision-overview-accepted-2026-11-20" title="Permanent link">¶</a></h2>
+<p>The owner accepted D1–D8 with the decisions in §11.</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Decision</th>
+<th>Section</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1</td>
+<td><strong>Authoring rule:</strong> the baked world tree is static. Anything that moves, deforms or is changed interactively <em>per object</em> is an instance. Dynamic islands are extracted at bake time.</td>
+<td>§6.1</td>
+</tr>
+<tr>
+<td>D2</td>
+<td><strong>Semantic word:</strong> 32 bits per splat (region ID, wind weight, reserved bits, a valid bit), persisted through layout version 2 and GSQ v2, uploaded into the existing GPU padding. The merge key never mixes regions. Wind weight is aggregated like colour.</td>
+<td>§6.2</td>
+</tr>
+<tr>
+<td>D3</td>
+<td><strong>Wind model:</strong> phase from rest position only (no identity jitter), baked wind weight instead of opacity, bound inflation from a declared max displacement, the caster deforms with the same time sample, a distance fade, and per-row opt-in instead of the project-global refusal. Delivered as an <strong>S–M step without a format bump</strong> first, then the format step.</td>
+<td>§6.3</td>
+</tr>
+<tr>
+<td>D4</td>
+<td><strong>Region overrides:</strong> a GPU table indexed by region ID (tint, emissive, opacity multiplier, flags), applied at shading time, in the depth pass for hide, and in the caster. A public API on world and instance nodes.</td>
+<td>§6.4</td>
+</tr>
+<tr>
+<td>D5</td>
+<td><strong>Atlas-keyed state:</strong> content-following caches (SH colour, subpixel history) are invalidated whenever an atlas run is (re)assigned. Identity values (wind phase, tie-break) no longer use the atlas address. This splits #1499 item 1.</td>
+<td>§6.5</td>
+</tr>
+<tr>
+<td>D6</td>
+<td><strong>Rigid objects:</strong> the shadow uses the current frame's rows (fixes the one-frame lag). A4/A5 are triaged before tolerances are set. Object LOD and proxies are out of scope for the first gate.</td>
+<td>§6.6</td>
+</tr>
+<tr>
+<td>D7</td>
+<td><strong>Skinning and deformation</strong> are out of scope, and go through the instance route in the CLN-SH06 animation render ADR.</td>
+<td>§6.7</td>
+</tr>
+<tr>
+<td>D8</td>
+<td><strong>GS-GAME-1</strong> is the vertical-slice gate for "game alpha".</td>
+<td>§7</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="6-design">6. Design<a class="headerlink" href="#6-design" title="Permanent link">¶</a></h2>
+<h3 id="61-authoring-rule-world-versus-instance-d1">6.1 Authoring rule: world versus instance (D1)<a class="headerlink" href="#61-authoring-rule-world-versus-instance-d1" title="Permanent link">¶</a></h3>
+<p><strong>Rule [P]:</strong> <em>The baked world tree is static. Anything that moves, deforms or is interactively
+changed per object is an instance.</em></p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Content</th>
+<th>Where it lives</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terrain, buildings, rocks, the static parts of vegetation</td>
+<td>world tree</td>
+<td>static geometry; cut and streaming apply</td>
+</tr>
+<tr>
+<td>Vegetation that <strong>sways in place</strong> (grass, leaves, branches)</td>
+<td>world tree, with a baked wind weight</td>
+<td>the displacement is a bounded function of rest position and the word (§6.3); no identity needed</td>
+</tr>
+<tr>
+<td>Regions recoloured, highlighted, hidden or made emissive <em>as a whole</em> (a house turning red, a lit window, a quest marker)</td>
+<td>world tree, with a region ID</td>
+<td>the override table (§6.4) works at every LOD</td>
+</tr>
+<tr>
+<td>Local destruction of up to 64 leaves within leaf bounds</td>
+<td>world tree plus an F1 edit</td>
+<td><code>lod/hlod_edit.h:14-19</code> [V]</td>
+</tr>
+<tr>
+<td>Doors, vehicles, props, pickups, anything with a transform that changes</td>
+<td><strong>instance</strong> (<code>GaussianSplatNode3D</code>)</td>
+<td>rigid transform per row; fully resident in the instance tail (<code>publisher.cpp:1403-1418</code>) [V]</td>
+</tr>
+<tr>
+<td>Falling trees, destructible houses, characters</td>
+<td><strong>instance</strong>, plus a later deformation path</td>
+<td>§6.7</td>
+</tr>
+<tr>
+<td>Large continuous changes (a flood, seasonal repaint)</td>
+<td><strong>out of scope</strong></td>
+<td>would need a rebake (F2) or content swaps</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Bake-time extraction of dynamic islands [P]:</strong></p>
+<ol>
+<li>Authoring marks islands with volumes (<code>GaussianSplatDynamicIslandVolume3D</code>, a box or convex
+   hull plus an optional asset name) or with a per-splat source property (<code>island_id</code> in PLY).</li>
+<li><code>bake_hlod()</code> and the auto-tree (D2-3 driver) remove the island splats <strong>before</strong> the leaf
+   partition. Each island is written as its own asset (plain v3, or V4 when large) with an
+   <code>islands[]</code> manifest in the world metadata: name, asset path, rest transform, bounds.</li>
+<li>A helper places one <code>GaussianSplatNode3D</code> per island at its rest transform. The game then
+   moves, hides or swaps it like any other instance.</li>
+<li><strong>Hole policy:</strong> a scan has no data behind an extracted object. The bake reports the area
+   uncovered by the extraction, and authoring decides whether to fill it, which is a
+   content-pipeline task and not engine work [I].</li>
+<li>Islands count against the instance tail and the shared ledger (one-route §4.5) [ADR]. Many
+   islands need instance LOD and proxies (§6.6.3).</li>
+</ol>
+<h3 id="62-per-splat-semantic-word-d2">6.2 Per-splat semantic word (D2)<a class="headerlink" href="#62-per-splat-semantic-word-d2" title="Permanent link">¶</a></h3>
+<h4 id="621-layout-p">6.2.1 Layout [P]<a class="headerlink" href="#621-layout-p" title="Permanent link">¶</a></h4>
+<p>One <code>uint32</code> per splat, the same bits everywhere it is stored:</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Bits</th>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–15</td>
+<td><code>region_id</code></td>
+<td>0 = default region of the asset. 1–65,535 = authored regions. The scope is per asset, so world and object assets each have their own space.</td>
+</tr>
+<tr>
+<td>16–23</td>
+<td><code>wind_weight</code></td>
+<td>unorm8: 0 = rigid, 255 = full sway.</td>
+</tr>
+<tr>
+<td>24–27</td>
+<td><code>wind_class</code></td>
+<td>Reserved for a flutter or frequency band (trunk, branch, leaf). Written as 0 now; readers ignore it.</td>
+</tr>
+<tr>
+<td>28–30</td>
+<td>reserved</td>
+<td>Must be 0. Readers refuse non-zero (a future meaning must not be misread).</td>
+</tr>
+<tr>
+<td>31</td>
+<td><code>semantic_valid</code></td>
+<td>1 = baked semantic data. 0 = legacy content: region 0, and wind falls back to the row weight (§6.3).</td>
+</tr>
+</tbody>
+</table></div>
+<p>Why 16 region bits: an override table with 65,536 entries × 32 B = 2 MiB is affordable
+resident [I]. 20 bits would cost 32 MiB per world. Decided: 16 bits (O3).</p>
+<p><strong>Where it is stored [P]:</strong></p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Store</th>
+<th>Location</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authoring <code>Gaussian</code></td>
+<td><code>_padding</code> @116 becomes <code>uint32_t semantic</code></td>
+<td><code>GAUSSIAN_STRUCT_LAYOUT_VERSION</code> 1 → 2, pin assert updated (<code>core/gaussian_data.h:216</code>, <code>:244</code>). Layout-1 files keep loading, and their word is <strong>forced to 0</strong>, not read: before #687 the padding was not reliably zero (comment at <code>gaussian_data.h:150-158</code>) [V].</td>
+</tr>
+<tr>
+<td>GSQ</td>
+<td><strong>GSQ v2</strong> (codec id 2): adds 4 byte planes of <code>semantic</code> per sub-block. The planes are spatially coherent, so zstd should compress them to near nothing [I, to be measured].</td>
+<td>v1 stays readable, with the word = 0.</td>
+</tr>
+<tr>
+<td>V4</td>
+<td>unchanged container; the payload record already names the struct layout [ADR §14.4.1]</td>
+<td>The node record gets <code>max_wind_weight</code> (u8) in a reserved word [ADR: "reserved words must be zero"; the exact word is not verified in code here].</td>
+</tr>
+<tr>
+<td>GPU raw</td>
+<td><code>PackedGaussian._pad_rotation_align</code></td>
+<td><code>pack_gaussian()</code> writes <code>src.semantic</code> instead of <code>0u</code> (<code>gaussian_gpu_layout.cpp:236</code>). The upload checksum already hashes the word (comment <code>:232-235</code>) [V].</td>
+</tr>
+<tr>
+<td>GPU quantized</td>
+<td><code>PackedGaussianQuantized._tail_padding[0]</code></td>
+<td>Same bits.</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="622-merge-rules-p">6.2.2 Merge rules [P]<a class="headerlink" href="#622-merge-rules-p" title="Permanent link">¶</a></h4>
+<ol>
+<li><strong>Never merge across region IDs.</strong></li>
+<li>The 64-bit sort key is full: three 21-bit cell coordinates plus bit 63 for the DC encoding
+     (<code>merge.cpp:20</code>, <code>:239</code>) [V], so the region ID cannot be packed into it.</li>
+<li>Each sort entry instead gets a second field (<code>region_id</code>), compared <strong>after</strong> the cell key.
+     For single-region content the order, and therefore the merge output, stays bit-identical to
+     today except for the word itself [I; the test must show it].</li>
+<li><strong>The region ID is inherited exactly.</strong> Cells are region-pure, so <code>r_out = gaussians[best]</code>
+   (<code>merge.cpp:467</code>) already copies the correct ID [V for the copy; I for purity under rule 1].</li>
+<li><strong>The wind weight is a weighted mean.</strong> The merge does not copy it from the winner. It uses
+   the moment weights the merge already uses for colour, <code>w = opacity × s_max × s_mid</code>
+   (<code>merge.cpp:368</code>) [V], and the result is rounded to the nearest unorm8.</li>
+<li><strong><code>semantic_valid</code> is the AND of the members.</strong> <code>wind_class</code> comes from the member with the
+   largest summed weight.</li>
+<li><strong>The node gets <code>max_wind_weight</code> = max over its payload</strong> (not over its subtree). It sets the
+   node's displacement bound (§6.3.3).</li>
+<li><strong>Interior nodes' compression cost:</strong></li>
+<li>Region boundaries merge less, so interior nodes grow. The cost is not measured.</li>
+<li>Estimated single-digit percent for hundreds of regions [I, design check §1.2].</li>
+<li>It must be measured on T0 with the existing §5.2 setup before the Tier A rebake (acceptance
+     row F3).</li>
+</ol>
+<h4 id="623-persistence-and-the-timing-constraint-p">6.2.3 Persistence and the timing constraint [P]<a class="headerlink" href="#623-persistence-and-the-timing-constraint-p" title="Permanent link">¶</a></h4>
+<ul>
+<li><strong>One format step</strong> (WP3, §8) carries all of: layout v2, GSQ v2, the merge key, the wind-weight
+  aggregation, <code>max_wind_weight</code>, bake input for regions, wind weights and islands, and the
+  auto-tree changes. These are exactly the sources the world cache keys on
+  (<code>tests/runtime/flythrough/world_cache.py:88-120</code>) [V]. Landing them one by one would invalidate
+  the Tier A cache several times.</li>
+<li><strong>Interaction with the auto-tree:</strong> <code>tree_sha</code> covers the codec block and the source fingerprint
+  [ADR, <code>core/gaussian_splat_hlod_auto_tree.h:40-48</code>, V for the comment]. GSQ v2 changes the codec
+  id, so every cached tree becomes stale by key. This is intended, and it must fail closed rather
+  than serve a v1 tree [I].</li>
+<li><strong>Timing:</strong></li>
+<li>M3 (the Tier A fly-through) measures the cut, which the word does not change in kind.</li>
+<li>Decided (O1): run M3 on the current format now; freeze format-relevant changes after M3;
+    land WP3 as the single format step; then make the <strong>production</strong> Tier A bake once, on
+    layout v2 and GSQ v2.</li>
+<li>The rejected alternative, landing WP3 before M3, would have delayed M3 by an M-size R3
+    package.</li>
+</ul>
+<h3 id="63-wind-model-for-games-d3">6.3 Wind model for games (D3)<a class="headerlink" href="#63-wind-model-for-games-d3" title="Permanent link">¶</a></h3>
+<h4 id="631-displacement-p">6.3.1 Displacement [P]<a class="headerlink" href="#631-displacement-p" title="Permanent link">¶</a></h4>
+<div class="highlight"><pre><span></span><code>d(x_rest, t) = dir × A_row × W(splat) × F(x_rest, t) × fade(distance, level)
+F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
+</code></pre></div>
+<ul>
+<li><strong>Phase from rest position only.</strong></li>
+<li><code>φ_noise</code> is low-frequency world-space noise (a hash of a coarse lattice cell, smoothly
+    interpolated), never a per-splat hash.</li>
+<li>The identity jitter (<code>gs_deformation.glsl:242-243</code>) is removed, and so are the seed
+    parameters in <code>depth_compute.glsl:201</code> and <code>tile_binning.glsl:992</code> [V for current code].</li>
+<li><strong>LOD stability [I]:</strong></li>
+<li>A merged splat sits at the weighted mean of its members (<code>merge.cpp:468</code>) [V].</li>
+<li>For a field whose wavelength is much longer than the node extent, its displacement equals the
+    weighted mean of its children's to first order.</li>
+<li>For coarse nodes this no longer holds, so <code>fade</code> drives the weight to 0 above a level or
+    distance (Fortnite's WPO distance cutoff [Ext]). Coarse nodes with weight 0 are allowed.</li>
+<li><strong><code>W(splat)</code>:</strong></li>
+<li>With <code>semantic_valid</code>, it is the baked <code>wind_weight</code>.</li>
+<li>Without it (legacy), a <strong>world</strong> row does not sway under active project wind (O4). Wind is
+    opt-in per world: a legacy world that opts in, and every instance row, uses the row weight
+    times today's opacity heuristic (<code>gs_deformation.glsl:239-240</code>). This keeps the resident
+    route visually close for old content that asks for wind [P].</li>
+<li><strong>Effectors:</strong> the same rule applies. Their per-effector seed (<code>stable_seed + i * 0x9e3779b9</code>,
+  <code>gs_deformation.glsl:148</code>) [V] is replaced by a position hash.</li>
+<li><strong>Identity flutter:</strong> an optional small leaf-level amplitude keyed by <code>(node id, index in node)</code>.
+  Decided: none for now (O5); revisit after GS-GAME-1.</li>
+</ul>
+<h4 id="632-removing-the-project-global-refusal-p">6.3.2 Removing the project-global refusal [P]<a class="headerlink" href="#632-removing-the-project-global-refusal-p" title="Permanent link">¶</a></h4>
+<ul>
+<li>Wind and sphere effectors are removed from:</li>
+<li>the paged fallback list (<code>nodes/gaussian_splat_world_3d.cpp:722-723</code>, <code>:728-729</code>);</li>
+<li><code>_hlod_auto_route_refusal()</code> (<code>:646</code>, <code>:657</code>);</li>
+<li><code>hlod_streaming_unsupported_reason()</code> (<code>publisher.cpp:1867-1869</code>) [V for the current sites].</li>
+<li>The decision becomes per row:</li>
+<li>The world row and every instance row carry their own <code>wind_mode</code>. The existing field is
+    <code>InstanceDataGPU.params.w</code> (<code>gs_instance_layout.glsl:33</code>) [V].</li>
+<li>The world row defaults to <strong>inherit only when the world has valid semantic data</strong>, otherwise
+    off; a world opts in explicitly (O4, decided).</li>
+<li>Effectors carry a row mask; the existing <code>effect_params.z</code> is the "scene effector mask bits"
+  (<code>gs_instance_layout.glsl:37-38</code>) [V].</li>
+<li>One-route §4.6 ("each domain is lifted in its own PR (F5)") [ADR]: this is that PR for wind and
+  effectors. Painterly and the shadow instance filter stay refused.</li>
+</ul>
+<h4 id="633-bound-inflation-max-displacement-p">6.3.3 Bound inflation (Max displacement) [P]<a class="headerlink" href="#633-bound-inflation-max-displacement-p" title="Permanent link">¶</a></h4>
+<ul>
+<li><code>D_max = strength × max(row intensity) × (1 + effector max push)</code> is a frame-global bound,
+  because <code>|d| ≤ strength × intensity × resistance</code> with <code>resistance ≤ 1</code>
+  (<code>gs_deformation.glsl:240-246</code>) [V].</li>
+<li><strong>Without the format step:</strong> every node of a wind-enabled row gets <code>D_max</code> added to its AABB
+  for frustum culling and for the cut's screen-size and record estimates.</li>
+<li><strong>With the format step:</strong> the inflation is <code>D_max × max_wind_weight(node) / 255</code>.</li>
+<li>When <code>D_max</code> changes, it changes the cut input. This is acceptable, because the cut already
+  reacts to the camera every frame [I].</li>
+<li><strong>Cost [I]:</strong> slightly more overlap records and conservative culling. It must be measured in
+  GS-GAME-1 (row P1).</li>
+</ul>
+<h4 id="634-shadow-caster-consistency-p">6.3.4 Shadow-caster consistency [P]<a class="headerlink" href="#634-shadow-caster-consistency-p" title="Permanent link">¶</a></h4>
+<ul>
+<li>The caster (<code>shaders/gs_shadow_caster.glsl</code>, which today has no deformation [V]) includes
+  <code>gs_deformation.glsl</code> and is given the <strong>same</strong> per-frame wind time
+  (<code>compute_wind_time_seconds</code>, <code>gs_project_settings.h:283-285</code>) [V].</li>
+<li>Its draw list may be the previous main view's (§6.6.1). Positions are still deformed with the
+  current frame's time, so colour and shadow sway in phase.</li>
+<li>The caster honours <code>hide</code> (§6.4).</li>
+</ul>
+<h4 id="635-two-steps">6.3.5 Two steps<a class="headerlink" href="#635-two-steps" title="Permanent link">¶</a></h4>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Content</th>
+<th>Format</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>W-S (S–M)</strong></td>
+<td>Position phase without jitter; per-row opt-in, global refusal removed; global <code>D_max</code> inflation; caster deformation; distance and level fade; tie-break and caches per §6.5</td>
+<td><strong>none</strong></td>
+<td>Wind runs on streamed worlds immediately, uniformly per row (legacy weight)</td>
+</tr>
+<tr>
+<td><strong>W-F (M, inside WP3)</strong></td>
+<td>Baked wind weight; <code>max_wind_weight</code> per node; node-scaled inflation</td>
+<td>layout v2, GSQ v2, rebake</td>
+<td>Trunks and rocks stay still while leaves sway; tighter bounds</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="64-runtime-recolour-tint-emissive-and-hide-d4">6.4 Runtime recolour, tint, emissive and hide (D4)<a class="headerlink" href="#64-runtime-recolour-tint-emissive-and-hide-d4" title="Permanent link">¶</a></h3>
+<p><strong>Table [P]:</strong>
+- An SSBO <code>RegionOverrideGPU[]</code> of 32 B entries: <code>tint.rgb</code>, <code>tint_strength</code>, <code>emissive.rgb</code>,
+  <code>opacity_mul</code>, <code>flags</code> (HIDE, NO_WIND, HIGHLIGHT, NO_SHADOW) and 4 bytes of padding.
+- Each asset gets a segment. The instance row's reserved <code>lod.y</code> (<code>gs_instance_layout.glsl:35</code>)
+  [V] holds the segment base, with <code>0xFFFFFFFF</code> for none. The splat's entry is
+  <code>table[base + min(region_id, segment_len - 1)]</code>; entry 0 of a segment is the "whole asset" entry.
+- Uploads go as dirty ranges from the CPU and take effect in the <strong>same</strong> frame they are set,
+  before the main view is recorded.</p>
+<p><strong>Application points [P]:</strong></p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Effect</th>
+<th>Where</th>
+<th>Why there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HIDE</code>, <code>opacity_mul == 0</code></td>
+<td><code>compute/depth_compute.glsl</code>, before the sort-key write (<code>:268-273</code>) [V for the location]</td>
+<td>Hidden splats cost no sort records (acceptance row R3).</td>
+</tr>
+<tr>
+<td><code>opacity_mul</code></td>
+<td><code>tile_binning.glsl</code> base opacity (<code>:1423-1424</code>) [V]</td>
+<td>The same spot as the instance opacity.</td>
+</tr>
+<tr>
+<td>tint and highlight</td>
+<td>after the SH cache read and next to <code>apply_color_grading_binning</code> (<code>tile_binning.glsl:1468-1469</code>) [V]</td>
+<td>The cached SH colour is ungraded by design (comment <code>:1459</code>) [V], so the override acts without SH-cache latency.</td>
+</tr>
+<tr>
+<td>emissive</td>
+<td>added after lighting, not before (so lights do not modulate it)</td>
+<td>where exactly is [I]; to be located in the lighting applier</td>
+</tr>
+<tr>
+<td><code>HIDE</code>, <code>NO_SHADOW</code></td>
+<td>caster</td>
+<td>the shadow of a hidden region disappears too</td>
+</tr>
+<tr>
+<td><code>NO_WIND</code></td>
+<td><code>W(splat) = 0</code></td>
+<td>freezes a region, for example a wrecked tree</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Why it survives [I]:</strong>
+- The region ID travels inside the payload through V4 pages, eviction, readmission and
+  compaction.
+- The table is resident and indexed by content, not by address.
+- Every LOD level carries the same ID because cells never mix regions (§6.2.2).</p>
+<p><strong>Limits [I]:</strong>
+- It is no finer than the baked regions. Free painting at arbitrary positions remains an F1 edit.
+- Region boundaries inside merged coarse splats cannot exist, by construction. A region therefore
+  "pops" only where the cut switches levels, as colour does today.</p>
+<p><strong>API surface [P]</strong> (bound methods; names are proposals):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># World (GaussianSplatWorld3D) and object (GaussianSplatNode3D) expose the same surface.</span>
+<span class="k">func</span><span class="w"> </span><span class="n">get_region_id</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="n">StringName</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="w">          </span><span class="c1"># from the baked region manifest; -1 if unknown</span>
+<span class="k">func</span><span class="w"> </span><span class="n">get_region_names</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">PackedStringArray</span>
+<span class="k">func</span><span class="w"> </span><span class="n">set_region_override</span><span class="p">(</span><span class="n">region</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">,</span><span class="w"> </span><span class="n">override</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatRegionOverride</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span>
+<span class="k">func</span><span class="w"> </span><span class="n">clear_region_override</span><span class="p">(</span><span class="n">region</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span>
+<span class="k">func</span><span class="w"> </span><span class="n">clear_all_region_overrides</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span>
+<span class="c1"># Object-level shorthand: region 0 is the whole asset.</span>
+<span class="k">func</span><span class="w"> </span><span class="n">set_tint</span><span class="p">(</span><span class="n">color</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Color</span><span class="p">,</span><span class="w"> </span><span class="n">strength</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">float</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span>
+<span class="k">func</span><span class="w"> </span><span class="n">set_emissive</span><span class="p">(</span><span class="n">color</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Color</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span>
+<span class="k">func</span><span class="w"> </span><span class="n">set_hidden</span><span class="p">(</span><span class="n">hidden</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">bool</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="w">                </span><span class="c1"># distinct from Node3D.visible (that removes the row)</span>
+</code></pre></div>
+<ul>
+<li><code>GaussianSplatRegionOverride</code> is a <code>Resource</code> with <code>tint</code>, <code>tint_strength</code>, <code>emissive</code>,
+  <code>opacity</code>, <code>wind_enabled</code>, <code>cast_shadow</code> and <code>highlight</code>.</li>
+<li>Region names come from bake metadata: a <code>regions[]</code> manifest in the V4 metadata JSON and in
+  plain-v3 metadata.</li>
+<li>Picking (#1312) later returns <code>{instance, region_id}</code> from a per-pixel ID output. It is listed,
+  not designed here.</li>
+<li><strong>Authoring of regions [P]:</strong> region volumes at bake (<code>GaussianSplatRegionVolume3D</code>, a named
+  box or convex hull, first match wins) or a per-splat PLY property <code>region_id</code>. Volumes are the
+  primary path because scans have no labels.</li>
+</ul>
+<h3 id="65-atlas-address-keyed-state-d5">6.5 Atlas-address-keyed state (D5)<a class="headerlink" href="#65-atlas-address-keyed-state-d5" title="Permanent link">¶</a></h3>
+<h4 id="651-inventory-v">6.5.1 Inventory [V]<a class="headerlink" href="#651-inventory-v" title="Permanent link">¶</a></h4>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>State</th>
+<th>Key today</th>
+<th>Site</th>
+<th>Class</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>wind and effector seed</td>
+<td><code>atlas_index ^ instance*φ</code> / <code>gaussian_idx ^ ...</code></td>
+<td><code>compute/depth_compute.glsl:201</code>, <code>shaders/tile_binning.glsl:992</code>, <code>gs_deformation.glsl:148</code></td>
+<td>identity value</td>
+</tr>
+<tr>
+<td>sort tie-break</td>
+<td><code>atlas_index</code></td>
+<td><code>compute/depth_compute.glsl:270-272</code></td>
+<td>identity value</td>
+</tr>
+<tr>
+<td>subpixel hysteresis</td>
+<td>slot <code>gaussian_idx</code> (world) or <code>hash(gaussian_idx ^ instance)</code> (instances), with a key hash</td>
+<td><code>shaders/tile_binning.glsl:1182-1190</code></td>
+<td>content-following cache</td>
+</tr>
+<tr>
+<td>SH colour cache</td>
+<td><code>sh_color_cache.colors[gaussian_idx]</code>, <strong>no key</strong></td>
+<td><code>shaders/tile_binning.glsl:1441-1452</code>, write <code>:1460-1461</code></td>
+<td>content-following cache</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="652-sh-colour-cache-stale-colour-after-page-reuse-verified-mechanism-v-visibility-i">6.5.2 SH colour cache: stale colour after page reuse, verified mechanism [V], visibility [I]<a class="headerlink" href="#652-sh-colour-cache-stale-colour-after-page-reuse-verified-mechanism-v-visibility-i" title="Permanent link">¶</a></h4>
+<ol>
+<li>On the HLOD route <code>gaussian_idx</code> is the atlas record index (<code>tile_binning.glsl:896</code>) [V].</li>
+<li>The cached value is used whenever <code>use_cache &amp;&amp; !sh_force_update</code> holds, the phase does not
+   match, and the cached word is non-zero (<code>tile_binning.glsl:1441-1449</code>). There is no tag or key
+   [V].</li>
+<li><code>sh_force_update</code> (<code>params.sh_config[3]</code>, <code>renderer/tile_render_stages.cpp:331</code>) is driven by
+   <code>sh_cache_needs_full_update</code> [V]. That flag is set only by:</li>
+<li>a cache resize (<code>renderer/tile_renderer.cpp:604-605</code>, <code>:4176-4178</code>);</li>
+<li>a mode or divisor change (<code>:607-608</code>, <code>:4165</code>);</li>
+<li>an SH band change, which also clears the buffer (<code>renderer/tile_render_stages.cpp:316-319</code>).
+   No residency event sets it. <code>clear_color_cache</code> has exactly one caller, the band change
+   (<code>tile_render_stages.cpp:318</code>) [V].</li>
+<li>HLOD residency returns evicted runs to the allocator (<code>lod/hlod_node_residency.cpp:110</code>,
+   <code>:232</code>) and hands them to the next admitted node (<code>:694</code>, <code>:874</code>). The allocator is best fit
+   over freed runs (<code>core/streaming_atlas.cpp:66-88</code>) [V].</li>
+<li>The HLOD route does use the cache:</li>
+<li><code>scratch_params.request_sh_amortization = features-&gt;enable_sh_amortization</code>
+     (<code>publisher.cpp:2558</code>), checked against the admitted capacity (<code>tile_renderer.cpp:584-590</code>)
+     [V].</li>
+<li>It is off by default (<code>pipeline/enable_sh_amortization</code> defaults to false,
+     <code>renderer/pipeline_feature_set.cpp:154</code>; the default tier is <code>custom</code>,
+     <code>core/gaussian_splat_manager.cpp:1161</code>) [V].</li>
+<li>It is <strong>on in every named quality tier</strong>, with divisors 2–8
+     (<code>core/quality_tier_config.cpp:43-44</code>, <code>:61-62</code>, ...), because
+     <code>tier_apply_pipeline_toggles</code> defaults to true (<code>gaussian_splat_manager.cpp:1162</code>) [V].</li>
+<li><strong>Consequence [I]:</strong></li>
+<li>A node admitted into reused pages reads the evicted tenant's colour for each splat whose
+     phase does not match, for up to <code>divisor − 1</code> frames (7 at tier <code>low</code>), at full opacity.</li>
+<li>The node is drawn at full opacity: <code>DrawnNodeGPU.fade</code> is "written as 1.0 and not read yet"
+     (<code>gs_instance_layout.glsl:123</code>) [V].</li>
+<li>Under thrash (#1483: 25,523 evictions in one run, from the deviation report), this happens
+     continuously.</li>
+<li>It needs no wind and no relocation, so #1499's statement that none of its items is live on
+     master does <strong>not</strong> hold for the SH cache under amortization.</li>
+<li>It is not measured here. The repro is in #1502; the WP1 fix carries its own red-then-green
+     test.</li>
+<li>Same class, smaller [I]:</li>
+<li>The subpixel hysteresis of a new tenant can inherit "was visible" when the key hash collides,
+     because the key is a hash of the address, not of the content. Its effect is only a threshold
+     choice for one frame.</li>
+<li>The chunk route uses the same allocator (<code>core/gaussian_streaming.h:28</code>) [V include only].
+     D5 deletes it.</li>
+</ol>
+<h4 id="653-decision-p">6.5.3 Decision [P]<a class="headerlink" href="#653-decision-p" title="Permanent link">¶</a></h4>
+<ul>
+<li><strong>Content-following caches are invalidated on (re)assignment.</strong></li>
+<li>Whenever residency assigns an atlas run to a node for an upload, or as a compaction
+    destination, the renderer clears <code>sh_color_cache</code> (and the subpixel history) for exactly that
+    record range. The clear goes into the same command stream as the upload, before the first draw
+    that references it.</li>
+<li><code>0</code> is already the "not cached" sentinel (<code>tile_binning.glsl:1447</code>) [V]. This costs one
+    <code>buffer_clear</code> of <code>4 × count</code> bytes per upload [I].</li>
+<li>A tag buffer was rejected: it costs +4 B per atlas record and per-read compares. Identity
+    keying was rejected: there is no dense identity index.</li>
+<li><strong>Identity values do not use the address.</strong></li>
+<li>Wind and effectors use rest position (§6.3.1).</li>
+<li>The sort tie-break becomes <code>hash(node_stable_index, local_index)</code>, where
+    <code>local_index = atlas_index − node.first_record</code>. The node index is in <code>DrawnNodeGPU.chunk_id</code>
+    (<code>gs_instance_layout.glsl:122</code>) [V]. The node's first record comes from the chunk meta [I].
+    For instance rows the hash adds the instance's stable placement key [ADR §14.1].</li>
+<li><strong>Relation to #1499:</strong></li>
+<li>This ADR closes item 1 by splitting it. Content-following state follows the address and is
+    invalidated on assignment. Identity state no longer depends on the address.</li>
+<li>This is also the precondition for compaction of drawn nodes (#1498), and it fixes the live SH
+    case now.</li>
+<li>Items 2 (per-view <code>begin_frame</code>) and 3 (<code>finish_upload</code> without a GPU fence) stay in #1499.
+    The cache clear only needs submission order, not a fence [I].</li>
+<li><strong>#1245</strong> (instances sharing cache entries; view direction mixed): related but separate. The
+  recommended fix there is to bypass the cache for asset records referenced by more than one row.
+  It is not decided here.</li>
+</ul>
+<h3 id="66-rigid-moving-objects-d6">6.6 Rigid moving objects (D6)<a class="headerlink" href="#66-rigid-moving-objects-d6" title="Permanent link">¶</a></h3>
+<h4 id="661-one-frame-shadow-lag">6.6.1 One-frame shadow lag<a class="headerlink" href="#661-one-frame-shadow-lag" title="Permanent link">¶</a></h4>
+<ul>
+<li>The cause is verified in the code comment:</li>
+<li>"Forward+ renders the shadow passes of a frame BEFORE that frame's GS main view, so a shadow
+    pass consumes the record of the previous main view: the draw list, rows and atlas the GPU
+    still holds" (<code>renderer/hlod_shadow_caster_plan.h:10-12</code>) [V].</li>
+<li>A moving object's splat shadow is therefore one frame behind, an offset of
+    velocity × frame time [I].</li>
+<li><strong>Decision [P], "rows current, list previous":</strong></li>
+<li>Instance rows (transforms, overrides, wind time) are uploaded at the frame's sync point,
+    before Godot's shadow passes.</li>
+<li>The caster keeps the previous view's <em>node list</em>, so it needs no new cut, but reads the
+    <em>current</em> rows.</li>
+<li>An object that entered view this frame casts from the next frame on. This is accepted and
+    reported as a counter.</li>
+<li>Omni and spot casters are refused today (<code>hlod_shadow_caster_plan.h:42</code>, #1424) [V]. The same
+  caster code is touched, so #1424 lands first (§8).</li>
+<li>The caster refuses quantized payloads (<code>hlod_shadow_caster_plan.h:44</code>) [V]. GS-GAME-1 runs the
+  raw payload, or that refusal is lifted in its own PR.</li>
+</ul>
+<h4 id="662-a4-and-a5-gs-combined-1-run-44532905736-from-the-deviation-report">6.6.2 A4 and A5 (GS-COMBINED-1, run 44532905736, from the deviation report)<a class="headerlink" href="#662-a4-and-a5-gs-combined-1-run-44532905736-from-the-deviation-report" title="Permanent link">¶</a></h4>
+<ul>
+<li><strong>A4, penetration depth order: 185 of 590 frames fail.</strong></li>
+<li>The verdict says "as variant A", so it fails on the chunk route as well [ADR, report].</li>
+<li>Splats are sorted by centre, so world/object interpenetration is only approximately correct
+    in 3DGS [I].</li>
+<li>It is not caused by this ADR, and nothing here fixes it.</li>
+<li><strong>Decision [P]:</strong> triage the reference first (renderer versus CPU reference), then write a
+    tolerance contract with a reason. GS-GAME-1 consumes that contract. It does not invent one.</li>
+<li><strong>A5, transform offset: 81 of 600 frames, 0.5–1.2 px, worst on the fastest object.</strong></li>
+<li>The hypothesis is one frame of transform latency [I, unproven].</li>
+<li>If the triage confirms it, the "rows current" change in §6.6.1 is the fix, and A5 becomes
+    acceptance row O2.</li>
+<li>Both stay owned by GS-COMBINED-1. This ADR only orders them before GS-GAME-1.</li>
+</ul>
+<h4 id="663-object-lod-and-proxies-out-of-scope-for-the-first-gate-p">6.6.3 Object LOD and proxies: out of scope for the first gate [P]<a class="headerlink" href="#663-object-lod-and-proxies-out-of-scope-for-the-first-gate-p" title="Permanent link">¶</a></h4>
+<ul>
+<li>Objects have no LOD levels: <code>lod_count = 1</code>, although <code>GS_MAX_ASSET_LODS = 8</code> exists [ADR,
+  HLOD ADR §1]. There are no instance proxies (HLOD ADR §6.9, stage 2+) [ADR].</li>
+<li>GS-GAME-1 uses 32 objects, which the tail holds [I]. 1,000 trees or crowds would not fit.</li>
+<li>That work is a follow-up package (WP8, M–L) under HLOD ADR §6.9, with its own gate. Until then,
+  the one-route §4.5 budget rule refuses objects whole and explicitly [ADR].</li>
+</ul>
+<h3 id="67-skinning-and-deforming-splats-d7-out-of-scope">6.7 Skinning and deforming splats (D7): out of scope<a class="headerlink" href="#67-skinning-and-deforming-splats-d7-out-of-scope" title="Permanent link">¶</a></h3>
+<ul>
+<li>Nothing renders animation today: "CPU sampling only; nothing renders it"
+  (<code>docs/features/animation.md:9</code>) [V].</li>
+<li>The owner kept animation and requires render wiring (D-6a, CLN-SH06; the animation render ADR
+  is CLN-SH06-1) [ADR]. That ADR owns skinning.</li>
+<li>This ADR constrains it in four ways [P]:</li>
+<li>Deforming content is always an <strong>instance</strong>, never world-tree content (§6.1).</li>
+<li>Deformation runs in <code>depth_compute</code> before the instance transform. It uses the same time
+     sample as wind and must be applied by the caster too.</li>
+<li>Bounds come from the skeleton or the control nodes, declared like <code>D_max</code>.</li>
+<li>Per-splat skinning data lives in a side buffer of the instance region, not in the semantic
+     word.</li>
+<li>The design check's sizing (linear blend skinning with ≤ 4 bones, about 16 B per splat; SC-GS
+  control nodes [Ext]) is input to CLN-SH06-1, not a decision here.</li>
+<li>Collision proxies are D-6b and CLN-SH04 [ADR]. Islands (§6.1) are natural proxy owners.</li>
+</ul>
+<hr>
+<h2 id="7-acceptance-gs-game-1-vertical-slice-d8">7. Acceptance: GS-GAME-1 vertical slice (D8)<a class="headerlink" href="#7-acceptance-gs-game-1-vertical-slice-d8" title="Permanent link">¶</a></h2>
+<p><strong>Scene [P]:</strong>
+- The T0 world as <strong>V4 streamed</strong> under atlas pressure: about 35 % atlas, a drawn budget of 500k,
+  raw payload.
+- 32 rigid objects on scripted paths, plus the <strong>spawn</strong> of a new asset at t = 10 s (needs the
+  #1473 fix from #1500).
+- One mesh character.
+- Two vegetation regions with baked wind weight, and one rock region with weight 0.
+- Three regions (near, mid, far) recoloured every 2 s, one region hidden every 4 s.
+- Four omni lights plus a directional light with shadows.
+- A camera path with one teleport and one return-to-pose segment, at 1080p.</p>
+<p><strong>Hardware (O6, open):</strong> a real 8 GB mid-range card (RTX 3060/4060 class) is preferred. Until
+one is available, the 3080 runner runs with the ledger limited to 8 GB, and every report says
+<strong>explicitly</strong> that it is an approximation, never the mid-range result.</p>
+<p><strong>Pass criteria [P]</strong> (every row has a forcing control that must turn it red in the same job):</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Measure</th>
+<th>Pass</th>
+<th>Control (must fail)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1</td>
+<td>Frame time with valid GPU timestamps (<code>*_valid</code>, GR-18)</td>
+<td>Hard gate (O7): p95 ≤ 25 ms, p99 ≤ 33.3 ms (the GR-15 3080 numbers); max ≤ 50 ms at spawn. <strong>Target:</strong> p95 ≤ 16.7 ms, <strong>always reported next to the gate</strong>, never instead of it.</td>
+<td>a scripted 30 ms GPU stall</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Dynamics overhead: dynamics on versus off, ratio over identical samples (percentiles are not additive)</td>
+<td>≤ +1.5 ms p95</td>
+<td>— (ratio row)</td>
+</tr>
+<tr>
+<td>H1</td>
+<td>Holes: <code>nonresident_drawn</code>; G16 missing-node fraction after settle</td>
+<td>0 / 0 %</td>
+<td>a forced non-resident draw</td>
+</tr>
+<tr>
+<td>W1</td>
+<td><strong>Wind identity oracle</strong> (below)</td>
+<td><strong>0 changed frames</strong></td>
+<td>forcing switch: address-keyed phase and tie-break restored</td>
+</tr>
+<tr>
+<td>W2</td>
+<td>Wind LOD consistency: parent displacement versus the weighted mean of its children, below the fade level</td>
+<td>≤ 0.5 px</td>
+<td>fade disabled at coarse levels</td>
+</tr>
+<tr>
+<td>W3</td>
+<td>Wind shadow phase: caster displacement versus colour displacement</td>
+<td>≤ 1 shadow texel</td>
+<td>caster without deformation</td>
+</tr>
+<tr>
+<td>W4</td>
+<td>Rigid region: splats with weight 0 move</td>
+<td>0 px</td>
+<td>legacy opacity stiffness forced</td>
+</tr>
+<tr>
+<td>C1</td>
+<td>SH cache after readmission: pixels of a readmitted node versus a divisor-1 render of the same pose and drawn set</td>
+<td>0 changed pixels in the first frame after admission</td>
+<td>invalidation switched off</td>
+</tr>
+<tr>
+<td>R1</td>
+<td>Recolour coverage: ID mask per pixel versus the expected region, at every LOD level</td>
+<td>100 % of region pixels tinted, 0 foreign pixels</td>
+<td>override applied by address</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>Recolour latency</td>
+<td>effect in the frame it was set; survives far → evict → near</td>
+<td>upload deferred by one frame</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>Hide</td>
+<td>0 sort records for the hidden region; no shadow</td>
+<td>hide applied only in raster</td>
+</tr>
+<tr>
+<td>S1</td>
+<td>Spawn</td>
+<td>the world's <code>drawn_nodes</code> do not fall to the root LOD</td>
+<td>#1473 forced (asset-set reset)</td>
+</tr>
+<tr>
+<td>O1</td>
+<td>A4</td>
+<td>passes the triaged tolerance contract</td>
+<td>—</td>
+</tr>
+<tr>
+<td>O2</td>
+<td>A5 / shadow lag</td>
+<td>≤ 0.5 px object offset; caster versus colour of the moving object ≤ 1 texel</td>
+<td>rows uploaded after shadow</td>
+</tr>
+<tr>
+<td>L1</td>
+<td>Lights: lit splats (L1/L2)</td>
+<td>pass</td>
+<td>—</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>Omni and spot splat shadows</td>
+<td>pass after #1424. Before that, <strong>reported as a known fail</strong>, never skipped.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>M1</td>
+<td>VRAM ledger versus external VRAM; upload bytes per second</td>
+<td>within budget; upload ≤ a threshold fixed before the first run</td>
+<td>—</td>
+</tr>
+<tr>
+<td>F3</td>
+<td>Region-key compression cost (T0, §5.2 setup)</td>
+<td>interior bytes ≤ +10 % versus single-region</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Wind identity oracle (W1) [P]:</strong>
+1. Freeze wind time with the existing <code>rendering/gaussian_splatting/animation/wind_time_scale = 0</code>
+   (read at <code>core/gs_project_settings.h:270</code>, applied at <code>:283-285</code>) [V]. Displacement is then
+   static but non-zero.
+2. Hold the camera static at pose A, settle, and record frame A and the drawn node-key digest A.
+3. Force eviction of the drawn set (page-budget churn). Pre-occupy the freed runs so readmission
+   lands on <strong>different</strong> pages, then let it resettle.
+4. If the drawn digest differs from A, the verdict is <strong>INVALID</strong>, not pass: HLOD ADR §6.4
+   accepts path-dependent drawn sets [ADR].
+5. Otherwise, compare against frame A: changed frames must be 0 (the static-frame oracle of #1050
+   [I; established in that issue, not re-run here]).
+6. Run once with SH amortization at divisor 8 (this also covers C1) and once with it off.
+7. The subpixel hysteresis is legitimately path-dependent, so the oracle runs with hysteresis
+   disabled, or after ≥ 2 frames, and says which.
+8. <strong>There is no "red on master" for a streamed world:</strong> on master, wind forces full residency
+   (§1). The negative control is therefore the forcing switch in the same build: the
+   address-keyed seed and tie-break restored. It must give &gt; 0 changed frames.</p>
+<hr>
+<h2 id="8-work-packages-and-order-p">8. Work packages and order [P]<a class="headerlink" href="#8-work-packages-and-order-p" title="Permanent link">¶</a></h2>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>WP</th>
+<th>Content</th>
+<th>Effort</th>
+<th>Risk</th>
+<th>Rebake</th>
+<th>Depends on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WP0</td>
+<td>This ADR and the owner decisions in §11</td>
+<td>S</td>
+<td>R0</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>WP1</strong></td>
+<td>SH colour cache cleared on atlas run (re)assignment (#1502; lands with this record, O10). Subpixel history and the tie-break from <code>(node index, local index)</code> follow if not in that change</td>
+<td><strong>S</strong></td>
+<td>R3 (renderer/shader)</td>
+<td>no</td>
+<td>— (can run in parallel with M3; it touches no world-cache source)</td>
+</tr>
+<tr>
+<td><strong>WP2 (W-S)</strong></td>
+<td>Position phase without jitter; per-row wind and effector opt-in, global refusal removed; global <code>D_max</code> bound inflation; caster deformation with the frame's wind time; distance and level fade</td>
+<td><strong>S–M</strong></td>
+<td>R3</td>
+<td>no</td>
+<td>WP1 (for W1); #1424 merged first (same caster code)</td>
+</tr>
+<tr>
+<td><strong>WP3 (format step)</strong></td>
+<td>Layout v2 (<code>semantic</code>); GSQ v2 plane; V4 <code>max_wind_weight</code>; merge key <code>(cell, region)</code> and wind-weight aggregation; bake input (region and wind volumes, PLY properties); island extraction; pack into GPU padding; F3 measurement on T0</td>
+<td><strong>M</strong> (M–L with tools)</td>
+<td>R3 (format, bake)</td>
+<td><strong>yes, once</strong></td>
+<td>M3 done; format freeze between M3 and WP3</td>
+</tr>
+<tr>
+<td>WP4</td>
+<td>Override table, application points, caster hide, public API (§6.4), doc classes</td>
+<td>M</td>
+<td>R3 + public API</td>
+<td>no (needs WP3 data)</td>
+<td>WP3</td>
+</tr>
+<tr>
+<td>WP5</td>
+<td>Island authoring and helper (placement manifest → nodes)</td>
+<td>S–M</td>
+<td>R2 (editor) / R3 (bake side is inside WP3)</td>
+<td>—</td>
+<td>WP3</td>
+</tr>
+<tr>
+<td>WP6</td>
+<td>Shadow rows current (§6.6.1); A5 fix if the triage confirms latency</td>
+<td>M</td>
+<td>R3</td>
+<td>no</td>
+<td>#1424; A4/A5 triage</td>
+</tr>
+<tr>
+<td>WP7</td>
+<td>GS-GAME-1 lane, harness, forcing controls</td>
+<td>M–L</td>
+<td>R3 (gate machinery)</td>
+<td>—</td>
+<td>WP1–WP6, #1473 (#1500)</td>
+</tr>
+<tr>
+<td>WP8</td>
+<td>Instance LOD and proxies (HLOD ADR §6.9)</td>
+<td>M–L</td>
+<td>R3</td>
+<td>instance assets</td>
+<td>after GS-GAME-1</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Skinning and deformation</td>
+<td>L</td>
+<td>R3</td>
+<td>—</td>
+<td>separate ADR, CLN-SH06-1</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Order relative to the program [P]:</strong>
+1. #1501 and #1500, then <strong>M3</strong> (Tier A on HLOD). If M3 fails, dynamics work is moot. WP0 and WP1
+   run in parallel.
+2. <strong>#1424</strong> (omni and spot casters), then <strong>WP2</strong>. From this point wind runs on streamed worlds
+   with a uniform weight.
+3. <strong>WP3</strong> as the single format step, then the <strong>production Tier A bake</strong>, once.
+4. WP4, WP5 and WP6, then <strong>WP7 (GS-GAME-1)</strong> as the gate for "game alpha". WP8 and skinning
+   follow.
+5. <strong>D5 (chunk-route deletion)</strong> blocks none of this, and none of it blocks D5. The chunk route
+   cannot draw a world next to objects (#788) [ADR]. But:
+   - Between D5 and WP2 there is <strong>no wind on streamed worlds at all</strong>. Release notes must say so.
+   - The HLOD-versus-chunk frame-time comparison must be saved before D5 (deviation report §4.6).</p>
+<hr>
+<h2 id="9-format-and-version-bumps-all-in-wp3-p">9. Format and version bumps (all in WP3) [P]<a class="headerlink" href="#9-format-and-version-bumps-all-in-wp3-p" title="Permanent link">¶</a></h2>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Item</th>
+<th>From</th>
+<th>To</th>
+<th>Old files</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GAUSSIAN_STRUCT_LAYOUT_VERSION</code></td>
+<td>1</td>
+<td>2 (<code>_padding</code> → <code>uint32_t semantic</code>)</td>
+<td>Layout 1 loads with the word forced to 0.</td>
+</tr>
+<tr>
+<td>GSQ codec id</td>
+<td>1</td>
+<td>2 (adds semantic planes)</td>
+<td>v1 decodes with the word = 0.</td>
+</tr>
+<tr>
+<td>V4 node record</td>
+<td>reserved word = 0</td>
+<td><code>max_wind_weight</code></td>
+<td>0 = no wind bound needed.</td>
+</tr>
+<tr>
+<td>Auto-tree <code>tree_sha</code></td>
+<td>codec v1</td>
+<td>codec v2</td>
+<td>Stale by key; rebuilt.</td>
+</tr>
+<tr>
+<td>World cache (CI)</td>
+<td>sources as today</td>
+<td>changed generator and tree sources</td>
+<td>Invalidated once (<code>world_cache.py:84-120</code>) [V].</td>
+</tr>
+</tbody>
+</table></div>
+<p>Readers refuse non-zero reserved semantic bits (28–30), with a distinct reason.</p>
+<h2 id="10-what-a-cheaper-version-would-force-to-redo-i">10. What a cheaper version would force to redo [I]<a class="headerlink" href="#10-what-a-cheaper-version-would-force-to-redo-i" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Region ID packed into <code>painterly_meta</code>:</strong> GSQ v1 refuses per-splat differences
+  (<code>gsq_codec.cpp:436-437</code>) [V], and it collides with painterly.</li>
+<li><strong>Word stored in <code>_padding</code> without GSQ v2:</strong> silently zeroed by the Tier A codec, a vacuous pass.</li>
+<li><strong>Wind weight copied from the merge winner</strong> (today's behaviour for every non-moment field):
+  coarse nodes sway like their heaviest member.</li>
+<li><strong>The region ID left out of the merge key:</strong> overrides bleed across regions at coarse LOD.
+  Fixing that later means a rebake.</li>
+<li><strong>The seed moved to <code>(NodeKey, index)</code> with the jitter kept:</strong> merged splats still get new
+  phases at every LOD switch, so wind is not LOD-stable.</li>
+<li><strong>Inflation without a declared bound:</strong> splats leave their node bounds, and the cut and culling
+  drop them.</li>
+</ul>
+<h2 id="11-owner-decisions-2026-11-20">11. Owner decisions (2026-11-20)<a class="headerlink" href="#11-owner-decisions-2026-11-20" title="Permanent link">¶</a></h2>
+<p>On 2026-11-20 the owner told the team to go ahead with implementing the improved plan, and
+accepted the recommended option of each question below. O6 stays open.</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>O1</strong></td>
+<td><strong>Decided (a).</strong> M3 runs on the current format. Then a format freeze, WP3 as the single format step, and <strong>one</strong> production Tier A bake.</td>
+</tr>
+<tr>
+<td><strong>O2</strong></td>
+<td><strong>Decided: accept, with islands.</strong> The world tree is static, per-object dynamics are instances, and dynamic islands are extracted at bake time (§6.1).</td>
+</tr>
+<tr>
+<td><strong>O3</strong></td>
+<td><strong>Decided: 16 bits</strong> of region ID.</td>
+</tr>
+<tr>
+<td><strong>O4</strong></td>
+<td><strong>Decided (a).</strong> A world without baked semantics does not sway under active project wind. Wind is opt-in per world.</td>
+</tr>
+<tr>
+<td><strong>O5</strong></td>
+<td><strong>Decided: no identity flutter for now.</strong> Revisit after GS-GAME-1.</td>
+</tr>
+<tr>
+<td><strong>O6</strong></td>
+<td><strong>Open.</strong> A real 8 GB card is preferred. Until one is available, GS-GAME-1 reports the 3080 with an 8 GB ledger, explicitly labelled as an approximation. "Game alpha" is not claimed on the approximation alone.</td>
+</tr>
+<tr>
+<td><strong>O7</strong></td>
+<td><strong>Decided (a).</strong> Hard gate p95 ≤ 25 ms and p99 ≤ 33.3 ms. 16.7 ms is the target, and it is <strong>always</strong> reported next to the gate.</td>
+</tr>
+<tr>
+<td><strong>O8</strong></td>
+<td><strong>Decided: out.</strong> No object LOD or proxies in the first gate; WP8 follows GS-GAME-1.</td>
+</tr>
+<tr>
+<td><strong>O9</strong></td>
+<td><strong>Decided: rows current.</strong> The shadow-lag fix uses current-frame rows only (§6.6.1).</td>
+</tr>
+<tr>
+<td><strong>O10</strong></td>
+<td><strong>Decided: now.</strong> WP1 (#1502) lands with this record, in parallel with M3.</td>
+</tr>
+</tbody>
+</table></div>
+<p>The questions, options and reasons as presented for the decision:</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Question</th>
+<th>Options</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>O1</strong></td>
+<td>When does the format step land relative to M3 and the production Tier A bake?</td>
+<td>(a) M3 on the current format now; freeze; WP3; one production bake. (b) WP3 before M3. (c) Defer WP3 and bake Tier A as production now.</td>
+<td><strong>(a).</strong> M3 tests the cut, not the payload. (c) bakes 10 GB twice.</td>
+</tr>
+<tr>
+<td><strong>O2</strong></td>
+<td>Accept the authoring rule "world tree = static; per-object dynamics = instance", including bake-time island extraction and its hole policy?</td>
+<td>accept / accept without islands (manual split only) / reject</td>
+<td><strong>Accept, with islands.</strong> Scans have no separate objects otherwise.</td>
+</tr>
+<tr>
+<td><strong>O3</strong></td>
+<td>Region-ID width</td>
+<td>16 bits (2 MiB table) / 20 bits (32 MiB) / 12 bits plus 4 more wind bits</td>
+<td><strong>16.</strong> Regions are coarse; objects use instances.</td>
+</tr>
+<tr>
+<td><strong>O4</strong></td>
+<td>Default for a world without baked semantics when project wind is on</td>
+<td>(a) it does not sway (opt-in per world); (b) it sways with the legacy opacity heuristic</td>
+<td><strong>(a).</strong> Avoids rocks and houses swaying in old content; it is explicit.</td>
+</tr>
+<tr>
+<td><strong>O5</strong></td>
+<td>Identity flutter (per-splat micro-motion keyed by <code>(node, index)</code>)</td>
+<td>none / leaf level only, later</td>
+<td><strong>None in WP2;</strong> revisit after GS-GAME-1.</td>
+</tr>
+<tr>
+<td><strong>O6</strong></td>
+<td>Hardware for GS-GAME-1</td>
+<td>buy or borrow an 8 GB card for the runner / 3080 with an 8 GB ledger cap as the approximation</td>
+<td><strong>A real 8 GB card</strong> before "game alpha" is claimed. The approximation is fine for development.</td>
+</tr>
+<tr>
+<td><strong>O7</strong></td>
+<td>Frame-time gate</td>
+<td>(a) hard gate at the GR-15 3080 numbers plus a reported 16.7 ms target; (b) a 16.7 ms hard gate now</td>
+<td><strong>(a).</strong> HLOD T0 alone is already at p95 15.4 ms on the 3080 (deviation report §3), so (b) would be a known fail.</td>
+</tr>
+<tr>
+<td><strong>O8</strong></td>
+<td>Object LOD and proxies in the first gate?</td>
+<td>out (32 objects) / in (≥ 500 instances)</td>
+<td><strong>Out;</strong> WP8 after GS-GAME-1.</td>
+</tr>
+<tr>
+<td><strong>O9</strong></td>
+<td>Shadow lag fix scope</td>
+<td>rows current (§6.6.1) / a full light-view cut</td>
+<td><strong>Rows current.</strong> The light-view cut is a later slice of the HLOD ADR.</td>
+</tr>
+<tr>
+<td><strong>O10</strong></td>
+<td>SH-cache fix priority</td>
+<td>WP1 now (parallel to M3) / with WP2</td>
+<td><strong>Now:</strong> it is a live defect in every named quality tier, and it is S.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="12-what-was-not-verified">12. What was not verified<a class="headerlink" href="#12-what-was-not-verified" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>No runtime measurement.</strong> No claim here was run on a GPU. The SH-cache stale colour is
+  verified as a mechanism in code; its visibility is inferred.</li>
+<li>The V4 node record's reserved words were taken from HLOD ADR §14.4.1, not read in
+  <code>io/gaussian_splat_world_paged.*</code>.</li>
+<li>The node's first atlas record in chunk meta (needed for the local index) was not located.</li>
+<li>The emissive application point in the lighting applier was not located.</li>
+<li>The GSQ decode path leaving <code>_padding</code> at 0 is inferred from the header comment
+  (<code>gsq_codec.h:121-123</code>) and from the absence of <code>_padding</code> in <code>gsq_codec.cpp</code>. The decoder was
+  not traced.</li>
+<li>The compression cost of region-pure cells (F3), the GSQ v2 plane size and the overlap-record
+  cost of the bound inflation are all unmeasured.</li>
+<li>The A4/A5 figures, Tier A sizes and #1483 eviction counts come from the deviation report and
+  its runs, not from runs re-read here.</li>
+<li>External practice ([Ext]) was not re-checked.</li>
+<li>No independent second review of the design was obtained before acceptance.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
+    </span>
+    Source updated: 2026-11-20
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+  
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer">
+        
+          
+          <a href="../adr-one-route-many-producers/" class="md-footer__link md-footer__link--prev" aria-label="Previous: One Route, Many Demand Producers">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                One Route, Many Demand Producers
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../adr-painterly-direction/" class="md-footer__link md-footer__link--next" aria-label="Next: Painterly Direction">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Painterly Direction
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+      
+        <script src="../../assets/javascripts/latest-nightlies.js"></script>
+      
+        <script src="../../assets/javascripts/home-splat.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>

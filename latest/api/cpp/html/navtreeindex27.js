@@ -1,5 +1,7 @@
 var NAVTREEINDEX27 =
 {
+"render__device__orchestrator_8h.html":[2,0,0,0,12,57],
+"render__device__orchestrator_8h_source.html":[2,0,0,0,12,57],
 "render__diagnostics__orchestrator_8cpp.html":[2,0,0,0,12,58],
 "render__diagnostics__orchestrator_8h.html":[2,0,0,0,12,59],
 "render__diagnostics__orchestrator_8h_source.html":[2,0,0,0,12,59],
@@ -247,7 +249,5 @@ var NAVTREEINDEX27 =
 "streaming__quantization_8cpp.html":[2,0,0,0,3,101],
 "streaming__quantization_8h.html":[2,0,0,0,3,102],
 "streaming__quantization_8h_source.html":[2,0,0,0,3,102],
-"streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,103],
-"streaming__queue__pressure__controller_8h.html":[2,0,0,0,3,104],
-"streaming__queue__pressure__controller_8h_source.html":[2,0,0,0,3,104]
+"streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,103]
 };

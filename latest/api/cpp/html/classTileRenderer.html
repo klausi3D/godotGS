@@ -171,6 +171,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ac186a996167bfaeedb40565872a4769b" id="r_ac186a996167bfaeedb40565872a4769b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a8410fd020f881ed69ca1e3f0b5811abf">SplatAuditSnapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac186a996167bfaeedb40565872a4769b">get_splat_audit_snapshot</a> () const</td></tr>
 <tr class="memitem:aa937a9f91bec69ac0c9468d9100980cd" id="r_aa937a9f91bec69ac0c9468d9100980cd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa937a9f91bec69ac0c9468d9100980cd">is_initialized</a> () const</td></tr>
 <tr class="memitem:aeea41e4d972d791eb82b5072a769e37f" id="r_aeea41e4d972d791eb82b5072a769e37f"><td class="memItemLeft" align="right" valign="top">RenderingDevice *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeea41e4d972d791eb82b5072a769e37f">get_active_device</a> () const</td></tr>
+<tr class="memitem:a520418c82286f55d46c747aaa66607f2" id="r_a520418c82286f55d46c747aaa66607f2"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a520418c82286f55d46c747aaa66607f2">invalidate_sh_color_cache_range</a> (uint32_t p_first_record, uint32_t p_record_count)</td></tr>
 <tr class="memitem:ab53ead3ac6cceca9e6f1de11c6cf3014" id="r_ab53ead3ac6cceca9e6f1de11c6cf3014"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab53ead3ac6cceca9e6f1de11c6cf3014">get_tile_binning_pipeline</a> () const</td></tr>
 <tr class="memitem:a97430ad958e2b0146248ff5fd1f6d296" id="r_a97430ad958e2b0146248ff5fd1f6d296"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a97430ad958e2b0146248ff5fd1f6d296">get_tile_raster_pipeline</a> () const</td></tr>
 <tr class="memitem:a42f7b3c472e4d03985cbbe9a97da2b64" id="r_a42f7b3c472e4d03985cbbe9a97da2b64"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a42f7b3c472e4d03985cbbe9a97da2b64">get_shader_defines_hash</a> () const</td></tr>
@@ -3299,6 +3300,27 @@ Friends</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">RD::DataFormat</td>          <td class="paramname"><span class="paramname"><em>p_init_color_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">RD::DATA_FORMAT_MAX</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a520418c82286f55d46c747aaa66607f2" name="a520418c82286f55d46c747aaa66607f2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a520418c82286f55d46c747aaa66607f2">&#9670;&#160;</a></span>invalidate_sh_color_cache_range()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void TileRenderer::invalidate_sh_color_cache_range </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_first_record</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_record_count</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

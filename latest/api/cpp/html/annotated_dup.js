@@ -134,6 +134,7 @@ var annotated_dup =
       [ "TilePrefixCpuScanResult", "structGaussianSplatting_1_1TilePrefixCpuScanResult.html", "structGaussianSplatting_1_1TilePrefixCpuScanResult" ],
       [ "TileBufferShrinkPolicy", "structGaussianSplatting_1_1TileBufferShrinkPolicy.html", "structGaussianSplatting_1_1TileBufferShrinkPolicy" ],
       [ "TileBufferResizePlan", "structGaussianSplatting_1_1TileBufferResizePlan.html", "structGaussianSplatting_1_1TileBufferResizePlan" ],
+      [ "TileSHCacheClearRange", "structGaussianSplatting_1_1TileSHCacheClearRange.html", "structGaussianSplatting_1_1TileSHCacheClearRange" ],
       [ "TileRenderTargets", "structGaussianSplatting_1_1TileRenderTargets.html", "structGaussianSplatting_1_1TileRenderTargets" ],
       [ "TileResourceController", "structGaussianSplatting_1_1TileResourceController.html", "structGaussianSplatting_1_1TileResourceController" ],
       [ "TileDeviceContext", "structGaussianSplatting_1_1TileDeviceContext.html", "structGaussianSplatting_1_1TileDeviceContext" ],

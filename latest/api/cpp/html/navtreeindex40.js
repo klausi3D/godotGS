@@ -1,5 +1,7 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatting_1_1GaussianData.html#ac43914f262f25ceffa707c447c09dd88":[0,0,12,13,3],
+"structGaussianSplatting_1_1GaussianData.html#ac43914f262f25ceffa707c447c09dd88":[1,0,9,12,3],
 "structGaussianSplatting_1_1GaussianData.html#aca9a553277cb18a20a00d32f7afa8492":[0,0,12,13,9],
 "structGaussianSplatting_1_1GaussianData.html#aca9a553277cb18a20a00d32f7afa8492":[1,0,9,12,9],
 "structGaussianSplatting_1_1GaussianData.html#ad3f208b30f621fa9c67c479f784a3d46":[0,0,12,13,10],
@@ -247,7 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1HlodLevelRecordSample.html#acfd9cffb402600319cf0c78e3a5dcb2b":[0,0,12,33,3],
 "structGaussianSplatting_1_1HlodLevelRecordSample.html#acfd9cffb402600319cf0c78e3a5dcb2b":[1,0,9,32,3],
 "structGaussianSplatting_1_1IndirectDispatchLayout.html":[0,0,12,37],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html":[1,0,9,36],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a5aeb579b25e9357c3eec1e614921d76e":[0,0,12,37,2],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a5aeb579b25e9357c3eec1e614921d76e":[1,0,9,36,2]
+"structGaussianSplatting_1_1IndirectDispatchLayout.html":[1,0,9,36]
 };

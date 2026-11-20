@@ -1,5 +1,6 @@
 var NAVTREEINDEX21 =
 {
+"gaussian__splat__merge__utils_8cpp.html":[2,0,0,0,3,41],
 "gaussian__splat__merge__utils_8cpp.html#a3002d3560cbc804058caf4e3db322691":[2,0,0,0,3,41,0],
 "gaussian__splat__merge__utils_8h.html":[2,0,0,0,3,42],
 "gaussian__splat__merge__utils_8h.html#a3002d3560cbc804058caf4e3db322691":[2,0,0,0,3,42,2],
@@ -248,6 +249,5 @@ var NAVTREEINDEX21 =
 "gs__logger_8h.html#af1875d070365d9a9522241bb8cb2b82a":[2,0,0,0,8,3,40],
 "gs__logger_8h.html#af8193eeb45db057c8ff3cd05a416eea7":[2,0,0,0,8,3,8],
 "gs__logger_8h.html#afbffb1c36826db6d14a74f4f98b04c73":[2,0,0,0,8,3,6],
-"gs__logger_8h.html#afc4be8e663e95990b3f91226b129e5d6":[2,0,0,0,8,3,4],
-"gs__logger_8h_source.html":[2,0,0,0,8,3]
+"gs__logger_8h.html#afc4be8e663e95990b3f91226b129e5d6":[2,0,0,0,8,3,4]
 };

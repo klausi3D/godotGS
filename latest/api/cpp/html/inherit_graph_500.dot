@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="PayloadPageStore::Decoder\lLease",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$classPayloadPageStore_1_1DecoderLease.html",tooltip=" "];
+  Node0 [id="Node000000",label="PayloadPageStore::DecodedPage",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structPayloadPageStore_1_1DecodedPage.html",tooltip=" "];
 }

@@ -1,5 +1,7 @@
 var NAVTREEINDEX29 =
 {
+"structDebugOverlayOptions.html#a907fbcccefc0ae01b03a901862a71a41":[1,0,63,7],
+"structDebugOverlayOptions.html#aaa8d8bdc51983dc08ef61137b3a52510":[1,0,63,14],
 "structDebugOverlayOptions.html#aac112949296762f2775a06b5796b240f":[1,0,63,8],
 "structDebugOverlayOptions.html#ab2aa717d657b69445e3a43b06b3018db":[1,0,63,15],
 "structDebugOverlayOptions.html#ab367e79d88603bbcff913bb8a9820174":[1,0,63,10],
@@ -247,7 +249,5 @@ var NAVTREEINDEX29 =
 "structGPUSortingConfig.html#a5d9ceb8cd94d51a64bd80a0b9bc3d61c":[1,0,122,7],
 "structGPUSortingConfig.html#a6288df5d8a0570f3f41a7a2505da6177":[1,0,122,18],
 "structGPUSortingConfig.html#a6e485aa653621ab3ac975fe011a6c8b9":[1,0,122,31],
-"structGPUSortingConfig.html#a74b378541799a7acede682ab3e2634f1":[1,0,122,27],
-"structGPUSortingConfig.html#a798cdc67814f64d746094bbbf72a0e89":[1,0,122,8],
-"structGPUSortingConfig.html#a83891c246039e76eaad2074c7f2c3ec4":[1,0,122,3]
+"structGPUSortingConfig.html#a74b378541799a7acede682ab3e2634f1":[1,0,122,27]
 };

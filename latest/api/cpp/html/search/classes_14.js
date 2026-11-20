@@ -60,12 +60,13 @@ var searchData=
   ['tilescenelightinginputs_57',['TileSceneLightingInputs',['../structGaussianSplatting_1_1TileSceneLightingInputs.html',1,'GaussianSplatting']]],
   ['tileshaderresources_58',['TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html',1,'GaussianSplatting']]],
   ['tileshcachebuffers_59',['TileSHCacheBuffers',['../structGaussianSplatting_1_1TileSHCacheBuffers.html',1,'GaussianSplatting']]],
-  ['tilesplatauditsnapshot_60',['TileSplatAuditSnapshot',['../structGaussianSplatting_1_1TileSplatAuditSnapshot.html',1,'GaussianSplatting']]],
-  ['tilesubpixelhistorybuffers_61',['TileSubpixelHistoryBuffers',['../structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html',1,'GaussianSplatting']]],
-  ['tilesubpixelvisibilitybuffers_62',['TileSubpixelVisibilityBuffers',['../structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html',1,'GaussianSplatting']]],
-  ['tiletimestamprange_63',['TileTimestampRange',['../structGaussianSplatting_1_1TileTimestampRange.html',1,'GaussianSplatting']]],
-  ['tiletimingstate_64',['TileTimingState',['../structGaussianSplatting_1_1TileTimingState.html',1,'GaussianSplatting']]],
-  ['tileuniformbuffers_65',['TileUniformBuffers',['../structGaussianSplatting_1_1TileUniformBuffers.html',1,'GaussianSplatting']]],
-  ['transitiongroup_66',['TransitionGroup',['../structgs__hlod__runtime_1_1TransitionGroup.html',1,'gs_hlod_runtime']]],
-  ['treestats_67',['TreeStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html',1,'GaussianSplatting::HierarchicalSplatStructure']]]
+  ['tileshcacheclearrange_60',['TileSHCacheClearRange',['../structGaussianSplatting_1_1TileSHCacheClearRange.html',1,'GaussianSplatting']]],
+  ['tilesplatauditsnapshot_61',['TileSplatAuditSnapshot',['../structGaussianSplatting_1_1TileSplatAuditSnapshot.html',1,'GaussianSplatting']]],
+  ['tilesubpixelhistorybuffers_62',['TileSubpixelHistoryBuffers',['../structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html',1,'GaussianSplatting']]],
+  ['tilesubpixelvisibilitybuffers_63',['TileSubpixelVisibilityBuffers',['../structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html',1,'GaussianSplatting']]],
+  ['tiletimestamprange_64',['TileTimestampRange',['../structGaussianSplatting_1_1TileTimestampRange.html',1,'GaussianSplatting']]],
+  ['tiletimingstate_65',['TileTimingState',['../structGaussianSplatting_1_1TileTimingState.html',1,'GaussianSplatting']]],
+  ['tileuniformbuffers_66',['TileUniformBuffers',['../structGaussianSplatting_1_1TileUniformBuffers.html',1,'GaussianSplatting']]],
+  ['transitiongroup_67',['TransitionGroup',['../structgs__hlod__runtime_1_1TransitionGroup.html',1,'gs_hlod_runtime']]],
+  ['treestats_68',['TreeStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html',1,'GaussianSplatting::HierarchicalSplatStructure']]]
 ];

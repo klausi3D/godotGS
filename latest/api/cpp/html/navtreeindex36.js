@@ -1,5 +1,7 @@
 var NAVTREEINDEX36 =
 {
+"structGaussianRenderPipeline_1_1StageResult.html#a09bb09324777e84eef03110f936b0e3b":[0,0,7,2,15],
+"structGaussianRenderPipeline_1_1StageResult.html#a09bb09324777e84eef03110f936b0e3b":[1,0,6,2,15],
 "structGaussianRenderPipeline_1_1StageResult.html#a0c9326a0bd34909dc5953664fa2f3ae3":[0,0,7,2,9],
 "structGaussianRenderPipeline_1_1StageResult.html#a0c9326a0bd34909dc5953664fa2f3ae3":[1,0,6,2,9],
 "structGaussianRenderPipeline_1_1StageResult.html#a0d906694d299042389af9f4b2dbe8cb3":[0,0,7,2,13],
@@ -247,7 +249,5 @@ var NAVTREEINDEX36 =
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#ac6c984119bb5fb1bc137df29791e0886":[1,0,82,0,21],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#acd9c25bc3f52c53c9c109a440b1dd755":[1,0,82,0,3],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#ad52f023895ea4de11bbe3bb816b73cb5":[1,0,82,0,14],
-"structGaussianSplatAsset_1_1PayloadSnapshot.html#adcba55325dc9c7cc049badaec4f0422a":[1,0,82,0,10],
-"structGaussianSplatAsset_1_1PayloadSnapshot.html#ae2c8f8eceed7b4afa62c259d58e505e3":[1,0,82,0,18],
-"structGaussianSplatAsset_1_1PayloadSnapshot.html#af422cf8c58782a104c0e461e2170851c":[1,0,82,0,7]
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#adcba55325dc9c7cc049badaec4f0422a":[1,0,82,0,10]
 };

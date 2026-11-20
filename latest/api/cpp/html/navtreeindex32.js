@@ -1,5 +1,7 @@
 var NAVTREEINDEX32 =
 {
+"structGaussianRenderFacadeState_1_1ResourceState.html#a2316bf25be4b89a71b4012cec458b88d":[0,0,4,2,106],
+"structGaussianRenderFacadeState_1_1ResourceState.html#a2316bf25be4b89a71b4012cec458b88d":[1,0,3,2,106],
 "structGaussianRenderFacadeState_1_1ResourceState.html#a25d799032247c502e536bff313bd4095":[0,0,4,2,19],
 "structGaussianRenderFacadeState_1_1ResourceState.html#a25d799032247c502e536bff313bd4095":[1,0,3,2,19],
 "structGaussianRenderFacadeState_1_1ResourceState.html#a28ab82d1f7331af672dfd19b7ea0dae2":[0,0,4,2,42],
@@ -247,7 +249,5 @@ var NAVTREEINDEX32 =
 "structGaussianRenderFacadeState_1_1ShadowBlitState.html#a5c948df131ccaac86fb8321f18d26738":[0,0,4,6,4],
 "structGaussianRenderFacadeState_1_1ShadowBlitState.html#a5c948df131ccaac86fb8321f18d26738":[1,0,3,6,4],
 "structGaussianRenderFacadeState_1_1ShadowBlitState.html#a7192447ac9f6b463363290bc516019cc":[0,0,4,6,3],
-"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a7192447ac9f6b463363290bc516019cc":[1,0,3,6,3],
-"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a719b8c9063d059dcdf2fc83b72875a08":[0,0,4,6,1],
-"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a719b8c9063d059dcdf2fc83b72875a08":[1,0,3,6,1]
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a7192447ac9f6b463363290bc516019cc":[1,0,3,6,3]
 };
