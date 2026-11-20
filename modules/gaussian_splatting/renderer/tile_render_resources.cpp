@@ -777,7 +777,7 @@ bool TileSHCacheBuffers::clear_color_cache(RenderingDevice *p_default_device) {
 		return false;
 	}
 	// tile_binning.glsl treats cached_color == 0u as "not cached" and re-evaluates it.
-	return clear_color_cache_range(device, 0, sh_color_cache_size / sizeof(uint32_t));
+	return device->buffer_clear(sh_color_cache, 0, sh_color_cache_size) == OK;
 }
 
 bool TileSHCacheBuffers::clear_color_cache_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count) {
