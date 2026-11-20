@@ -81,6 +81,9 @@ public:
 		RID atlas;
 		RID chunk_meta;
 		RID quantization; // Invalid when not quantized.
+		// Synchronous, borrowed render-thread hook for ranges about to receive new content: invalidate content-following caches (e.g. SH colour, #1502). Caller owns context through update()/begin_frame().
+		void (*invalidate_content_range)(void *p_context, uint32_t p_first_record, uint32_t p_record_count) = nullptr;
+		void *invalidation_context = nullptr;
 	};
 	// Report-only ordinal contract for the flythrough trace. Admission reasons
 	// preserve the order of the existing short-circuit predicate in start_jobs().

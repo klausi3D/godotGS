@@ -143,8 +143,9 @@ struct Harness {
 		return err == OK;
 	}
 
-	void step(bool p_commit = true, bool p_observe = true) {
-		const Streamer::Buffers buffers;
+	void step(bool p_commit = true, bool p_observe = true, const Streamer::Buffers *p_buffers = nullptr) {
+		const Streamer::Buffers default_buffers;
+		const Streamer::Buffers &buffers = p_buffers ? *p_buffers : default_buffers;
 		commit = TestGaussianSplatting::gs_hlod_edit_begin_frame(streamer, nullptr, p_commit ? &buffers : nullptr, force_timeout_frames);
 		streamer.update(nullptr, buffers, demand.ptr(), demand.size(), drawn.ptr(), drawn.size());
 		if (!force_timeout_frames) {
@@ -325,9 +326,9 @@ struct Harness {
 		return (p_committed ? saw_new : saw_old) ? REVISION_OK : WRONG_REVISION;
 	}
 
-	bool finish() {
+	bool finish(const Streamer::Buffers *p_buffers = nullptr) {
 		const auto done = gs_pump_until([&]() {
-			step();
+			step(true, true, p_buffers);
 			CHECK(observation_ok);
 			CHECK(bounded(sample, cfg, streamer.get_retained_byte_cap()));
 			CHECK(ready_after_transfer(sample, streamer.is_edit_ready(), commit, fixture.leaves.size(), total_payload_bytes));
@@ -867,6 +868,169 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] forcing partial co
 	h.step();
 	CHECK(h.sample.faults_triggered > 0);
 	CHECK(h.revision(true) == MIXED_REVISION);
+}
+
+struct SHCacheInvalidationTrace {
+	struct Invalidation {
+		uint32_t first_record = 0;
+		uint32_t record_count = 0;
+		uint32_t writes_before = 0;
+		bool before_ready = false;
+	};
+	Streamer &streamer;
+	const uint32_t node;
+	const bool shadow;
+	const Ref<GaussianSplatHlodRuntimeData> served_data;
+	Vector<Invalidation> invalidations;
+	bool observation_ok = true;
+
+	SHCacheInvalidationTrace(Streamer &p_streamer, uint32_t p_node, bool p_shadow = false) :
+			streamer(p_streamer), node(p_node), shadow(p_shadow), served_data(p_streamer.get_data()) {}
+
+	static void record(void *p_context, uint32_t p_first_record, uint32_t p_record_count) {
+		auto &trace = *static_cast<SHCacheInvalidationTrace *>(p_context);
+		Vector<Streamer::TestWrite> writes;
+		trace.observation_ok = trace.observation_ok && trace.streamer._test_shadow_writes(writes) == OK;
+		Invalidation event;
+		event.first_record = p_first_record;
+		event.record_count = p_record_count;
+		// Sampling the existing write trace INSIDE the callback distinguishes
+		// invalidation before publication from an identical call made afterwards.
+		event.writes_before = uint32_t(writes.size());
+		event.before_ready = trace.shadow ? (trace.streamer.is_edit_staged() && !trace.streamer.is_edit_ready() &&
+				trace.streamer.get_data() == trace.served_data) :
+				(trace.streamer.get_residency().state(trace.node) != Residency::RESIDENT && trace.streamer.resident_mask()[trace.node] == 0);
+		trace.invalidations.push_back(event);
+	}
+
+	Streamer::Buffers buffers() {
+		Streamer::Buffers result;
+		result.invalidate_content_range = record;
+		result.invalidation_context = this;
+		return result;
+	}
+
+	void check(const Vector<Streamer::TestWrite> &p_writes, uint32_t p_baseline, uint32_t p_first_record,
+			uint32_t p_record_count, bool p_sliced) const {
+		const uint64_t stride = streamer.record_stride();
+		uint64_t uploaded_records = 0;
+		uint32_t atlas_writes = 0, metadata_index = UINT32_MAX;
+		for (uint32_t i = p_baseline; i < uint32_t(p_writes.size()); ++i) {
+			const auto &write = p_writes[i];
+			if (write.kind == Streamer::TestWrite::ATLAS) {
+				if (write.node != node || write.shadow != shadow || write.bytes == 0 || write.bytes % stride != 0 ||
+						write.offset != (uint64_t(p_first_record) + uploaded_records) * stride || metadata_index != UINT32_MAX) {
+					FAIL("#1502 needs ordered payload writes to exactly the target run before metadata"); return;
+				}
+				uploaded_records += write.bytes / stride;
+				++atlas_writes;
+			} else if (write.kind == Streamer::TestWrite::METADATA && write.node == node && write.meta.splat_count != 0) {
+				if (metadata_index != UINT32_MAX || write.meta.atlas_base != p_first_record || write.meta.splat_count != p_record_count ||
+						write.during_commit != shadow) {
+					FAIL("#1502 needs exactly one complete target metadata publication"); return;
+				}
+				metadata_index = i;
+			}
+		}
+		if (uploaded_records != p_record_count || metadata_index == UINT32_MAX || (p_sliced ? atlas_writes < 2 : atlas_writes != 1)) {
+			FAIL("#1502 needs a nonempty complete upload and metadata publication with the requested slicing"); return;
+		}
+
+		CHECK_MESSAGE(!invalidations.is_empty(), "#1502: atlas content upload must invoke the invalidation callback");
+		if (invalidations.is_empty()) { return; }
+		CHECK(observation_ok);
+		uint64_t next_record = p_first_record;
+		const uint64_t end_record = uint64_t(p_first_record) + p_record_count;
+		for (const auto &event : invalidations) {
+			CHECK(event.record_count > 0);
+			CHECK(event.first_record == next_record);
+			CHECK(event.first_record >= p_first_record);
+			const uint64_t end = uint64_t(event.first_record) + event.record_count;
+			CHECK_MESSAGE(end <= end_record, "#1502: no invalidation may include page padding or neighboring content");
+			CHECK(event.before_ready);
+			CHECK(event.writes_before <= metadata_index);
+			for (uint32_t i = p_baseline; i < metadata_index; ++i) {
+				const auto &write = p_writes[i];
+				if (write.kind != Streamer::TestWrite::ATLAS) { continue; }
+				const uint64_t first = write.offset / stride;
+				if (event.first_record < first + write.bytes / stride && first < end) {
+					CHECK_MESSAGE(event.writes_before <= i, "#1502: invalidate before the overlapping atlas write");
+				}
+			}
+			next_record = end;
+		}
+		CHECK_MESSAGE(next_record == end_record, "#1502: invalidation union must equal the actual payload range");
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] reused atlas run invalidates B before publication") {
+	bool quantized = false, sliced = false;
+	SUBCASE("raw whole upload") {}
+	SUBCASE("quantized whole upload") { quantized = true; }
+	SUBCASE("raw sliced upload") { sliced = true; }
+	SUBCASE("quantized sliced upload") { quantized = true; sliced = true; }
+	Harness h;
+	if (!h.init(quantized, true, false, 16, false, false, false, sliced) || !h.warm()) { return; }
+	if (h.fixture.leaves.size() < 2) { FAIL("#1502 needs two resident leaves"); return; }
+	const uint32_t a = h.fixture.leaves[0], b = h.fixture.leaves[1];
+	const uint32_t a_first_record = h.old_meta[a].atlas_base;
+	const uint32_t record_count = h.old_meta[b].splat_count;
+	uint32_t a_page = 0, a_pages = 0, b_page = 0, b_pages = 0;
+	const auto &residency = h.streamer.get_residency();
+	if (!residency.run(a, a_page, a_pages) || !residency.run(b, b_page, b_pages) || a_pages != 1 || b_pages != a_pages ||
+			b_page != a_page + a_pages || a_first_record != a_page * h.cfg.page_splats || record_count == 0 ||
+			record_count != h.old_meta[a].splat_count || record_count >= h.cfg.page_splats ||
+			h.cfg.atlas_pages - h.fixture.source.node_count <= a_pages + b_pages) {
+		FAIL("#1502 needs adjacent equal-size leaf runs, payload padding and a larger unused atlas tail"); return;
+	}
+	// Warm admission reserves one page per node in demand order. Retiring the
+	// first two leaves coalesces a two-page hole; best fit chooses it over the
+	// unused 32-page tail, so demanding ONLY B must reuse A's lower address.
+	h.demand.clear();
+	h.drawn.clear();
+	h.step(false); // Withdraw demand leases and expire drawn protection before eviction.
+	if (h.streamer._test_evict_node(a) != OK || h.streamer._test_evict_node(b) != OK) {
+		FAIL("#1502 needs both uploaded leaves evicted through the real residency path"); return;
+	}
+	for (uint32_t i = 0; i < h.cfg.retire_delay_frames; ++i) { h.step(false); } // Logical retirement only; no worker wait.
+	if (!h.observation_ok || residency.stats().pages_retiring != 0 || residency.state(a) != Residency::ABSENT || residency.state(b) != Residency::ABSENT) {
+		FAIL("#1502 needs both old runs retired before re-admission"); return;
+	}
+	const uint32_t baseline = uint32_t(h.writes.size());
+	SHCacheInvalidationTrace trace(h.streamer, b);
+	const Streamer::Buffers buffers = trace.buffers();
+	gs_hlod_runtime::DesiredRecord demand;
+	demand.node = b;
+	h.demand.push_back(demand);
+	const auto loaded = gs_pump_until([&]() {
+		h.step(false, true, &buffers);
+		return !h.observation_ok || residency.state(b) == Residency::RESIDENT;
+	});
+	if (!loaded.ready() || !h.observation_ok || residency.state(b) != Residency::RESIDENT) {
+		FAIL("#1502 B never became resident: ", loaded.describe()); return;
+	}
+	uint32_t reused_page = 0, reused_pages = 0;
+	if (!residency.run(b, reused_page, reused_pages) || reused_page * h.cfg.page_splats != a_first_record || reused_pages != a_pages) {
+		FAIL("#1502 address reuse prerequisite: B.first_record must equal A.first_record"); return;
+	}
+	trace.check(h.writes, baseline, a_first_record, record_count, sliced);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] edit shadow destination invalidates before publication") {
+	Harness h;
+	if (!h.init(true, false, false, 1) || !h.probe() || !h.warm() || !h.stage()) { return; }
+	if (h.runs.size() != 1 || h.fixture.leaves.size() != 1) { FAIL("#1502 needs exactly one shadow destination"); return; }
+	const uint32_t node = h.fixture.leaves[0];
+	const uint32_t first_record = h.new_meta[node].atlas_base;
+	const uint32_t record_count = h.new_meta[node].splat_count;
+	if (!h.runs[0].shadow || first_record != h.runs[0].first_page * h.cfg.page_splats || record_count == 0 ||
+			record_count >= h.runs[0].page_count * h.cfg.page_splats || first_record == h.old_meta[node].atlas_base) {
+		FAIL("#1502 needs a distinct shadow destination with actual payload smaller than its padded run"); return;
+	}
+	SHCacheInvalidationTrace trace(h.streamer, node, true);
+	const Streamer::Buffers buffers = trace.buffers();
+	if (!h.finish(&buffers)) { return; }
+	trace.check(h.writes, h.baseline_writes, first_record, record_count, true);
 }
 
 } // namespace TestHlodEditShadowTransfer
