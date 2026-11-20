@@ -3457,6 +3457,7 @@ bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBin
 	const bool new_quantization_required = p_params.quantization_buffer.is_valid();
     return p_bindings.hlod_relative != p_params.hlod_relative ||
             p_bindings.hlod_draw_entry_buffer != p_params.hlod_draw_entry_buffer ||
+            p_bindings.hlod_page_owner_buffer != p_params.hlod_page_owner_buffer ||
             p_bindings.hlod_draw_list_buffer != p_params.hlod_draw_list_buffer ||
             p_bindings.hlod_source_generation != p_params.hlod_source_generation ||
             p_bindings.hlod_content_generation != p_params.hlod_content_generation ||
@@ -3475,6 +3476,7 @@ void TileRenderer::_assign_instance_pipeline_bindings(InstancePipelineBindings &
 		const RenderParams &p_params) {
     r_bindings.hlod_relative = p_params.hlod_relative;
     r_bindings.hlod_draw_entry_buffer = p_params.hlod_draw_entry_buffer;
+    r_bindings.hlod_page_owner_buffer = p_params.hlod_page_owner_buffer;
     r_bindings.hlod_draw_list_buffer = p_params.hlod_draw_list_buffer;
     r_bindings.hlod_source_generation = p_params.hlod_source_generation;
     r_bindings.hlod_content_generation = p_params.hlod_content_generation;

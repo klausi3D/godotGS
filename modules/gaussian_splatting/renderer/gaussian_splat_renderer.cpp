@@ -2066,6 +2066,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
             buffers.hlod_relative && record.draw_list_upload == state.hlod_draw_list_uploads &&
             buffers.max_chunk_splats == record.max_chunk_splats && valid_buffer(buffers.atlas_gaussian_buffer) &&
             valid_buffer(buffers.instance_buffer) && valid_buffer(buffers.chunk_meta_buffer) &&
+            valid_buffer(buffers.hlod_page_table_buffer) &&
             valid_buffer(buffers.visible_chunk_buffer);
     // Mesh cube finalization replaces face 0's camera with identity before the GS hook reads it. Explicit RS type
     // prevents that orthographic omni face (and dual paraboloids) from masquerading as a directional cascade.
@@ -2079,6 +2080,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         inputs.instance_buffer = buffers.instance_buffer;
         inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;
         inputs.draw_list_buffer = buffers.visible_chunk_buffer;
+        inputs.page_table_buffer = buffers.hlod_page_table_buffer;
         inputs.draw_count = record.draw_count;
         inputs.slot_stride = record.max_chunk_splats;
         inputs.instance_slots = plan.instance_slots;

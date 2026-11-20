@@ -56,6 +56,7 @@ struct Harness {
 	Streamer::TestControl control;
 	Vector<Residency::Ticket> runs;
 	Vector<ChunkMetaGPU> old_meta, new_meta;
+	Vector<Vector<uint32_t>> old_pages;
 	Vector<ChunkQuantizationGPU> old_quant, new_quant;
 	LocalVector<gs_hlod_runtime::DesiredRecord> demand;
 	LocalVector<gs_hlod_runtime::DrawRecord> drawn;
@@ -73,9 +74,9 @@ struct Harness {
 
 	bool init(bool p_quantized = true, bool p_identity = false, bool p_small_publication = false,
 			uint32_t p_edit_count = 16, bool p_competing_jobs = false, bool p_store_path = false, bool p_default_envelope = false,
-			bool p_oversized_identity = false) {
+			bool p_oversized_identity = false, uint32_t p_splats = 256, bool p_reverse = false) {
 		if (!WorkerThreadPool::get_singleton()) { FAIL("D3-3 needs the real worker pool"); return false; }
-		if (!fixture.build(4, 256, p_edit_count)) { return false; }
+		if (!fixture.build(4, p_splats, p_edit_count)) { return false; }
 		cfg = fixture.config(p_quantized);
 		if (p_identity) {
 			cfg.max_jobs_in_flight = 1; // Removes worker completion order from the identity oracle.
@@ -84,7 +85,7 @@ struct Harness {
 			// exercise the replaced oversized exception separately in case H.
 			cfg.upload_bytes_per_frame = p_oversized_identity ? uint64_t(fixture.source.splats_per_node - 1) * stride :
 					uint64_t(fixture.source.splats_per_node) * stride + sizeof(ChunkMetaGPU) +
-							(p_quantized ? sizeof(ChunkQuantizationGPU) : 0);
+							(p_quantized ? sizeof(ChunkQuantizationGPU) : 0) + 2 * sizeof(uint32_t);
 		}
 		if (p_competing_jobs) {
 			uint64_t gaussians = 0, output = 0, shadow = 0;
@@ -111,6 +112,7 @@ struct Harness {
 			}
 		} else if (!streamer.init(fixture.source.snapshot, cfg, 21, 41)) { FAIL("D3-3 real streamer init failed"); return false; }
 		control.cpu_upload_sink = true;
+		control.reverse_free_pages = p_reverse;
 		if (!set_control()) { return false; }
 		if (p_identity && streamer._test_observe_shadow_transfers() != OK) {
 			FAIL("D3-3 identity needs the actual ordinary write trace"); return false;
@@ -211,7 +213,8 @@ struct Harness {
 			return sample.live_reservations == 0;
 		});
 		if (!loaded.ready() || !observation_ok) { FAIL("D3-3 old revision never became resident: ", loaded.describe()); return false; }
-		if (old_meta.resize(fixture.source.node_count) != OK || old_quant.resize(fixture.source.node_count) != OK) {
+		if (old_meta.resize(fixture.source.node_count) != OK || old_quant.resize(fixture.source.node_count) != OK ||
+				old_pages.resize(fixture.source.node_count) != OK) {
 			FAIL("D3-3 metadata snapshot allocation failed"); return false;
 		}
 		old_meta.fill(ChunkMetaGPU{});
@@ -226,6 +229,11 @@ struct Harness {
 		}
 		for (uint32_t node = 0; node < fixture.source.node_count; ++node) {
 			if (old_meta[node].splat_count == 0) { FAIL("D3-3 old metadata sink must be nonvacuous"); return false; }
+			uint32_t pt_base = 0;
+			if (!streamer.get_residency().page_allocation(node, old_pages.write[node], pt_base)) {
+				FAIL("D3-3 resident node has no page allocation"); return false;
+			}
+			CHECK(old_meta[node].page_table_ref == pt_base + 1);
 			gs_hlod_runtime::DrawRecord draw;
 			draw.node = node;
 			drawn.push_back(draw);
@@ -245,21 +253,25 @@ struct Harness {
 		for (uint32_t ancestor : fixture.stale) { new_meta.write[ancestor] = ChunkMetaGPU{}; new_quant.write[ancestor] = ChunkQuantizationGPU{}; }
 		for (uint32_t i = 0; i < uint32_t(runs.size()); ++i) {
 			const auto &run = runs[i];
-			if (!run.valid() || !run.shadow || !contains(fixture.leaves, run.node) || run.page_count == 0 ||
-					uint64_t(run.first_page) + run.page_count > cfg.atlas_pages) { FAIL("D3-3 invalid shadow reservation"); return false; }
+			if (!run.valid() || !run.shadow || !contains(fixture.leaves, run.node) || run.pages.is_empty() ||
+					!streamer.get_residency().allocation_matches(run)) { FAIL("D3-3 invalid shadow reservation"); return false; }
 			for (uint32_t j = 0; j < i; ++j) {
-				if (run.node == runs[j].node || (run.first_page < runs[j].first_page + runs[j].page_count && runs[j].first_page < run.first_page + run.page_count)) {
+				if (run.node == runs[j].node) {
 					FAIL("D3-3 shadow reservations overlap"); return false;
 				}
+				for (uint32_t page : run.pages) {
+					if (contains(runs[j].pages, page)) { FAIL("D3-3 shadow pages overlap"); return false; }
+				}
 			}
-			const uint64_t first = uint64_t(run.first_page) * cfg.page_splats;
-			for (const auto &meta : old_meta) {
-				if (meta.splat_count != 0 && first < uint64_t(meta.atlas_base) + meta.splat_count && meta.atlas_base < first + uint64_t(run.page_count) * cfg.page_splats) {
-					FAIL("D3-3 shadow overlaps a served run"); return false;
+			const uint64_t first = uint64_t(run.pages[0]) * cfg.page_splats;
+			for (const auto &pages : old_pages) {
+				for (uint32_t page : run.pages) {
+					if (page >= cfg.atlas_pages || contains(pages, page)) { FAIL("D3-3 shadow overlaps a served page"); return false; }
 				}
 			}
 			Vector<uint8_t> golden;
 			if (!fixture.pack(run.node, true, cfg, uint32_t(first), golden, new_meta.write[run.node], new_quant.write[run.node])) { return false; }
+			new_meta.write[run.node].page_table_ref = run.pt_base + 1;
 			total_payload_bytes += golden.size();
 		}
 		return true;
@@ -269,6 +281,12 @@ struct Harness {
 	// order and frame bytes. Both positive cases and forcing controls call it.
 	RevisionViolation revision(bool p_committed, bool p_require_old = false) const {
 		if (writes.size() < baseline_writes || old_meta.size() != old_quant.size()) { return REVISION_SHAPE; }
+		for (uint32_t i = baseline_writes; i < uint32_t(writes.size()); ++i) {
+			const auto &write = writes[i];
+			if ((write.kind == Streamer::TestWrite::METADATA || write.kind == Streamer::TestWrite::QUANTIZATION) &&
+					(contains(fixture.leaves, write.node) || contains(fixture.stale, write.node)) &&
+					(!write.during_commit || p_require_old)) { return EARLY_METADATA; }
+		}
 		Vector<ChunkMetaGPU> meta = old_meta;
 		Vector<ChunkQuantizationGPU> quant = old_quant;
 		uint64_t last_frame = UINT64_MAX, spent = 0;
@@ -277,35 +295,31 @@ struct Harness {
 		transferred.fill(0);
 		for (uint32_t i = baseline_writes; i < uint32_t(writes.size()); ++i) {
 			const auto &write = writes[i];
-			if (write.node >= uint32_t(meta.size())) { return REVISION_SHAPE; }
-			const bool affected = contains(fixture.leaves, write.node) || contains(fixture.stale, write.node);
-			if (write.kind != Streamer::TestWrite::ATLAS && affected && (!write.during_commit || p_require_old)) { return EARLY_METADATA; }
 			if (last_frame != UINT64_MAX && write.frame < last_frame) { return REVISION_SHAPE; }
 			if (last_frame != write.frame) { last_frame = write.frame; spent = 0; }
 			spent += write.bytes;
 			if (spent > cfg.upload_bytes_per_frame) { return FRAME_ALLOWANCE; }
+			if (write.kind == Streamer::TestWrite::PAGE_TABLE || write.kind == Streamer::TestWrite::PAGE_OWNER) { continue; }
+			if (write.node >= uint32_t(meta.size())) { return REVISION_SHAPE; }
+			const bool affected = contains(fixture.leaves, write.node) || contains(fixture.stale, write.node);
 			if (write.kind == Streamer::TestWrite::ATLAS && (write.shadow || contains(fixture.leaves, write.node))) {
 				if (!write.shadow || write.bytes == 0) { return BAD_SHADOW_RANGE; }
 				bool in_run = false;
 				for (const auto &run : runs) {
-					const uint64_t first = uint64_t(run.first_page) * cfg.page_splats * streamer.record_stride();
-					const uint64_t end = first + uint64_t(run.page_count) * cfg.page_splats * streamer.record_stride();
-					if (run.node == write.node && write.offset == first + transferred[run.node] && write.offset <= end && write.bytes <= end - write.offset &&
+					if (run.node == write.node && page_slice(run.pages, transferred[run.node], write.offset, write.bytes, cfg.page_splats, streamer.record_stride()) &&
 							write.node < uint32_t(new_meta.size()) && transferred[run.node] + write.bytes <= uint64_t(new_meta[run.node].splat_count) * streamer.record_stride()) { in_run = true; }
 				}
 				if (!in_run || write.during_commit) { return BAD_SHADOW_RANGE; }
 				transferred.write[write.node] += write.bytes;
-			} else if (write.kind != Streamer::TestWrite::ATLAS) {
+			} else if (write.kind == Streamer::TestWrite::METADATA || write.kind == Streamer::TestWrite::QUANTIZATION) {
 				if (affected && (!write.during_commit || p_require_old)) { return EARLY_METADATA; }
 				if (write.kind == Streamer::TestWrite::METADATA) { meta.write[write.node] = write.meta; }
 				if (write.kind == Streamer::TestWrite::QUANTIZATION) { quant.write[write.node] = write.quant; }
 				// Even another node may not name an invisible run.
 				if (!write.during_commit) {
 					for (const auto &run : runs) {
-						const uint64_t first = uint64_t(run.first_page) * cfg.page_splats;
-						const uint64_t end = first + uint64_t(run.page_count) * cfg.page_splats;
 						const uint64_t base = write.kind == Streamer::TestWrite::METADATA ? write.meta.atlas_base : write.quant.start_index;
-						if (base >= first && base < end) { return EARLY_METADATA; }
+						if (contains(run.pages, uint32_t(base / cfg.page_splats))) { return EARLY_METADATA; }
 					}
 				}
 			}
@@ -342,6 +356,52 @@ struct Harness {
 		return true;
 	}
 };
+
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] noncontiguous edit shadow pages preserve payload until atomic publication (#1514)") {
+	Harness h;
+	if (!h.init(true, false, false, 1, false, false, false, false,
+			2 * Streamer::Config::DEFAULT_PAGE_SPLATS + 17, true) || !h.probe() || !h.warm() || !h.stage()) { return; }
+	if (h.runs.size() != 1 || h.runs[0].pages.size() < 2) { FAIL("shadow slicing needs one multi-page edited leaf"); return; }
+	const auto &ticket = h.runs[0];
+	CHECK(ticket.pages[1] != ticket.pages[0] + 1);
+	Vector<uint8_t> expected, actual;
+	ChunkMetaGPU meta = {};
+	ChunkQuantizationGPU quant = {};
+	if (!h.fixture.pack(ticket.node, true, h.cfg, ticket.pages[0] * h.cfg.page_splats, expected, meta, quant) ||
+			actual.resize(expected.size()) != OK) { FAIL("shadow slicing golden allocation failed"); return; }
+	actual.fill(0);
+	if (!h.finish()) { return; }
+	uint64_t transferred = 0;
+	uint32_t atlas_writes = 0, metadata_writes = 0;
+	for (uint32_t i = h.baseline_writes; i < uint32_t(h.writes.size()); ++i) {
+		const auto &write = h.writes[i];
+		if (write.node != ticket.node) { continue; }
+		if (write.kind == Streamer::TestWrite::ATLAS) {
+			CHECK(page_slice(ticket.pages, transferred, write.offset, write.bytes, h.cfg.page_splats, h.streamer.record_stride()));
+			CHECK_FALSE(write.during_commit);
+			if (transferred > uint64_t(actual.size()) || write.bytes > uint64_t(actual.size()) - transferred ||
+					uint64_t(write.payload.size()) != write.bytes) { FAIL("shadow slice escaped its packed payload"); return; }
+			memcpy(actual.ptrw() + transferred, write.payload.ptr(), size_t(write.bytes));
+			transferred += write.bytes;
+			++atlas_writes;
+		} else if (write.kind == Streamer::TestWrite::METADATA && write.meta.splat_count != 0) {
+			CHECK(write.during_commit);
+			CHECK(write.meta.page_table_ref != 0);
+			CHECK(write.meta.page_table_ref == ticket.pt_base + 1);
+			CHECK(transferred == uint64_t(expected.size()));
+			++metadata_writes;
+		}
+	}
+	CHECK(atlas_writes >= uint32_t(ticket.pages.size()));
+	CHECK(metadata_writes == 1);
+	CHECK(transferred == uint64_t(expected.size()));
+	CHECK(memcmp(actual.ptr(), expected.ptr(), size_t(expected.size())) == 0);
+	const auto &forward = h.streamer.get_residency().page_table();
+	for (uint32_t i = 0; i < uint32_t(ticket.pages.size()); ++i) {
+		if (uint64_t(ticket.pt_base) + i >= uint64_t(forward.size())) { FAIL("shadow table slot escaped the forward table"); return; }
+		CHECK(forward[ticket.pt_base + i] == ticket.pages[i]);
+	}
+}
 
 TEST_CASE("[GaussianSplatting][HLOD][Edit] an admitted edit transfers and commits while shared view transition ownership is unsupported") {
 	bool timeout = false;
@@ -628,11 +688,15 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 		for (uint32_t node = 0; node < h.fixture.source.node_count; ++node) {
 			const auto &publication = publications[node];
 			const auto &writes = publication.writes;
-			if (writes.size() != (quantized ? 3 : 2)) { FAIL("D3-3 ordinary sink must observe every atlas/quant/meta write in order"); return; }
+			if (uint32_t(writes.size()) != uint32_t(quantized ? 4 : 3) + pages) { FAIL("D3-3 ordinary sink must observe every atlas/quant/meta write in order"); return; }
 			Vector<uint8_t> expected;
 			ChunkMetaGPU meta = {};
 			ChunkQuantizationGPU quant = {};
-			if (!h.fixture.pack(node, false, h.cfg, node * pages * h.cfg.page_splats, expected, meta, quant)) { return; }
+			Vector<uint32_t> allocation;
+			uint32_t pt_base = 0;
+			if (!h.streamer.get_residency().page_allocation(node, allocation, pt_base) || allocation.is_empty()) { FAIL("ordinary identity needs owned pages"); return; }
+			if (!h.fixture.pack(node, false, h.cfg, allocation[0] * h.cfg.page_splats, expected, meta, quant)) { return; }
+			meta.page_table_ref = pt_base + 1;
 			CHECK(publication.node == node); // max_jobs=1: original demand/admission order.
 			CHECK(publication.metadata_splat_count == h.fixture.source.splats_per_node);
 			CHECK(writes[0].kind == Streamer::TestWrite::ATLAS);
@@ -640,14 +704,17 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 			CHECK(writes[0].offset == uint64_t(meta.atlas_base) * h.streamer.record_stride());
 			CHECK(writes[0].bytes == uint64_t(expected.size()));
 			CHECK_FALSE(writes[0].shadow);
+			CHECK(writes[1].kind == Streamer::TestWrite::PAGE_TABLE);
+			CHECK(writes[2].kind == Streamer::TestWrite::PAGE_OWNER);
 			if (quantized) {
-				CHECK(writes[1].kind == Streamer::TestWrite::QUANTIZATION);
-				CHECK(writes[1].offset == uint64_t(node) * sizeof(ChunkQuantizationGPU));
-				CHECK(writes[1].bytes == sizeof(ChunkQuantizationGPU));
-				CHECK(memcmp(&writes[1].quant, &quant, sizeof(quant)) == 0);
+				CHECK(writes[3].kind == Streamer::TestWrite::QUANTIZATION);
+				CHECK(writes[3].offset == uint64_t(node) * sizeof(ChunkQuantizationGPU));
+				CHECK(writes[3].bytes == sizeof(ChunkQuantizationGPU));
+				CHECK(memcmp(&writes[3].quant, &quant, sizeof(quant)) == 0);
 			}
 			const auto &last = writes[writes.size() - 1];
 			CHECK(last.kind == Streamer::TestWrite::METADATA);
+			CHECK(last.meta.page_table_ref != 0);
 			CHECK(last.offset == uint64_t(node) * sizeof(ChunkMetaGPU));
 			CHECK(last.bytes == sizeof(ChunkMetaGPU));
 			CHECK(memcmp(&last.meta, &meta, sizeof(meta)) == 0);
@@ -669,13 +736,17 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 		for (uint32_t node = 0; node < h.fixture.source.node_count; ++node) {
 			const auto &publication = publications[node];
 			const auto &writes = publication.writes;
-			const uint32_t publication_writes = quantized ? 2 : 1;
+			const uint32_t publication_writes = (quantized ? 2 : 1) + 1 + pages;
 			if (uint32_t(writes.size()) < publication_writes + 2) { FAIL("D3-4 oversized ordinary node must use multiple actual atlas writes"); return; }
 			const uint32_t atlas_writes = writes.size() - publication_writes;
 			Vector<uint8_t> expected;
 			ChunkMetaGPU meta = {};
 			ChunkQuantizationGPU quant = {};
-			if (!h.fixture.pack(node, false, h.cfg, node * pages * h.cfg.page_splats, expected, meta, quant)) { return; }
+			Vector<uint32_t> allocation;
+			uint32_t pt_base = 0;
+			if (!h.streamer.get_residency().page_allocation(node, allocation, pt_base) || allocation.is_empty()) { FAIL("ordinary identity needs owned pages"); return; }
+			if (!h.fixture.pack(node, false, h.cfg, allocation[0] * h.cfg.page_splats, expected, meta, quant)) { return; }
+			meta.page_table_ref = pt_base + 1;
 			CHECK(publication.node == node);
 			CHECK(publication.metadata_splat_count == h.fixture.source.splats_per_node);
 			uint64_t transferred = 0;
@@ -683,7 +754,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 				const auto &write = writes[i];
 				CHECK(write.kind == Streamer::TestWrite::ATLAS);
 				CHECK(write.node == node);
-				CHECK(write.offset == uint64_t(meta.atlas_base) * stride + transferred);
+				CHECK(page_slice(allocation, transferred, write.offset, write.bytes, h.cfg.page_splats, stride));
 				CHECK(write.bytes > 0);
 				CHECK(write.bytes % stride == 0);
 				CHECK(write.bytes <= h.cfg.upload_bytes_per_frame);
@@ -698,14 +769,17 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 				transferred += write.bytes;
 			}
 			CHECK(transferred == uint64_t(expected.size()));
+			CHECK(writes[atlas_writes].kind == Streamer::TestWrite::PAGE_TABLE);
+			for (uint32_t page = 0; page < pages; ++page) { CHECK(writes[atlas_writes + 1 + page].kind == Streamer::TestWrite::PAGE_OWNER); }
 			if (quantized) {
-				CHECK(writes[atlas_writes].kind == Streamer::TestWrite::QUANTIZATION);
-				CHECK(writes[atlas_writes].offset == uint64_t(node) * sizeof(ChunkQuantizationGPU));
-				CHECK(writes[atlas_writes].bytes == sizeof(ChunkQuantizationGPU));
-				CHECK(memcmp(&writes[atlas_writes].quant, &quant, sizeof(quant)) == 0);
+				CHECK(writes[atlas_writes + 1 + pages].kind == Streamer::TestWrite::QUANTIZATION);
+				CHECK(writes[atlas_writes + 1 + pages].offset == uint64_t(node) * sizeof(ChunkQuantizationGPU));
+				CHECK(writes[atlas_writes + 1 + pages].bytes == sizeof(ChunkQuantizationGPU));
+				CHECK(memcmp(&writes[atlas_writes + 1 + pages].quant, &quant, sizeof(quant)) == 0);
 			}
 			const auto &last = writes[writes.size() - 1];
 			CHECK(last.kind == Streamer::TestWrite::METADATA);
+			CHECK(last.meta.page_table_ref != 0);
 			CHECK(last.offset == uint64_t(node) * sizeof(ChunkMetaGPU));
 			CHECK(last.bytes == sizeof(ChunkMetaGPU));
 			CHECK(memcmp(&last.meta, &meta, sizeof(meta)) == 0);
@@ -911,7 +985,7 @@ struct SHCacheInvalidationTrace {
 	}
 
 	void check(const Vector<Streamer::TestWrite> &p_writes, uint32_t p_baseline, uint32_t p_first_record,
-			uint32_t p_record_count, bool p_sliced) const {
+			uint32_t p_record_count, bool p_sliced, const Vector<uint32_t> &p_pages) const {
 		const uint64_t stride = streamer.record_stride();
 		uint64_t uploaded_records = 0;
 		uint32_t atlas_writes = 0, metadata_index = UINT32_MAX;
@@ -919,7 +993,7 @@ struct SHCacheInvalidationTrace {
 			const auto &write = p_writes[i];
 			if (write.kind == Streamer::TestWrite::ATLAS) {
 				if (write.node != node || write.shadow != shadow || write.bytes == 0 || write.bytes % stride != 0 ||
-						write.offset != (uint64_t(p_first_record) + uploaded_records) * stride || metadata_index != UINT32_MAX) {
+						!page_slice(p_pages, uploaded_records * stride, write.offset, write.bytes, Streamer::Config::DEFAULT_PAGE_SPLATS, stride) || metadata_index != UINT32_MAX) {
 					FAIL("#1502 needs ordered payload writes to exactly the target run before metadata"); return;
 				}
 				uploaded_records += write.bytes / stride;
@@ -939,27 +1013,23 @@ struct SHCacheInvalidationTrace {
 		CHECK_MESSAGE(!invalidations.is_empty(), "#1502: atlas content upload must invoke the invalidation callback");
 		if (invalidations.is_empty()) { return; }
 		CHECK(observation_ok);
-		uint64_t next_record = p_first_record;
-		const uint64_t end_record = uint64_t(p_first_record) + p_record_count;
-		for (const auto &event : invalidations) {
+		CHECK(uint32_t(invalidations.size()) == atlas_writes);
+		uint32_t event_index = 0;
+		uint64_t invalidated_records = 0;
+		for (uint32_t i = p_baseline; i < metadata_index; ++i) {
+			const auto &write = p_writes[i];
+			if (write.kind != Streamer::TestWrite::ATLAS) { continue; }
+			if (event_index >= uint32_t(invalidations.size())) { FAIL("#1502 atlas slice lacks invalidation"); return; }
+			const auto &event = invalidations[event_index++];
 			CHECK(event.record_count > 0);
-			CHECK(event.first_record == next_record);
-			CHECK(event.first_record >= p_first_record);
-			const uint64_t end = uint64_t(event.first_record) + event.record_count;
-			CHECK_MESSAGE(end <= end_record, "#1502: no invalidation may include page padding or neighboring content");
+			CHECK(uint64_t(event.first_record) * stride == write.offset);
+			CHECK(uint64_t(event.record_count) * stride == write.bytes);
 			CHECK(event.before_ready);
-			CHECK(event.writes_before <= metadata_index);
-			for (uint32_t i = p_baseline; i < metadata_index; ++i) {
-				const auto &write = p_writes[i];
-				if (write.kind != Streamer::TestWrite::ATLAS) { continue; }
-				const uint64_t first = write.offset / stride;
-				if (event.first_record < first + write.bytes / stride && first < end) {
-					CHECK_MESSAGE(event.writes_before <= i, "#1502: invalidate before the overlapping atlas write");
-				}
-			}
-			next_record = end;
+			CHECK(event.writes_before == i);
+			CHECK(event.writes_before < metadata_index);
+			invalidated_records += event.record_count;
 		}
-		CHECK_MESSAGE(next_record == end_record, "#1502: invalidation union must equal the actual payload range");
+		CHECK_MESSAGE(invalidated_records == p_record_count, "#1502: invalidation union must equal the actual payload pages");
 	}
 };
 
@@ -975,22 +1045,22 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] reused atlas run invalida
 	const uint32_t a = h.fixture.leaves[0], b = h.fixture.leaves[1];
 	const uint32_t a_first_record = h.old_meta[a].atlas_base;
 	const uint32_t record_count = h.old_meta[b].splat_count;
-	uint32_t a_page = 0, a_pages = 0, b_page = 0, b_pages = 0;
+	Vector<uint32_t> a_pages, b_pages;
+	uint32_t a_pt_base = 0, b_pt_base = 0;
 	const auto &residency = h.streamer.get_residency();
-	if (!residency.run(a, a_page, a_pages) || !residency.run(b, b_page, b_pages) || a_pages != 1 || b_pages != a_pages ||
-			b_page != a_page + a_pages || a_first_record != a_page * h.cfg.page_splats || record_count == 0 ||
-			record_count != h.old_meta[a].splat_count || record_count >= h.cfg.page_splats ||
-			h.cfg.atlas_pages - h.fixture.source.node_count <= a_pages + b_pages) {
-		FAIL("#1502 needs adjacent equal-size leaf runs, payload padding and a larger unused atlas tail"); return;
+	if (!residency.page_allocation(a, a_pages, a_pt_base) || !residency.page_allocation(b, b_pages, b_pt_base) ||
+			a_pages.size() != 1 || b_pages.size() != 1 || a_first_record != a_pages[0] * h.cfg.page_splats || record_count == 0 ||
+			record_count != h.old_meta[a].splat_count || record_count >= h.cfg.page_splats) {
+		FAIL("#1502 needs equal-size leaf pages with payload padding"); return;
 	}
-	// Warm admission reserves one page per node in demand order. Retiring the
-	// first two leaves coalesces a two-page hole; best fit chooses it over the
-	// unused 32-page tail, so demanding ONLY B must reuse A's lower address.
+	// Retire A last so the free list returns A's page to B.
 	h.demand.clear();
 	h.drawn.clear();
 	h.step(false); // Withdraw demand leases and expire drawn protection before eviction.
-	if (h.streamer._test_evict_node(a) != OK || h.streamer._test_evict_node(b) != OK) {
-		FAIL("#1502 needs both uploaded leaves evicted through the real residency path"); return;
+	if (h.streamer._test_evict_node(b) != OK) { FAIL("#1502 needs B evicted through residency"); return; }
+	for (uint32_t i = 0; i < h.cfg.retire_delay_frames; ++i) { h.step(false); }
+	if (h.streamer._test_evict_node(a) != OK) {
+		FAIL("#1502 needs A evicted through residency"); return;
 	}
 	for (uint32_t i = 0; i < h.cfg.retire_delay_frames; ++i) { h.step(false); } // Logical retirement only; no worker wait.
 	if (!h.observation_ok || residency.stats().pages_retiring != 0 || residency.state(a) != Residency::ABSENT || residency.state(b) != Residency::ABSENT) {
@@ -1009,11 +1079,13 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] reused atlas run invalida
 	if (!loaded.ready() || !h.observation_ok || residency.state(b) != Residency::RESIDENT) {
 		FAIL("#1502 B never became resident: ", loaded.describe()); return;
 	}
-	uint32_t reused_page = 0, reused_pages = 0;
-	if (!residency.run(b, reused_page, reused_pages) || reused_page * h.cfg.page_splats != a_first_record || reused_pages != a_pages) {
-		FAIL("#1502 address reuse prerequisite: B.first_record must equal A.first_record"); return;
+	Vector<uint32_t> reused_pages;
+	uint32_t reused_pt_base = 0;
+	if (!residency.page_allocation(b, reused_pages, reused_pt_base) || reused_pages.size() != 1 ||
+			reused_pages[0] != a_pages[0]) {
+		FAIL("#1502 address reuse prerequisite: B must reuse A's retired page"); return;
 	}
-	trace.check(h.writes, baseline, a_first_record, record_count, sliced);
+	trace.check(h.writes, baseline, reused_pages[0] * h.cfg.page_splats, record_count, sliced, reused_pages);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] edit shadow destination invalidates before publication") {
@@ -1023,14 +1095,14 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] edit shadow destination i
 	const uint32_t node = h.fixture.leaves[0];
 	const uint32_t first_record = h.new_meta[node].atlas_base;
 	const uint32_t record_count = h.new_meta[node].splat_count;
-	if (!h.runs[0].shadow || first_record != h.runs[0].first_page * h.cfg.page_splats || record_count == 0 ||
-			record_count >= h.runs[0].page_count * h.cfg.page_splats || first_record == h.old_meta[node].atlas_base) {
+	if (!h.runs[0].shadow || h.runs[0].pages.is_empty() || first_record != h.runs[0].pages[0] * h.cfg.page_splats || record_count == 0 ||
+			record_count >= h.runs[0].pages.size() * h.cfg.page_splats || first_record == h.old_meta[node].atlas_base) {
 		FAIL("#1502 needs a distinct shadow destination with actual payload smaller than its padded run"); return;
 	}
 	SHCacheInvalidationTrace trace(h.streamer, node, true);
 	const Streamer::Buffers buffers = trace.buffers();
 	if (!h.finish(&buffers)) { return; }
-	trace.check(h.writes, h.baseline_writes, first_record, record_count, true);
+	trace.check(h.writes, h.baseline_writes, first_record, record_count, true, h.runs[0].pages);
 }
 
 } // namespace TestHlodEditShadowTransfer

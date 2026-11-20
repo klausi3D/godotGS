@@ -103,6 +103,9 @@ layout(set = 0, binding = 9, std140) uniform Params {
 layout(set = 0, binding = 10, std430) writeonly buffer HlodDrawEntryBuffer {
     uint draw_entries[];
 } hlod_draw_entry_buffer;
+layout(set = 0, binding = 11, std430) readonly buffer HlodPageTableBuffer {
+    uint pages[];
+} hlod_page_table;
 #endif
 
 // Rotate vector `v` by quaternion `q`.
@@ -156,7 +159,32 @@ void main() {
     }
 
     uint atlas_index = chunk.atlas_base + splat_index_in_chunk;
-    if (atlas_index < chunk.atlas_base || !gs_splat_ref_can_encode(atlas_index)) {
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    if (chunk.page_table_ref != 0u) {
+        uint base = chunk.page_table_ref - 1u;
+        uint local_page = splat_index_in_chunk >> GS_HLOD_PAGE_SHIFT;
+        if (base >= uint(hlod_page_table.pages.length()) || local_page >= uint(hlod_page_table.pages.length()) - base) {
+            atomicAdd(counters.overflowed_splats, 1u);
+            return;
+        }
+        uint page = hlod_page_table.pages[base + local_page];
+        uint atlas_count = uint(atlas_gaussian_buffer.gaussians.length());
+        if (atlas_count == 0u || page > ((atlas_count - 1u) >> GS_HLOD_PAGE_SHIFT)) {
+            atomicAdd(counters.overflowed_splats, 1u);
+            return;
+        }
+        atlas_index = page * GS_HLOD_PAGE_SPLATS + (splat_index_in_chunk & GS_HLOD_PAGE_MASK);
+        if (atlas_index >= atlas_count) {
+            atomicAdd(counters.overflowed_splats, 1u);
+            return;
+        }
+    } else
+#endif
+    if (atlas_index < chunk.atlas_base) {
+        atomicAdd(counters.overflowed_splats, 1u);
+        return;
+    }
+    if (!gs_splat_ref_can_encode(atlas_index)) {
         atomicAdd(counters.overflowed_splats, 1u);
         return;
     }

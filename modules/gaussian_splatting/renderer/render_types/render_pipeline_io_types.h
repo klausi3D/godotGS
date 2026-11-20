@@ -188,6 +188,8 @@ struct InstancePipelineBuffers {
     uint32_t current_cpu_draw_domain_count = 0;
     bool hlod_relative = false;
     RID hlod_draw_entry_buffer;
+    RID hlod_page_table_buffer;
+    RID hlod_page_owner_buffer;
     uint64_t hlod_source_generation = 0;
     uint64_t hlod_content_generation = 0;
     // Origin revision the draw list's camera offsets were formed for. The list is in that frame, so every

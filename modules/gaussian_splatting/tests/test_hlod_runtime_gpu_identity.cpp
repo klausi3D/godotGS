@@ -1,5 +1,9 @@
 #include "test_macros.h"
 #include "../renderer/gpu_sorter.h"
+#include "../renderer/shader_compilation_helper.h"
+#include "../renderer/hlod_shadow_caster_plan.h"
+#include "../lod/hlod_page_pool.h"
+#include "../shaders/gs_shadow_caster.glsl.gen.h"
 #include "../renderer/tile_renderer.h"
 #include "../renderer/instance_pipeline_contract.h"
 #include "../renderer/gaussian_gpu_layout.h"
@@ -87,9 +91,9 @@ TEST_CASE("[GaussianSplatting][HLOD] unchanged RIDs with new cut content invalid
 	CHECK(trace[3] == 3);
 	CHECK(sizeof(SplatRefGPU) == 8);
 	CHECK(sizeof(ChunkMetaGPU) == 64);
-	CHECK(offsetof(ChunkMetaGPU, node_center_x) == 48);
-	CHECK(offsetof(ChunkMetaGPU, node_center_y) == 52);
-	CHECK(offsetof(ChunkMetaGPU, node_center_z) == 56);
+	CHECK(offsetof(ChunkMetaGPU, page_table_ref) == 48);
+	CHECK(offsetof(ChunkMetaGPU, reserved_node_y) == 52);
+	CHECK(offsetof(ChunkMetaGPU, reserved_node_z) == 56);
 }
 }
 
@@ -165,14 +169,12 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         for (uint32_t axis = 0; axis < 3; ++axis) { splats[i].scale[axis] = 0.125f; }
         chunks[i].atlas_base = i;
         chunks[i].splat_count = 1;
-        chunks[i].node_center_x = 16.0f;
-        chunks[i].node_center_z = i == 0 ? -3.0f : -7.5f;
     }
     InstanceDataGPU instance = {};
     instance.rotation[3] = instance.inv_rotation[3] = instance.translation_scale[3] = 1.0f;
     instance.params[0] = instance.params[1] = 1.0f;
     instance.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO;
-    // Identity camera: the per-draw camera offset equals the node centre the chunk table carries.
+    // Identity camera: the per-draw camera offset places each node.
     const DrawnNodeGPU draw_list[2] = {
         { 0u, 0u, 1.0f, 0u, { 16.0f, 0.0f, -3.0f, 0.0f } },
         { 0u, 1u, 1.0f, 0u, { 16.0f, 0.0f, -7.5f, 0.0f } } };
@@ -183,6 +185,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
     buffers.visible_chunk_buffer = create(sizeof(draw_list), draw_list);
     buffers.splat_ref_buffer = create(256 * sizeof(SplatRefGPU));
     buffers.hlod_draw_entry_buffer = create(256 * sizeof(uint32_t));
+    const uint32_t free_page = UINT32_MAX;
+    buffers.hlod_page_table_buffer = create(sizeof(uint32_t), &free_page);
+    buffers.hlod_page_owner_buffer = create(sizeof(uint32_t), &free_page);
     buffers.counter_buffer = create(sizeof(counters), counters);
     buffers.chunk_dispatch_buffer = create(3 * sizeof(uint32_t), nullptr, true);
     buffers.indirect_count_buffer = create(sizeof(GaussianSplatting::IndirectDispatchLayout), nullptr, true);
@@ -878,5 +883,147 @@ TEST_CASE("[GaussianSplatting][HLOD][Ledger][World][SceneTree][RequiresGPU] repe
     CHECK(compositor->ensure_hlod_scratch(rd, format, Size2i(128, 128)));
     CHECK(compositor->get_hlod_scratch_byte_upper_bound(rd, after_clear));
     CHECK(after_clear == uint64_t(128) * 128 * 4);
+}
+}
+
+namespace TestHlodRuntimeGpuIdentity {
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page placement preserves drawn pixels and corrupted mapping changes them (#1514)") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GpuSorting harness RenderingDevice required"); return; }
+    struct Resources {
+        RenderingDevice *rd;
+        LocalVector<RID> owned;
+        explicit Resources(RenderingDevice *p_rd) : rd(p_rd) {}
+        ~Resources() { for (uint32_t i = owned.size(); i-- > 0;) { rd->free(owned[i]); } }
+        RID retain(RID p_rid) { if (p_rid.is_valid()) { owned.push_back(p_rid); } return p_rid; }
+        RID buffer(uint32_t p_bytes, const void *p_data) {
+            Vector<uint8_t> bytes;
+            if (bytes.resize(p_bytes) != OK) { return RID(); }
+            memcpy(bytes.ptrw(), p_data, p_bytes);
+            return retain(rd->storage_buffer_create(p_bytes, bytes));
+        }
+    } resources(rd);
+    RD::TextureFormat format;
+    format.format = RD::DATA_FORMAT_D32_SFLOAT;
+    format.width = format.height = 64;
+    format.usage_bits = RD::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+    if (!rd->texture_is_format_supported_for_usage(format.format, format.usage_bits)) {
+        FAIL("D32 shadow target with readback is required"); return;
+    }
+    const RID target = resources.retain(rd->texture_create(format, RD::TextureView()));
+    Vector<RID> attachments;
+    attachments.push_back(target);
+    const RID framebuffer = target.is_valid() ? resources.retain(rd->framebuffer_create(attachments)) : RID();
+    if (!framebuffer.is_valid()) { FAIL("page-table draw target unavailable"); return; }
+    GsShadowCasterShaderRD source;
+    Vector<String> variants;
+    variants.push_back(String());
+    source.initialize(variants);
+    const RID version = source.version_create();
+    if (!version.is_valid()) { FAIL("production shadow shader source unavailable"); return; }
+    const Vector<String> stages = source.version_build_variant_stage_sources(version, 0);
+    source.version_free(version);
+    if (stages.size() <= RD::SHADER_STAGE_FRAGMENT) { FAIL("production shadow stages unavailable"); return; }
+    String shader_error;
+    const RID shader = resources.retain(ShaderCompilationHelper::compile_graphics_shader_on_device(rd,
+            stages[RD::SHADER_STAGE_VERTEX], stages[RD::SHADER_STAGE_FRAGMENT], "hlod_page_table_pixels", Vector<String>(), &shader_error));
+    if (!shader.is_valid()) { FAIL("production shadow compilation failed: ", shader_error.utf8().get_data()); return; }
+    RD::PipelineRasterizationState raster;
+    raster.cull_mode = RD::POLYGON_CULL_DISABLED;
+    RD::PipelineDepthStencilState depth;
+    depth.enable_depth_test = depth.enable_depth_write = true;
+    depth.depth_compare_operator = RD::COMPARE_OP_GREATER_OR_EQUAL;
+    const RID pipeline = resources.retain(rd->render_pipeline_create(shader, rd->framebuffer_get_format(framebuffer), RD::INVALID_ID,
+            RD::RENDER_PRIMITIVE_TRIANGLES, raster, RD::PipelineMultisampleState(), depth, RD::PipelineColorBlendState::create_disabled(0)));
+    if (!pipeline.is_valid()) { FAIL("production shadow pipeline unavailable"); return; }
+    constexpr uint32_t page_splats = GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
+    constexpr uint32_t page_capacity = 4;
+    constexpr uint32_t node_splats = page_splats + 1;
+    const uint32_t slot_width = (gs_hlod::kMaxNodeSplats + page_splats - 1u) / page_splats;
+    Vector<uint8_t> pixels[3];
+    Vector<uint32_t> placements[2];
+    for (uint32_t pass = 0; pass < 3; ++pass) {
+        gs_hlod_runtime::HlodPagePool pool;
+        if (!pool.reset(page_capacity, slot_width)) { FAIL("page-pool fixture allocation failed"); return; }
+        if (pass != 0) { pool.test_reverse_free_pages(); }
+        Vector<uint32_t> pages;
+        uint32_t pt_base = 0;
+        if (!pool.allocate(0, 2, pages, pt_base) || pages.size() != 2) { FAIL("two-page node placement unavailable"); return; }
+        if (pass < 2) { placements[pass] = pages; }
+        Vector<PackedGaussian> atlas;
+        if (atlas.resize(page_capacity * page_splats) != OK) { FAIL("page-pool atlas allocation failed"); return; }
+        atlas.fill(PackedGaussian{});
+        // Only the first record of each logical page is opaque; losing either page changes the pixels.
+        for (uint32_t local_page = 0; local_page < 2; ++local_page) {
+            PackedGaussian &g = atlas.write[pages[local_page] * page_splats];
+            g.position[0] = local_page == 0 ? -0.4f : 0.4f;
+            g.position[2] = 0.5f;
+            g.opacity = 1.0f;
+            g.rotation[3] = 1.0f;
+            for (uint32_t axis = 0; axis < 3; ++axis) { g.scale[axis] = 0.1f; }
+        }
+        ChunkMetaGPU meta = {};
+        meta.atlas_base = pages[0] * page_splats;
+        meta.splat_count = node_splats;
+        meta.page_table_ref = pt_base + 1u;
+        CHECK(meta.page_table_ref != 0);
+        for (uint32_t k = 0; k < 2; ++k) { CHECK(pool.page_table()[meta.page_table_ref - 1u + k] == pages[k]); }
+        Vector<uint32_t> forward = pool.page_table();
+        if (pass == 2) { forward.write[pt_base] = gs_hlod_runtime::HlodPagePool::FREE; }
+        InstanceDataGPU instance = {};
+        instance.rotation[3] = instance.inv_rotation[3] = instance.translation_scale[3] = 1.0f;
+        instance.params[0] = 1.0f;
+        instance.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+        const DrawnNodeGPU drawn = { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } };
+        const uint32_t casts = 1u;
+        const RID inputs[6] = {
+            resources.buffer(uint32_t(atlas.size()) * sizeof(PackedGaussian), atlas.ptr()),
+            resources.buffer(sizeof(instance), &instance), resources.buffer(sizeof(meta), &meta),
+            resources.buffer(sizeof(drawn), &drawn), resources.buffer(sizeof(casts), &casts),
+            resources.buffer(uint32_t(forward.size()) * sizeof(uint32_t), forward.ptr())
+        };
+        Vector<RD::Uniform> uniforms;
+        for (uint32_t binding = 0; binding < 6; ++binding) {
+            if (!inputs[binding].is_valid()) { FAIL("page-table draw input unavailable"); return; }
+            RD::Uniform u;
+            u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+            u.binding = binding;
+            u.append_id(inputs[binding]);
+            uniforms.push_back(u);
+        }
+        const RID set = resources.retain(rd->uniform_set_create(uniforms, shader, 0));
+        if (!set.is_valid()) { FAIL("page-table draw uniform set unavailable"); return; }
+        struct Push { float matrix[16]; float viewport[4]; uint32_t counts[4]; } push{};
+        static_assert(sizeof(Push) == 96, "shadow page-table test push layout");
+        for (uint32_t axis = 0; axis < 4; ++axis) { push.matrix[axis * 5] = 1.0f; }
+        push.viewport[0] = push.viewport[1] = 64.0f;
+        push.viewport[2] = gs_shadow_caster::kAlphaThreshold;
+        push.viewport[3] = gs_shadow_caster::kLowPassTexels2;
+        push.counts[0] = 1;
+        push.counts[1] = node_splats;
+        const float opacity = 1.0f;
+        memcpy(&push.counts[3], &opacity, sizeof(opacity));
+        const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_CLEAR_DEPTH, VectorView<Color>(), 0.0f);
+        if (list == RD::INVALID_ID) { FAIL("page-table draw list unavailable"); return; }
+        rd->draw_list_bind_render_pipeline(list, pipeline);
+        rd->draw_list_bind_uniform_set(list, set, 0);
+        rd->draw_list_set_push_constant(list, &push, sizeof(push));
+        rd->draw_list_draw(list, false, node_splats, 6);
+        rd->draw_list_end();
+        pixels[pass] = rd->texture_get_data(target, 0);
+        if (pixels[pass].size() != 64 * 64 * int(sizeof(float))) { FAIL("complete drawn depth pixels required"); return; }
+    }
+    if (placements[0].size() != 2 || placements[1].size() != 2) { FAIL("both drawn page placements required"); return; }
+    CHECK(placements[0][1] == placements[0][0] + 1u);
+    CHECK(placements[1][1] != placements[1][0] + 1u);
+    uint32_t covered = 0;
+    for (uint32_t i = 0; i < 64 * 64; ++i) {
+        float z = 0;
+        memcpy(&z, pixels[0].ptr() + i * sizeof(float), sizeof(z));
+        covered += z > 0.0f ? 1u : 0u;
+    }
+    CHECK(covered > 0);
+    CHECK(memcmp(pixels[0].ptr(), pixels[1].ptr(), size_t(pixels[0].size())) == 0);
+    CHECK(memcmp(pixels[1].ptr(), pixels[2].ptr(), size_t(pixels[1].size())) != 0);
 }
 }

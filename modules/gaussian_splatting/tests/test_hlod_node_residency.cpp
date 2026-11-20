@@ -390,7 +390,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] the protected closure prevents e
 	CHECK(sim.res.is_protected(13));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Residency] pressure telemetry distinguishes measured zero, fullness and fragmentation") {
+TEST_CASE("[GaussianSplatting][HLOD][Residency] pressure telemetry distinguishes measured zero and fullness while fragmented pages remain usable") {
 	{
 		Sim sim;
 		CHECK_FALSE(sim.res.stats().pressure_measured);
@@ -435,7 +435,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] pressure telemetry distinguishes
 	}
 	{
 		// Root at page 0, node 2 at pages 1-2, node 4 at page 3. After evicting 2 there
-		// are three free pages, split by protected node 4. Node 3 needs three contiguous pages.
+		// are three free pages, split by protected node 4. Node 3 needs three pages.
 		Residency res;
 		Vector<Residency::NodeInfo> infos;
 		infos.resize(5);
@@ -457,16 +457,16 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] pressure telemetry distinguishes
 		LocalVector<Residency::Ticket> tickets;
 		const uint32_t demand[1] = { 3 };
 		const auto result = res.request(demand, 1, tickets);
-		CHECK(result.skipped_groups == 1);
-		CHECK(result.fragmented_groups == 1);
+		CHECK(result.skipped_groups == 0);
+		CHECK(result.fragmented_groups == 0);
 		CHECK(result.evicted == 0);
-		CHECK(tickets.size() == 0);
+		CHECK(tickets.size() == 1);
 		const auto stats = res.stats();
 		CHECK(stats.pressure_measured);
-		CHECK(stats.pages_free == 3);
-		CHECK(stats.largest_free_run == 2);
-		CHECK(stats.allocation_refused_total == 1);
-		CHECK(stats.allocation_no_contiguous_run_total == 1);
+		CHECK(stats.pages_free == 0);
+		CHECK(stats.largest_free_run == 0);
+		CHECK(stats.allocation_refused_total == 0);
+		CHECK(stats.allocation_no_contiguous_run_total == 0);
 		CHECK(stats.allocation_protected_capacity_total == 0);
 		CHECK(stats.allocation_over_page_budget_total == 0);
 	}
@@ -1109,11 +1109,11 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] full occupancy abandons lower wo
 	CHECK(exact_cover(sim, 4));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Residency] irreducible drawn fragmentation retains complete coverage and bounds unchanged retries (#1483 B)") {
+TEST_CASE("[GaussianSplatting][HLOD][Residency] drawn fragmentation admits the whole transition and retains complete coverage (#1483 B, #1514)") {
 	Sim sim;
 	sim.data.instantiate();
 	binary_tree(*sim.data.ptr(), 3, 1000, 1000);
-	sim.data->nodes.write[3].topology.payload_count = 2500; // Three contiguous pages.
+	sim.data->nodes.write[3].topology.payload_count = 2500; // Three pages.
 	sim.data->nodes.write[5].topology.payload_count = 1500;
 	sim.data->nodes.write[6].topology.payload_count = 1500;
 	Vector<Residency::NodeInfo> infos;
@@ -1131,33 +1131,35 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] irreducible drawn fragmentation 
 	sim.res.request(nullptr, 0, withdrawn); // No transition from fixture construction still owns a lease.
 	if (!sim.res.evict(5) || !sim.res.evict(6)) { FAIL("could not remove the two fillers"); return; }
 	CHECK(sim.res.stats().pages_free == 4);
-	CHECK(sim.res.stats().largest_free_run == 2);
+	CHECK(sim.res.stats().largest_free_run == 4);
 	sim.frame = 20;
 	sim.req.page_splats = 1024;
-	sim.req.page_budget = 7; // The whole desired closure fits; its three-page run cannot be placed.
+	sim.req.page_budget = 7; // The whole desired closure fits in the free pages.
 	sim.step();
 	if (sim.demand != std::vector<uint32_t>({ 3, 4 })) {
-		FAIL("fragmentation must leave the highest-priority transition as unmet selection demand"); return;
+		FAIL("expected the highest-priority refinement demand"); return;
 	}
-	CHECK(sim.request_result.fragmented_groups == 1);
-	CHECK(sim.tickets.is_empty());
-	const auto blocked = sim.res.stats();
-	CHECK(blocked.allocation_refused_total > 0);
-	CHECK(blocked.transition_state == Residency::COARSE_PLACEMENT_BLOCKED);
-	// With no residency/cap/owner change, coarse blockage must suppress further placement churn.
+	CHECK(sim.request_result.fragmented_groups == 0);
+	CHECK(sim.tickets.size() == 2);
+	CHECK(sim.request_result.evicted == 0);
+	CHECK(sim.res.stats().allocation_refused_total == 0);
+	CHECK(sim.res.stats().transition_state == Residency::NORMAL);
+	sim.arrive_all();
+	const auto placed = sim.res.stats();
+	// Completed coverage stays stable without eviction or repeated requests.
 	for (uint32_t retry = 0; retry < 12; ++retry) {
 		sim.step();
 		CHECK(sim.cut.status == CutHistory::COMPLETE);
 		CHECK(every_drawn_resident(sim));
 		CHECK(exact_cover(sim, 3));
-		CHECK(sim.demand.size() > 0); // Empty executable work must never masquerade as satisfied quality.
+		CHECK(sim.demand.empty()); // The desired cut was admitted and completed.
 		CHECK(sim.tickets.is_empty());
 		CHECK(sim.res.stats().pages_in_flight == 0);
-		CHECK(sim.res.stats().evicted_total == blocked.evicted_total);
-		CHECK(sim.res.stats().requested_total == blocked.requested_total);
-		CHECK(sim.res.stats().transition_state == Residency::COARSE_PLACEMENT_BLOCKED);
+		CHECK(sim.res.stats().evicted_total == placed.evicted_total);
+		CHECK(sim.res.stats().requested_total == placed.requested_total);
+		CHECK(sim.res.stats().transition_state == Residency::NORMAL);
 	}
-	CHECK(sim.res.stats().allocation_refused_total == blocked.allocation_refused_total);
+	CHECK(sim.res.stats().allocation_refused_total == placed.allocation_refused_total);
 }
 
 
@@ -1418,19 +1420,20 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a 72-request bootstrap reserves 
 	CHECK(started.requested == cap);
 	CHECK(started.capped);
 	if (first.size() != cap) { FAIL("bootstrap must use the available 64-request frame budget, got ", first.size()); return; }
-	std::vector<uint32_t> reserved_pages(count);
+	std::vector<Vector<uint32_t>> reserved_pages(count);
+	std::vector<uint32_t> reserved_bases(count);
 	for (uint32_t i = 0; i < count; ++i) {
-		uint32_t pages = 0;
-		if (!res.run(frontier[i], reserved_pages[i], pages)) {
+		if (!res.page_allocation(frontier[i], reserved_pages[i], reserved_bases[i])) {
 			FAIL("bootstrap did not reserve every run before starting its first request batch"); return;
 		}
-		CHECK(pages == 1);
+		CHECK(reserved_pages[i].size() == 1);
 		CHECK(res.is_protected(frontier[i]));
 	}
 	CHECK(res.stats().pages_free == 0); // The eight deferred requests already own reserved runs.
 	for (uint32_t i = 0; i < cap; ++i) {
 		CHECK(first[i].node == frontier[i]);
-		CHECK(first[i].first_page == reserved_pages[i]);
+		CHECK(first[i].pages == reserved_pages[i]);
+		CHECK(first[i].pt_base == reserved_bases[i]);
 		if (!res.begin_upload(first[i]) || !res.finish_upload(first[i], true)) {
 			FAIL("first bootstrap batch could not become resident"); return;
 		}
@@ -1459,8 +1462,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a 72-request bootstrap reserves 
 	if (last.size() != count - cap) { FAIL("remaining eight bootstrap requests did not start in the next frame"); return; }
 	for (uint32_t i = 0; i < last.size(); ++i) {
 		CHECK(last[i].node == frontier[cap + i]);
-		CHECK(last[i].first_page == reserved_pages[cap + i]); // No second allocation or run movement.
-		CHECK(last[i].page_count == 1);
+		CHECK(last[i].pages == reserved_pages[cap + i]); // The reservation does not move.
+		CHECK(last[i].pt_base == reserved_bases[cap + i]);
+		CHECK(last[i].pages.size() == 1);
 		if (!res.begin_upload(last[i]) || !res.finish_upload(last[i], true)) {
 			FAIL("final bootstrap batch could not become resident"); return;
 		}
@@ -1505,8 +1509,8 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] bootstrap plans within 64 reques
 		for (uint32_t i = 0; i < count; ++i) {
 			const auto &ticket = tickets[i];
 			CHECK(ticket.node == frontier[i]);
-			CHECK(ticket.first_page == i + 1); // Fresh one-page atlas: root occupies page zero.
-			CHECK(ticket.page_count == 1);
+			CHECK(res.allocation_matches(ticket));
+			CHECK(ticket.pages.size() == 1);
 			CHECK(ticket.request_generation == i + 2); // Root was the sole earlier request.
 			CHECK(ticket.world_generation == 1);
 			CHECK(ticket.device_generation == 1);
@@ -1701,7 +1705,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] the resident frontier kept by an
 	CHECK(tickets.size() == 0);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as such, and a fragmentation stall ends by evicting an unprotected neighbour") {
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child remains blocked while fragmented free pages admit without neighbour eviction") {
 	// Blocked: a child failed permanently, so the transition can never complete.
 	{
 		Sim sim;
@@ -1727,7 +1731,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as su
 		CHECK(result.fragmented_groups == 0);
 		CHECK(tickets.size() == 0);
 	}
-	// Fragmented: pages 1-2 and 4 are free (3 in total, largest run 2); node 3 needs 3 contiguous pages.
+	// Fragmented: pages 1-2 and 4 are free (3 in total, largest run 2); node 3 needs 3 pages.
 	// Node 4 sits at page 3 between the holes. (Node 3's parent is 1, so node 4 is not its sibling.)
 	auto fragmented_atlas = [](Residency &r_res) {
 		Vector<Residency::NodeInfo> infos;
@@ -1749,19 +1753,18 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as su
 		Residency res;
 		if (!fragmented_atlas(res)) { FAIL("fragmented atlas setup failed"); return; }
 		CHECK(res.stats().pages_free == 3);
-		CHECK(res.stats().largest_free_run == 2);
+		CHECK(res.stats().largest_free_run == 3);
 		LocalVector<Residency::Ticket> tickets;
 		const uint32_t want[1] = { 3 };
 		const auto result = res.request(want, 1, tickets);
-		// The stall ends: the unprotected neighbour is evicted and the 3 pages form one run.
-		CHECK(result.evicted == 1);
+		// Scattered pages satisfy demand without evicting the neighbour.
+		CHECK(result.evicted == 0);
 		CHECK(result.requested == 1);
-		CHECK(res.state(4) == Residency::ABSENT);
+		CHECK(res.state(4) == Residency::RESIDENT);
 		CHECK(res.state(3) == Residency::LOADING);
 		CHECK(res.state(0) == Residency::RESIDENT);
 	}
-	// Same atlas, but the neighbour is protected (drawn): no window exists, nothing is evicted, and the stall
-	// is reported as fragmentation, not as a budget or a failure.
+	// The same admission succeeds while the neighbour is drawn and protected.
 	{
 		Residency res;
 		if (!fragmented_atlas(res)) { FAIL("fragmented atlas setup failed"); return; }
@@ -1770,16 +1773,16 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as su
 		LocalVector<Residency::Ticket> tickets;
 		const uint32_t want[1] = { 3 };
 		const auto result = res.request(want, 1, tickets);
-		CHECK(result.skipped_groups == 1);
-		CHECK(result.fragmented_groups == 1);
+		CHECK(result.skipped_groups == 0);
+		CHECK(result.fragmented_groups == 0);
 		CHECK(result.blocked_groups == 0);
 		CHECK(result.evicted == 0);
-		CHECK(tickets.size() == 0);
+		CHECK(tickets.size() == 1);
 		CHECK(res.state(4) == Residency::RESIDENT);
 	}
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay a fragmentation stall evicts one window, and a retiring shortfall evicts nothing") {
+TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay scattered pages admit together after retirement without bystander eviction") {
 	// Cap 8, retire delay 3. Pages: p0 root, then filler/bystander pairs, so after the fillers retire the free
 	// pages are single holes (p1, p3, p5, p7) with a bystander between each: 4 pages free, no run of 2.
 	Vector<Residency::NodeInfo> infos;
@@ -1800,40 +1803,284 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay a
 	res.begin_frame(20);
 	res.withdraw_transitions(); // Fillers are completed setup data, not an admitted sibling group under test.
 	for (uint32_t n : { 7u, 8u, 9u, 10u }) { CHECK(res.evict(n)); }
-	res.begin_frame(23); // The fillers retired: p1, p3, p5, p7 are free.
-	CHECK(res.stats().pages_free == 4);
-	CHECK(res.stats().largest_free_run == 1);
 	LocalVector<Residency::Ticket> tickets;
-	const uint32_t group[2] = { 2, 3 }; // 4 pages in two 2-page runs.
+	const uint32_t group[2] = { 2, 3 };
+	// Retirement still owns all four pages; no extra eviction is needed while they retire.
 	auto result = res.request(group, 2, tickets);
-	// One window is evicted (its pages retire for 3 frames, so nothing can be placed yet); the other bystanders
-	// stay resident until that window has retired.
-	CHECK(result.evicted == 1);
 	CHECK(result.requested == 0);
-	uint32_t resident_bystanders = 0;
-	for (uint32_t n : { 4u, 5u, 6u }) { resident_bystanders += res.state(n) == Residency::RESIDENT ? 1u : 0u; }
-	CHECK(resident_bystanders == 2);
-	// The next frames: the retiring window is awaited, no further bystander is evicted.
-	res.begin_frame(24);
-	result = res.request(group, 2, tickets);
 	CHECK(result.evicted == 0);
-	res.begin_frame(25);
-	result = res.request(group, 2, tickets);
-	CHECK(result.evicted == 0);
-	// Once the first window retired it holds one 2-page run, but both runs are needed (all or none): the second
-	// window is evicted now, one at a time, and the group is placed when that one has retired too.
-	res.begin_frame(26);
-	result = res.request(group, 2, tickets);
-	CHECK(result.requested == 0);
-	CHECK(result.evicted == 1);
-	res.begin_frame(27);
-	result = res.request(group, 2, tickets);
-	CHECK(result.evicted == 0);
-	res.begin_frame(29);
+	CHECK(result.pending_retire_groups == 1);
+	for (uint64_t frame : { 21u, 22u }) {
+		res.begin_frame(frame);
+		result = res.request(group, 2, tickets);
+		CHECK(result.requested == 0);
+		CHECK(result.evicted == 0);
+		CHECK(tickets.is_empty());
+	}
+	res.begin_frame(23); // All four isolated pages are now free.
+	CHECK(res.stats().pages_free == 4);
+	CHECK(res.stats().largest_free_run == 4);
 	result = res.request(group, 2, tickets);
 	CHECK(result.requested == 2);
 	CHECK(result.evicted == 0);
-	CHECK(res.state(6) == Residency::RESIDENT); // The third bystander was never needed.
+	CHECK(result.fragmented_groups == 0);
+	CHECK(tickets.size() == 2);
+	uint32_t resident_bystanders = 0;
+	for (uint32_t n : { 4u, 5u, 6u }) { resident_bystanders += res.state(n) == Residency::RESIDENT ? 1u : 0u; }
+	CHECK(resident_bystanders == 3);
+	CHECK(res.stats().pages_retiring == 0);
+	CHECK(res.stats().allocation_no_contiguous_run_total == 0);
+}
+
+static bool fragmented_page_pool(Residency &r_res) {
+	Vector<Residency::NodeInfo> infos;
+	if (infos.resize(11) != OK) { return false; }
+	const uint32_t parents[11] = { UINT32_MAX, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 };
+	for (uint32_t i = 0; i < 11; ++i) {
+		infos.write[i].splat_count = i == 2 || i == 3 ? 1500 : 1000;
+		infos.write[i].parent = parents[i];
+		infos.write[i].height = i == 0 ? 2 : (i == 1 ? 1 : 0);
+	}
+	if (!r_res.reset(infos, config(9, 3), 1, 1)) { return false; }
+	// Root and parent, then alternating fillers and bystanders, fill all nine pages.
+	uint64_t frame = 1;
+	for (uint32_t node : { 0u, 1u, 7u, 4u, 8u, 5u, 9u, 6u, 10u }) {
+		if (!make_resident_at(r_res, node, frame++)) { return false; }
+	}
+	r_res.begin_frame(20);
+	r_res.withdraw_transitions();
+	for (uint32_t node : { 7u, 8u, 9u, 10u }) {
+		if (!r_res.evict(node)) { return false; }
+	}
+	r_res.begin_frame(23); // Retired fillers leave isolated free pages 2, 4, 6 and 8.
+	return true;
+}
+
+static bool isolated_free_pages(const Residency &p_res) {
+	bool previous_free = false;
+	uint32_t free = 0;
+	for (uint32_t owner : p_res.page_owners()) {
+		const bool current_free = owner == Residency::FREE_PAGE;
+		if (current_free && previous_free) { return false; }
+		free += current_free ? 1u : 0u;
+		previous_free = current_free;
+	}
+	return free == p_res.stats().pages_free;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a fragmented pool places a group in the same frame when the free pages suffice (#1514)") {
+	Residency res;
+	if (!fragmented_page_pool(res)) { FAIL("could not construct the fragmented page pool"); return; }
+	const auto before = res.stats();
+	if (before.pages_free != 4 || before.largest_free_run != 4 || before.pages_retiring != 0 ||
+			res.pages_for(2) != 2 || res.pages_for(3) != 2 || !isolated_free_pages(res)) {
+		FAIL("expected four isolated free pages for two two-page siblings"); return;
+	}
+	LocalVector<Residency::Ticket> tickets;
+	const uint32_t group[2] = { 2, 3 };
+	const auto result = res.request(group, 2, tickets);
+	CHECK(result.requested == 2);
+	CHECK(tickets.size() == 2);
+	for (uint32_t node : group) {
+		uint32_t matching_tickets = 0;
+		for (const auto &ticket : tickets) {
+			if (ticket.node == node && !ticket.shadow && res.is_pending(ticket)) { ++matching_tickets; }
+			CHECK(res.allocation_matches(ticket));
+		}
+		CHECK(matching_tickets == 1);
+	}
+	const auto after = res.stats();
+	CHECK(result.fragmented_groups == 0);
+	CHECK(after.allocation_no_contiguous_run_total - before.allocation_no_contiguous_run_total == 0);
+	CHECK(after.evicted_total - before.evicted_total == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a fragmented pool places edit shadows in the same frame when the free pages suffice (#1514)") {
+	Residency res;
+	if (!fragmented_page_pool(res)) { FAIL("could not construct the fragmented page pool"); return; }
+	const auto before = res.stats();
+	if (before.pages_free != 4 || before.largest_free_run != 4 || before.pages_retiring != 0 ||
+			res.pages_for(2) != 2 || res.pages_for(3) != 2 || !isolated_free_pages(res)) {
+		FAIL("expected four isolated free pages for two two-page shadows"); return;
+	}
+	LocalVector<Residency::Ticket> tickets;
+	const Residency::EditedLeaf leaves[2] = { { 2, 1500 }, { 3, 1500 } };
+	CHECK(res.stage_edit(1, leaves, 2, tickets) == Residency::EDIT_OK);
+	res.advance_edit(tickets);
+	CHECK(tickets.size() == 2);
+	for (const auto &leaf : leaves) {
+		uint32_t matching_tickets = 0;
+		for (const auto &ticket : tickets) {
+			if (ticket.node == leaf.node && ticket.shadow && res.is_shadow_pending(ticket)) { ++matching_tickets; }
+			CHECK(res.allocation_matches(ticket));
+		}
+		CHECK(matching_tickets == 1);
+	}
+	const auto after = res.stats();
+	CHECK(after.pages_shadow == 4);
+	CHECK_FALSE(after.edit_waiting_for_space);
+	CHECK(after.evicted_total - before.evicted_total == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] the contiguous-allocation control refuses a fragmented group (#1514)") {
+	Residency res;
+	if (!fragmented_page_pool(res) || !isolated_free_pages(res)) { FAIL("could not construct isolated free pages"); return; }
+	res.test_set_require_contiguous(true);
+	const auto before = res.stats();
+	LocalVector<Residency::Ticket> tickets;
+	const uint32_t group[2] = { 2, 3 };
+	const auto result = res.request(group, 2, tickets);
+	CHECK(result.requested == 0);
+	CHECK(tickets.is_empty());
+	CHECK(res.state(2) == Residency::ABSENT);
+	CHECK(res.state(3) == Residency::ABSENT);
+	CHECK(res.stats().pages_free == before.pages_free);
+	CHECK(res.stats().evicted_total == before.evicted_total);
+	res.test_set_require_contiguous(false);
+	res.withdraw_transitions();
+	CHECK(res.request(group, 2, tickets).requested == 2);
+	CHECK(tickets.size() == 2);
+}
+
+static void check_page_tables(const Residency &p_res, const LocalVector<Residency::Ticket> &p_retiring) {
+	const uint32_t capacity = p_res.config().page_capacity;
+	const uint32_t width = p_res.max_pages_per_node();
+	if (uint64_t(p_res.page_table().size()) != uint64_t(capacity) * width || uint32_t(p_res.page_owners().size()) != capacity) {
+		FAIL("page-table buffers do not match atlas capacity"); return;
+	}
+	Vector<uint32_t> expected;
+	Vector<uint8_t> occupied_slots;
+	if (expected.resize(capacity) != OK || occupied_slots.resize(capacity) != OK || width == 0) {
+		FAIL("could not prepare page-table accounting"); return;
+	}
+	expected.fill(Residency::FREE_PAGE);
+	occupied_slots.fill(0);
+	uint32_t pages_owned = 0;
+	auto observe = [&](uint32_t p_node, const Vector<uint32_t> &p_pages, uint32_t p_base) {
+		if (p_pages.is_empty() || p_base % width != 0 || p_base / width >= capacity ||
+				uint64_t(p_base) + p_pages.size() > uint64_t(p_res.page_table().size())) {
+			FAIL("invalid owned page-table slot"); return;
+		}
+		CHECK(occupied_slots[p_base / width] == 0);
+		occupied_slots.write[p_base / width] = 1;
+		for (uint32_t k = 0; k < uint32_t(p_pages.size()); ++k) {
+			const uint32_t page = p_pages[k];
+			if (page >= capacity) { FAIL("owned page exceeds atlas capacity"); return; }
+			CHECK(expected[page] == Residency::FREE_PAGE);
+			expected.write[page] = p_node;
+			CHECK(p_res.page_table()[p_base + k] == page);
+			++pages_owned;
+		}
+	};
+	for (uint32_t node = 0; node < p_res.node_count(); ++node) {
+		Vector<uint32_t> pages;
+		uint32_t base = 0;
+		if (p_res.page_allocation(node, pages, base)) { observe(node, pages, base); }
+		Residency::Ticket shadow;
+		if (p_res.shadow_ticket(node, shadow)) {
+			CHECK(p_res.allocation_matches(shadow));
+			observe(node, shadow.pages, shadow.pt_base);
+		}
+	}
+	for (const auto &ticket : p_retiring) { observe(ticket.node, ticket.pages, ticket.pt_base); }
+	CHECK(p_res.page_owners() == expected);
+	for (uint32_t slot = 0; slot < capacity; ++slot) {
+		if (!occupied_slots[slot]) {
+			for (uint32_t k = 0; k < width; ++k) { CHECK(p_res.page_table()[slot * width + k] == Residency::FREE_PAGE); }
+		}
+	}
+	const auto stats = p_res.stats();
+	CHECK(pages_owned == stats.pages_resident + stats.pages_in_flight + stats.pages_retiring);
+	CHECK(stats.pages_free + pages_owned == capacity);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] forward and reverse tables retain ownership through evict retire and readmit (#1514)") {
+	Residency res;
+	if (!fragmented_page_pool(res)) { FAIL("could not construct the fragmented page pool"); return; }
+	LocalVector<Residency::Ticket> retired;
+	check_page_tables(res, retired);
+	LocalVector<Residency::Ticket> tickets;
+	const uint32_t group[2] = { 2, 3 };
+	res.request(group, 2, tickets);
+	if (tickets.size() != 2) { FAIL("expected the whole two-node refinement group"); return; }
+	for (const auto &ticket : tickets) {
+		CHECK(res.allocation_matches(ticket));
+		if (!res.begin_upload(ticket) || !res.finish_upload(ticket, true)) { FAIL("could not complete page-list payload"); return; }
+	}
+	check_page_tables(res, retired);
+	for (uint64_t frame : { 24u, 28u, 32u }) {
+		res.begin_frame(frame);
+		res.withdraw_transitions();
+		Residency::Ticket old;
+		for (const auto &ticket : tickets) { if (ticket.node == 2) { old = ticket; } }
+		if (!old.valid() || !res.evict(2)) { FAIL("could not evict the page-list node"); return; }
+		retired.push_back(old);
+		CHECK(res.stats().pages_retiring == 2);
+		check_page_tables(res, retired);
+		res.begin_frame(frame + 2);
+		check_page_tables(res, retired);
+		res.begin_frame(frame + 3);
+		retired.clear();
+		CHECK(res.stats().pages_retiring == 0);
+		check_page_tables(res, retired);
+		tickets.clear();
+		const uint32_t node = 2;
+		res.request(&node, 1, tickets);
+		if (tickets.size() != 1) { FAIL("retired pages did not admit their node again"); return; }
+		CHECK(res.allocation_matches(tickets[0]));
+		CHECK_FALSE(res.allocation_matches(old));
+		if (!res.begin_upload(tickets[0]) || !res.finish_upload(tickets[0], true)) { FAIL("readmitted node could not become resident"); return; }
+		check_page_tables(res, retired);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] edit commit swaps page lists and retains old forward slots until retirement (#1514)") {
+	Residency res;
+	Vector<Residency::NodeInfo> infos;
+	if (infos.resize(3) != OK) { FAIL("could not prepare edit nodes"); return; }
+	for (uint32_t i = 0; i < 3; ++i) {
+		infos.write[i].parent = i == 0 ? UINT32_MAX : 0;
+		infos.write[i].splat_count = i == 0 ? 1000 : 1500;
+	}
+	if (!res.reset(infos, config(10, 3), 1, 1)) { FAIL("could not initialize edit pool"); return; }
+	for (uint32_t node : { 0u, 1u, 2u }) {
+		if (!make_resident_at(res, node, node + 1)) { FAIL("could not populate old edit payloads"); return; }
+	}
+	res.begin_frame(10);
+	res.withdraw_transitions();
+	LocalVector<Residency::Ticket> retired;
+	for (uint32_t node : { 0u, 1u }) {
+		Residency::Ticket old;
+		old.node = node;
+		if (!res.page_allocation(node, old.pages, old.pt_base)) { FAIL("old edit allocation is missing"); return; }
+		retired.push_back(old);
+	}
+	LocalVector<Residency::Ticket> shadows;
+	const Residency::EditedLeaf leaf = { 1, 1500 };
+	if (res.stage_edit(1, &leaf, 1, shadows) != Residency::EDIT_OK || shadows.size() != 1) {
+		FAIL("could not reserve the edit shadow"); return;
+	}
+	LocalVector<Residency::Ticket> none;
+	check_page_tables(res, none);
+	const auto shadow = shadows[0];
+	CHECK(shadow.pt_base != retired[1].pt_base);
+	CHECK(shadow.pages != retired[1].pages);
+	if (!res.finish_shadow(shadow, true) || !res.finish_shadow_transfer(shadow) || !res.commit_edit()) {
+		FAIL("transferred shadow did not commit"); return;
+	}
+	Vector<uint32_t> committed_pages;
+	uint32_t committed_base = 0;
+	if (!res.page_allocation(1, committed_pages, committed_base)) { FAIL("committed edit lost its allocation"); return; }
+	CHECK(committed_pages == shadow.pages);
+	CHECK(committed_base == shadow.pt_base);
+	CHECK(res.state(1) == Residency::RESIDENT);
+	CHECK(res.stats().pages_retiring == 3);
+	check_page_tables(res, retired);
+	res.begin_frame(12);
+	check_page_tables(res, retired);
+	res.begin_frame(13);
+	CHECK(res.stats().pages_retiring == 0);
+	check_page_tables(res, none);
 }
 
 }

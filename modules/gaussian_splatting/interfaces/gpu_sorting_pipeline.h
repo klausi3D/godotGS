@@ -27,6 +27,8 @@ public:
         RID visible_chunk_buffer;
         RID splat_ref_buffer;
         RID hlod_draw_entry_buffer;
+    RID hlod_page_table_buffer;
+    RID hlod_page_owner_buffer;
         bool hlod_relative = false;
         uint64_t hlod_source_generation = 0;
         uint64_t hlod_content_generation = 0;

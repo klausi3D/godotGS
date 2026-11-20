@@ -1827,6 +1827,7 @@ struct RenderPipelineStages::SortStage {
 					instance_inputs.visible_chunk_buffer = buffers.visible_chunk_buffer;
 					instance_inputs.splat_ref_buffer = buffers.splat_ref_buffer;
                     instance_inputs.hlod_draw_entry_buffer = buffers.hlod_draw_entry_buffer;
+                    instance_inputs.hlod_page_table_buffer = buffers.hlod_page_table_buffer;
                     instance_inputs.hlod_relative = buffers.hlod_relative;
                     instance_inputs.hlod_source_generation = buffers.hlod_source_generation;
                     instance_inputs.hlod_content_generation = buffers.hlod_content_generation;
@@ -2462,6 +2463,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
         render_params.hlod_relative = instance_buffers.hlod_relative;
 		render_params.current_cpu_draw_domain_count = instance_buffers.hlod_relative ? 0u : instance_buffers.current_cpu_draw_domain_count;
         render_params.hlod_draw_entry_buffer = instance_buffers.hlod_draw_entry_buffer;
+        render_params.hlod_page_owner_buffer = instance_buffers.hlod_page_owner_buffer;
         render_params.hlod_draw_list_buffer = instance_buffers.visible_chunk_buffer;
         render_params.hlod_source_generation = instance_buffers.hlod_source_generation;
         render_params.hlod_content_generation = instance_buffers.hlod_content_generation;

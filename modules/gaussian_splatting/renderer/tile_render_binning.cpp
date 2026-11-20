@@ -252,7 +252,7 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 	ERR_FAIL_COND_V(quantization_required && !owner.instance_pipeline_buffers.quantization_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V((quantization_required || owner.instance_pipeline_buffers.hlod_relative) && !owner.instance_pipeline_buffers.chunk_meta_buffer.is_valid(), RID());
     ERR_FAIL_COND_V(owner.instance_pipeline_buffers.hlod_relative &&
-            (!owner.instance_pipeline_buffers.hlod_draw_entry_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_draw_list_buffer.is_valid() ||
+            (!owner.instance_pipeline_buffers.hlod_draw_entry_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_page_owner_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_draw_list_buffer.is_valid() ||
                     owner.instance_pipeline_buffers.hlod_source_generation == 0 || owner.instance_pipeline_buffers.hlod_content_generation == 0), RID());
 
 	RID tile_counts_buffer = owner.global_sort_resources.get_tile_counts_buffer();
@@ -345,6 +345,11 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
         draw_list.binding = 22;
         draw_list.append_id(owner.instance_pipeline_buffers.hlod_draw_list_buffer);
         uniforms.push_back(draw_list);
+        RD::Uniform page_owner;
+        page_owner.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        page_owner.binding = 25;
+        page_owner.append_id(owner.instance_pipeline_buffers.hlod_page_owner_buffer);
+        uniforms.push_back(page_owner);
         // BV-04b: records per splat per HLOD level (EMIT pass only; tile_binning.glsl binding 24).
         RD::Uniform level_stats;
         level_stats.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
@@ -510,7 +515,7 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 	ERR_FAIL_COND_V(quantization_required && !owner.instance_pipeline_buffers.quantization_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V((quantization_required || owner.instance_pipeline_buffers.hlod_relative) && !owner.instance_pipeline_buffers.chunk_meta_buffer.is_valid(), RID());
     ERR_FAIL_COND_V(owner.instance_pipeline_buffers.hlod_relative &&
-            (!owner.instance_pipeline_buffers.hlod_draw_entry_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_draw_list_buffer.is_valid() ||
+            (!owner.instance_pipeline_buffers.hlod_draw_entry_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_page_owner_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_draw_list_buffer.is_valid() ||
                     owner.instance_pipeline_buffers.hlod_source_generation == 0 || owner.instance_pipeline_buffers.hlod_content_generation == 0), RID());
 
 	RID tile_counts_buffer = owner.global_sort_resources.get_tile_counts_buffer();
@@ -604,6 +609,11 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
         draw_list.binding = 22;
         draw_list.append_id(owner.instance_pipeline_buffers.hlod_draw_list_buffer);
         uniforms.push_back(draw_list);
+        RD::Uniform page_owner;
+        page_owner.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        page_owner.binding = 25;
+        page_owner.append_id(owner.instance_pipeline_buffers.hlod_page_owner_buffer);
+        uniforms.push_back(page_owner);
     }
 	RD::Uniform indirect_uniform;
 	indirect_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;

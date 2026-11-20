@@ -664,6 +664,8 @@ def hlod_summary(result: dict, trace, run: dict) -> dict:
         "hlod_stream_failed_total", "hlod_stream_failed_permanent_total", "hlod_stream_failed_retry_later_total",
         "hlod_stream_late_dropped_total", "hlod_stream_allocation_no_contiguous_run_total",
         "hlod_stream_largest_free_run", "hlod_budget_bound_frames", "hlod_cut_visible_cap_bound_frames",
+        "hlod_drawn_nodes_paged", "hlod_drawn_nodes_contiguous", "hlod_drawn_nodes_paged_total", "hlod_drawn_nodes_contiguous_total",
+        "hlod_stream_page_table_publish_refusals_total", "hlod_stream_page_table_publish_refusals_this_frame",
         "instance_count_overflow_events", "raster_tile_cap_drop_events")}
     return {"route_evidence": {"status": status, "native_flags": behavior["route_evidence"],
                                "payload_telemetry": telemetry, "fresh_checkpoint_counts": counts_fresh,

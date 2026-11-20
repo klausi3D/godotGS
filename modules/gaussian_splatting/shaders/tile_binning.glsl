@@ -129,6 +129,9 @@ layout(set = 0, binding = 18, std430) readonly buffer ChunkMetaBuffer {
 #endif
 
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
+layout(set = 0, binding = 25, std430) readonly buffer HlodPageOwnerBuffer {
+    uint owners[];
+} hlod_page_owner;
 layout(set = 0, binding = 23, std430) readonly buffer HlodDrawEntryBuffer {
     uint draw_entries[];
 } hlod_draw_entry_buffer;
@@ -952,7 +955,16 @@ void main() {
         return;
     }
     ChunkMetaGPU selected_node = chunk_meta_buffer.chunk_meta[selected.chunk_id];
-    if (gaussian_idx < selected_node.atlas_base || gaussian_idx - selected_node.atlas_base >= selected_node.splat_count) {
+    bool address_matches;
+    if (selected_node.page_table_ref != 0u) {
+        uint physical_page = gaussian_idx >> GS_HLOD_PAGE_SHIFT;
+        address_matches = physical_page < uint(hlod_page_owner.owners.length()) &&
+                hlod_page_owner.owners[physical_page] == selected.chunk_id;
+    } else {
+        address_matches = gaussian_idx >= selected_node.atlas_base &&
+                gaussian_idx - selected_node.atlas_base < selected_node.splat_count;
+    }
+    if (!address_matches) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }

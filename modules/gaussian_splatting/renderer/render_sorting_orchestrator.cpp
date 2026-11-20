@@ -104,6 +104,7 @@ static void _set_instance_sort_inputs(const GaussianSplatRenderer::InstancePipel
 	instance_inputs.visible_chunk_buffer = p_buffers.visible_chunk_buffer;
 	instance_inputs.splat_ref_buffer = p_buffers.splat_ref_buffer;
                     instance_inputs.hlod_draw_entry_buffer = p_buffers.hlod_draw_entry_buffer;
+                    instance_inputs.hlod_page_table_buffer = p_buffers.hlod_page_table_buffer;
                     instance_inputs.hlod_relative = p_buffers.hlod_relative;
                     instance_inputs.hlod_source_generation = p_buffers.hlod_source_generation;
                     instance_inputs.hlod_content_generation = p_buffers.hlod_content_generation;

@@ -5,7 +5,7 @@
 // residency model (lod/hlod_node_residency.*) and the HLOD relative bundle's GPU buffers.
 //
 // One streamer per prepared HLOD bundle. It is not a second streaming system: placement, generations,
-// retirement and eviction are the shared NodeResidency model on top of GaussianAtlasAllocator (#1088); this
+// retirement and eviction are the shared NodeResidency model on top of its HLOD page pool; this
 // class only (a) packs requested nodes on worker threads with the bundle's single packing path
 // (renderer/hlod_node_pack.*), (b) uploads completed payloads, bounded per frame, and (c) hands the selector
 // the resident mask. The atlas starts empty and every ChunkMetaGPU starts zeroed (splat_count 0), so a node
@@ -26,6 +26,7 @@
 // runtime snapshot and write into a mailbox they co-own; they never touch the residency model or the device.
 
 #include "../core/gaussian_splat_hlod_runtime_data.h"
+#include "../core/gs_upload_sizing.h"
 #include "../lod/hlod_node_residency.h"
 #include "../lod/hlod_view_set.h"
 #include "core/object/ref_counted.h"
@@ -49,7 +50,7 @@ class HlodNodeStreamer : public RefCounted {
 public:
 	struct Config {
 		uint32_t atlas_pages = 0;
-		static constexpr uint32_t DEFAULT_PAGE_SPLATS = 1024;
+		static constexpr uint32_t DEFAULT_PAGE_SPLATS = GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
 		static_assert(DEFAULT_PAGE_SPLATS == GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS, "Snapshot placement cache must use the streamer's page geometry.");
 		uint32_t page_splats = DEFAULT_PAGE_SPLATS;
 		bool quantized = false;
@@ -80,6 +81,8 @@ public:
 	struct Buffers {
 		RID atlas;
 		RID chunk_meta;
+		RID page_table;
+		RID page_owner;
 		RID quantization; // Invalid when not quantized.
 		// Synchronous, borrowed render-thread hook for ranges about to receive new content: invalidate content-following caches (e.g. SH colour, #1502). Caller owns context through update()/begin_frame().
 		void (*invalidate_content_range)(void *p_context, uint32_t p_first_record, uint32_t p_record_count) = nullptr;
@@ -114,6 +117,8 @@ public:
 		uint32_t requested_this_frame = 0;
 		uint32_t uploaded_this_frame = 0;
 		uint64_t uploaded_bytes_this_frame = 0; // Payload bytes; metadata also consumes the shared frame allowance.
+		uint64_t page_table_publish_refusals_total = 0;
+		uint32_t page_table_publish_refusals_this_frame = 0;
 		uint32_t skipped_groups_this_frame = 0;
 		uint32_t evicted_this_frame = 0;
 		uint32_t pages_capacity = 0;
@@ -304,7 +309,7 @@ public:
 		uint32_t shadow_pending_tickets = 0;
 	};
 	struct TestWrite {
-		enum Kind { ATLAS, QUANTIZATION, METADATA };
+		enum Kind { ATLAS, QUANTIZATION, METADATA, PAGE_TABLE, PAGE_OWNER };
 		Kind kind = ATLAS;
 		uint32_t node = UINT32_MAX;
 		uint64_t offset = 0;
@@ -340,6 +345,7 @@ public:
 		bool cpu_upload_sink = false;
 		bool fail_validation = false;
 		bool fail_upload = false;
+		bool reverse_free_pages = false;
 	};
 	enum TestFault {
 		TEST_FAULT_NONE,
@@ -353,6 +359,8 @@ public:
 		// Controls change the real allowance/final-slice publication path.
 		TEST_FAULT_IGNORE_STAGING_CLAMP,
 		TEST_FAULT_EARLY_FINAL_SLICE,
+		TEST_FAULT_ZERO_PAGE_TABLE_REF,
+		TEST_FAULT_MAX,
 	};
 	// Faults alter the REAL handoff/publication, never stats or a checker.
 	// These seam methods belong to the render thread, like update()/shutdown().
@@ -609,7 +617,16 @@ private:
 	uint64_t upload_remaining() const;
 	Error write_atlas(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, uint64_t p_offset,
 			uint64_t p_bytes, const void *p_payload, bool p_shadow);
-	Error write_meta(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkMetaGPU &p_meta, bool p_shadow = false);
+	Error write_meta(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkMetaGPU &p_meta, bool p_shadow = false,
+			const gs_hlod_runtime::NodeResidency::Ticket *p_ticket = nullptr);
+	bool validate_page_table_publish(const gs_hlod_runtime::NodeResidency::Ticket &p_ticket, const ChunkMetaGPU &p_meta);
+	Error write_page_tables(RenderingDevice *p_device, const Buffers &p_buffers,
+			const gs_hlod_runtime::NodeResidency::Ticket &p_ticket, ChunkMetaGPU &p_meta);
+	Error write_table_range(RenderingDevice *p_device, RID p_buffer, bool p_forward, uint32_t p_node,
+			uint32_t p_first, uint32_t p_count, const uint32_t *p_values, bool p_shadow);
+	bool clear_released_tables(RenderingDevice *p_device, const Buffers &p_buffers);
+	GSUploadSizing::Slice page_slice(const gs_hlod_runtime::NodeResidency::Ticket &p_ticket, uint64_t p_bytes,
+			uint64_t p_uploaded, uint64_t p_allowance, uint64_t &r_offset) const;
 	Error write_quant(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkQuantizationGPU &p_quant, bool p_shadow = false);
 #ifdef TESTS_ENABLED
 	void record_write(TestWrite::Kind p_kind, uint32_t p_node, uint64_t p_offset, uint64_t p_bytes,
@@ -655,6 +672,8 @@ private:
 	uint32_t shadow_transfer_count = 0; // Current/last edit; observations survive commit/cancel.
 	uint64_t staged_publication_bytes = 0;
 	uint64_t frame_written_bytes = 0; // Includes publication bytes before update() in this same frame.
+	Vector<uint32_t> published_page_table, published_page_owner; // Owner-thread mirrors of successful GPU writes.
+	LocalVector<uint32_t> released_pages, released_slots;
 	bool frame_edit_uploads = false, in_edit_commit = false;
 	bool next_shadow_upload = true, next_shadow_job = true;
 	Ref<GaussianSplatHlodRuntimeData> staged_data; // Package F1: the edited snapshot, served after commit.

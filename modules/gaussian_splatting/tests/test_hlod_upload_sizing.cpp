@@ -20,7 +20,10 @@ enum Violation { CLEAN, FRAME_ALLOWANCE, EARLY_PUBLICATION, OUTSIDE_RUN, UNALIGN
 // two production-path fault controls use this checker, with identical inputs.
 struct Checker {
 	uint64_t allowance = 0, stride = 0, base = 0, payload_bytes = 0;
+	uint32_t page_splats = 0, pt_base = 0;
+	Vector<uint32_t> pages;
 	uint32_t observed = 0, atlas_writes = 0, metadata_writes = 0, quant_writes = 0;
+	uint32_t forward_entries = 0, reverse_entries = 0;
 	bool quantized = false;
 	Vector<uint8_t> atlas, golden;
 	ChunkMetaGPU expected_meta = {};
@@ -37,19 +40,33 @@ struct Checker {
 			spent += w.bytes; // Counts payload AND quantization/metadata.
 			if (w.node != 0 || w.shadow) { return violation = OUTSIDE_RUN; }
 			if (w.kind == Streamer::TestWrite::ATLAS) {
-				if (w.offset != base + payload_bytes || payload_bytes > uint64_t(golden.size()) ||
+				if (!TestHlodEditShadowTransfer::page_slice(pages, payload_bytes, w.offset, w.bytes, page_splats, stride) || payload_bytes > uint64_t(golden.size()) ||
 						w.bytes > uint64_t(golden.size()) - payload_bytes) { return violation = OUTSIDE_RUN; }
-				if (w.bytes == 0 || w.bytes % stride != 0 || (w.offset - base) % stride != 0) { return violation = UNALIGNED; }
+				if (w.bytes == 0 || w.bytes % stride != 0 || w.offset % stride != 0) { return violation = UNALIGNED; }
 				if (uint64_t(w.payload.size()) != w.bytes) { return violation = PAYLOAD_IDENTITY; }
 				memcpy(atlas.ptrw() + payload_bytes, w.payload.ptr(), size_t(w.bytes));
 				payload_bytes += w.bytes;
 				++atlas_writes;
 			} else {
 				if (payload_bytes != uint64_t(golden.size())) { return violation = EARLY_PUBLICATION; }
-				if (w.kind == Streamer::TestWrite::QUANTIZATION) {
+				if (w.kind == Streamer::TestWrite::PAGE_TABLE || w.kind == Streamer::TestWrite::PAGE_OWNER) {
+					if (metadata_writes != 0 || w.bytes % sizeof(uint32_t) != 0 || uint64_t(w.payload.size()) != w.bytes) { return violation = PAYLOAD_IDENTITY; }
+					for (uint64_t byte = 0; byte < w.bytes; byte += sizeof(uint32_t)) {
+						uint32_t value = 0;
+						memcpy(&value, w.payload.ptr() + byte, sizeof(value));
+						if (w.kind == Streamer::TestWrite::PAGE_TABLE) {
+							if (forward_entries >= uint32_t(pages.size()) || w.offset + byte != uint64_t(pt_base + forward_entries) * sizeof(uint32_t) || value != pages[forward_entries]) { return violation = PAYLOAD_IDENTITY; }
+							++forward_entries;
+						} else {
+							if (reverse_entries >= uint32_t(pages.size()) || w.offset + byte != uint64_t(pages[reverse_entries]) * sizeof(uint32_t) || value != 0) { return violation = PAYLOAD_IDENTITY; }
+							++reverse_entries;
+						}
+					}
+				} else if (w.kind == Streamer::TestWrite::QUANTIZATION) {
 					if (!quantized || metadata_writes != 0 || ++quant_writes != 1 ||
 							memcmp(&w.quant, &expected_quant, sizeof(expected_quant)) != 0) { return violation = PAYLOAD_IDENTITY; }
 				} else if (++metadata_writes != 1 || (quantized && quant_writes != 1) ||
+						forward_entries != uint32_t(pages.size()) || reverse_entries != uint32_t(pages.size()) || w.meta.page_table_ref == 0 ||
 						memcmp(&w.meta, &expected_meta, sizeof(expected_meta)) != 0) { return violation = PAYLOAD_IDENTITY; }
 			}
 		}
@@ -62,6 +79,7 @@ struct Harness {
 	PayloadPageStore store;
 	Streamer streamer;
 	Streamer::Config cfg;
+	Streamer::Buffers buffers;
 	Streamer::TestControl control;
 	Streamer::TestSnapshot sample;
 	Vector<Streamer::TestWrite> writes;
@@ -70,19 +88,20 @@ struct Harness {
 	Checker checker;
 	bool observations_ok = true, advance_frame = true, request_node = true;
 	uint32_t selected_count = 0;
-	uint32_t first_page = 0, page_count = 0;
+	Vector<uint32_t> pages;
+	uint32_t pt_base = 0;
 
 	~Harness() { streamer.shutdown(); store.shutdown(); }
 
 	bool init(bool p_quantized, uint64_t p_limit, uint64_t p_staging = 0,
-			Streamer::TestFault p_fault = Streamer::TEST_FAULT_NONE) {
-		if (!WorkerThreadPool::get_singleton() || !fixture.build(2, 257, 1)) {
+			Streamer::TestFault p_fault = Streamer::TEST_FAULT_NONE, uint32_t p_splats = 257, bool p_reverse = false) {
+		if (!WorkerThreadPool::get_singleton() || !fixture.build(2, p_splats, 1)) {
 			FAIL("D3-4 requires the real worker pool and production-written corpus"); return false;
 		}
 		cfg.quantized = p_quantized;
 		cfg.position_bits = p_quantized ? 16 : 0;
 		cfg.scale_bits = p_quantized ? 16 : 0;
-		cfg.atlas_pages = fixture.source.node_count;
+		cfg.atlas_pages = fixture.source.node_count * ((p_splats + cfg.page_splats - 1) / cfg.page_splats);
 		cfg.upload_bytes_per_frame = p_limit;
 		cfg.staging_upload_clamp_bytes = p_staging;
 		PayloadPageStore::Config sc;
@@ -94,6 +113,7 @@ struct Harness {
 				!history.reserve(fixture.source.node_count)) { FAIL("D3-4 real streamer/cut initialization failed"); return false; }
 		control.cpu_upload_sink = true;
 		control.hold_uploads = true;
+		control.reverse_free_pages = p_reverse;
 		if (streamer._test_set_control(control) != OK || streamer._test_observe_shadow_transfers() != OK) {
 			FAIL("D3-4 CPU sink and actual-write observation must be available"); return false;
 		}
@@ -102,6 +122,7 @@ struct Harness {
 		}
 		checker.allowance = p_staging != 0 && p_staging < p_limit ? p_staging : p_limit;
 		checker.stride = streamer.record_stride();
+		checker.page_splats = cfg.page_splats;
 		checker.quantized = p_quantized;
 		demand.node = 0;
 		return true;
@@ -117,7 +138,7 @@ struct Harness {
 #endif
 		}
 		const uint32_t before = writes.size();
-		streamer.update(nullptr, Streamer::Buffers(), request_node ? &demand : nullptr, request_node ? 1 : 0, nullptr, 0);
+		streamer.update(nullptr, buffers, request_node ? &demand : nullptr, request_node ? 1 : 0, nullptr, 0);
 		sample = streamer._test_snapshot();
 		observations_ok = observations_ok && sample.observation_error == OK && streamer._test_shadow_writes(writes) == OK;
 		if (streamer.resident_mask().size() != fixture.source.node_count) {
@@ -147,14 +168,17 @@ struct Harness {
 	bool packed() {
 		const auto ready = gs_pump_until([&]() { step(false); return !observations_ok || sample.ready_outputs != 0; });
 		if (!ready.ready() || !observations_ok || sample.ready_outputs != 1 ||
-				!streamer.get_residency().run(0, first_page, page_count)) {
+				!streamer.get_residency().page_allocation(0, pages, pt_base) || pages.is_empty()) {
 			FAIL("D3-4 node never reached held, reserved ordinary ready output: ", ready.describe().utf8().get_data()); return false;
 		}
-		checker.base = uint64_t(first_page) * cfg.page_splats * checker.stride;
-		if (!fixture.pack(0, false, cfg, first_page * cfg.page_splats, checker.golden, checker.expected_meta, checker.expected_quant) ||
+		checker.pages = pages;
+		checker.pt_base = pt_base;
+		checker.base = uint64_t(pages[0]) * cfg.page_splats * checker.stride;
+		if (!fixture.pack(0, false, cfg, pages[0] * cfg.page_splats, checker.golden, checker.expected_meta, checker.expected_quant) ||
 				checker.atlas.resize(checker.golden.size()) != OK) { FAIL("D3-4 independent packed golden failed"); return false; }
 		checker.atlas.fill(0);
-		if (uint64_t(checker.golden.size()) > uint64_t(page_count) * cfg.page_splats * checker.stride) {
+		checker.expected_meta.page_table_ref = pt_base + 1;
+		if (uint64_t(checker.golden.size()) > uint64_t(pages.size()) * cfg.page_splats * checker.stride) {
 			FAIL("D3-4 fixture payload must fit its reserved run"); return false;
 		}
 		return true;
@@ -178,6 +202,14 @@ struct Harness {
 		CHECK(memcmp(checker.atlas.ptr(), checker.golden.ptr(), size_t(checker.golden.size())) == 0);
 		CHECK(checker.metadata_writes == 1);
 		CHECK(checker.quant_writes == (cfg.quantized ? 1 : 0));
+		for (const auto &write : writes) {
+			if (write.kind == Streamer::TestWrite::METADATA) { CHECK(write.meta.page_table_ref != 0); }
+		}
+		const auto &forward = streamer.get_residency().page_table();
+		for (uint32_t i = 0; i < uint32_t(pages.size()); ++i) {
+			if (uint64_t(pt_base) + i >= uint64_t(forward.size())) { FAIL("page table slot escaped the forward table"); return false; }
+			CHECK(forward[pt_base + i] == pages[i]);
+		}
 		CHECK(streamer.resident_mask()[0] == 1);
 		CHECK(selected_count == 1);
 		CHECK(sample.live_reservations == 0);
@@ -191,6 +223,83 @@ struct Harness {
 		return true;
 	}
 };
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] noncontiguous page uploads preserve payload and publish matching tables (#1514)") {
+	Harness h;
+	if (!h.init(false, uint64_t(Streamer::Config::DEFAULT_PAGE_SPLATS + 17) * sizeof(PackedGaussian), 0,
+			Streamer::TEST_FAULT_NONE, 2 * Streamer::Config::DEFAULT_PAGE_SPLATS + 17, true) || !h.packed()) { return; }
+	if (h.pages.size() < 2) { FAIL("page slicing needs a multi-page ordinary node"); return; }
+	CHECK(h.pages[1] != h.pages[0] + 1);
+	if (!h.release() || !h.finish()) { return; }
+	CHECK(h.checker.atlas_writes >= uint32_t(h.pages.size()));
+	CHECK(h.checker.forward_entries == uint32_t(h.pages.size()));
+	CHECK(h.checker.reverse_entries == uint32_t(h.pages.size()));
+}
+
+struct PageInvalidationTrace {
+	struct Event { uint32_t first = 0, count = 0, writes_before = 0; };
+	Streamer &streamer;
+	Vector<Event> events;
+	bool ok = true;
+	explicit PageInvalidationTrace(Streamer &p_streamer) : streamer(p_streamer) {}
+
+	static void record(void *p_context, uint32_t p_first, uint32_t p_count) {
+		auto &trace = *static_cast<PageInvalidationTrace *>(p_context);
+		Vector<Streamer::TestWrite> writes;
+		trace.ok = trace.ok && trace.streamer._test_shadow_writes(writes) == OK;
+		Event event;
+		event.first = p_first;
+		event.count = p_count;
+		event.writes_before = writes.size();
+		trace.events.push_back(event);
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][SHCache] noncontiguous pages invalidate each slice before payload and metadata (#1514)") {
+	Harness h;
+	if (!h.init(true, uint64_t(Streamer::Config::DEFAULT_PAGE_SPLATS + 17) * sizeof(PackedGaussianQuantized), 0,
+			Streamer::TEST_FAULT_NONE, 2 * Streamer::Config::DEFAULT_PAGE_SPLATS + 17, true) || !h.packed()) { return; }
+	if (h.pages.size() < 2) { FAIL("per-page invalidation needs a multi-page node"); return; }
+	CHECK(h.pages[1] != h.pages[0] + 1);
+	PageInvalidationTrace trace{ h.streamer };
+	h.buffers.invalidate_content_range = PageInvalidationTrace::record;
+	h.buffers.invalidation_context = &trace;
+	if (!h.release() || !h.finish()) { return; }
+	CHECK(trace.ok);
+	CHECK(uint32_t(trace.events.size()) == h.checker.atlas_writes);
+	uint32_t event = 0, metadata_index = UINT32_MAX;
+	for (uint32_t i = 0; i < uint32_t(h.writes.size()); ++i) {
+		const auto &write = h.writes[i];
+		if (write.kind == Streamer::TestWrite::METADATA) { metadata_index = i; }
+		if (write.kind != Streamer::TestWrite::ATLAS) { continue; }
+		if (event >= uint32_t(trace.events.size())) { FAIL("atlas slice has no preceding invalidation"); return; }
+		const auto &invalidation = trace.events[event++];
+		CHECK(uint64_t(invalidation.first) * h.checker.stride == write.offset);
+		CHECK(uint64_t(invalidation.count) * h.checker.stride == write.bytes);
+		CHECK(invalidation.writes_before == i);
+		CHECK(write.offset / (uint64_t(h.cfg.page_splats) * h.checker.stride) ==
+				(write.offset + write.bytes - 1) / (uint64_t(h.cfg.page_splats) * h.checker.stride));
+	}
+	CHECK(metadata_index != UINT32_MAX);
+	for (const auto &invalidation : trace.events) { CHECK(invalidation.writes_before < metadata_index); }
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] zero page table references refuse publication and visibility (#1514)") {
+	Harness h;
+	if (!h.init(false, Streamer::Config::DEFAULT_PAGE_SPLATS * sizeof(PackedGaussian), 0, Streamer::TEST_FAULT_ZERO_PAGE_TABLE_REF) || !h.packed()) { return; }
+	const uint64_t before = h.streamer.get_telemetry().page_table_publish_refusals_total;
+	if (!h.release()) { return; }
+	const auto refused = gs_pump_until([&]() {
+		h.step(false);
+		return !h.observations_ok || h.streamer.get_telemetry().page_table_publish_refusals_total != before;
+	});
+	if (!refused.ready() || !h.observations_ok) { FAIL("zero page table reference never reached the publication guard: ", refused.describe()); return; }
+	CHECK(h.streamer.get_telemetry().page_table_publish_refusals_total == before + 1);
+	for (const auto &write : h.writes) { CHECK(write.kind != Streamer::TestWrite::METADATA); }
+	CHECK(h.streamer.get_residency().state(0) != Residency::RESIDENT);
+	CHECK(h.streamer.resident_mask()[0] == 0);
+	CHECK(h.selected_count == 0);
+}
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] ordinary oversized nodes publish only after bounded final slices") {
 	for (bool quantized : { false, true }) {
@@ -247,7 +356,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] complete payload waits n
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] nodes fitting the full allowance defer whole when only the remainder is small") {
 	Harness h;
 	const uint64_t bytes = 257 * sizeof(PackedGaussianQuantized);
-	const uint64_t publication = sizeof(ChunkMetaGPU) + sizeof(ChunkQuantizationGPU);
+	const uint64_t publication = sizeof(ChunkMetaGPU) + sizeof(ChunkQuantizationGPU) + 2 * sizeof(uint32_t);
 	if (!h.init(true, bytes + publication + bytes / 2)) { FAIL("D3-4 whole-node deferral setup failed"); return; }
 	LocalVector<gs_hlod_runtime::DesiredRecord> demand;
 	for (uint32_t node = 0; node < h.fixture.source.node_count; ++node) {

@@ -27,14 +27,14 @@ class FrameReadback : public RefCounted {
 public:
 	Mutex mutex;
 	uint32_t received = 0;
-	uint32_t expected_bytes[2] = {};
-	Vector<uint8_t> bytes[2];
+	uint32_t expected_bytes[4] = {};
+	Vector<uint8_t> bytes[4];
 	bool failed = false;
 
 	static void receive(const Vector<uint8_t> &p_bytes, const Ref<FrameReadback> &p_box, int p_slot) {
 		if (p_box.is_null()) { return; }
 		MutexLock lock(p_box->mutex);
-		if (p_slot < 0 || p_slot >= 2 || (p_box->received & (1u << p_slot)) != 0 ||
+		if (p_slot < 0 || p_slot >= 4 || (p_box->received & (1u << p_slot)) != 0 ||
 				uint64_t(p_bytes.size()) != p_box->expected_bytes[p_slot]) {
 			p_box->failed = true;
 			return;
@@ -45,7 +45,7 @@ public:
 
 	bool complete() {
 		MutexLock lock(mutex);
-		return failed || received == 3u;
+		return failed || received == 15u;
 	}
 };
 
@@ -60,10 +60,19 @@ struct Runtime {
 		streamer.shutdown();
 		store.shutdown();
 		if (rd) {
+			if (buffers.page_table.is_valid()) { rd->free(buffers.page_table); }
+			if (buffers.page_owner.is_valid()) { rd->free(buffers.page_owner); }
 			if (buffers.chunk_meta.is_valid()) { rd->free(buffers.chunk_meta); }
 			if (buffers.atlas.is_valid()) { rd->free(buffers.atlas); }
 		}
 	}
+
+	RID free_table(uint32_t p_entries) {
+        Vector<uint8_t> bytes;
+        if (bytes.resize(uint64_t(p_entries) * sizeof(uint32_t)) != OK) { return RID(); }
+        memset(bytes.ptrw(), 0xFF, bytes.size());
+        return rd->storage_buffer_create(bytes.size(), bytes);
+    }
 
 	RID zeroed_buffer(uint32_t p_bytes) {
 		Vector<uint8_t> bytes;
@@ -88,7 +97,7 @@ enum FrameViolation {
 // never the model, GPU bytes, expected records or checker implementation.
 static FrameViolation check_frame(const LocalVector<DrawRecord> &p_drawn, const Vector<uint8_t> &p_mask,
 		const Vector<uint8_t> &p_model, const Vector<uint8_t> &p_metadata, const Vector<uint8_t> &p_atlas,
-		const LocalVector<Vector<PackedGaussian>> &p_goldens) {
+		const LocalVector<Vector<PackedGaussian>> &p_goldens, const Vector<uint8_t> &p_forward, const Vector<uint8_t> &p_owners) {
 	const uint32_t nodes = p_goldens.size();
 	if (nodes == 0 || uint64_t(p_mask.size()) != nodes || uint64_t(p_model.size()) != nodes ||
 			uint64_t(p_metadata.size()) != uint64_t(nodes) * sizeof(ChunkMetaGPU)) { return BAD_SHAPE; }
@@ -108,10 +117,22 @@ static FrameViolation check_frame(const LocalVector<DrawRecord> &p_drawn, const 
 		ChunkMetaGPU meta = {};
 		memcpy(&meta, meta_bytes, sizeof(meta));
 		if (p_goldens[node].is_empty() || meta.splat_count != uint64_t(p_goldens[node].size())) { return RESIDENT_METADATA; }
-		const uint64_t offset = uint64_t(meta.atlas_base) * sizeof(PackedGaussian);
-		const uint64_t bytes = uint64_t(meta.splat_count) * sizeof(PackedGaussian);
-		if (offset > uint64_t(p_atlas.size()) || bytes > uint64_t(p_atlas.size()) - offset) { return RESIDENT_METADATA; }
-		if (memcmp(p_atlas.ptr() + offset, p_goldens[node].ptr(), size_t(bytes)) != 0) { return ATLAS_IDENTITY; }
+        if (meta.page_table_ref == 0) { return RESIDENT_METADATA; }
+        const uint32_t page_splats = GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
+        for (uint32_t first = 0; first < meta.splat_count; first += page_splats) {
+            const uint64_t entry_offset = (uint64_t(meta.page_table_ref - 1u) + first / page_splats) * sizeof(uint32_t);
+            if (entry_offset + sizeof(uint32_t) > uint64_t(p_forward.size())) { return RESIDENT_METADATA; }
+            uint32_t page = 0;
+            memcpy(&page, p_forward.ptr() + entry_offset, sizeof(page));
+            if ((uint64_t(page) + 1u) * sizeof(uint32_t) > uint64_t(p_owners.size())) { return RESIDENT_METADATA; }
+            uint32_t owner = UINT32_MAX;
+            memcpy(&owner, p_owners.ptr() + uint64_t(page) * sizeof(uint32_t), sizeof(owner));
+            if (owner != node) { return RESIDENT_METADATA; }
+            const uint64_t offset = uint64_t(page) * page_splats * sizeof(PackedGaussian);
+            const uint64_t bytes = uint64_t(MIN(page_splats, meta.splat_count - first)) * sizeof(PackedGaussian);
+            if (offset > uint64_t(p_atlas.size()) || bytes > uint64_t(p_atlas.size()) - offset) { return RESIDENT_METADATA; }
+            if (memcmp(p_atlas.ptr() + offset, p_goldens[node].ptr() + first, size_t(bytes)) != 0) { return ATLAS_IDENTITY; }
+        }
 	}
 	return FRAME_VALID;
 }
@@ -146,10 +167,16 @@ static bool observe_frame(Runtime &p_runtime, const LocalVector<DrawRecord> &p_d
 	if (box.is_null()) { FAIL("D3-2 GPU invariant could not allocate its asynchronous readback owner"); return false; }
 	box->expected_bytes[0] = nodes * sizeof(ChunkMetaGPU);
 	box->expected_bytes[1] = uint32_t(p_runtime.streamer.atlas_bytes_capacity());
+    box->expected_bytes[2] = p_runtime.streamer.get_residency().page_table().size() * sizeof(uint32_t);
+    box->expected_bytes[3] = p_runtime.streamer.get_residency().page_owners().size() * sizeof(uint32_t);
 	if (p_runtime.rd->buffer_get_data_async(p_runtime.buffers.chunk_meta,
 				callable_mp_static(&FrameReadback::receive).bind(box, 0), 0, box->expected_bytes[0]) != OK ||
 			p_runtime.rd->buffer_get_data_async(p_runtime.buffers.atlas,
-					callable_mp_static(&FrameReadback::receive).bind(box, 1), 0, box->expected_bytes[1]) != OK) {
+					callable_mp_static(&FrameReadback::receive).bind(box, 1), 0, box->expected_bytes[1]) != OK ||
+            p_runtime.rd->buffer_get_data_async(p_runtime.buffers.page_table,
+                    callable_mp_static(&FrameReadback::receive).bind(box, 2), 0, box->expected_bytes[2]) != OK ||
+            p_runtime.rd->buffer_get_data_async(p_runtime.buffers.page_owner,
+                    callable_mp_static(&FrameReadback::receive).bind(box, 3), 0, box->expected_bytes[3]) != OK) {
 		FAIL("D3-2 GPU metadata/atlas asynchronous readback submission failed"); return false;
 	}
 	const auto completed = TestGaussianSplatting::gs_pump_until([&]() {
@@ -162,10 +189,10 @@ static bool observe_frame(Runtime &p_runtime, const LocalVector<DrawRecord> &p_d
 		FAIL("D3-2 GPU metadata and atlas readbacks never completed: ", completed.describe()); return false;
 	}
 	MutexLock lock(box->mutex);
-	if (box->failed || box->received != 3u || uint64_t(box->bytes[1].size()) != box->expected_bytes[1]) {
+	if (box->failed || box->received != 15u || uint64_t(box->bytes[1].size()) != box->expected_bytes[1]) {
 		FAIL("D3-2 GPU metadata/atlas readback was incomplete or duplicated"); return false;
 	}
-	const FrameViolation violation = check_frame(p_drawn, mask, model, box->bytes[0], box->bytes[1], p_goldens);
+	const FrameViolation violation = check_frame(p_drawn, mask, model, box->bytes[0], box->bytes[1], p_goldens, box->bytes[2], box->bytes[3]);
 	if (violation != FRAME_VALID) { FAIL(violation_message(violation)); return false; }
 	if (p_mutate_draw_list) {
 		uint32_t absent = 0;
@@ -175,7 +202,7 @@ static bool observe_frame(Runtime &p_runtime, const LocalVector<DrawRecord> &p_d
 		DrawRecord invalid;
 		invalid.node = absent;
 		invalid_drawn.push_back(invalid);
-		r_mutation_detected = check_frame(invalid_drawn, mask, model, box->bytes[0], box->bytes[1], p_goldens) == NONRESIDENT_DRAW;
+		r_mutation_detected = check_frame(invalid_drawn, mask, model, box->bytes[0], box->bytes[1], p_goldens, box->bytes[2], box->bytes[3]) == NONRESIDENT_DRAW;
 		if (!r_mutation_detected) {
 			FAIL("D3-2 GPU draw-list checker must reject a known nonresident draw (non-vacuity control)"); return false;
 		}
@@ -213,7 +240,10 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] D3-
 	}
 	runtime.buffers.atlas = runtime.zeroed_buffer(uint32_t(runtime.streamer.atlas_bytes_capacity()));
 	runtime.buffers.chunk_meta = runtime.zeroed_buffer(fixture.node_count * sizeof(ChunkMetaGPU));
+    runtime.buffers.page_table = runtime.free_table(config.atlas_pages * runtime.streamer.get_residency().max_pages_per_node());
+    runtime.buffers.page_owner = runtime.free_table(config.atlas_pages);
 	if (!runtime.buffers.atlas.is_valid() || !runtime.buffers.chunk_meta.is_valid() ||
+            !runtime.buffers.page_table.is_valid() || !runtime.buffers.page_owner.is_valid() ||
 			!rd->buffer_is_valid(runtime.buffers.atlas) || !rd->buffer_is_valid(runtime.buffers.chunk_meta)) {
 		FAIL("D3-2 GPU invariant requires real zeroed atlas and ChunkMeta storage buffers"); return;
 	}

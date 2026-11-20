@@ -724,3 +724,37 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] the first overl
     // No overlap storage yet is never KEEP, even when the grid already matches the view: the seed is always priced.
     CHECK(hlod_view_grid_action(960, 540, 960, 540, 0u, textures, textures + uint64_t(big) * per_record, headroom) == HlodViewGridAction::REFUSE_MEMORY);
 }
+
+TEST_CASE("[GaussianSplatting][HLOD][ResidentAtlasBudget][Paged] page tables fit the unchanged owned and ledger caps while atlas caps count payload (#1514)") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t stride = sizeof(PackedGaussian);
+    const uint32_t page = GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
+    const uint64_t table_bytes = ((uint64_t(gs_hlod::kMaxNodeSplats) + page - 1u) / page + 1u) * sizeof(uint32_t);
+    const uint64_t payload_page = stride * page;
+    const uint64_t owned_page = payload_page + table_bytes;
+    const uint64_t fixed = uint64_t(1) << 20, device = 1024, scratch_fixed = 256, scratch_per_record = 9;
+    const uint64_t huge = uint64_t(1) << 40;
+    const uint64_t owned_cap = fixed + 3 * owned_page - 1u;
+    const uint64_t owned_pages = hlod_stream_page_budget(huge, stride, page, huge, fixed, owned_cap,
+            huge, device, scratch_fixed, scratch_per_record, table_bytes);
+    CHECK(owned_pages == 2);
+    CHECK(hlod_candidate_fits(fixed + owned_pages * owned_page, device, huge, owned_cap));
+    CHECK_FALSE(hlod_candidate_fits(fixed + (owned_pages + 1u) * owned_page, device, huge, owned_cap));
+    // The former payload-only accounting admits a third page whose tables exceed the owned cap.
+    CHECK(hlod_stream_page_budget(huge, stride, page, huge, fixed, owned_cap, huge, device,
+                  scratch_fixed, scratch_per_record) == 3);
+    const uint64_t ledger_page = owned_page + uint64_t(page) * scratch_per_record;
+    const uint64_t instances = page / 2u;
+    const uint64_t ledger = device + fixed + scratch_fixed + instances * scratch_per_record + 3 * ledger_page - 1u;
+    const uint64_t ledger_pages = hlod_stream_page_budget_with_instances(huge, instances, stride, page, huge,
+            fixed, huge, ledger, device, scratch_fixed, scratch_per_record, table_bytes);
+    CHECK(ledger_pages == 2);
+    const uint64_t after_bundle = device + fixed + ledger_pages * owned_page;
+    CHECK(ledger - after_bundle >= scratch_fixed + (ledger_pages * page + instances) * scratch_per_record);
+    CHECK(hlod_stream_page_budget(3 * payload_page, stride, page, huge, fixed, huge, huge, device,
+                  scratch_fixed, scratch_per_record, table_bytes) == 3);
+    CHECK(hlod_stream_page_budget_with_instances(3 * payload_page, page, stride, page, huge, fixed, huge, huge,
+                  device, scratch_fixed, scratch_per_record, table_bytes) == 2);
+    CHECK(hlod_stream_page_budget(huge, stride, page, huge, fixed, huge, huge, device,
+                  scratch_fixed, scratch_per_record, UINT64_MAX) == 0);
+}

@@ -587,6 +587,7 @@ private:
         RID instance_grading_buffer;
         RID splat_ref_buffer;
         RID hlod_draw_entry_buffer;
+        RID hlod_page_owner_buffer;
         RID hlod_draw_list_buffer;
         bool hlod_relative = false;
         uint64_t hlod_source_generation = 0;

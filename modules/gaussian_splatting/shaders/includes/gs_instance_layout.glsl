@@ -2,6 +2,7 @@
 #define GS_INSTANCE_LAYOUT_GLSL
 
 #include "gs_splat_ref_encoding.glsl"
+#include "gs_hlod_page_constants.glsl"
 
 // Instance pipeline layout (always active).
 
@@ -95,12 +96,9 @@ struct ChunkMetaGPU {
     uint lod_level;
     uint flags;
     uint sh_limit;           // per-chunk SH band limit (optional)
-    // Node cell centre in asset space. Not read by any shader since HLOD C2: the HLOD route
-    // places a node with DrawnNodeGPU.camera_offset (computed in double on the CPU). Kept so
-    // the 64 B ChunkMetaGPU layout does not move.
-    float node_center_x;
-    float node_center_y;
-    float node_center_z;
+    uint page_table_ref;     // 0: contiguous; otherwise forward-table base + 1.
+    uint reserved_node_y;
+    uint reserved_node_z;
 };
 
 // Global chunk index indirection (dense).

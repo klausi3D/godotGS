@@ -47,6 +47,9 @@ layout(set = 0, binding = 3, std430) readonly buffer HlodDrawListBuffer {
 layout(set = 0, binding = 4, std430) readonly buffer RowCastBuffer {
     uint row_casts[];
 } row_cast_buffer;
+layout(set = 0, binding = 5, std430) readonly buffer HlodPageTableBuffer {
+    uint pages[];
+} hlod_page_table;
 
 // Host mirror: ShadowCasterPushConstant in renderer/gs_shadow_caster.cpp (96 bytes).
 layout(push_constant, std430) uniform Params {
@@ -121,7 +124,25 @@ void main() {
         return;
     }
     uint atlas_index = chunk.atlas_base + local_index;
-    if (atlas_index < chunk.atlas_base || atlas_index >= uint(atlas_gaussian_buffer.gaussians.length())) {
+    if (chunk.page_table_ref != 0u) {
+        uint base = chunk.page_table_ref - 1u;
+        uint local_page = local_index >> GS_HLOD_PAGE_SHIFT;
+        if (base >= uint(hlod_page_table.pages.length()) || local_page >= uint(hlod_page_table.pages.length()) - base) {
+            gs_caster_reject();
+            return;
+        }
+        uint page = hlod_page_table.pages[base + local_page];
+        uint atlas_count = uint(atlas_gaussian_buffer.gaussians.length());
+        if (atlas_count == 0u || page > ((atlas_count - 1u) >> GS_HLOD_PAGE_SHIFT)) {
+            gs_caster_reject();
+            return;
+        }
+        atlas_index = page * GS_HLOD_PAGE_SPLATS + (local_index & GS_HLOD_PAGE_MASK);
+    } else if (atlas_index < chunk.atlas_base) {
+        gs_caster_reject();
+        return;
+    }
+    if (atlas_index >= uint(atlas_gaussian_buffer.gaussians.length())) {
         gs_caster_reject();
         return;
     }
