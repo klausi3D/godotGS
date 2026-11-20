@@ -9,6 +9,7 @@ var searchData=
   ['hlodlevelrecordsample_6',['HlodLevelRecordSample',['../structGaussianSplatting_1_1HlodLevelRecordSample.html',1,'GaussianSplatting']]],
   ['hlodlevelrecordstatsgpu_7',['HlodLevelRecordStatsGPU',['../structHlodLevelRecordStatsGPU.html',1,'']]],
   ['hlodnodestreamer_8',['HlodNodeStreamer',['../classHlodNodeStreamer.html',1,'']]],
-  ['hlodviewidentity_9',['HlodViewIdentity',['../structHlodViewIdentity.html',1,'']]],
-  ['hlodviewoutcome_10',['HlodViewOutcome',['../structHlodViewOutcome.html',1,'']]]
+  ['hlodpagepool_9',['HlodPagePool',['../classgs__hlod__runtime_1_1HlodPagePool.html',1,'gs_hlod_runtime']]],
+  ['hlodviewidentity_10',['HlodViewIdentity',['../structHlodViewIdentity.html',1,'']]],
+  ['hlodviewoutcome_11',['HlodViewOutcome',['../structHlodViewOutcome.html',1,'']]]
 ];

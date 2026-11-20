@@ -178,7 +178,13 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aa467263f7674d391f9e5afd30a9314ac" id="r_aa467263f7674d391f9e5afd30a9314ac"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa467263f7674d391f9e5afd30a9314ac">is_stale</a> (uint32_t p_node) const</td></tr>
 <tr class="memitem:a38aca86d6242d9be911cd871ab7b4446" id="r_a38aca86d6242d9be911cd871ab7b4446"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a38aca86d6242d9be911cd871ab7b4446">take_evicted</a> (LocalVector&lt; uint32_t &gt; &amp;r_nodes)</td></tr>
 <tr class="memitem:a64ce39bc8e5a3d95f166a2495a6097f2" id="r_a64ce39bc8e5a3d95f166a2495a6097f2"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a0c175f76a275ed75f0d10cc76a776f28">State</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a64ce39bc8e5a3d95f166a2495a6097f2">state</a> (uint32_t p_node) const</td></tr>
-<tr class="memitem:a440a87fe48155c2885b3f061d3408014" id="r_a440a87fe48155c2885b3f061d3408014"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a440a87fe48155c2885b3f061d3408014">run</a> (uint32_t p_node, uint32_t &amp;r_first_page, uint32_t &amp;r_page_count) const</td></tr>
+<tr class="memitem:a1942d1d6ccd68f53d9f845bfb147bd25" id="r_a1942d1d6ccd68f53d9f845bfb147bd25"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1942d1d6ccd68f53d9f845bfb147bd25">page_allocation</a> (uint32_t p_node, Vector&lt; uint32_t &gt; &amp;r_pages, uint32_t &amp;r_pt_base) const</td></tr>
+<tr class="memitem:aefab641106773a4ae587decac6b8deb4" id="r_aefab641106773a4ae587decac6b8deb4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aefab641106773a4ae587decac6b8deb4">allocation_matches</a> (const <a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
+<tr class="memitem:a8d8c72a08a038aaf1a6548e817e1c161" id="r_a8d8c72a08a038aaf1a6548e817e1c161"><td class="memItemLeft" align="right" valign="top">const Vector&lt; uint32_t &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8d8c72a08a038aaf1a6548e817e1c161">page_table</a> () const</td></tr>
+<tr class="memitem:a958bbbc219bc967f9f38f77a3304564d" id="r_a958bbbc219bc967f9f38f77a3304564d"><td class="memItemLeft" align="right" valign="top">const Vector&lt; uint32_t &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a958bbbc219bc967f9f38f77a3304564d">page_owners</a> () const</td></tr>
+<tr class="memitem:aead9a8bc4f57d879397569fa6c10d184" id="r_aead9a8bc4f57d879397569fa6c10d184"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aead9a8bc4f57d879397569fa6c10d184">max_pages_per_node</a> () const</td></tr>
+<tr class="memitem:aaf233b0bc7efe48bef8de0996c96f618" id="r_aaf233b0bc7efe48bef8de0996c96f618"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf233b0bc7efe48bef8de0996c96f618">take_released_pages</a> (LocalVector&lt; uint32_t &gt; &amp;r_pages)</td></tr>
+<tr class="memitem:ab2fc0197a37b24a3959e940ef3b4daf0" id="r_ab2fc0197a37b24a3959e940ef3b4daf0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab2fc0197a37b24a3959e940ef3b4daf0">take_released_slots</a> (LocalVector&lt; uint32_t &gt; &amp;r_bases)</td></tr>
 <tr class="memitem:a85e8fad817855972e258e0dac5946305" id="r_a85e8fad817855972e258e0dac5946305"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a85e8fad817855972e258e0dac5946305">pages_for</a> (uint32_t p_node) const</td></tr>
 <tr class="memitem:a5694cd095ab1808ab45e98ebbee7f06b" id="r_a5694cd095ab1808ab45e98ebbee7f06b"><td class="memItemLeft" align="right" valign="top">const Vector&lt; uint8_t &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5694cd095ab1808ab45e98ebbee7f06b">resident_mask</a> () const</td></tr>
 <tr class="memitem:a15ae338dd8e664713db2430abfa468c5" id="r_a15ae338dd8e664713db2430abfa468c5"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structNodeResidency_1_1Stats.html">Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a15ae338dd8e664713db2430abfa468c5">stats</a> () const</td></tr>
@@ -191,6 +197,7 @@ Public Member Functions</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
 <tr class="memitem:a0a5c8ba4fd43928787a183c543da1606" id="r_a0a5c8ba4fd43928787a183c543da1606"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0a5c8ba4fd43928787a183c543da1606">EVICTION_EVENT_CAPACITY</a> = 4096</td></tr>
+<tr class="memitem:a43b6ace58f4c8fa8f5444d2becd8ad35" id="r_a43b6ace58f4c8fa8f5444d2becd8ad35"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a43b6ace58f4c8fa8f5444d2becd8ad35">FREE_PAGE</a> = HlodPagePool::FREE</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
 <a id="a915a85c338d9c9482401941ce7c33635" name="a915a85c338d9c9482401941ce7c33635"></a>
@@ -286,6 +293,23 @@ Static Public Attributes</h2></td></tr>
           <td>(</td>
           <td class="paramtype">LocalVector&lt; <a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_tickets</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aefab641106773a4ae587decac6b8deb4" name="aefab641106773a4ae587decac6b8deb4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aefab641106773a4ae587decac6b8deb4">&#9670;&#160;</a></span>allocation_matches()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#aefab641106773a4ae587decac6b8deb4">gs_hlod_runtime::NodeResidency::allocation_matches</a> </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span></td><td>)</td>
+          <td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -860,6 +884,31 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="aead9a8bc4f57d879397569fa6c10d184" name="aead9a8bc4f57d879397569fa6c10d184"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aead9a8bc4f57d879397569fa6c10d184">&#9670;&#160;</a></span>max_pages_per_node()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#aead9a8bc4f57d879397569fa6c10d184">gs_hlod_runtime::NodeResidency::max_pages_per_node</a> </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a5ee487c479c36808ceb2847db64dcb81" name="a5ee487c479c36808ceb2847db64dcb81"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a5ee487c479c36808ceb2847db64dcb81">&#9670;&#160;</a></span>node_count()</h2>
 
@@ -902,6 +951,82 @@ Static Public Attributes</h2></td></tr>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>&#160;)</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1942d1d6ccd68f53d9f845bfb147bd25" name="a1942d1d6ccd68f53d9f845bfb147bd25"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1942d1d6ccd68f53d9f845bfb147bd25">&#9670;&#160;</a></span>page_allocation()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a1942d1d6ccd68f53d9f845bfb147bd25">gs_hlod_runtime::NodeResidency::page_allocation</a> </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Vector&lt; uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_pages</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_pt_base</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a958bbbc219bc967f9f38f77a3304564d" name="a958bbbc219bc967f9f38f77a3304564d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a958bbbc219bc967f9f38f77a3304564d">&#9670;&#160;</a></span>page_owners()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const Vector&lt; uint32_t &gt; &amp; <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a958bbbc219bc967f9f38f77a3304564d">gs_hlod_runtime::NodeResidency::page_owners</a> </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8d8c72a08a038aaf1a6548e817e1c161" name="a8d8c72a08a038aaf1a6548e817e1c161"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8d8c72a08a038aaf1a6548e817e1c161">&#9670;&#160;</a></span>page_table()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const Vector&lt; uint32_t &gt; &amp; <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a8d8c72a08a038aaf1a6548e817e1c161">gs_hlod_runtime::NodeResidency::page_table</a> </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -1109,32 +1234,6 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a440a87fe48155c2885b3f061d3408014" name="a440a87fe48155c2885b3f061d3408014"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a440a87fe48155c2885b3f061d3408014">&#9670;&#160;</a></span>run()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a440a87fe48155c2885b3f061d3408014">gs_hlod_runtime::NodeResidency::run</a> </td>
-          <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_first_page</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_page_count</em></span>&#160;) const</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="a24499fe8f2619f115f0f14953ec22056" name="a24499fe8f2619f115f0f14953ec22056"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a24499fe8f2619f115f0f14953ec22056">&#9670;&#160;</a></span>shadow_ticket()</h2>
 
@@ -1304,6 +1403,56 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="aaf233b0bc7efe48bef8de0996c96f618" name="aaf233b0bc7efe48bef8de0996c96f618"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaf233b0bc7efe48bef8de0996c96f618">&#9670;&#160;</a></span>take_released_pages()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#aaf233b0bc7efe48bef8de0996c96f618">gs_hlod_runtime::NodeResidency::take_released_pages</a> </td>
+          <td>(</td>
+          <td class="paramtype">LocalVector&lt; uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_pages</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab2fc0197a37b24a3959e940ef3b4daf0" name="ab2fc0197a37b24a3959e940ef3b4daf0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab2fc0197a37b24a3959e940ef3b4daf0">&#9670;&#160;</a></span>take_released_slots()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#ab2fc0197a37b24a3959e940ef3b4daf0">gs_hlod_runtime::NodeResidency::take_released_slots</a> </td>
+          <td>(</td>
+          <td class="paramtype">LocalVector&lt; uint32_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bases</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a7eb20927473ccdef0cc1d7d3ee576a0b" name="a7eb20927473ccdef0cc1d7d3ee576a0b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a7eb20927473ccdef0cc1d7d3ee576a0b">&#9670;&#160;</a></span>transition_workspace_bytes()</h2>
 
@@ -1392,6 +1541,28 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a0a5c8ba4fd43928787a183c543da1606">gs_hlod_runtime::NodeResidency::EVICTION_EVENT_CAPACITY</a> = 4096</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a43b6ace58f4c8fa8f5444d2becd8ad35" name="a43b6ace58f4c8fa8f5444d2becd8ad35"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a43b6ace58f4c8fa8f5444d2becd8ad35">&#9670;&#160;</a></span>FREE_PAGE</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a43b6ace58f4c8fa8f5444d2becd8ad35">gs_hlod_runtime::NodeResidency::FREE_PAGE</a> = HlodPagePool::FREE</td>
         </tr>
       </table>
   </td>

@@ -7,6 +7,8 @@ var structGPUSortingPipeline_1_1InstancePipelineInputs =
     [ "device", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#ad3d5a627ded76d76bead2ac83b90a8da", null ],
     [ "hlod_content_generation", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a97969fd1be7b7f7674dfab55c9230d16", null ],
     [ "hlod_draw_entry_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a9875ec51b2d1ce4a21a501ae993cad99", null ],
+    [ "hlod_page_owner_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a817ff51e06b9d4c025a28cd66f5bc9de", null ],
+    [ "hlod_page_table_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a77ccd170aaeba8b8ecc5aa30aeff37fd", null ],
     [ "hlod_relative", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#acaed9a7e318a0027ebcc66a22f51eff0", null ],
     [ "hlod_source_generation", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a6a1836411d0bb5bc763e30ffb8fcdfad", null ],
     [ "indirect_count_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#ae9512d7610d0d12c73aeeff31de3e43b", null ],

@@ -274,6 +274,7 @@ var annotated_dup =
     [ "gs_hlod_runtime", "namespacegs__hlod__runtime.html", [
       [ "LeafEdit", "structgs__hlod__runtime_1_1LeafEdit.html", "structgs__hlod__runtime_1_1LeafEdit" ],
       [ "NodeResidency", "classgs__hlod__runtime_1_1NodeResidency.html", "classgs__hlod__runtime_1_1NodeResidency" ],
+      [ "HlodPagePool", "classgs__hlod__runtime_1_1HlodPagePool.html", "classgs__hlod__runtime_1_1HlodPagePool" ],
       [ "CutRequest", "structgs__hlod__runtime_1_1CutRequest.html", "structgs__hlod__runtime_1_1CutRequest" ],
       [ "CutHistory", "classgs__hlod__runtime_1_1CutHistory.html", "classgs__hlod__runtime_1_1CutHistory" ],
       [ "TransitionGroup", "structgs__hlod__runtime_1_1TransitionGroup.html", "structgs__hlod__runtime_1_1TransitionGroup" ],

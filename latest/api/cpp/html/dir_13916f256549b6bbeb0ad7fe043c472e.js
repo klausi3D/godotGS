@@ -9,6 +9,7 @@ var dir_13916f256549b6bbeb0ad7fe043c472e =
     [ "hlod_matched_arms.h", "hlod__matched__arms_8h.html", null ],
     [ "hlod_node_residency.cpp", "hlod__node__residency_8cpp.html", "hlod__node__residency_8cpp" ],
     [ "hlod_node_residency.h", "hlod__node__residency_8h.html", "hlod__node__residency_8h" ],
+    [ "hlod_page_pool.h", "hlod__page__pool_8h.html", "hlod__page__pool_8h" ],
     [ "hlod_runtime_cut.cpp", "hlod__runtime__cut_8cpp.html", null ],
     [ "hlod_runtime_cut.h", "hlod__runtime__cut_8h.html", null ],
     [ "hlod_runtime_selection.cpp", "hlod__runtime__selection_8cpp.html", null ],

@@ -13,6 +13,8 @@ var structGaussianRenderPipeline_1_1InstancePipelineBuffers =
     [ "hlod_draw_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30", null ],
     [ "hlod_draw_entry_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a1c48e70a66ed7da34e8d3506e195a0f8", null ],
     [ "hlod_origin_revision", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ae717da0b62e6a2f50abcd7746a340af6", null ],
+    [ "hlod_page_owner_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#aa8bf6a932b41d80b00004013440415ad", null ],
+    [ "hlod_page_table_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#abe101356083df440468a2c522154a0cb", null ],
     [ "hlod_relative", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a42f1ff81eb853f27a7306e6b46d61bb5", null ],
     [ "hlod_source_generation", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#af880002e6663d0c9ffaac8619ee9b809", null ],
     [ "indirect_count_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a34dbe93776ddfe00b9214010c69e495e", null ],

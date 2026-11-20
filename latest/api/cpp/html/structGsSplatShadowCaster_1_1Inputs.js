@@ -7,6 +7,7 @@ var structGsSplatShadowCaster_1_1Inputs =
     [ "instance_buffer", "structGsSplatShadowCaster_1_1Inputs.html#a9fbfa7a12729e558a9d843c6014157f3", null ],
     [ "instance_slots", "structGsSplatShadowCaster_1_1Inputs.html#a9055ac89a0320a3b4876f9b83c1678b8", null ],
     [ "opacity_multiplier", "structGsSplatShadowCaster_1_1Inputs.html#a69f75bf16a090277793a8fb58e7d5392", null ],
+    [ "page_table_buffer", "structGsSplatShadowCaster_1_1Inputs.html#adfef629021303a2410309ffcfad767e7", null ],
     [ "pancake", "structGsSplatShadowCaster_1_1Inputs.html#a63d6aa029bc2ff65c7b22ea2dc522a99", null ],
     [ "row_casts", "structGsSplatShadowCaster_1_1Inputs.html#a1d91c203917731feca8e1d5704bf35a2", null ],
     [ "slot_stride", "structGsSplatShadowCaster_1_1Inputs.html#ab8a5c83ec2bee76acc71454a36c985cd", null ]

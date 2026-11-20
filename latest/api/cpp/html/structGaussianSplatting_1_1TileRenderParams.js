@@ -46,6 +46,7 @@ var structGaussianSplatting_1_1TileRenderParams =
     [ "hlod_draw_entry_buffer", "structGaussianSplatting_1_1TileRenderParams.html#a172a0023e19272d207479dc28db998f8", null ],
     [ "hlod_draw_list_buffer", "structGaussianSplatting_1_1TileRenderParams.html#a78107f1326a44bef8c147b6a6c88e935", null ],
     [ "hlod_origin_revision", "structGaussianSplatting_1_1TileRenderParams.html#a756f2bbf625e5faafd5ac0fb106d14b3", null ],
+    [ "hlod_page_owner_buffer", "structGaussianSplatting_1_1TileRenderParams.html#a57b9bef3ebc76b881529c86881c4c892", null ],
     [ "hlod_relative", "structGaussianSplatting_1_1TileRenderParams.html#ac7f5940c5d4082dc615cf226e192bf19", null ],
     [ "hlod_source_generation", "structGaussianSplatting_1_1TileRenderParams.html#a3a1b3e8954f395b561cdf5b1c0149193", null ],
     [ "hotspot_min_radius_px", "structGaussianSplatting_1_1TileRenderParams.html#aae2784c3276d039952350ab03c860762", null ],

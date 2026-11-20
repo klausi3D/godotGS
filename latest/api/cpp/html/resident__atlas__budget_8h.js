@@ -19,8 +19,8 @@ var resident__atlas__budget_8h =
     [ "ResidentAtlasBudget::hlod_relative_atlas_records", "namespaceResidentAtlasBudget.html#ae64d38527c62d7dfe72bd8e114e76c53", null ],
     [ "ResidentAtlasBudget::hlod_scale_texture_bytes_for_pixels", "namespaceResidentAtlasBudget.html#adffcd47010aa6f0a4a5559e7eb0af949", null ],
     [ "ResidentAtlasBudget::hlod_should_stream", "namespaceResidentAtlasBudget.html#ad0750e28216f6a1b3884121950b49467", null ],
-    [ "ResidentAtlasBudget::hlod_stream_page_budget", "namespaceResidentAtlasBudget.html#a07dbe1c92ccc9df179b8d52350100556", null ],
-    [ "ResidentAtlasBudget::hlod_stream_page_budget_with_instances", "namespaceResidentAtlasBudget.html#af1804004dfbcfa23a4ef9d5132714e03", null ],
+    [ "ResidentAtlasBudget::hlod_stream_page_budget", "namespaceResidentAtlasBudget.html#a9c71b9075ddfd2139f3c1b5491e9c4de", null ],
+    [ "ResidentAtlasBudget::hlod_stream_page_budget_with_instances", "namespaceResidentAtlasBudget.html#a0ed7164ee5d02f1faf4a8c6f03eda808", null ],
     [ "ResidentAtlasBudget::hlod_view_grid_action", "namespaceResidentAtlasBudget.html#af7123abf6b7bd6a83e49ae34dfa23194", null ],
     [ "ResidentAtlasBudget::hlod_view_grid_outstanding_bytes", "namespaceResidentAtlasBudget.html#a88a0d9e18b7afcf3bf2a272648c36d40", null ],
     [ "ResidentAtlasBudget::resident_asset_budget", "namespaceResidentAtlasBudget.html#a6c541683989a5def86d639ba7c05515d", null ]

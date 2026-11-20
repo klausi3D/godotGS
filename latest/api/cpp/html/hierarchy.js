@@ -231,6 +231,7 @@ var hierarchy =
     [ "HlodFallback", "structHlodFallback.html", null ],
     [ "GaussianSplatting::HlodLevelRecordSample", "structGaussianSplatting_1_1HlodLevelRecordSample.html", null ],
     [ "HlodLevelRecordStatsGPU", "structHlodLevelRecordStatsGPU.html", null ],
+    [ "gs_hlod_runtime::HlodPagePool", "classgs__hlod__runtime_1_1HlodPagePool.html", null ],
     [ "HlodViewIdentity", "structHlodViewIdentity.html", null ],
     [ "HlodViewOutcome", "structHlodViewOutcome.html", null ],
     [ "ICuller", "classICuller.html", [

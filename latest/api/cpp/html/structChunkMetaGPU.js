@@ -6,11 +6,11 @@ var structChunkMetaGPU =
     [ "bounds_radius_local", "structChunkMetaGPU.html#ab37a3b10d5b47026a0782d287dd396e9", null ],
     [ "flags", "structChunkMetaGPU.html#a6df2830cce9b2100dab2804a117e81b7", null ],
     [ "lod_level", "structChunkMetaGPU.html#af0ac5afba594cc1422c6f736355fc489", null ],
-    [ "node_center_x", "structChunkMetaGPU.html#afbc01d858de0cdb2bce4d6f522134bfd", null ],
-    [ "node_center_y", "structChunkMetaGPU.html#a14b72333c9fec7d738683c88b46eb597", null ],
-    [ "node_center_z", "structChunkMetaGPU.html#a58444848be4234f18b34a77843c364c0", null ],
+    [ "page_table_ref", "structChunkMetaGPU.html#ad4821ff528556ea228dbe8a75240a387", null ],
     [ "quant_base", "structChunkMetaGPU.html#aa81b1c95d18b4c6406db0c290d098e84", null ],
     [ "quant_count", "structChunkMetaGPU.html#a243eb2e30605d2485065040b4c587bde", null ],
+    [ "reserved_node_y", "structChunkMetaGPU.html#abf52f464b0dfad1ab5c818f335e5b78c", null ],
+    [ "reserved_node_z", "structChunkMetaGPU.html#a3fcdc1366179a904e0c5cad6ae6200a3", null ],
     [ "sh_limit", "structChunkMetaGPU.html#a0e051dc7fe1faf06abef9456a90f0ebd", null ],
     [ "splat_count", "structChunkMetaGPU.html#ae77a4b4f21d5b490481aeeb7dfe161e2", null ]
 ];

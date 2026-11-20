@@ -50,6 +50,8 @@ var structHlodNodeStreamer_1_1Telemetry =
     [ "oversized_latch", "structHlodNodeStreamer_1_1Telemetry.html#ae789a160941cc4ccf5c123dcda87fdb0", null ],
     [ "oversized_reservation_bytes", "structHlodNodeStreamer_1_1Telemetry.html#a92d8cbf7df42e9a9fd91152977d3d2d0", null ],
     [ "oversized_wait_live", "structHlodNodeStreamer_1_1Telemetry.html#a5c2daa5b3430add70baa37fb49c81c16", null ],
+    [ "page_table_publish_refusals_this_frame", "structHlodNodeStreamer_1_1Telemetry.html#a5a1905b6d279a97acda496943e99a304", null ],
+    [ "page_table_publish_refusals_total", "structHlodNodeStreamer_1_1Telemetry.html#a8051deab46da447a93fe276eda032d46", null ],
     [ "pages_capacity", "structHlodNodeStreamer_1_1Telemetry.html#a740f0b5005de508873f5cc89729a66c7", null ],
     [ "pages_free", "structHlodNodeStreamer_1_1Telemetry.html#a3cf86eeaee17b869d6a74cdf02c2a001", null ],
     [ "pages_in_flight", "structHlodNodeStreamer_1_1Telemetry.html#ad2d50cbab8f2601797965fec33282e4b", null ],
