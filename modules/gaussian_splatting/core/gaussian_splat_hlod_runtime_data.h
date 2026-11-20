@@ -2,7 +2,6 @@
 #define GAUSSIAN_SPLAT_HLOD_RUNTIME_DATA_H
 
 #include "gaussian_data.h"
-#include "../shaders/includes/gs_hlod_page_constants.glsl"
 #include "gaussian_splat_hlod_tree.h"
 #include "gaussian_splat_world_frame.h"
 #include "../io/gaussian_splat_world_paged.h"
@@ -23,7 +22,7 @@ public:
 	//    on the route (the quantized record stores all 32 bits since #1413). Was 32,768.
 	static constexpr uint64_t MAX_PAYLOAD = UINT32_MAX;
 	static constexpr uint32_t MAX_NODES = gs_world_paged::kMaxNodes;
-	static constexpr uint32_t DEFAULT_PAGE_SPLATS = GS_HLOD_PAGE_SPLATS;
+	static constexpr uint32_t DEFAULT_PAGE_SPLATS = 1024;
 	// A deliberate budget: the CPU memory one snapshot (tables, payload, histories, packing scratch) may hold.
 	static constexpr uint64_t CPU_BYTE_LIMIT = uint64_t(1) << 30;
 	// A deliberate budget: the default of the device bytes a WHOLE-TREE (not streamed) HLOD bundle pair may own

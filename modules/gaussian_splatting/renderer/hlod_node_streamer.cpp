@@ -5,6 +5,7 @@
 #include "../core/gs_vector_alloc.h"
 #include "../lod/hlod_edit.h"
 #include "../io/gs_payload_page_store.h"
+#include "../shaders/includes/gs_hlod_page_constants.glsl"
 
 #include <chrono>
 #include <utility>
@@ -13,6 +14,9 @@ using gs_hlod_runtime::NodeResidency;
 
 // The HLOD page geometry matches the chunk route and shared budget math.
 static_assert(HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS == GaussianStreamingSystem::ATLAS_PAGE_SPLATS, "HLOD node runs use the streaming atlas page size");
+// Paged shader addressing (page_table[...] * GS_HLOD_PAGE_SPLATS + (i & GS_HLOD_PAGE_MASK)) uses the same page size.
+// The check lives here, not in gaussian_splat_hlod_runtime_data.h, because that header is a tree-key source.
+static_assert(HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS == GS_HLOD_PAGE_SPLATS, "HLOD host page size must match the shader page constant");
 
 HlodNodeStreamer::~HlodNodeStreamer() {
 	shutdown();
