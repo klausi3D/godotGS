@@ -81,6 +81,7 @@ primed").
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -198,6 +199,7 @@ STEP_NAMES = (
 RUN_MODES: Dict[str, Tuple[str, ...]] = {
     "full": (),
     "controls_only": ("probe",),
+    "hlod": ("controls",),
 }
 EXCLUDED = "EXCLUDED"
 
@@ -1011,6 +1013,79 @@ def probe(
     return code
 
 
+def probe_hlod(
+    repo: Path, godot_binary: Path, tier: str, out: Path, cache_worlds: Optional[Path],
+    admission_id: Optional[str], runner: Runner = subprocess.run,
+    lock=None,
+) -> int:
+    """Read-only Tier A render: re-admit under both locks, never generate a fallback."""
+    data: dict = {"tier": tier, "arm": "hlod"}
+    lock = lock or wc.cache_lock
+    try:
+        if tier != "A" or not admission_id or cache_worlds is None:
+            raise LaneError("NOT_RUN: HLOD requires Tier A and a current --admission-id/cache map", EXIT_NOT_RUN)
+        mapping = _read_auto_json(cache_worlds)
+        root = Path(mapping["cache_root"])
+        with lock(root, False), lock(root / ".auto-tree-lock", False):
+            admission = mapping.get("admission") or {}
+            worlds = mapping.get("worlds") or {}
+            if (admission.get("id") != admission_id or admission.get("arm") != "hlod"
+                    or admission.get("encoding") != AUTO_TREE_ENCODING or set(worlds) != {"A"}
+                    or Path(worlds["A"]).parent != root / wc.world_id("A", AUTO_TREE_ENCODING)):
+                raise LaneError("NOT_RUN: wrong attempt or non-tree HLOD admission map", EXIT_NOT_RUN)
+            # Admission is required at the consumer too: a previous map is not
+            # evidence that this checkout/attempt still has a complete tree.
+            recheck = out / "hlod_revalidation"
+            code = auto_tree_cache_check(repo, tier, root, recheck, admission_id, None, _verify_world,
+                                         lambda *a: contextlib.nullcontext(), True, admission_id)
+            if code != EXIT_OK:
+                record = _read_auto_json(recheck / "steps" / "cache_check.json")
+                data["reason_code"] = record.get("data", {}).get("reason_code")
+                raise LaneError(record["reason"], code)
+            current = _read_auto_json(recheck / CACHE_WORLDS_FILE)
+            if mapping != current:
+                raise LaneError("NOT_RUN: HLOD admission map differs from this attempt's verified tree", EXIT_NOT_RUN)
+            tree = Path(mapping["worlds"]["A"])
+            source = mapping["source_manifests"]["A"]
+            files = wc.world_files(tree)
+            res = wc.residency(files)
+            data["cache"] = cache = {
+                "residency": res, "host_cache": _host_cache_from_disk_step(out), "cold_proven": False,
+                "v10": {"status": "NOT_RUN", "reason": "HLOD expected stored bytes oracle unavailable"},
+            }
+            if not res["cold"]:
+                cache["invalid_reason"] = "cache_warm"
+                raise LaneError("INVALID: cache_warm before HLOD cold pass", EXIT_INVALID)
+            entry = _entry_point(repo, PROBE_ENTRY, PROBE_PACKAGE, "probe")
+            probe_out = out / "probe"
+            probe_out.mkdir(parents=True, exist_ok=True)
+            cmd = [sys.executable, str(entry), "--godot-binary", str(godot_binary), "--arm", "hlod",
+                   "--world", f"A={tree}", "--world-manifest", f"A={source}", "--no-sweep", "--out", str(probe_out)]
+            before = _children_read_bytes()
+            rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
+            after = _children_read_bytes()
+            summary, _ = fv._read_json(probe_out / PROBE_SUMMARY_NAME)
+            cold_read, read_source = wc.cold_pass_read_bytes(summary, ["A"])
+            cache.update(cold_read_bytes=cold_read, read_source=read_source,
+                         process_read_bytes_incl_end_digest=after - before if before is not None and after is not None else None,
+                         process_read_bytes_note="Whole probe process tree, including cold/repeat passes and probe_world.gd's "
+                                                 "end-of-run loaded-file SHA256; not streaming-only reads. "
+                                                 "cold_read_bytes is recorded separately.")
+            data.update(admission=mapping["admission"], probe_exit_code=rc, summary_written=summary is not None)
+            if rc != 0:
+                raise LaneError(f"HLOD probe exited {rc}", rc if 0 < rc < 256 else EXIT_FAIL)
+            if summary is None:
+                raise LaneError("HLOD probe exited 0 without a summary")
+        code, reason = EXIT_OK, "HLOD physical run, not acceptance; probe summary written"
+    except (LaneError, wc.CacheError) as exc:
+        code, reason = exc.code, str(exc)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        code, reason = EXIT_NOT_RUN, f"NOT_RUN: unusable HLOD admission: {exc}"
+    write_record(out, "probe", code, reason, data)
+    _announce(code, reason)
+    return code
+
+
 def controls(
     repo: Path,
     godot_binary: Path,
@@ -1257,10 +1332,16 @@ def cache_check(
     lock: Callable[..., object] = wc.cache_lock,
     encoding: str = ENCODING,
     auto_tree: bool = False,
+    publish_hlod_worlds: bool = False,
+    admission_id: Optional[str] = None,
 ) -> int:
     """Per-run verify (V2 against the world's own manifest), quarantine, fadvise."""
     if auto_tree:
-        return auto_tree_cache_check(repo, tier, cache_root, out, run_id, fadvise, verify, lock)
+        return auto_tree_cache_check(repo, tier, cache_root, out, run_id, fadvise, verify, lock,
+                                     publish_hlod_worlds, admission_id)
+    if publish_hlod_worlds:
+        write_record(out, "cache_check", EXIT_NOT_RUN, "HLOD publication requires --auto-tree")
+        return EXIT_NOT_RUN
     step = "cache_check"
     data: Dict[str, object] = {"tier": tier, "encoding": encoding, "cache_root": str(cache_root), "worlds": {}}
     try:
@@ -1757,12 +1838,15 @@ def prime_auto_tree(
 def auto_tree_cache_check(
     repo: Path, tier: str, cache_root: Path, out: Path, run_id: str,
     fadvise: Optional[wc.Fadvise], verify: Callable[[Path], dict], lock: Callable[..., object],
+    publish_hlod_worlds: bool = False, admission_id: Optional[str] = None,
 ) -> int:
     data: dict = {"cache_root": str(cache_root), "run_id": run_id, "auto_tree": True}
     code, reason = EXIT_FAIL, "auto-tree cache check did not complete"
     try:
         if tier != "A":
             raise LaneError("auto-tree cache check supports Tier A only")
+        if publish_hlod_worlds and not admission_id:
+            raise LaneError("NOT_RUN: HLOD publication requires --admission-id", EXIT_NOT_RUN)
         wc.ensure_format(cache_root, create=False)
         with lock(cache_root, False), lock(cache_root / ".auto-tree-lock", False):
             plain, plain_meta, generator_fingerprint, digest = _auto_plain_key(repo, cache_root)
@@ -1794,6 +1878,15 @@ def auto_tree_cache_check(
                 wc.drop_from_page_cache(wc.world_files(key), fadvise)
             data.update(plain_key=str(plain), tree_key=str(tree), input_file_sha256=digest,
                         tree_source_fingerprint=fingerprint, source_fingerprint=generator_fingerprint)
+            if publish_hlod_worlds:
+                _auto_json(out / CACHE_WORLDS_FILE, {
+                    "cache_root": str(cache_root), "worlds": {"A": str(tree)},
+                    "source_manifests": {"A": str(plain / MANIFEST_NAME)},
+                    "admission": {"id": admission_id, "arm": "hlod", "encoding": AUTO_TREE_ENCODING,
+                                  "gen_sha": plain_meta["gen_sha"], "tree_sha": meta["tree_sha"],
+                                  "source_fingerprint": generator_fingerprint,
+                                  "tree_source_fingerprint": fingerprint, "input_file_sha256": digest},
+                })
             code, reason = EXIT_OK, "both complete keys verified against input bytes and checkout sources"
     except wc.CacheError as exc:
         code, reason = exc.code, str(exc)
@@ -2092,16 +2185,18 @@ def lane_verdict(statuses: Sequence[str]) -> str:
     return "PASS"
 
 
-def gate_verdict(out: Path, tier: Optional[str], sha: Optional[str]) -> dict:
+def gate_verdict(out: Path, tier: Optional[str], sha: Optional[str], arm: str = "flat") -> dict:
     """BV-09's gate verdict for this run; a crash or a missing tier is a verdict, never a pass."""
     if not tier:
         result: dict = {"verdict": "NOT_RUN", "reason": "summarize got no --tier", "enforced_verdict": "NOT_RUN"}
     else:
         try:
-            return fv.evaluate_out_dir(out, tier, "flat", sha)
+            return fv.evaluate_out_dir(out, tier, arm, sha)
         except Exception as exc:  # noqa: BLE001 -- the lane verdict must still be written
             result = {"verdict": "INVALID", "reason": f"gate verdict crashed: {type(exc).__name__}: {exc}",
                       "enforced_verdict": "INVALID"}
+    if arm == "hlod":
+        result.update(arm="hlod", reason="physical run, not acceptance; " + result["reason"])
     (out / fv.GATE_VERDICT_FILE).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
 
@@ -2150,6 +2245,9 @@ def summarize(
     counted = [status for _, status, _ in rows if status != EXCLUDED]
     verdict = lane_verdict(counted)
     complete = bool(counted) and all(status == "OK" for status in counted)
+    hlod_gates = gate_verdict(out, (meta or {}).get("tier"), (meta or {}).get("sha"), "hlod") if mode == "hlod" else None
+    if hlod_gates is not None:
+        verdict = lane_verdict([verdict, hlod_gates["verdict"]])
     summary = {
         "schema": "godotgs-beyond-vram-dispatch/2",
         "report_only": True,
@@ -2158,6 +2256,10 @@ def summarize(
         "verdict": verdict,
         "steps": [{"step": s, "status": st, "reason": r} for s, st, r in rows],
     }
+    if hlod_gates is not None:
+        summary.update(render_status="OK" if complete else "INCOMPLETE", overall="INCOMPLETE",
+                       reason=hlod_gates["reason"], diagnostics=hlod_gates.get("diagnostics", {}),
+                       availability=hlod_gates.get("availability", {}))
     out.mkdir(parents=True, exist_ok=True)
     (out / "dispatch_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     verdict_record = {
@@ -2170,7 +2272,9 @@ def summarize(
         "steps": summary["steps"],
     }
     verdict_record.update(meta or {})
-    gates = gate_verdict(out, (meta or {}).get("tier"), (meta or {}).get("sha"))
+    if hlod_gates is not None:
+        verdict_record.update({k: summary[k] for k in ("reason", "diagnostics", "render_status")})
+    gates = hlod_gates if hlod_gates is not None else gate_verdict(out, (meta or {}).get("tier"), (meta or {}).get("sha"))
     verdict_record["gate_verdict"] = {
         "verdict": gates.get("verdict"),
         "reason": gates.get("reason"),
@@ -2188,6 +2292,8 @@ def summarize(
         "| --- | --- | --- |",
     ]
     lines += [f"| `{s}` | {st} | {r.replace('|', '/')} |" for s, st, r in rows]
+    if hlod_gates is not None:
+        lines[4:4] = [hlod_gates["reason"], ""]
     text = "\n".join(lines) + "\n"
     if "entries" in gates:
         text += "\n" + fv.markdown(gates)
@@ -2273,6 +2379,8 @@ def _parser() -> argparse.ArgumentParser:
         if name == "generate":
             p.add_argument("--encoding", choices=ENCODINGS, default=ENCODING, help="Tier A's encoding (T0 stays flat)")
         if name == "probe":
+            p.add_argument("--arm", choices=("flat", "hlod"), default="flat")
+            p.add_argument("--admission-id")
             p.add_argument("--cache-worlds", type=Path,
                            help=f"the {CACHE_WORLDS_FILE} cache-check wrote: probe the cached worlds, cold")
 
@@ -2307,6 +2415,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
     p.add_argument("--encoding", choices=ENCODINGS, default=ENCODING, help="Tier A's encoding (T0 stays flat)")
     p.add_argument("--auto-tree", action="store_true", help="verify the plain and derived Tier A auto-tree keys")
+    p.add_argument("--publish-hlod-worlds", action="store_true")
+    p.add_argument("--admission-id")
 
     p = sub.add_parser("auto-tree-preflight")
     common(p, world=False)
@@ -2370,7 +2480,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                            encoding=args.encoding)
     if args.command == "cache-check":
         return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id,
-                           encoding=args.encoding, auto_tree=args.auto_tree)
+                           encoding=args.encoding, auto_tree=args.auto_tree,
+                           publish_hlod_worlds=args.publish_hlod_worlds, admission_id=args.admission_id)
     if args.command == "auto-tree-preflight":
         code = auto_tree_preflight(args.cache_root, args.out)
         measured = _read_auto_json(args.out / "steps" / "auto_tree_preflight.json")
@@ -2403,6 +2514,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "generate":
         return generate(args.repo, args.godot_binary, args.tier, args.world_root, args.out, encoding=args.encoding)
     if args.command == "probe":
+        if args.arm == "hlod":
+            return probe_hlod(args.repo, args.godot_binary, args.tier, args.out, args.cache_worlds, args.admission_id)
         return probe(args.repo, args.godot_binary, args.tier, args.world_root, args.out,
                      cache_worlds=args.cache_worlds)
     if args.command == "controls":

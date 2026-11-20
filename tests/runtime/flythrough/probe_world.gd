@@ -567,6 +567,15 @@ func _sample_and_write() -> void:
 				"overflow_drop_events", "binning_drop_events", "raster_tile_cap_drop_events"]:
 			if stats.has(key):
 				_shared_layers_peaks[key] = max(int(_shared_layers_peaks.get(key, stats[key])), int(stats[key]))
+		# HLOD collection only. Null/negative/absent observations cannot become zero.
+		if stats.get("hlod_active") == true:
+			for key in ["hlod_route_owned_bytes", "hlod_bundle_device_bytes"]:
+				var value = stats.get(key)
+				if (value is int or value is float) and value >= 0:
+					if not _shared_layers_peaks.has(key) or _shared_layers_peaks[key] != null:
+						_shared_layers_peaks[key] = max(int(_shared_layers_peaks.get(key, value)), int(value))
+				else:
+					_shared_layers_peaks[key] = null
 		var payload = _payload_telemetry_result().get("payload_telemetry")
 		if payload is Dictionary:
 			# Keep transient failures/pressure observable even if later frames drain
