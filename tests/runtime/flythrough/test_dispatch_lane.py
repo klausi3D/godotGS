@@ -1272,6 +1272,7 @@ class WorkflowContract(unittest.TestCase):
         hits = [
             i for i, s in enumerate(steps)
             if re.search(rf"^python3 {re.escape(_LANE)} {subcommand}\b", s.get("run", ""), re.M)
+            and "inputs.mode == 'flythrough_hlod'" not in s.get("if", "")
         ]
         self.assertEqual(len(hits), 1, f"expected one step running {subcommand}, found {hits}")
         return hits[0]
@@ -1323,7 +1324,7 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("\npermissions:\n  contents: read\n\n", self.text)
         self.assertIn(
             "  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || "
-            "inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || "
+            "inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'flythrough_hlod' && 'hlod' || inputs.mode == 'auto_tree' && 'auto-tree' || "
             "inputs.mode == 'real_scan' && 'real-scan' || inputs.mode == 'shared_layers_t0' && "
             "'shared-layers-t0' || 'lane' }}\n  cancel-in-progress: false\n",
             self.text,
@@ -1580,7 +1581,8 @@ class WorkflowContract(unittest.TestCase):
         uploads = [i for i, s in enumerate(self.steps) if s.get("uses", "").startswith("actions/upload-artifact")]
         cleanup = self.index_of("cleanup")
         for index in (postflight, summarize, *uploads, cleanup):
-            self.assertEqual(self.steps[index].get("if"), "always()")
+            expected = "${{ always() && inputs.mode != 'flythrough_hlod' }}" if index == summarize else "always()"
+            self.assertEqual(self.steps[index].get("if"), expected)
         self.assertIn("tests/ci/runner_gpu_contention.py postflight", self.steps[postflight]["run"])
         self.assertIn('--contention-outcome "${{ steps.postflight.outcome }}"', self.steps[summarize]["run"])
         # Outputs, the probe screenshots (gate repair) and the verdict the watchdog reads.
@@ -1613,7 +1615,7 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("path: ${{ runner.temp }}/bvw-out/", self.text)
 
     def test_the_schedule_runs_tier_a(self) -> None:
-        self.assertIn("      BVW_TIER: ${{ inputs.tier || 'A' }}", self.gpu)
+        self.assertIn("      BVW_TIER: ${{ inputs.mode == 'flythrough_hlod' && 'A' || inputs.tier || 'A' }}", self.gpu)
 
     def test_tier_choices_match_the_lane(self) -> None:
         tier_block = self.text.split("      tier:\n", 1)[1].split("      prime_world_cache:", 1)[0]
@@ -2627,6 +2629,213 @@ class D36SharedLayersWorkflow(unittest.TestCase):
         for check in ("provenance['commit']", "provenance['run_id']", "provenance['binary']",
                       "provenance['sha256']", "directory.iterdir()"):
             self.assertIn(check, gpu)
+
+
+class HlodAdmission(_CacheCase):
+    """Cache/process orchestration doubles; no invented native telemetry."""
+
+    sources = D25AutoTreeCache.sources
+    snapshot = D25AutoTreeCache.snapshot
+    ready_plain = D25AutoTreeCache.ready_plain
+    tree_fixture = D25AutoTreeCache.tree_fixture
+
+    def cli(self, command, *extra):
+        check = lane.cache_check
+        drop = wc.drop_from_page_cache
+        with mock.patch.object(lane, "cache_check", side_effect=lambda *a, **kw:
+                               check(*a, **kw, fadvise=self.fadvise, lock=self.lock,
+                                     verify=lambda p: {"ok": True, "tree_sha": self.tree_sha})), \
+                mock.patch.object(wc, "cache_lock", self.lock), \
+                mock.patch.object(wc, "drop_from_page_cache", side_effect=lambda paths, fadvise=None:
+                                  drop(paths, self.fadvise)):
+            try:
+                return lane.main([command, "--repo", str(self.repo), "--tier", "A",
+                                  "--out", str(self.out), *extra])
+            except SystemExit as exc:
+                self.fail(f"HLOD CLI must accept its options (parser exited {exc.code})")
+
+    def publish(self):
+        return self.cli("cache-check", "--cache-root", str(self.cache), "--auto-tree",
+                        "--publish-hlod-worlds", "--admission-id", "32:1")
+
+    def launch(self):
+        return self.cli("probe", "--godot-binary", str(self.binary), "--world-root", str(self.world_root),
+                        "--cache-worlds", str(self.out / lane.CACHE_WORLDS_FILE),
+                        "--arm", "hlod", "--admission-id", "32:1")
+
+    def test_forcing_absent_and_stale_tree_never_probe_prime_or_delete(self):
+        plain, tree = self.tree_fixture()
+        self.install(lane.PROBE_ENTRY)
+        self.assertEqual(self.publish(), 0)
+        (self.out / "probe").mkdir(exist_ok=True)
+        (self.out / "probe" / lane.PROBE_SUMMARY_NAME).write_text('{}')
+        marker = tree / wc.COMPLETE_FILE
+        for stale in (False, True):
+            with self.subTest(stale=stale):
+                if stale:
+                    marker.write_text("complete")
+                    (self.repo / wc.TREE_SOURCES[0]).write_text("// stale tree source")
+                else:
+                    marker.unlink()
+                before = self.snapshot(self.cache)
+                with mock.patch.object(lane, "_run_logged", return_value=0) as run, \
+                        mock.patch.object(wc, "residency", return_value={"cold": True, "resident_fraction": 0}), \
+                        mock.patch.object(lane, "prime_cache") as prime, \
+                        mock.patch.object(lane, "prime_auto_tree") as prime_tree, \
+                        mock.patch.object(shutil, "rmtree") as remove, \
+                        mock.patch.object(lane, "_delete_auto_tree_keys") as delete:
+                    self.assertEqual(self.publish(), 3)
+                    record = self.record("cache_check")
+                    self.assertEqual(record["status"], "NOT_RUN")
+                    self.assertEqual(record["data"]["reason_code"], "cache_stale" if stale else "cache_absent")
+                    # Even an old map cannot bypass a refused check via the probe CLI.
+                    self.assertEqual(self.launch(), 3)
+                    self.assertEqual(self.record("probe")["status"], "NOT_RUN")
+                    for double in (run, prime, prime_tree, delete, remove):
+                        double.assert_not_called()
+                self.assertEqual(self.snapshot(self.cache), before)
+
+    def test_legitimate_admission_and_probe_hold_both_locks(self):
+        import contextlib
+
+        plain, tree = self.tree_fixture()
+        self.install(lane.PROBE_ENTRY)
+        held = []
+
+        @contextlib.contextmanager
+        def lock(root, exclusive):
+            self.assertFalse(exclusive)
+            held.append(root)
+            try:
+                yield
+            finally:
+                held.remove(root)
+
+        def verify(path):
+            self.assertEqual(set(held), {self.cache, self.cache / ".auto-tree-lock"})
+            return {"ok": True, "tree_sha": self.tree_sha}
+
+        self.lock = lock
+        self.assertEqual(self.publish(), 0)
+        mapping = json.loads((self.out / lane.CACHE_WORLDS_FILE).read_text())
+        self.assertEqual(mapping["worlds"], {"A": str(tree)})
+        self.assertEqual(mapping["source_manifests"], {"A": str(plain / lane.MANIFEST_NAME)})
+        self.assertEqual(mapping["admission"]["id"], "32:1")
+        self.assertEqual(mapping["admission"]["tree_sha"], self.tree_sha)
+        before = self.snapshot(self.cache)
+
+        def residency(paths, *args):
+            self.assertEqual(set(held), {self.cache, self.cache / ".auto-tree-lock"})
+            return {"cold": True, "resident_fraction": 0}
+
+        def run(cmd, *args):
+            self.assertEqual(set(held), {self.cache, self.cache / ".auto-tree-lock"})
+            self.assertIn("--no-sweep", cmd)
+            self.assertEqual(self.arg(cmd, "--arm"), "hlod")
+            self.assertEqual(self.arg(cmd, "--world"), f"A={tree}")
+            self.assertEqual(self.arg(cmd, "--world-manifest"), f"A={plain / lane.MANIFEST_NAME}")
+            out = Path(self.arg(cmd, "--out"))
+            out.mkdir(parents=True, exist_ok=True)
+            (out / lane.PROBE_SUMMARY_NAME).write_text('{}')
+            return 0
+
+        with mock.patch.object(lane, "_verify_world", side_effect=verify), \
+                mock.patch.object(wc, "residency", side_effect=residency), \
+                mock.patch.object(lane, "_children_read_bytes", side_effect=[100, 200]), \
+                mock.patch.object(lane, "_run_logged", side_effect=run) as launched:
+            self.assertEqual(self.launch(), 0)
+            launched.assert_called_once()
+        self.assertEqual(held, [])
+        self.assertEqual(before, self.snapshot(self.cache))
+        self.assertEqual(self.record("probe")["data"]["cache"]["v10"]["status"], "NOT_RUN")
+        cache = self.record("probe")["data"]["cache"]
+        self.assertEqual(cache.get("process_read_bytes_incl_end_digest"), 100)
+        self.assertNotIn("tree_read_bytes", cache)
+        self.assertIn("loaded-file SHA256", cache["process_read_bytes_note"])
+        self.assertIn("not streaming-only reads", cache["process_read_bytes_note"])
+        for alteration in ("attempt", "plain"):
+            bad = copy.deepcopy(mapping)
+            if alteration == "attempt":
+                bad["admission"]["id"] = "32:0"
+            else:
+                bad["worlds"]["A"] = str(plain)
+            (self.out / lane.CACHE_WORLDS_FILE).write_text(json.dumps(bad))
+            with mock.patch.object(lane, "_run_logged") as run:
+                self.assertEqual(self.launch(), 3)
+                run.assert_not_called()
+
+
+class HlodChunkPin(_CacheCase):
+    def test_plain_cache_map_and_exact_probe_arguments_match_base(self):
+        import types
+        code = subprocess.check_output(["git", "show", "9faecfb155a:tests/runtime/flythrough/dispatch_lane.py"],
+                                       cwd=ROOT, text=True)
+        old = types.ModuleType("m32_base_lane")
+        old.__file__ = str(HERE / "dispatch_lane.py")
+        exec(compile(code, old.__file__, "exec"), old.__dict__)
+        self.assertEqual(self.prime("A"), 0)
+        self.install(lane.PROBE_ENTRY)
+        records = []
+        commands = []
+        for module in (old, lane):
+            self.assertEqual(module.cache_check(self.repo, "A", self.cache, self.out, "32",
+                                                self.fadvise, lambda p: {"ok": True}, self.lock), 0)
+            records.append((self.out / lane.CACHE_WORLDS_FILE).read_bytes())
+
+            def run(cmd, *a, **kw):
+                commands.append(cmd)
+                out = Path(self.arg(cmd, "--out"))
+                out.mkdir(parents=True, exist_ok=True)
+                (out / lane.PROBE_SUMMARY_NAME).write_text('{}')
+                return _proc(cmd, 0)
+
+            self.assertEqual(module.probe(self.repo, self.binary, "A", self.world_root, self.out, run,
+                                          self.out / lane.CACHE_WORLDS_FILE, lambda p: (0, 100), self.lock), 0)
+        self.assertEqual(records[0], records[1])
+        self.assertEqual(commands[0], commands[1])
+
+
+class HlodWorkflow(D25AutoTreeWorkflow):
+    def test_chunk_schedule_step_selection_matches_base(self):
+        base = subprocess.check_output(["git", "show", "9faecfb155a:.github/workflows/beyond_vram_flythrough.yml"],
+                                       cwd=ROOT, text=True)
+
+        def selected(text):
+            result = []
+            for step in _steps(_job_block(text, "flythrough")):
+                condition = step.get("if", "true")
+                condition = re.sub(r"steps\.[a-z_]+\.outcome", "'success'", condition)
+                condition = condition.replace("always()", "true").replace("inputs.controls_only", "false")
+                if self.enabled(condition, mode="", event="schedule", schedule="0 3 * * 6"):
+                    result.append((step.get("name"), step.get("run"), step.get("uses")))
+            return result
+
+        self.assertEqual(selected(self.text), selected(base))
+
+    def test_hlod_job_conditions_exclude_prime_and_codec_even_when_requested(self):
+        jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", self.text.split("\njobs:\n", 1)[1], re.M)
+        enabled = {j for j in jobs if self.enabled(WorkflowContract.job_if(_job_block(self.text, j)),
+                                                  mode="flythrough_hlod")}
+        self.assertEqual(enabled, {"baseline-qa-gate", "build-linux-editor", "flythrough"})
+        self.assertIn('          - "flythrough_hlod"', self.text)
+        for line in self.text.splitlines():
+            if line.startswith(("run-name:", "  group: bvw-")):
+                self.assertIn("inputs.mode == 'flythrough_hlod'", line)
+        steps = _steps(_job_block(self.text, "flythrough"))
+        hlod = [s for s in steps if "--arm hlod" in s.get("run", "")]
+        self.assertEqual(len(hlod), 1)
+        self.assertIn("--admission-id", hlod[0]["run"])
+        checks = [s for s in steps if "--publish-hlod-worlds" in s.get("run", "")]
+        self.assertEqual(len(checks), 1)
+        self.assertIn("--auto-tree", checks[0]["run"])
+        for s in steps:
+            run = s.get("run", "")
+            if re.search(r"dispatch_lane.py controls\b", run):
+                self.assertIn("inputs.mode != 'flythrough_hlod'", s.get("if", ""))
+            elif re.search(r"dispatch_lane.py cleanup\b", run):
+                self.assertEqual(s.get("if"), "always()")
+                self.assertIn('cleanup --world-root "$BVW_WORLD_ROOT"', run)
+                self.assertNotIn("--cache-root", run)
 
 
 if __name__ == "__main__":

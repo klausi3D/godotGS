@@ -210,7 +210,7 @@ contract-source ADR.
 | --- | --- | --- |
 | `baseline_qa.yml` | `debug_mode` | `true`, `false` |
 | `baseline_qa.yml` | `baseline_mode` | `compare`, `update` |
-| `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), `shared_layers_t0` (candidate/pre-D3 builds and one sequential paired synthetic GPU diagnostic), or `watchdog` (only the liveness watchdog) |
+| `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `flythrough_hlod` (read-only Tier A HLOD physical run, not acceptance), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), `shared_layers_t0` (candidate/pre-D3 builds and one sequential paired synthetic GPU diagnostic), or `watchdog` (only the liveness watchdog) |
 | `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Corrupt/saturate pass only with DETECTED and usable non-control arms; missing evidence fails. `skip_compare` must be red. Saturation holds actual ready HLOD uploads through the tests-only hook and requires native hold/queue evidence. |
 | `beyond_vram_flythrough.yml` | `shared_layers_variant` | `unconstrained` (default, the unchanged run) or `pressure` (#1471); used only in `mode=shared_layers_t0`, with `shared_layers_control=none`. Pressure caps the HLOD atlas to 20-25 % of the tree's pages and the drawn budget to 250k on every arm, and is UNUSABLE with a named reason without observed evictions, budget-bound frames and a teleport settle that streamed. |
 | `beyond_vram_flythrough.yml` | `tier` | `T0` (default, 4.19M-splat smoke world), `A` (the 201M-splat world, uncompressed plain v3; also uses `T0`). The weekly schedule runs `A`. |
@@ -228,6 +228,18 @@ contract-source ADR.
 | `release_builds.yml` | `release_tag` | string (`vX.Y.Z` when `publish_channel=stable`) |
 | `release_builds.yml` | `release_name` | optional string |
 | `release_builds.yml` | `keep_nightlies` | integer string |
+
+`mode=flythrough_hlod` reuses the GPU fly-through job at fixed Tier A and the existing
+settings/timeouts. It requires complete current plain GSQ and derived auto-tree keys,
+verified and bound to this run attempt. It never primes, deletes keys, builds a tree
+or runs the codec probe, even with `prime_world_cache=true`; `controls_only`, tier
+and encoding inputs do not select its workload. Both shared cache locks span
+revalidation, cold preflight and rendering. G2a and G16 remain NOT_RUN; HLOD memory
+peaks (beside the unchanged configured budget and its source) and checkpoint drawn
+splats/nodes are diagnostics. Missing or unregistered acceptance evidence prevents
+PASS. Verdicts say "physical run, not acceptance" and put missed checkpoint settles
+at the top, retaining measured failures as FAIL. Existing chunk/schedule behavior
+is unchanged. No HLOD G6/G6t registration or new gate is introduced.
 
 `mode=real_scan` needs no cached worlds. Dispatch it on the branch under review:
 

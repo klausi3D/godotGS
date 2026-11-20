@@ -394,7 +394,7 @@ def control_settings(control: Optional[str]) -> Dict[str, object]:
 
 
 def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: Optional[str] = None,
-              screenshots: Optional[dict] = None) -> dict:
+              screenshots: Optional[dict] = None, *, arm: str = "flat") -> dict:
     plan = {
         "schema": "godotgs-bv07-probe-plan/1",
         "mode": "path",
@@ -415,6 +415,8 @@ def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: O
         plan["screenshots"] = screenshots
     if control is not None and fc.CONTROLS[control].get("inject"):
         plan["inject"] = fc.CONTROLS[control]["inject"]
+    if arm == "hlod":
+        plan["shared_layers_t0"] = True  # Collection/convergence only; no diagnostic settings overrides.
     return plan
 
 
@@ -619,6 +621,79 @@ def screenshot_record(shots: object) -> Dict[str, object]:
         rec["note"] = ("moving captures were on: their readbacks perturb the moving frame intervals "
                        "(moving_frame_breakdown reports the frame time without them)")
     return rec
+
+
+def hlod_summary(result: dict, trace, run: dict) -> dict:
+    """Native route proof and diagnostics; no chunk oracle or acceptance substitution."""
+    import shared_layers_t0 as shared
+
+    behavior = shared.payload_behavior(result, trace)
+    telemetry = ps.route_telemetry_summary(result.get("payload_telemetry"), route=result.get("route"),
+                                            source_generation=result.get("source_generation"))
+    checkpoints = result.get("checkpoints") or []
+    counts_fresh = bool(checkpoints) and all(
+        cp.get("actual_route") == "hlod"
+        and all(type(cp.get(k)) is int and cp[k] > 0 for k in ("drawn_splats", "hlod_drawn_nodes"))
+        and all(type(cp.get(k)) is int for k in (
+            "pose_first_frame", "rendered_splat_count_source_frame", "render_frame_counter"))
+        and 0 <= cp["pose_first_frame"] <= cp["rendered_splat_count_source_frame"] <= cp["render_frame_counter"]
+        for cp in checkpoints)
+    status = ps.OK if behavior["route"] == "hlod" and telemetry["status"] == ps.OK and counts_fresh else ps.INVALID
+    peaks = result.get("shared_layers_peaks") or {}
+    final = result.get("final_render_stats") or {}
+
+    def measured(value, name):
+        return ps.metric(value) if type(value) in (int, float) and math.isfinite(value) and value >= 0 else ps.missing(
+            f"native {name} unavailable")
+
+    diagnostics = {key: measured(peaks.get(key), key) for key in ("hlod_route_owned_bytes", "hlod_bundle_device_bytes")}
+    budget_key = "rendering/gaussian_splatting/streaming/vram_budget_mb"
+    diagnostics["configured_budget"] = {
+        "value": TUNED_SETTINGS[budget_key] * 1024**2, "unit": "bytes",
+        "source": f"run_probe.py:TUNED_SETTINGS[{budget_key}] (unchanged requested setting; not an HLOD G2a denominator)",
+    }
+    ledger = final.get("device_vram_ledger") or {}
+    diagnostics["hlod_ledger_limit_bytes"] = {
+        **measured(ledger.get("limit_bytes"), "device_vram_ledger.limit_bytes"),
+        "source": "native device_vram_ledger.limit_bytes; resident_instance_contract_publisher.cpp:refresh_device_vram_ledger "
+                  "-> device_vram_ledger.h:gs_limit_for_device (device heap share or unknown-heap fallback)",
+    }
+    counters = {key: measured(peaks.get(key, final.get(key)), key) for key in (
+        "hlod_stream_stall_frames", "hlod_stream_blocked_groups", "hlod_stream_fragmented_groups",
+        "hlod_stream_evicted_total", "hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total",
+        "hlod_stream_failed_total", "hlod_stream_failed_permanent_total", "hlod_stream_failed_retry_later_total",
+        "hlod_stream_late_dropped_total", "hlod_stream_allocation_no_contiguous_run_total",
+        "hlod_stream_largest_free_run", "hlod_budget_bound_frames", "hlod_cut_visible_cap_bound_frames",
+        "instance_count_overflow_events", "raster_tile_cap_drop_events")}
+    return {"route_evidence": {"status": status, "native_flags": behavior["route_evidence"],
+                               "payload_telemetry": telemetry, "fresh_checkpoint_counts": counts_fresh,
+                               "reason": "native HLOD flags, payload epoch and fresh positive checkpoint counts required"},
+            "diagnostics": diagnostics, "counters": counters,
+            "checkpoints": [{k: cp.get(k) for k in ("checkpoint", "pass_index", "drawn_splats", "hlod_desired_nodes",
+                                                     "hlod_resident_nodes", "hlod_drawn_nodes", "settle")}
+                            for cp in checkpoints],
+            "reads_per_node": ps.missing("no per-node read count map exported"),
+            "acceptance": {"status": "NOT_RUN", "reason": "physical run, not acceptance; HLOD oracles and registrations incomplete"},
+            "pressure": ps.hlod_pressure_summary(checkpoints, trace),
+            "observations": shared.observations(result, run.get("exit_code"))}
+
+
+def required_hlod_metrics(world_summary: dict) -> List[str]:
+    problems = []
+    if world_summary["hlod"]["route_evidence"]["status"] != ps.OK:
+        problems.append("INVALID HLOD route proof: native flags, payload epoch or fresh drawn counts unavailable")
+    passes = world_summary["flythrough"].get("passes", [])
+    for p in passes:
+        if p.get("moving_frame_interval", {}).get("frames", 0) == 0:
+            problems.append(f"pass {p['pass_index']}: no moving frames")
+        if [cp.get("checkpoint") for cp in p.get("checkpoints", [])] != EXPECTED_CHECKPOINTS:
+            problems.append(f"pass {p['pass_index']}: checkpoint collection incomplete")
+        for cp in p.get("checkpoints", []):
+            if cp.get("settled") is not True:
+                problems.append(f"checkpoint settle failed: pass {p['pass_index']} {cp.get('checkpoint')}")
+    if not passes:
+        problems.append("HLOD passes unavailable")
+    return problems
 
 
 def required_path_metrics(world_summary: dict) -> List[str]:
@@ -953,6 +1028,8 @@ def main(argv: Sequence[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--godot-binary", required=True, type=Path)
     ap.add_argument("--world", action="append", default=[], help="TIER=DIR (repeatable)")
+    ap.add_argument("--arm", choices=("flat", "hlod"), default="flat")
+    ap.add_argument("--world-manifest", action="append", default=[], help="TIER=FILE source manifest for HLOD")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--passes", type=int, default=2, help="path passes per world (first, repeat)")
     ap.add_argument("--no-sweep", action="store_true", help="skip the F/k sweep")
@@ -995,6 +1072,13 @@ def main(argv: Sequence[str]) -> int:
     failed = False
     try:
         worlds = parse_worlds(args.world)
+        source_manifests = parse_worlds(args.world_manifest)
+        if args.arm == "hlod":
+            summary["arm"] = "hlod"
+            if set(worlds) != {"A"} or set(source_manifests) != {"A"} or not args.no_sweep or args.no_path or args.control:
+                raise ProbeError("NOT_RUN: HLOD requires A-only source/render maps, --no-sweep, path and no control", EXIT_NOT_RUN)
+        elif source_manifests:
+            raise ProbeError("NOT_RUN: --world-manifest requires --arm hlod", EXIT_NOT_RUN)
         if not worlds:
             raise ProbeError("NOT_RUN: no --world given; there is nothing to probe", EXIT_NOT_RUN)
         if not args.godot_binary.is_file():
@@ -1004,10 +1088,30 @@ def main(argv: Sequence[str]) -> int:
         if note:
             summary["binary"]["note"] = note
         manifests = {}
+        render_identities = {}
         for tier, d in worlds.items():
             if not (d / WORLD_NAME).is_file() or not (d / MANIFEST_NAME).is_file():
                 raise ProbeError(f"NOT_RUN: world {tier} has no {WORLD_NAME} + {MANIFEST_NAME} under {d}", EXIT_NOT_RUN)
             manifests[tier] = json.loads((d / MANIFEST_NAME).read_text(encoding="utf-8"))
+            if args.arm == "hlod":
+                tree_manifest = manifests[tier]
+                source_path = source_manifests[tier]
+                manifest = json.loads(source_path.read_text(encoding="utf-8"))
+                # Admission already verified both files and dropped their pages.
+                # Rehashing here would warm the tree AFTER mincore, before Godot's
+                # cold pass. The process independently receipts its loaded digest.
+                source_digest = manifest.get("world", {}).get("file_sha256")
+                leaf_count = manifest.get("world", {}).get("splat_count")
+                if (not isinstance(source_digest, str) or len(source_digest) != 64
+                        or tree_manifest.get("input_file_sha256") != source_digest
+                        or not isinstance(tree_manifest.get("output_file_sha256"), str)
+                        or len(tree_manifest["output_file_sha256"]) != 64
+                        or type(leaf_count) is not int or leaf_count <= 0
+                        or tree_manifest.get("totals", {}).get("leaf_splat_count") != leaf_count):
+                    raise ProbeError("NOT_RUN: source manifest/tree input provenance or leaf totals differ", EXIT_NOT_RUN)
+                render_identities[tier] = {"sha256": tree_manifest["output_file_sha256"],
+                                           "tree_sha": tree_manifest.get("tree_sha"), "source_digest": source_digest}
+                manifests[tier] = manifest
 
         for tier, d in worlds.items():
             wout = out / tier
@@ -1021,23 +1125,37 @@ def main(argv: Sequence[str]) -> int:
                 "file_bytes": manifest.get("world", {}).get("file_bytes"),
             }
             summary["worlds"][tier] = ws
+            if args.arm == "hlod":
+                identity = render_identities[tier]
+                ws.update(arm="hlod", world_file_sha256=identity["sha256"], tree_sha=identity["tree_sha"],
+                          source_identity={"file_sha256": identity["source_digest"], "leaf_splat_count": ws["splat_count"],
+                                           "manifest": str(source_manifests[tier]), "verified": True})
             if args.no_path:
                 ws["flythrough"] = {"status": "NOT_RUN", "reason": "--no-path"}
                 continue
             path = probe_path.resolve_path(manifest)
             (wout / "path.json").write_text(json.dumps(path, indent=1), encoding="utf-8")
-            gt = probe_groundtruth.build_groundtruth(manifest, path, probe_path.checkpoints(path), CAMERA, ASPECT)
-            (wout / probe_groundtruth.GROUNDTRUTH_NAME).write_text(json.dumps(gt, indent=1), encoding="utf-8")
+            if args.arm == "hlod":
+                gt = {"checkpoints": {}, "expected_unique_upload": {"flat": {}}}
+            else:
+                gt = probe_groundtruth.build_groundtruth(manifest, path, probe_path.checkpoints(path), CAMERA, ASPECT)
+                (wout / probe_groundtruth.GROUNDTRUTH_NAME).write_text(json.dumps(gt, indent=1), encoding="utf-8")
             ws["path_sha256"] = path["path_sha256"]
             ws["path_moving_length_m"] = round(probe_path.moving_length_m(path), 3)
-            ws["groundtruth"] = {"file": f"{tier}/{probe_groundtruth.GROUNDTRUTH_NAME}",
-                                 "sha256": gt["groundtruth_sha256"]}
+            if args.arm == "flat":
+                ws["groundtruth"] = {"file": f"{tier}/{probe_groundtruth.GROUNDTRUTH_NAME}",
+                                     "sha256": gt["groundtruth_sha256"]}
             shots = {"dir": (wout / SCREENSHOT_DIR).as_posix(), "moving_every_n": args.screenshot_moving_every}
-            run = run_godot(binary, path_plan(d / WORLD_NAME, path, args.passes, args.max_fps, args.control, shots),
+            run = run_godot(binary, path_plan(d / WORLD_NAME, path, args.passes, args.max_fps, args.control, shots, arm=args.arm),
                             wout / "path_run", args.timeout_s)
             ws["process"] = {k: run[k] for k in ("exit_code", "timed_out", "wall_s", "log")}
             ws["rss"] = run["rss"]
             res = run["result"] or {}
+            if args.arm == "hlod":
+                ws["hlod"] = hlod_summary(res, None, run)
+                if res.get("loaded_file_sha256") != ws["world_file_sha256"]:
+                    ws["hlod"]["route_evidence"]["status"] = ps.INVALID
+                    summary["problems"].append(f"{tier}: process loaded-file digest does not match admitted tree")
             ws["cold_pass_io"] = cold_pass_io(res)
             ws["driver"] = {k: res.get(k) for k in ("adapter", "api_version", "is_debug_build", "display_server",
                                                     "vsync_mode", "load_usec", "node_readback",
@@ -1055,8 +1173,22 @@ def main(argv: Sequence[str]) -> int:
                 continue
             if integrity["status"] != ps.OK:
                 summary["problems"].append(f"{tier}: {integrity['reason']}")
-            ws["flythrough"] = summarise_path(trace, run, path, gt, args.passes, manifest)
-            summary["problems"] += [f"{tier}: {p}" for p in required_path_metrics(ws)]
+            if args.arm == "hlod":
+                ws["flythrough"] = summarise_path(trace, run, path, gt, args.passes, None)
+                route_status = ws["hlod"]["route_evidence"]["status"]
+                ws["hlod"] = hlod_summary(res, trace, run)
+                if route_status != ps.OK:
+                    ws["hlod"]["route_evidence"]["status"] = route_status
+                for key in ("expected_unique_upload_flat", "uploaded_vs_expected_unique"):
+                    ws["flythrough"].pop(key, None)
+                for p in ws["flythrough"]["passes"]:
+                    for cp in p["checkpoints"]:
+                        if cp.get("settled") is not True:
+                            failed = True
+                summary["problems"] += [f"{tier}: {p}" for p in required_hlod_metrics(ws)]
+            else:
+                ws["flythrough"] = summarise_path(trace, run, path, gt, args.passes, manifest)
+                summary["problems"] += [f"{tier}: {p}" for p in required_path_metrics(ws)]
 
         if not args.no_sweep:
             if SWEEP_TIER not in worlds:

@@ -840,8 +840,94 @@ def combine(rows: Sequence[dict]) -> Tuple[str, str]:
     return PASS, f"{len(counted)} entries PASS"
 
 
+def evaluate_hlod(thresholds: Any, tier: str, inputs: dict) -> dict:
+    """Availability adapter for a physical run, not acceptance. No gate registration."""
+    label = "physical run, not acceptance"
+    out = {"schema": SCHEMA, "tier": tier, "arm": "hlod", "report_only": True, "entries": [],
+           "enforced_verdict": NOT_RUN, "enforced_reason": label}
+    if not isinstance(thresholds, dict) or thresholds.get("schema") != THRESHOLDS_SCHEMA:
+        return {**out, "verdict": INVALID, "reason": f"{label}: thresholds unreadable"}
+    summary = inputs.get("summary")
+    if not isinstance(summary, dict):
+        return {**out, "verdict": NOT_RUN, "reason": f"{label}: probe summary unavailable"}
+    ctx = Ctx(thresholds, tier, "hlod", inputs)
+    if ctx.tier_cfg is None:
+        return {**out, "verdict": NOT_RUN, "reason": f"{label}: no thresholds for tier {tier}"}
+    try:
+        world = ctx.world()
+    except Missing:
+        world = {}
+    hlod = world.get("hlod") or {}
+    unavailable = {
+        "V2": "HLOD tree identity is verified for rendering but not registered for acceptance",
+        "V7": "frozen HLOD workload/settings unregistered",
+        "M1-settle": "chunk cap-fit definition does not establish HLOD convergence",
+        "V10": "HLOD expected stored bytes oracle unavailable; mincore/read/host-cache diagnostics only",
+        "G2a": "chunk VRAM accounting unavailable on HLOD; route-owned/bundle peaks are DIAGNOSTICS only",
+        "G6": "HLOD convergence is diagnostic; G6 cut-settle acceptance unavailable",
+        "G6t": "HLOD convergence is diagnostic; G6t cut-settle acceptance unavailable",
+        "G16": "chunk residency and flat no-LOD expected counts do not establish HLOD coverage",
+    }
+    rows = []
+    for section in SECTIONS:
+        entries = thresholds.get(section)
+        if not isinstance(entries, dict):
+            rows.append({"id": section, "section": section, "status": NOT_RUN, "reason": "required entries absent"})
+            continue
+        for gid, entry in entries.items():
+            reason = unavailable.get(gid)
+            if gid.startswith("V9"):
+                reason = "HLOD oracle bytes, unique-upload/resident/drawn and leaf-fetch coverage incomplete"
+            if gid == "V3":
+                identity = world.get("source_identity") or {}
+                if identity.get("verified") is not True or identity.get("leaf_splat_count") != world.get("splat_count"):
+                    reason = "verified source leaf count cross-checked against tree totals unavailable"
+            if reason:
+                row = {"id": gid, "section": section, "status": NOT_RUN, "reason": reason,
+                       "evidence": EVIDENCE_MISSING,
+                       **{k: entry.get(k) for k in ("class", "mode", "op", "arm", "unit")}}
+            else:
+                row = _evaluate_entry(section, gid, entry, ctx)
+                if gid == "G10":
+                    # Missing coverage in one pass cannot erase a measured drop
+                    # in another. Apply the same evaluator/limit to each window.
+                    for p in (world.get("flythrough", {}).get("passes") or []):
+                        single = Ctx(thresholds, tier, "hlod", inputs)
+                        single.passes = lambda p=p: [p]
+                        measured = _evaluate_entry(section, gid, entry, single)
+                        if measured["status"] == FAIL:
+                            row = measured
+                            break
+                if row.get("evidence") == EVIDENCE_MISSING:
+                    row["status"] = NOT_RUN
+            rows.append(row)
+    passes = world.get("flythrough", {}).get("passes") or []
+    checkpoints = [cp for p in passes for cp in p.get("checkpoints", [])]
+    unsettled = [f"pass {p.get('pass_index')} {cp.get('checkpoint')}" for p in passes
+                 for cp in p.get("checkpoints", []) if cp.get("settled") is False]
+    settle_status = FAIL if unsettled else PASS if checkpoints and all(
+        cp.get("settled") is True for cp in checkpoints) else NOT_RUN
+    route_status = (hlod.get("route_evidence") or {}).get("status")
+    availability = {"checkpoint_settle": settle_status,
+                    "route_proof": PASS if route_status == OK else INVALID if route_status == INVALID else NOT_RUN,
+                    "controls": NOT_RUN}
+    statuses = [r["status"] for r in rows if r["status"] != NOT_APPLICABLE] + list(availability.values())
+    verdict = next((s for s in (VOID, FAIL, INVALID, NOT_RUN) if s in statuses), NOT_RUN)
+    failures = [f"{r['id']} {r['status']}: {r['reason']}" for r in rows if r["status"] in (FAIL, INVALID, VOID)]
+    missing = [r["id"] for r in rows if r["status"] == NOT_RUN]
+    reason = ("checkpoint settle FAILED: " + ", ".join(unsettled) + "; ") if unsettled else ""
+    reason += label + "; " + "; ".join(failures + ["unavailable: " + ", ".join(missing),
+                                                    "route proof " + availability["route_proof"], "controls NOT_RUN"])
+    out.update(verdict=verdict, reason=reason, entries=rows, availability=availability,
+               render_status=summary.get("status", "NOT_RUN"), diagnostics=hlod.get("diagnostics", {}),
+               checkpoint_draws=hlod.get("checkpoints", []))
+    return out
+
+
 def evaluate(thresholds: Any, tier: str, arm: str, inputs: dict) -> dict:
     """The gate verdict of one run. Pure."""
+    if arm == "hlod":
+        return evaluate_hlod(thresholds, tier, inputs)
     out: Dict[str, Any] = {"schema": SCHEMA, "tier": tier, "arm": arm, "report_only": True, "entries": []}
     if not isinstance(thresholds, dict) or thresholds.get("schema") != THRESHOLDS_SCHEMA:
         out.update(verdict=INVALID, reason="thresholds unreadable or of an unknown schema",
@@ -934,6 +1020,10 @@ def markdown(result: dict) -> str:
             f"| `{r.get('id')}` | {r.get('class', '')} | {r.get('mode', '')} | {r.get('status')} | "
             f"{observed} | {r.get('op', '')} {r.get('limit', '')} | {str(r.get('reason', '')).replace('|', '/')} |"
         )
+    if result.get("arm") == "hlod":
+        lines += ["", "DIAGNOSTICS (no new gate):", "", json.dumps(result.get("diagnostics", {}), sort_keys=True),
+                  "", "Checkpoint drawn splats/nodes (offline comparison):", "",
+                  json.dumps(result.get("checkpoint_draws", []), sort_keys=True)]
     return "\n".join(lines) + "\n"
 
 

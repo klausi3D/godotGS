@@ -815,5 +815,83 @@ class Wiring(unittest.TestCase):
         self.assertIn('dispatch_lane.py summarize --out "$BVW_OUT" --tier "$BVW_TIER"', text)
 
 
+class HlodAvailability(_Case):
+    def setUp(self):
+        super().setUp()
+        # Consumer policy on captured summary; no claim this is an HLOD run.
+        self.a["hlod"] = {"route_evidence": {"status": "OK"}, "diagnostics": {"example": "diagnostic"}}
+        self.a["source_identity"] = {"leaf_splat_count": self.a["splat_count"], "verified": True}
+        for p in self.passes():
+            for cp in p["checkpoints"]:
+                cp["settled"] = True
+
+    def test_missing_acceptance_terms_never_pass_and_diagnostics_are_visible(self):
+        result = self.run_verdict(arm="hlod")
+        self.assertEqual(result["verdict"], "NOT_RUN", result)
+        self.assertIn("physical run, not acceptance", fv.markdown(result))
+        for gid in ("V2", "V7", "V10", "G2a", "G6", "G6t", "G16"):
+            self.assertEqual(self.row(result, gid)["status"], "NOT_RUN", gid)
+        self.assertTrue(all(r["status"] == "NOT_RUN" for r in result["entries"] if r["id"].startswith("V9")))
+        self.assertEqual(result["diagnostics"], self.a["hlod"]["diagnostics"])
+        self.assertTrue({"G3", "G10h", "G11h", "G11q"}.isdisjoint(r["id"] for r in result["entries"]))
+        self.a["hlod"]["route_evidence"]["status"] = "INVALID"
+        self.assertEqual(self.run_verdict(arm="hlod")["verdict"], "INVALID")
+
+    def test_measured_failures_outrank_missing_terms(self):
+        for gid, mutate, expected in (
+            ("G1", lambda: self.a["process"].update(exit_code=1), "FAIL"),
+            ("G4", lambda: self.a["rss"].update(peak_rss_bytes=ps.metric(13 * GIB)), "FAIL"),
+            ("G10", lambda: self.passes()[0].update(overlap_drops_checkpoints=drop_window(1)), "FAIL"),
+            ("V3", lambda: self.a.update(splat_count=1, source_identity={"leaf_splat_count": 1, "verified": True}), "INVALID"),
+        ):
+            saved = copy.deepcopy(self.inputs)
+            mutate()
+            result = self.run_verdict(arm="hlod")
+            self.assertEqual(self.row(result, gid)["status"], expected, result)
+            self.assertEqual(result["verdict"], expected)
+            self.inputs = saved
+        self.passes()[0]["checkpoints"][0]["settled"] = False
+        result = self.run_verdict(arm="hlod")
+        self.assertEqual(result["verdict"], "FAIL")
+        self.assertIn("checkpoint", result["reason"])
+        self.assertIn("checkpoint", fv.markdown(result).split("| Entry", 1)[0])
+
+    def test_summary_combines_hlod_availability_in_lane_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "probe").mkdir()
+            (out / "probe" / rp.SUMMARY_NAME).write_text(json.dumps(self.inputs["summary"]))
+            for step in lane.STEP_NAMES:
+                if step != "controls":
+                    lane.write_record(out, step, 0, "completed")
+            try:
+                code = lane.summarize(out, meta={"tier": "A"}, mode="hlod")
+            except ValueError as exc:
+                self.fail(f"HLOD summary mode missing: {exc}")
+            self.assertEqual(code, 3)
+            for name in (lane.VERDICT_FILE, "dispatch_summary.json"):
+                result = json.loads((out / name).read_text())
+                self.assertEqual(result["verdict"], "NOT_RUN")
+                self.assertIn("physical run, not acceptance", result["reason"])
+                self.assertEqual(result["diagnostics"], self.a["hlod"]["diagnostics"])
+
+    def test_measured_drop_is_not_hidden_by_another_missing_window(self):
+        self.passes()[0]["overlap_drops_checkpoints"] = drop_window(1)
+        self.passes()[1].pop("overlap_drops_checkpoints")
+        result = self.run_verdict(arm="hlod")
+        self.assertEqual(self.row(result, "G10")["status"], "FAIL")
+        self.assertEqual(result["verdict"], "FAIL")
+
+    def test_flat_verdict_matches_immutable_base(self):
+        import subprocess
+        import types
+        code = subprocess.check_output(["git", "show", "9faecfb155a:tests/runtime/flythrough/flythrough_verdict.py"],
+                                       cwd=ROOT, text=True)
+        old = types.ModuleType("m32_base_verdict")
+        old.__file__ = str(HERE / "flythrough_verdict.py")
+        exec(compile(code, old.__file__, "exec"), old.__dict__)
+        self.assertEqual(self.run_verdict(), old.evaluate(self.th, "A", "flat", self.inputs))
+
+
 if __name__ == "__main__":
     unittest.main()

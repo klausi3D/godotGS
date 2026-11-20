@@ -58,12 +58,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "flythrough (the lane), auto_tree (prime HLOD), real_scan (identity/codec), shared_layers_t0 (paired synthetic diagnostic), or watchdog"
+        description: "flythrough (the lane), flythrough_hlod (Tier A physical run, not acceptance), auto_tree (prime HLOD), real_scan (identity/codec), shared_layers_t0 (paired synthetic diagnostic), or watchdog"
         required: false
         default: "flythrough"
         type: choice
         options:
           - "flythrough"
+          - "flythrough_hlod"
           - "auto_tree"
           - "real_scan"
           - "shared_layers_t0"
@@ -128,7 +129,7 @@ on:
         default: false
         type: boolean
 
-run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || inputs.mode == 'shared_layers_t0' && format('D3-6 paired T0 diagnostic ({0}{1})', inputs.shared_layers_variant == 'pressure' && 'pressure, ' || '', inputs.shared_layers_control || 'none') || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'flythrough_hlod' && 'Beyond-VRAM HLOD Tier A physical run' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || inputs.mode == 'shared_layers_t0' && format('D3-6 paired T0 diagnostic ({0}{1})', inputs.shared_layers_variant == 'pressure' && 'pressure, ' || '', inputs.shared_layers_control || 'none') || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
 permissions:
   contents: read
@@ -144,7 +145,7 @@ permissions:
 # mincore check right before each probe turns any warming by the other run into
 # INVALID cache_warm, never into a cold result.
 concurrency:
-  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || inputs.mode == 'real_scan' && 'real-scan' || inputs.mode == 'shared_layers_t0' && 'shared-layers-t0' || 'lane' }}
+  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'flythrough_hlod' && 'hlod' || inputs.mode == 'auto_tree' && 'auto-tree' || inputs.mode == 'real_scan' && 'real-scan' || inputs.mode == 'shared_layers_t0' && 'shared-layers-t0' || 'lane' }}
   cancel-in-progress: false
 
 env:
@@ -478,7 +479,7 @@ jobs:
   # to the RTX 3080 runner (`rtx3080`), because the cache lives on its disk.
   prime-world-cache:
     name: Prime world cache (RTX 3080 runner)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && inputs.mode != 'shared_layers_t0' && inputs.prime_world_cache }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && inputs.mode != 'shared_layers_t0' && inputs.mode != 'flythrough_hlod' && inputs.prime_world_cache }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
     timeout-minutes: 240
@@ -719,7 +720,7 @@ jobs:
       NODEVICE_SELECT: '1'
       # The schedule has no inputs: it runs Tier A, compressed (ADR D-13: every
       # gated run from M1c on is compressed), with the default probe size.
-      BVW_TIER: ${{ inputs.tier || 'A' }}
+      BVW_TIER: ${{ inputs.mode == 'flythrough_hlod' && 'A' || inputs.tier || 'A' }}
       BVW_ENCODING: ${{ inputs.encoding || 'plain_v3_gsq' }}
       BVW_DISK_PROBE_GIB: ${{ inputs.disk_probe_gib || '8' }}
     defaults:
@@ -838,7 +839,7 @@ jobs:
       # fdatasync + POSIX_FADV_DONTNEED on every world file.
       - name: World cache check (verify, quarantine, fadvise)
         id: cache_check
-        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' && inputs.mode != 'flythrough_hlod' }}
         timeout-minutes: 30
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py cache-check --tier "$BVW_TIER" --encoding "$BVW_ENCODING" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
@@ -847,16 +848,30 @@ jobs:
       # 1 % is INVALID cache_warm and the probe does not start. The probe's exit
       # code (0 OK, 1 FAIL, 2 INVALID, 3 NOT_RUN) is passed on.
       - name: Probe (BV-07 probe lane, cold)
-        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' && !inputs.controls_only }}
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' && inputs.mode != 'flythrough_hlod' && !inputs.controls_only }}
         timeout-minutes: 105
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py probe --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --cache-worlds "$BVW_OUT/cache_worlds.json" --out "$BVW_OUT"
+
+      # Read-only admission. No priming, generation, codec probe or cache maintenance.
+      - name: HLOD tree admission (verify both keys, publish this attempt)
+        id: hlod_cache_check
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' && inputs.mode == 'flythrough_hlod' }}
+        timeout-minutes: 30
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py cache-check --tier A --auto-tree --publish-hlod-worlds --admission-id "${{ github.run_id }}:${{ github.run_attempt }}" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
+
+      - name: HLOD probe (Tier A physical run, not acceptance)
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.hlod_cache_check.outcome == 'success' && inputs.mode == 'flythrough_hlod' }}
+        timeout-minutes: 105
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py probe --tier A --arm hlod --admission-id "${{ github.run_id }}:${{ github.run_attempt }}" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --cache-worlds "$BVW_OUT/cache_worlds.json" --out "$BVW_OUT"
 
       # BV-13a: the ADR 8.5 forcing controls on the cached T0, each asserting its
       # (gate, verdict, reason) tuple; a differing tuple makes the lane INVALID.
       # After the cold probe, because a control warms T0's pages (D-14 item 2).
       - name: Controls (ADR 8.5, after the cold probe)
-        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' && inputs.mode != 'flythrough_hlod' }}
         timeout-minutes: 40
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py controls --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-worlds "$BVW_OUT/cache_worlds.json" --out "$BVW_OUT"
@@ -871,9 +886,14 @@ jobs:
       # Every step's record -> one lane verdict, verdict.json, the section 9.1
       # exit code (PASS 0, FAIL 1, INVALID 2, NOT_RUN 3, VOID 75).
       - name: Lane verdict (every step, MISSING when it wrote no record)
-        if: always()
+        if: ${{ always() && inputs.mode != 'flythrough_hlod' }}
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT" --tier "$BVW_TIER" --contention-outcome "${{ steps.postflight.outcome }}" --mode "${{ inputs.controls_only && 'controls_only' || 'full' }}"
+
+      - name: HLOD verdict (availability and measured failures)
+        if: ${{ always() && inputs.mode == 'flythrough_hlod' }}
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT" --tier A --contention-outcome "${{ steps.postflight.outcome }}" --mode hlod
 
       # Reports, logs, driver limits, disk measurements, build_info and the
       # verdict. The world data itself is never uploaded. The probe's viewport
@@ -1015,7 +1035,7 @@ jobs:
   # 3 when no report was written.
   codec-probe:
     name: BV-C2 GSQ codec probe (RTX 3080 runner, report-only)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'shared_layers_t0' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'shared_layers_t0' && inputs.mode != 'flythrough_hlod' }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
     timeout-minutes: 60

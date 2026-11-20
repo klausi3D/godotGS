@@ -2548,5 +2548,193 @@ class D36ObservationPolicy(unittest.TestCase):
             self.assertNotEqual(ps.shared_layers_settings_summary(samples, [1, 2])["status"], ps.OK)
 
 
+class HlodProbe(unittest.TestCase):
+    def extractor(self):
+        self.assertTrue(callable(getattr(rp, "hlod_summary", None)), "HLOD extraction is not implemented")
+        return rp.hlod_summary
+
+    def test_route_label_alone_and_chunk_capture_cannot_prove_hlod(self):
+        extract = self.extractor()
+        report = json.loads((HERE / "fixtures/d3_5/d3_5_hlod_test_results.json").read_text())
+        # Captured payload stages are real; neither these CPU stages nor a label
+        # provide the native streaming flags and fresh checkpoint render evidence.
+        result = {"route": "hlod", "source_generation": report["source_generation"],
+                  "payload_telemetry": report["completed"]["payload_telemetry"]}
+        self.assertNotEqual(extract(result, None, {})["route_evidence"]["status"], ps.OK)
+        with tempfile.TemporaryDirectory() as tmp:
+            path, result = captured("tsmoke_path", Path(tmp))
+            self.assertNotEqual(extract(result, ps.read_trace(path), {})["route_evidence"]["status"], ps.OK)
+
+    def test_route_policy_requires_every_native_flag_epoch_and_fresh_count(self):
+        extract = self.extractor()
+        report = json.loads((HERE / "fixtures/d3_5/d3_5_hlod_test_results.json").read_text())
+        # Constructed consumer-policy input, not a claimed GPU capture. Native
+        # payload encoding is copied verbatim from its captured producer.
+        migration = json.loads((HERE / "fixtures/d3_6/run43602195987_migration.json").read_text())["arms"]["candidate"]
+        drawn = migration["payload_behavior"]["drawn_counts"][0]
+        cp = {"actual_route": "hlod", "drawn_splats": drawn["drawn_splats"], "hlod_drawn_nodes": drawn["drawn_nodes"],
+              "pose_first_frame": 1, "rendered_splat_count_source_frame": 2, "render_frame_counter": 3}
+        stats = copy.deepcopy(migration["final_render_stats"])
+        result = {"route": "hlod", "source_generation": report["source_generation"],
+                  "payload_telemetry": report["completed"]["payload_telemetry"],
+                  "final_render_stats": stats, "checkpoints": [cp]}
+        self.assertEqual(extract(result, None, {})["route_evidence"]["status"], ps.OK)
+        mutations = [{"final_render_stats": {**stats, key: False}}
+                     for key in ("hlod_active", "hlod_streaming", "hlod_stream_paged")]
+        mutations += [{"source_generation": -1}, {"checkpoints": []},
+                      {"checkpoints": [{**cp, "rendered_splat_count_source_frame": 0}]},
+                      {"checkpoints": [{**cp, "hlod_drawn_nodes": 0}]},
+                      {"checkpoints": [{**cp, "drawn_splats": -1}]}]
+        for change in mutations:
+            with self.subTest(change=change):
+                self.assertNotEqual(extract({**result, **change}, None, {})["route_evidence"]["status"], ps.OK)
+        diag = extract(result, None, {})["diagnostics"]
+        for key in ("hlod_route_owned_bytes", "hlod_bundle_device_bytes"):
+            self.assertEqual(diag[key]["status"], ps.MISSING)
+        self.assertEqual(diag["configured_budget"]["value"], 4096 * 1024**2)
+        self.assertIn("vram_budget_mb", diag["configured_budget"]["source"])
+        self.assertEqual(diag["hlod_ledger_limit_bytes"]["status"], ps.MISSING)
+        result["final_render_stats"]["device_vram_ledger"] = {"limit_bytes": 321}
+        native_budget = extract(result, None, {})["diagnostics"]["hlod_ledger_limit_bytes"]
+        self.assertEqual(native_budget["value"], 321)
+        self.assertIn("gs_limit_for_device", native_budget["source"])
+        for value in (None, -1):
+            result["shared_layers_peaks"] = {"hlod_route_owned_bytes": value}
+            self.assertEqual(extract(result, None, {})["diagnostics"]["hlod_route_owned_bytes"]["status"], ps.MISSING)
+        result["shared_layers_peaks"] = {"hlod_route_owned_bytes": 123, "hlod_bundle_device_bytes": 456}
+        self.assertEqual(extract(result, None, {})["diagnostics"]["hlod_route_owned_bytes"]["value"], 123)
+
+    def test_chunk_pin_matches_immutable_base_without_hlod_keys(self):
+        import types
+        base = "9faecfb155a"
+        code = subprocess.check_output(["git", "show", f"{base}:tests/runtime/flythrough/run_probe.py"], cwd=ROOT, text=True)
+        old = types.ModuleType("m32_base_probe")
+        old.__file__ = str(HERE / "run_probe.py")
+        exec(compile(code, old.__file__, "exec"), old.__dict__)
+        path = pp.resolve_path(manifest())
+        plan = rp.path_plan(Path("world.gsplatworld"), path, 2)
+        self.assertEqual(plan, old.path_plan(Path("world.gsplatworld"), path, 2))
+        self.assertNotIn("shared_layers_t0", plan)
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path, result = captured("tsmoke_path", Path(tmp))
+            trace = ps.read_trace(trace_path)
+            truth = gt.build_groundtruth(manifest(), path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+            run = {"result": result}
+            current = rp.summarise_path(trace, run, path, truth, 1, manifest())
+            self.assertEqual(current, old.summarise_path(trace, run, path, truth, 1, manifest()))
+            for key in ("hlod", "hlod_route_owned_bytes", "hlod_bundle_device_bytes"):
+                self.assertNotIn(key, current)
+            # Replay the complete default CLI against the immutable implementation.
+            tmp = Path(tmp)
+            world = tmp / "world"
+            world.mkdir()
+            (world / rp.WORLD_NAME).write_bytes(b"consumer replay")
+            (world / rp.MANIFEST_NAME).write_text(json.dumps(manifest()))
+            binary = tmp / "godot"
+            binary.write_bytes(b"binary")
+            replay = {"exit_code": 0, "timed_out": False, "wall_s": 1., "log": "", "trace": str(trace_path),
+                      "result": admissible_checkpoint_policy(result), "rss": {"peak_rss_bytes": ps.metric(123)}}
+            summaries = []
+            for module in (old, rp):
+                with mock.patch.object(module, "run_godot", return_value=replay):
+                    self.assertEqual(module.main(["--godot-binary", str(binary), "--world", f"T-smoke={world}",
+                                                  "--out", str(tmp / "out"), "--passes", "1", "--no-sweep"]), 0)
+                summary = json.loads((tmp / "out" / rp.SUMMARY_NAME).read_text())
+                for key in ("started_utc", "finished_utc"):
+                    summary.pop(key)
+                self.assertNotIn("arm", summary)
+                self.assertNotIn("hlod", summary["worlds"]["T-smoke"])
+                summaries.append(summary)
+            self.assertEqual(summaries[0], summaries[1], "default/chunk summary must acquire no new keys or values")
+        self.assertIn("arm", __import__("inspect").signature(rp.path_plan).parameters,
+                      "HLOD collection must be opt-in")
+        hlod = rp.path_plan(Path("world.gsplatworld"), path, 2, arm="hlod")
+        self.assertIs(hlod.pop("shared_layers_t0"), True)
+        self.assertEqual(hlod, plan)
+
+    def test_driver_peak_collection_is_opt_in_and_preserves_absence(self):
+        text = (HERE / "probe_world.gd").read_text()
+        self.assertIn('for key in ["hlod_route_owned_bytes", "hlod_bundle_device_bytes"]:', text)
+        start = text.index('for key in ["hlod_route_owned_bytes"')
+        block = text[start:text.index('\n\tvar ', start)]
+        self.assertIn('stats.get(key)', block)
+        self.assertIn('>= 0', block)
+        self.assertTrue(text[:start].rfind('if bool(_plan.get("shared_layers_t0", false)):') > text[:start].rfind('func '))
+        baseline = subprocess.check_output(["git", "show", "9faecfb155a:tests/runtime/flythrough/probe_world.gd"], cwd=ROOT, text=True)
+        begin = text.index('\t\t# HLOD collection only.')
+        end = text.index('\t\tvar payload = ', begin)
+        self.assertEqual(text[:begin] + text[end:], baseline,
+                         "only the opt-in collector may change; trace keys, frame loop, timing and passes are pinned")
+
+    def test_separate_manifest_cli_uses_source_for_path_and_tree_for_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            source = tmp / "source"
+            tree = tmp / "tree"
+            source.mkdir()
+            tree.mkdir()
+            binary = tmp / "godot"
+            binary.write_bytes(b"binary")
+            leaf = manifest()
+            (source / rp.WORLD_NAME).write_bytes(b"source")
+            import hashlib
+            digest = hashlib.sha256(b"source").hexdigest()
+            leaf["world"]["file_sha256"] = digest
+            (source / rp.MANIFEST_NAME).write_text(json.dumps(leaf))
+            (tree / rp.WORLD_NAME).write_bytes(b"tree")
+            sidecar = {"input_file_sha256": digest, "tree_sha": "ab" * 32,
+                       "output_file_sha256": hashlib.sha256(b"tree").hexdigest(),
+                       "totals": {"leaf_splat_count": leaf["world"]["splat_count"]}}
+            (tree / rp.MANIFEST_NAME).write_text(json.dumps(sidecar))
+            dead = {"exit_code": 0, "timed_out": False, "wall_s": .1, "result": None,
+                    "rss": {}, "log": "", "trace": "absent"}
+            with mock.patch.object(rp, "run_godot", return_value=dead) as run, \
+                    mock.patch.object(rp, "binary_identity", wraps=rp.binary_identity) as identity:
+                try:
+                    rp.main(["--godot-binary", str(binary), "--world", f"A={tree}", "--arm", "hlod",
+                             "--world-manifest", f"A={source / rp.MANIFEST_NAME}", "--no-sweep", "--out", str(tmp / "out")])
+                except SystemExit as exc:
+                    self.fail(f"HLOD probe options rejected: {exc.code}")
+                self.assertEqual([c.args[0] for c in identity.call_args_list], [binary.resolve()],
+                                 "world rehashing after mincore would warm the cold-pass payload")
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[1]["world"], (tree / rp.WORLD_NAME).as_posix())
+            self.assertIs(run.call_args.args[1]["shared_layers_t0"], True)
+            summary = json.loads((tmp / "out" / rp.SUMMARY_NAME).read_text())
+            world = summary["worlds"]["A"]
+            self.assertEqual(world["source_identity"]["file_sha256"], digest)
+            self.assertNotEqual(world["world_file_sha256"], digest)
+            self.assertEqual(world["splat_count"], leaf["world"]["splat_count"])
+            # Successful consumer-policy replay. The trace and payload format are
+            # captured; flag/count policy scalars below are explicitly constructed.
+            trace, result = captured("tsmoke_path", tmp)
+            result = admissible_checkpoint_policy(result)
+            native = json.loads((HERE / "fixtures/d3_5/d3_5_hlod_test_results.json").read_text())
+            result.update(route="hlod", source_generation=native["source_generation"],
+                          payload_telemetry=native["completed"]["payload_telemetry"],
+                          loaded_file_sha256=sidecar["output_file_sha256"])
+            migration = json.loads((HERE / "fixtures/d3_6/run43602195987_migration.json").read_text())["arms"]["candidate"]
+            result["final_render_stats"] = copy.deepcopy(migration["final_render_stats"])
+            for cp, drawn in zip(result["checkpoints"], migration["payload_behavior"]["drawn_counts"]):
+                cp.update(actual_route="hlod", hlod_drawn_nodes=drawn["drawn_nodes"], drawn_splats=drawn["drawn_splats"])
+            good = {**dead, "result": result, "trace": str(trace), "rss": {"peak_rss_bytes": ps.metric(123)}}
+            with mock.patch.object(rp, "run_godot", return_value=good):
+                self.assertEqual(rp.main(["--godot-binary", str(binary), "--world", f"A={tree}", "--arm", "hlod",
+                                         "--world-manifest", f"A={source / rp.MANIFEST_NAME}", "--no-sweep", "--passes", "1",
+                                         "--out", str(tmp / "good")]), 0)
+            physical = json.loads((tmp / "good" / rp.SUMMARY_NAME).read_text())["worlds"]["A"]
+            self.assertEqual(physical["hlod"]["route_evidence"]["status"], ps.OK)
+            self.assertEqual(physical["hlod"]["acceptance"]["status"], "NOT_RUN")
+            self.assertNotIn("expected_unique_upload_flat", physical["flythrough"])
+            self.assertGreater(physical["hlod"]["checkpoints"][0]["hlod_drawn_nodes"], 0)
+            sidecar["input_file_sha256"] = "00" * 32
+            (tree / rp.MANIFEST_NAME).write_text(json.dumps(sidecar))
+            with mock.patch.object(rp, "run_godot") as run:
+                self.assertEqual(rp.main(["--godot-binary", str(binary), "--world", f"A={tree}", "--arm", "hlod",
+                                         "--world-manifest", f"A={source / rp.MANIFEST_NAME}", "--no-sweep",
+                                         "--out", str(tmp / "bad")]), rp.EXIT_NOT_RUN)
+                run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

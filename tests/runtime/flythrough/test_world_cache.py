@@ -309,5 +309,24 @@ class LinuxPrimitives(_Tmp):
         self.assertEqual(order, ["exclusive-released", "shared"])
 
 
+class HlodOperationalIdentity(_Tmp):
+    def test_operational_edits_preserve_both_identities(self):
+        operational = [".github/workflows/beyond_vram_flythrough.yml", ".github/workflows/README.md"]
+        operational += ["tests/runtime/flythrough/" + name for name in (
+            "dispatch_lane.py", "run_probe.py", "flythrough_verdict.py", "probe_world.gd",
+            "test_dispatch_lane.py", "test_probe_lane.py", "test_world_cache.py", "test_flythrough_verdict.py")]
+        protected = set(wc.GENERATOR_SOURCES) | set(wc.TREE_SOURCES)
+        self.assertTrue(protected.isdisjoint(operational))
+        for rel in protected | set(operational):
+            path = self.tmp / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(rel)
+        before = [wc.source_fingerprint(self.tmp, sources) for sources in (wc.GENERATOR_SOURCES, wc.TREE_SOURCES)]
+        for rel in operational:
+            (self.tmp / rel).write_text("operational edit")
+        self.assertEqual(before, [wc.source_fingerprint(self.tmp, sources)
+                                  for sources in (wc.GENERATOR_SOURCES, wc.TREE_SOURCES)])
+
+
 if __name__ == "__main__":
     unittest.main()
