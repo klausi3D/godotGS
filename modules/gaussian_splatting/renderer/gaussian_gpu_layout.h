@@ -230,11 +230,9 @@ struct alignas(16) ChunkMetaGPU {
     uint32_t lod_level;
     uint32_t flags;
     uint32_t sh_limit;           // per-chunk SH band limit (optional)
-    // Node cell centre in asset space. Unread by every shader since HLOD C2 (DrawnNodeGPU.camera_offset places the
-    // node); kept so the 64 B layout does not move.
-    float node_center_x;
-    float node_center_y;
-    float node_center_z;
+    uint32_t page_table_ref;     // 0: contiguous; otherwise forward-table base + 1.
+    uint32_t reserved_node_y;
+    uint32_t reserved_node_z;
 };
 
 static_assert(alignof(ChunkMetaGPU) == 16, "ChunkMetaGPU must be 16-byte aligned");
@@ -243,7 +241,9 @@ static_assert(offsetof(ChunkMetaGPU, atlas_base) == 0, "ChunkMetaGPU.atlas_base 
 static_assert(offsetof(ChunkMetaGPU, bounds_center_local) == 16, "ChunkMetaGPU.bounds_center_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, bounds_radius_local) == 28, "ChunkMetaGPU.bounds_radius_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, asset_id) == 32, "ChunkMetaGPU.asset_id offset mismatch");
-static_assert(offsetof(ChunkMetaGPU, node_center_z) == 56, "ChunkMetaGPU.node_center_z offset mismatch");
+static_assert(offsetof(ChunkMetaGPU, page_table_ref) == 48, "ChunkMetaGPU.page_table_ref offset mismatch");
+static_assert(offsetof(ChunkMetaGPU, reserved_node_y) == 52, "ChunkMetaGPU.reserved_node_y offset mismatch");
+static_assert(offsetof(ChunkMetaGPU, reserved_node_z) == 56, "ChunkMetaGPU.reserved_node_z offset mismatch");
 
 // Global chunk index indirection (dense).
 struct AssetChunkIndexGPU {

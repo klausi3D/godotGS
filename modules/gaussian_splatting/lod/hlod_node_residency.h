@@ -5,8 +5,8 @@
 
 // ADR docs/architecture/adr-hlod-streaming.md sections 6.6, 14.1 and 14.2 (package D1).
 //
-// CPU-only residency model for HLOD tree nodes. It is the node-level front of the streaming system's page
-// allocator (GaussianAtlasAllocator, #1088) and follows the same contracts the chunk streamer uses:
+// CPU-only residency model for HLOD tree nodes. Owns an HLOD-only single-page pool and follows the same
+// lifetime contracts the chunk streamer uses:
 // whole-run admission, per-request generations (the #1177 upload-sequence idea: a completion whose ticket is
 // not the node's current one is dropped), a retirement delay before a freed run may be reused, and an
 // eviction order of outside the protected closure, then least recently drawn, then finest level first.
@@ -38,7 +38,7 @@
 // Threading: not thread-safe; call from the thread that owns the selection state (the render thread).
 
 #include "../core/gaussian_splat_hlod_runtime_data.h"
-#include "../core/streaming_atlas.h"
+#include "hlod_page_pool.h"
 #include "core/error/error_list.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/vector.h"
@@ -87,7 +87,7 @@ public:
 
 	struct Config {
 		uint32_t page_capacity = 0; // Atlas size in pages.
-		uint32_t page_splats = 1024;
+		uint32_t page_splats = GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
 		// Frames a freed (evicted, cancelled, rolled back) run stays allocated before it can be reused:
 		// resources awaiting GPU retirement are still protected (ADR 14.1).
 		uint32_t retire_delay_frames = 3;
@@ -107,8 +107,8 @@ public:
 	// generation (which request of this node, so a cancelled or overwritten request cannot publish).
 	struct Ticket {
 		uint32_t node = UINT32_MAX;
-		uint32_t first_page = 0;
-		uint32_t page_count = 0;
+		Vector<uint32_t> pages;
+		uint32_t pt_base = 0;
 		uint64_t request_generation = 0;
 		uint64_t world_generation = 0;
 		uint64_t device_generation = 0;
@@ -123,7 +123,7 @@ public:
 		uint32_t pages_in_flight = 0; // Reserved runs and pages of LOADING/UPLOADING nodes.
 		uint32_t pages_retiring = 0; // Freed runs still awaiting retirement.
 		uint32_t pages_free = 0; // Allocator free pages (retiring runs are not free).
-		uint32_t largest_free_run = 0;
+		uint32_t largest_free_run = 0; // Compatibility key: the page pool can place every free page, so reports pages_free.
 		uint64_t requested_total = 0;
 		uint64_t completed_total = 0;
 		uint64_t cancelled_total = 0;
@@ -147,7 +147,7 @@ public:
 		// group increments refused and exactly one reason; failed/retry-blocked and request-capped groups do not.
 		bool pressure_measured = false;
 		uint64_t allocation_refused_total = 0;
-		uint64_t allocation_no_contiguous_run_total = 0;
+		uint64_t allocation_no_contiguous_run_total = 0; // Deprecated: always zero with page-table allocation.
 		uint64_t allocation_protected_capacity_total = 0;
 		uint64_t allocation_over_page_budget_total = 0;
 		uint64_t allocation_pending_retire_total = 0;
@@ -200,7 +200,7 @@ public:
 		bool capped = false; // max_requests_per_frame reached: remaining demand waits.
 		// Why groups did not progress, kept apart (ADR 14.2: failed is not a budget problem):
 		uint32_t blocked_groups = 0; // A child failed (waiting for retry or permanently): the transition cannot complete.
-		uint32_t fragmented_groups = 0; // Enough pages are free in total but no contiguous run fits (compaction's job, D2).
+		uint32_t fragmented_groups = 0; // Deprecated: always zero with page-table allocation.
 		uint32_t pending_retire_groups = 0; // Skipped only because the needed pages are still retiring.
 	};
 
@@ -313,7 +313,18 @@ public:
 	}
 
 	State state(uint32_t p_node) const { return p_node < uint32_t(nodes.size()) ? nodes[p_node].state : ABSENT; }
-	bool run(uint32_t p_node, uint32_t &r_first_page, uint32_t &r_page_count) const;
+	bool page_allocation(uint32_t p_node, Vector<uint32_t> &r_pages, uint32_t &r_pt_base) const;
+	bool allocation_matches(const Ticket &p_ticket) const;
+	static constexpr uint32_t FREE_PAGE = HlodPagePool::FREE;
+	const Vector<uint32_t> &page_table() const { return allocator.page_table(); }
+	const Vector<uint32_t> &page_owners() const { return allocator.page_owners(); }
+	uint32_t max_pages_per_node() const { return allocator.max_pages_per_node(); }
+	void take_released_pages(LocalVector<uint32_t> &r_pages) { allocator.take_released_pages(r_pages); }
+	void take_released_slots(LocalVector<uint32_t> &r_bases) { allocator.take_released_slots(r_bases); }
+#ifdef TESTS_ENABLED
+	void test_set_require_contiguous(bool p_enabled) { allocator.test_set_require_contiguous(p_enabled); }
+	void test_reverse_free_pages() { allocator.test_reverse_free_pages(); }
+#endif
 	uint32_t pages_for(uint32_t p_node) const { return p_node < uint32_t(nodes.size()) ? nodes[p_node].pages : 0; }
 	// 1 per node = RESIDENT. Copy-on-write shared with the selector's snapshot.
 	const Vector<uint8_t> &resident_mask() const { return mask; }
@@ -331,7 +342,8 @@ private:
 		uint32_t parent = UINT32_MAX;
 		uint32_t height = 0;
 		uint32_t pages = 0;
-		uint32_t first_page = 0;
+		Vector<uint32_t> page_list;
+		uint32_t pt_base = 0;
 		uint64_t alloc_key = 0; // Unique per allocation, so a retiring run is never confused with a new one.
 		uint64_t request_generation = 0; // Bootstrap may reserve a generation before issuing its ticket.
 		uint64_t last_drawn_frame = 0;
@@ -358,13 +370,15 @@ private:
 		enum ShadowState : uint8_t { SHADOW_NONE = 0, SHADOW_LOADING, SHADOW_PACKED, SHADOW_READY, SHADOW_FAILED };
 		ShadowState shadow_state = SHADOW_NONE;
 		uint64_t shadow_key = 0;
-		uint32_t shadow_first = 0;
+		Vector<uint32_t> shadow_page_list;
+		uint32_t shadow_pt_base = 0;
 		uint32_t shadow_pages = 0;
 		uint64_t shadow_generation = 0;
 	};
 	struct Retiring {
 		uint64_t alloc_key = 0;
-		uint32_t first_page = 0;
+		Vector<uint32_t> page_list;
+		uint32_t pt_base = 0;
 		uint32_t pages = 0;
 		uint64_t retire_frame = 0;
 	};
@@ -372,7 +386,7 @@ private:
 	Vector<Node> nodes;
 	Vector<uint8_t> mask;
 	Config cfg;
-	GaussianAtlasAllocator allocator;
+	HlodPagePool allocator;
 	LocalVector<Retiring> retiring;
 	LocalVector<uint32_t> candidates; // Eviction scratch.
 	LocalVector<uint32_t> evicted_log;
@@ -441,12 +455,7 @@ private:
 	// Evicts unprotected RESIDENT nodes (LRU, then finest level, then node index) until `p_pages` pages are
 	// free or pending retirement. Returns the number of evictions; bounded by evictions_per_frame.
 	uint32_t evict_for(uint32_t p_pages, uint32_t p_exclude_parent);
-	// Bounded answer to fragmentation (compaction itself is package D2): when enough pages are free in total but
-	// no contiguous run of `p_pages` exists, evicts the cheapest set of unprotected RESIDENT nodes whose runs,
-	// together with free pages, form one contiguous window. Windows crossing a protected, in-flight or retiring
-	// run are not considered, so protection and GPU lifetime rules still hold. Returns the number of evictions.
-	uint32_t evict_window(uint32_t p_pages, uint32_t p_exclude_parent);
-	LocalVector<uint32_t> window_owner; // evict_window() scratch: node index, FREE_PAGE or BLOCKED_PAGE per page.
+
 };
 
 // Builds the residency table input from the runtime data (node payload counts, parents, heights).

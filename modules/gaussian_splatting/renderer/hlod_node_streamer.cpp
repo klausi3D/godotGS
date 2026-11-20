@@ -11,7 +11,7 @@
 
 using gs_hlod_runtime::NodeResidency;
 
-// The node run granularity is the chunk streamer's page size (#1088): the shared allocator and its budget math.
+// The HLOD page geometry matches the chunk route and shared budget math.
 static_assert(HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS == GaussianStreamingSystem::ATLAS_PAGE_SPLATS, "HLOD node runs use the streaming atlas page size");
 
 HlodNodeStreamer::~HlodNodeStreamer() {
@@ -470,6 +470,7 @@ Error HlodNodeStreamer::_test_set_control(const TestControl &p_control) {
 	}
 	MutexLock lock(ledger->mutex);
 	const bool release_workers = ledger->control.hold_workers && !p_control.hold_workers;
+	if (p_control.reverse_free_pages && !ledger->control.reverse_free_pages) { residency.test_reverse_free_pages(); }
 	ledger->control = p_control;
 	if (release_workers) { ledger->worker_gate.post(ledger->held_workers); }
 	return OK;
@@ -587,6 +588,10 @@ Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeD
 	if (!gs_hlod_runtime::make_node_infos(*p_data.ptr(), infos)) { return ERR_INVALID_DATA; }
 	const NodeResidency::Config rc = residency.config();
 	if (!residency.reset(infos, rc, p_world, p_device)) { return ERR_INVALID_DATA; }
+	published_page_table = residency.page_table();
+	published_page_owner = residency.page_owners();
+	released_pages.clear();
+	released_slots.clear();
 	pending.clear();
 	if (!had_edit) {
 		test_metadata.fill(ChunkMetaGPU{});
@@ -617,7 +622,7 @@ Error HlodNodeStreamer::_test_evict_node(uint32_t p_node) {
 bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config, uint64_t p_world_generation, uint64_t p_device_generation) {
 	shutdown();
 	uint64_t atlas_bytes = 0;
-	if (p_data.is_null() || p_config.atlas_pages == 0 || p_config.page_splats == 0 || p_config.upload_bytes_per_frame == 0 ||
+	if (p_data.is_null() || p_config.atlas_pages == 0 || p_config.page_splats != Config::DEFAULT_PAGE_SPLATS || p_config.upload_bytes_per_frame == 0 ||
 			p_data->nodes.is_empty() || !GSUploadSizing::checked_byte_count(uint64_t(p_config.atlas_pages) * p_config.page_splats,
 					p_config.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian), atlas_bytes)) {
 		return false;
@@ -634,6 +639,10 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	if (!residency.reset(infos, rc, p_world_generation, p_device_generation)) {
 		return false;
 	}
+	published_page_table = residency.page_table();
+	published_page_owner = residency.page_owners();
+	released_pages.clear();
+	released_slots.clear();
 	// The root is the complete coarse fallback and the pinned base of every cut: it must fit on its own.
 	if (!p_data->is_stale(0) && residency.pages_for(0) > p_config.atlas_pages) {
 		return false;
@@ -850,6 +859,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		if (job->cancellation->cancelled.load()) { return false; }
 		const uint64_t started = payload_clock_nsec();
 		const bool ok = gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out, p_view);
+		if (ok) { result.meta.page_table_ref = job->ticket.pt_base + 1u; }
 		const uint64_t elapsed = payload_clock_nsec() - started;
 		MutexLock lock(job->mailbox->ledger->mutex);
 		++job->mailbox->ledger->pack_calls;
@@ -942,6 +952,10 @@ void HlodNodeStreamer::start_jobs() {
 	// Starts one worker job. `p_shadow` jobs pack an edited leaf of the STAGED snapshot into its reserved shadow run;
 	// ordinary jobs pack from the served snapshot. Returns false when the in-flight read cap defers the job.
 	auto start_one = [&](const NodeResidency::Ticket &p_ticket, bool p_shadow) {
+		if (p_ticket.pages.is_empty()) {
+			if (p_shadow) { residency.finish_shadow(p_ticket, false); } else { residency.fail_load(p_ticket); }
+			return true;
+		}
 		const Ref<GaussianSplatHlodRuntimeData> &source = p_shadow ? staged_data : data;
 		uint64_t read_bytes = 0;
 		uint64_t reserved = 0;
@@ -1007,7 +1021,7 @@ void HlodNodeStreamer::start_jobs() {
 		job->params.quantized = cfg.quantized;
 		job->params.position_bits = cfg.position_bits;
 		job->params.scale_bits = cfg.scale_bits;
-		job->atlas_base = p_ticket.first_page * cfg.page_splats;
+		job->atlas_base = p_ticket.pages[0] * cfg.page_splats;
 		job->mailbox = mailbox;
 		job->stats = read_stats;
 		job->store = use_store ? page_store : nullptr;
@@ -1183,8 +1197,11 @@ HlodNodeStreamer::EditStageResult HlodNodeStreamer::stage_edit(const Ref<Gaussia
 	for (uint32_t node = 0; node < uint32_t(p_edited->nodes.size()); ++node) {
 		if (p_edited->is_stale(node) && !data->is_stale(node)) { stale_nodes.push_back(node); }
 	}
-	const uint64_t publication_bytes = uint64_t(edited_nodes.size() + stale_nodes.size()) *
+	uint64_t publication_bytes = uint64_t(edited_nodes.size() + stale_nodes.size()) *
 			(sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0));
+	for (const auto &leaf : leaves) {
+		publication_bytes += uint64_t((leaf.splat_count + cfg.page_splats - 1u) / cfg.page_splats) * 2u * sizeof(uint32_t);
+	}
 	if (publication_bytes > upload_allowance() || !edit_feasible(p_edited)) {
 		++telemetry.edits_rejected_infeasible_total;
 		telemetry.edit_event = "rejected_infeasible";
@@ -1267,23 +1284,24 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 		if (!residency.shadow_ticket(r.ticket.node, current) || current.request_generation != r.ticket.request_generation ||
 				r.ticket.world_generation != world_generation || r.ticket.device_generation != device_generation ||
 				current.world_generation != r.ticket.world_generation || current.device_generation != r.ticket.device_generation ||
-				current.first_page != r.ticket.first_page || current.page_count != r.ticket.page_count ||
-				r.meta.splat_count == 0 || r.meta.atlas_base != current.first_page * cfg.page_splats ||
+				current.pages != r.ticket.pages || current.pt_base != r.ticket.pt_base || current.pages.is_empty() ||
+				r.meta.splat_count == 0 || !validate_page_table_publish(r.ticket, r.meta) ||
 				r.bytes != uint64_t(r.meta.splat_count) * record_stride()) { return fail_commit(); }
 	}
 	in_edit_commit = true;
 	// Payloads were transferred in update(). Only this bounded metadata batch
 	// publishes their runs, in one begin_frame call before any selector observes it.
 	for (uint32_t i = 0; i < shadow_transferred.size(); ++i) {
-		const ShadowTransfer &r = shadow_transferred[i];
+		ShadowTransfer &r = shadow_transferred[i];
 #ifdef TESTS_ENABLED
 		if (test_fail_commit_metadata) {
 			test_fail_commit_metadata = false;
 			return fail_commit();
 		}
 #endif
-		if ((cfg.quantized && write_quant(p_device, p_buffers, r.ticket.node, r.quant, true) != OK) ||
-				write_meta(p_device, p_buffers, r.ticket.node, r.meta, true) != OK) { return fail_commit(); }
+		if (write_page_tables(p_device, p_buffers, r.ticket, r.meta) != OK ||
+				(cfg.quantized && write_quant(p_device, p_buffers, r.ticket.node, r.quant, true) != OK) ||
+				write_meta(p_device, p_buffers, r.ticket.node, r.meta, true, &r.ticket) != OK) { return fail_commit(); }
 #ifdef TESTS_ENABLED
 		if (ledger->fault == TEST_FAULT_PARTIAL_COMMIT && i == 0 && shadow_transferred.size() > 1) {
 			++ledger->faults_triggered; // Publish a real subset, then fail closed.
@@ -1329,7 +1347,9 @@ void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_b
 	frame_eviction_truncated = 0;
 	residency.begin_frame(++frame);
 	telemetry.abandoned_transitions_this_frame = 0;
+	telemetry.page_table_publish_refusals_this_frame = 0;
 	frame_written_bytes = 0;
+	if (p_buffers && !clear_released_tables(p_device, *p_buffers)) { return; }
 	frame_edit_uploads = residency.is_edit_staged() || !pending_metadata_clears.is_empty();
 	if (last_commit_result == COMMIT_NOTHING && p_buffers && residency.is_edit_staged()) {
 		last_commit_result = commit_staged_edit(p_device, *p_buffers);
@@ -1494,8 +1514,128 @@ void HlodNodeStreamer::record_upload_completion(const PackResult &p_result) {
 	}
 }
 
-Error HlodNodeStreamer::write_meta(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkMetaGPU &p_meta, bool p_shadow) {
+GSUploadSizing::Slice HlodNodeStreamer::page_slice(const NodeResidency::Ticket &p_ticket, uint64_t p_bytes,
+		uint64_t p_uploaded, uint64_t p_allowance, uint64_t &r_offset) const {
+	r_offset = 0;
+	const uint64_t stride = record_stride();
+	const uint64_t page_bytes = uint64_t(cfg.page_splats) * stride;
+	if (page_bytes == 0 || p_uploaded > p_bytes || p_ticket.pages.is_empty()) { return {}; }
+	if (p_uploaded == p_bytes) { return GSUploadSizing::slice(p_bytes, p_uploaded, p_allowance, stride); }
+	const uint64_t page = p_uploaded / page_bytes;
+	const uint64_t local = p_uploaded % page_bytes;
+	if (page >= uint64_t(p_ticket.pages.size()) || p_ticket.pages[page] >= cfg.atlas_pages) { return {}; }
+	r_offset = uint64_t(p_ticket.pages[page]) * page_bytes + local;
+	return GSUploadSizing::slice(p_bytes, p_uploaded, MIN(p_allowance, page_bytes - local), stride);
+}
+
+bool HlodNodeStreamer::validate_page_table_publish(const NodeResidency::Ticket &p_ticket, const ChunkMetaGPU &p_meta) {
+	bool valid = p_meta.page_table_ref != 0 && p_ticket.pt_base != UINT32_MAX &&
+			p_meta.page_table_ref == p_ticket.pt_base + 1u && !p_ticket.pages.is_empty() &&
+			p_meta.atlas_base == uint64_t(p_ticket.pages[0]) * cfg.page_splats && residency.allocation_matches(p_ticket);
+	if (!valid) {
+		++telemetry.page_table_publish_refusals_total;
+		++telemetry.page_table_publish_refusals_this_frame;
+	}
+	return valid;
+}
+
+Error HlodNodeStreamer::write_table_range(RenderingDevice *p_device, RID p_buffer, bool p_forward, uint32_t p_node,
+		uint32_t p_first, uint32_t p_count, const uint32_t *p_values, bool p_shadow) {
+	Vector<uint32_t> &mirror = p_forward ? published_page_table : published_page_owner;
+	const uint64_t offset = uint64_t(p_first) * sizeof(uint32_t);
+	const uint64_t bytes = uint64_t(p_count) * sizeof(uint32_t);
+	if (!p_values || p_count == 0 || uint64_t(p_first) + p_count > uint64_t(mirror.size()) ||
+			offset > UINT32_MAX || bytes > UINT32_MAX) { return ERR_INVALID_DATA; }
+	bool cpu_sink = false;
+#ifdef TESTS_ENABLED
+	{
+		MutexLock lock(ledger->mutex);
+		cpu_sink = ledger->control.cpu_upload_sink;
+		if (ledger->control.fail_upload) { return ERR_CANT_CREATE; }
+	}
+#endif
+	if (!cpu_sink) {
+		if (!upload_available(p_device)) { return ERR_UNAVAILABLE; }
+		const Error err = p_device->buffer_update(p_buffer, uint32_t(offset), uint32_t(bytes), p_values);
+		if (err != OK) { return err; }
+	}
+	memcpy(mirror.ptrw() + p_first, p_values, size_t(bytes));
+	frame_written_bytes += bytes;
+#ifdef TESTS_ENABLED
+	record_write(p_forward ? TestWrite::PAGE_TABLE : TestWrite::PAGE_OWNER, p_node, offset, bytes, p_shadow, nullptr, nullptr, p_values);
+#endif
+	return OK;
+}
+
+Error HlodNodeStreamer::write_page_tables(RenderingDevice *p_device, const Buffers &p_buffers,
+		const NodeResidency::Ticket &p_ticket, ChunkMetaGPU &p_meta) {
+#ifdef TESTS_ENABLED
+	if (ledger->fault == TEST_FAULT_ZERO_PAGE_TABLE_REF) {
+		p_meta.page_table_ref = 0;
+		++ledger->faults_triggered;
+	}
+#endif
+	if (!validate_page_table_publish(p_ticket, p_meta)) { return ERR_INVALID_DATA; }
+	const Error err = write_table_range(p_device, p_buffers.page_table, true, p_ticket.node, p_ticket.pt_base,
+			p_ticket.pages.size(), p_ticket.pages.ptr(), p_ticket.shadow);
+	if (err != OK) { return err; }
+	for (uint32_t page : p_ticket.pages) {
+		const Error owner_error = write_table_range(p_device, p_buffers.page_owner, false, p_ticket.node,
+				page, 1, &p_ticket.node, p_ticket.shadow);
+		if (owner_error != OK) { return owner_error; }
+	}
+	return OK;
+}
+
+bool HlodNodeStreamer::clear_released_tables(RenderingDevice *p_device, const Buffers &p_buffers) {
+	LocalVector<uint32_t> pages, slots;
+	residency.take_released_pages(pages);
+	residency.take_released_slots(slots);
+	for (uint32_t page : pages) { released_pages.push_back(page); }
+	for (uint32_t base : slots) { released_slots.push_back(base); }
+	const uint32_t free = NodeResidency::FREE_PAGE;
+	while (!released_pages.is_empty()) {
+		const uint32_t page = released_pages[released_pages.size() - 1u];
+		if (page >= uint32_t(residency.page_owners().size())) { active = false; return false; }
+		if (residency.page_owners()[page] == free && published_page_owner[page] != free) {
+			if (!upload_available(p_device)) { return false; }
+			if (upload_remaining() < sizeof(uint32_t)) { return false; }
+			if (write_table_range(p_device, p_buffers.page_owner, false, UINT32_MAX, page, 1, &free, false) != OK) { active = false; return false; }
+		}
+		released_pages.resize(released_pages.size() - 1u);
+	}
+	while (!released_slots.is_empty()) {
+		const uint32_t base = released_slots[released_slots.size() - 1u];
+		if (uint64_t(base) + residency.max_pages_per_node() > uint64_t(residency.page_table().size())) { active = false; return false; }
+		for (uint32_t i = base; i < base + residency.max_pages_per_node(); ++i) {
+			if (residency.page_table()[i] == free && published_page_table[i] != free) {
+				if (!upload_available(p_device)) { return false; }
+				if (upload_remaining() < sizeof(uint32_t)) { return false; }
+				if (write_table_range(p_device, p_buffers.page_table, true, UINT32_MAX, i, 1, &free, false) != OK) { active = false; return false; }
+			}
+		}
+		released_slots.resize(released_slots.size() - 1u);
+	}
+	return true;
+}
+
+Error HlodNodeStreamer::write_meta(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkMetaGPU &p_meta,
+		bool p_shadow, const NodeResidency::Ticket *p_ticket) {
 	if (p_node >= residency.node_count()) { return ERR_INVALID_DATA; }
+	if (p_meta.splat_count != 0) {
+		if (!p_ticket) { ++telemetry.page_table_publish_refusals_total; ++telemetry.page_table_publish_refusals_this_frame; return ERR_INVALID_DATA; }
+		if (!validate_page_table_publish(*p_ticket, p_meta)) { return ERR_INVALID_DATA; }
+		for (uint32_t i = 0; i < uint32_t(p_ticket->pages.size()); ++i) {
+			const uint32_t page = p_ticket->pages[i];
+			if (uint64_t(p_ticket->pt_base) + i >= uint64_t(published_page_table.size()) ||
+					page >= uint32_t(published_page_owner.size()) || published_page_table[p_ticket->pt_base + i] != page ||
+					published_page_owner[page] != p_node) {
+				++telemetry.page_table_publish_refusals_total;
+				++telemetry.page_table_publish_refusals_this_frame;
+				return ERR_INVALID_DATA;
+			}
+		}
+	}
 	bool cpu_sink = false;
 #ifdef TESTS_ENABLED
 	{
@@ -1563,12 +1703,12 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 	const uint64_t stride = record_stride();
 	const uint32_t count = cfg.quantized ? uint32_t(r.quantized.size()) : uint32_t(r.raw.size());
 	uint64_t bytes = 0;
-	const uint64_t offset = uint64_t(r.ticket.first_page) * cfg.page_splats * stride;
-	if (!r.ok || !GSUploadSizing::checked_byte_count(count, stride, bytes) || count == 0 || count != r.meta.splat_count || count > uint64_t(r.ticket.page_count) * cfg.page_splats ||
-			offset > atlas_bytes_capacity() || bytes > atlas_bytes_capacity() - offset || r.uploaded_bytes > bytes) {
+	if (!r.ok || !GSUploadSizing::checked_byte_count(count, stride, bytes) || count == 0 || count != r.meta.splat_count ||
+			count > uint64_t(r.ticket.pages.size()) * cfg.page_splats || !residency.allocation_matches(r.ticket) || r.uploaded_bytes > bytes) {
 		fail_shadow_upload(); return true;
 	}
-	const GSUploadSizing::Slice slice = GSUploadSizing::slice(bytes, r.uploaded_bytes, upload_remaining(), stride);
+	uint64_t offset = 0;
+	const GSUploadSizing::Slice slice = page_slice(r.ticket, bytes, r.uploaded_bytes, upload_remaining(), offset);
 	if (!slice.valid) { fail_shadow_upload(); return true; }
 	if (slice.bytes == 0) { return false; }
 	if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
@@ -1577,7 +1717,7 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 	// Shadow output is also render-thread owned; retain its entire allocation
 	// and charge while the device call runs without the worker ledger mutex.
 	lock.temp_unlock();
-	const Error upload_error = write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, true);
+	const Error upload_error = write_atlas(p_device, p_buffers, r.ticket.node, offset, slice.bytes, payload + r.uploaded_bytes, true);
 	lock.temp_relock();
 	if (upload_error != OK) {
 		fail_shadow_upload(); return true;
@@ -1594,7 +1734,8 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 			// Actually expose this invisible run before commit; the same revision
 			// checker as the positive case must reject the device/CPU-sink write.
 			lock.temp_unlock();
-			const Error metadata_error = write_meta(p_device, p_buffers, r.ticket.node, r.meta, true);
+			const Error metadata_error = write_page_tables(p_device, p_buffers, r.ticket, r.meta) == OK ?
+					write_meta(p_device, p_buffers, r.ticket.node, r.meta, true, &r.ticket) : ERR_INVALID_DATA;
 			lock.temp_relock();
 			if (metadata_error == OK) { ++ledger->faults_triggered; }
 		}
@@ -1669,7 +1810,6 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	MutexLock lock(ledger->mutex);
 	if (p_ready_index >= ready.size()) { return false; }
 	const uint64_t stride = record_stride();
-	const uint64_t atlas_capacity = atlas_bytes_capacity();
 	PackResult &r = ready[p_ready_index];
 	if (r.cancellation.is_valid() && r.cancellation->cancelled.load()) {
 		residency.discard_known_cancelled(r.ticket);
@@ -1699,7 +1839,9 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 			if (ticket.node == node) {
 				publication_ticket = ticket;
 				current = true;
-				r.meta.atlas_base = ticket.first_page * cfg.page_splats;
+				if (ticket.pages.is_empty()) { continue; }
+				r.meta.atlas_base = ticket.pages[0] * cfg.page_splats;
+				r.meta.page_table_ref = ticket.pt_base + 1u;
 				r.quant.start_index = r.meta.atlas_base;
 				++ledger->faults_triggered;
 				break;
@@ -1725,14 +1867,14 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	if (!device_available && !p_fail_without_device) { return false; } // Edit-era uploads keep holding.
 	const uint64_t count = cfg.quantized ? uint64_t(r.quantized.size()) : uint64_t(r.raw.size());
 	uint64_t bytes = 0, offset = 0;
-	const uint64_t metadata_bytes = sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0);
+	const uint64_t metadata_bytes = sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0) +
+			uint64_t(publication_ticket.pages.size()) * 2u * sizeof(uint32_t);
 	bool ok = count != 0 && count == r.meta.splat_count && GSUploadSizing::checked_byte_count(count, stride, bytes) &&
-			GSUploadSizing::checked_byte_count(uint64_t(publication_ticket.first_page) * cfg.page_splats, stride, offset) &&
-			offset <= atlas_capacity && bytes <= atlas_capacity - offset &&
-			count <= uint64_t(publication_ticket.page_count) * cfg.page_splats;
+			residency.allocation_matches(publication_ticket) &&
+			count <= uint64_t(publication_ticket.pages.size()) * cfg.page_splats;
 	const uint64_t remaining = upload_remaining();
 	if (ok && p_preserve_whole_nodes && r.uploaded_bytes == 0 && bytes <= upload_allowance() && bytes > remaining) {
-		return false; // A fitting node waits for a fresh frame, retaining one whole atlas write.
+		return false; // A fitting node waits for a fresh frame, retaining whole-node admission.
 	}
 	if (!device_available) {
 		// Base no-edit uploads fail without a device. Drop even a partial node's
@@ -1744,7 +1886,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 		ready.remove_at(p_ready_index);
 		return true;
 	}
-	const GSUploadSizing::Slice slice = GSUploadSizing::slice(bytes, r.uploaded_bytes, remaining, stride);
+	const GSUploadSizing::Slice slice = page_slice(publication_ticket, bytes, r.uploaded_bytes, remaining, offset);
 	ok = ok && slice.valid;
 	bool progressed = false;
 #ifdef TESTS_ENABLED
@@ -1759,7 +1901,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 		// permit charged across the unlocked call, then commit cursor/counters
 		// under the lock. Every worker invariant observation sees a complete owner.
 		lock.temp_unlock();
-		ok = write_atlas(p_device, p_buffers, publication_ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, false) == OK;
+		ok = write_atlas(p_device, p_buffers, publication_ticket.node, offset, slice.bytes, payload + r.uploaded_bytes, false) == OK;
 		lock.temp_relock();
 		if (ok) {
 			record_upload_slice(r, upload_started, slice.bytes);
@@ -1782,8 +1924,9 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	if (!residency.begin_upload(publication_ticket)) { ready.remove_at(p_ready_index); return true; }
 	if (ok) {
 		lock.temp_unlock();
-		ok = (!cfg.quantized || write_quant(p_device, p_buffers, publication_ticket.node, r.quant) == OK) &&
-				write_meta(p_device, p_buffers, publication_ticket.node, r.meta) == OK;
+		ok = write_page_tables(p_device, p_buffers, publication_ticket, r.meta) == OK &&
+				(!cfg.quantized || write_quant(p_device, p_buffers, publication_ticket.node, r.quant) == OK) &&
+				write_meta(p_device, p_buffers, publication_ticket.node, r.meta, false, &publication_ticket) == OK;
 		lock.temp_relock();
 	}
 	const bool finished = residency.finish_upload(publication_ticket, ok);
@@ -1928,18 +2071,17 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	const NodeResidency::RequestResult requested = draining_metadata ? NodeResidency::RequestResult() :
 			(multiple_owners ? residency.request_legacy(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch) :
 					residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch, transition_scratch.ptr(), kept_scratch.ptr(), kept_scratch.size()));
+	for (const auto &ticket : tickets_scratch) { pending.push_back(ticket); }
+	telemetry.requested_this_frame = requested.requested;
+	telemetry.skipped_groups_this_frame = requested.skipped_groups;
+	telemetry.blocked_groups_this_frame = requested.blocked_groups;
+	telemetry.fragmented_groups_this_frame = requested.fragmented_groups;
 	cancel_withdrawn_jobs();
 	// Metadata of nodes evicted by this request is cleared before any upload of this update: a node evicted and
 	// requested again is not in the log (NodeResidency), and a payload that lands below is never zeroed after.
 	clear_evicted(p_device, p_buffers);
 	if (!active) { return; }
-	for (uint32_t i = 0; i < tickets_scratch.size(); ++i) {
-		pending.push_back(tickets_scratch[i]);
-	}
-	telemetry.requested_this_frame = requested.requested;
-	telemetry.skipped_groups_this_frame = requested.skipped_groups;
-	telemetry.blocked_groups_this_frame = requested.blocked_groups;
-	telemetry.fragmented_groups_this_frame = requested.fragmented_groups;
+	if (!clear_released_tables(p_device, p_buffers)) { refresh_telemetry(); return; }
 	// Ordinary upload_ready now resumes partial cursors itself, with whole-node
 	// admission preserved for fitting nodes. An unfinished node does not enable
 	// the edit scheduler or bypass ticket validation after cancellation.

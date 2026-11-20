@@ -14,6 +14,19 @@ using Streamer = HlodNodeStreamer;
 using Residency = gs_hlod_runtime::NodeResidency;
 using TestGaussianSplatting::gs_pump_until;
 
+static inline uint64_t page_offset(const Vector<uint32_t> &p_pages, uint64_t p_logical_bytes, uint32_t p_page_splats, uint64_t p_stride) {
+	const uint64_t page_bytes = uint64_t(p_page_splats) * p_stride;
+	return uint64_t(p_pages[p_logical_bytes / page_bytes]) * page_bytes + p_logical_bytes % page_bytes;
+}
+
+static inline bool page_slice(const Vector<uint32_t> &p_pages, uint64_t p_logical_bytes, uint64_t p_offset,
+		uint64_t p_bytes, uint32_t p_page_splats, uint64_t p_stride) {
+	const uint64_t page_bytes = uint64_t(p_page_splats) * p_stride;
+	return page_bytes != 0 && p_logical_bytes / page_bytes < uint64_t(p_pages.size()) && p_bytes != 0 &&
+			p_bytes <= page_bytes - p_logical_bytes % page_bytes &&
+			p_offset == page_offset(p_pages, p_logical_bytes, p_page_splats, p_stride);
+}
+
 // Reuse the production-written D3-2 corpus without modifying its writer, codec,
 // fixture or on-disk format. Expected leaf attributes come from its generator.
 struct Fixture {
@@ -56,8 +69,10 @@ struct Fixture {
 	}
 
 	uint64_t publication_bytes(bool p_quantized) const {
+		const uint32_t pages = (source.splats_per_node / 2 + Streamer::Config::DEFAULT_PAGE_SPLATS - 1) / Streamer::Config::DEFAULT_PAGE_SPLATS;
 		return uint64_t(leaves.size() + stale.size()) *
-				(sizeof(ChunkMetaGPU) + (p_quantized ? sizeof(ChunkQuantizationGPU) : 0));
+				(sizeof(ChunkMetaGPU) + (p_quantized ? sizeof(ChunkQuantizationGPU) : 0)) +
+				uint64_t(leaves.size()) * pages * 2 * sizeof(uint32_t);
 	}
 
 	Streamer::Config config(bool p_quantized = false) const {

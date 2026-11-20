@@ -114,6 +114,9 @@ const HLOD_PRESSURE_FIELDS := [
 	["hlod_stream_pages_in_flight", "q"], ["hlod_stream_pages_retiring", "q"],
 	["hlod_stream_requested_this_frame", "q"],
 	["hlod_stream_allocation_refused_total", "q"], ["hlod_stream_allocation_no_contiguous_run_total", "q"],
+	["hlod_drawn_nodes_paged", "q"], ["hlod_drawn_nodes_contiguous", "q"],
+	["hlod_drawn_nodes_paged_total", "q"], ["hlod_drawn_nodes_contiguous_total", "q"],
+	["hlod_stream_page_table_publish_refusals_total", "q"], ["hlod_stream_page_table_publish_refusals_this_frame", "q"],
 	["hlod_stream_allocation_protected_capacity_total", "q"], ["hlod_stream_allocation_over_page_budget_total", "q"],
 	["hlod_stream_allocation_pending_retire_total", "q"], ["hlod_stream_allocation_eviction_limit_total", "q"],
 	["hlod_stream_allocation_other_total", "q"],
@@ -1040,6 +1043,11 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"hlod_desired_nodes": _last_stats.get("hlod_stream_desired_nodes"),
 		"hlod_resident_nodes": _last_stats.get("hlod_stream_resident_nodes"),
 		"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),
+		"hlod_drawn_nodes_paged": _last_stats.get("hlod_drawn_nodes_paged"),
+		"hlod_drawn_nodes_contiguous": _last_stats.get("hlod_drawn_nodes_contiguous"),
+		"hlod_drawn_nodes_paged_total": _last_stats.get("hlod_drawn_nodes_paged_total"),
+		"hlod_drawn_nodes_contiguous_total": _last_stats.get("hlod_drawn_nodes_contiguous_total"),
+		"page_table_publish_refusals_total": _last_stats.get("hlod_stream_page_table_publish_refusals_total"),
 		# Optional cut diagnostics: older binaries must retain null, never an invented empty cut.
 		"hlod_drawn_node_ids": _last_stats.get("hlod_drawn_node_ids"),
 		"hlod_drawn_node_digest": _last_stats.get("hlod_drawn_node_digest"),
@@ -1115,7 +1123,9 @@ func _residency_snapshot() -> Dictionary:
 	var stats: Dictionary = renderer.get_render_stats() if renderer != null else {}
 	var counters := {}
 	for key in ["hlod_stream_evicted_total", "hlod_stream_skipped_groups_total", "hlod_stream_cancelled_total",
-			"hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total"]:
+			"hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total",
+			"hlod_drawn_nodes_paged", "hlod_drawn_nodes_contiguous", "hlod_drawn_nodes_paged_total", "hlod_drawn_nodes_contiguous_total",
+			"hlod_stream_page_table_publish_refusals_total", "hlod_stream_page_table_publish_refusals_this_frame"]:
 		counters[key] = stats.get(key)
 	var digests = null
 	var payload = stats.get("payload_telemetry")

@@ -56,6 +56,10 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	if (count == 0 || cfg.page_capacity == 0 || cfg.page_splats == 0) {
 		return false;
 	}
+	uint32_t max_splats = gs_hlod::kMaxNodeSplats;
+	for (const NodeInfo &info : p_nodes) { max_splats = MAX(max_splats, info.splat_count); }
+	const uint32_t max_pages = uint32_t((uint64_t(max_splats) + cfg.page_splats - 1) / cfg.page_splats);
+	if (!allocator.reset(cfg.page_capacity, max_pages)) { return false; }
 	Vector<Node> next;
 	Vector<uint8_t> next_mask;
 	if (!gs_resize_or_fail(next, count, "HLOD residency nodes") || !gs_resize_or_fail(next_mask, count, "HLOD residency mask")) {
@@ -72,7 +76,7 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 		n.parent = info.parent;
 		n.height = info.height;
 		n.stale = info.stale;
-		n.pages = (info.splat_count + cfg.page_splats - 1u) / cfg.page_splats;
+		n.pages = uint32_t((uint64_t(info.splat_count) + cfg.page_splats - 1u) / cfg.page_splats);
 	}
 	nodes = std::move(next);
 	mask = std::move(next_mask);
@@ -88,7 +92,6 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 		}
 	}
 	committed_revision = cfg.committed_edit_revision;
-	allocator.reset(cfg.page_capacity);
 	eviction_events.resize(EVICTION_EVENT_CAPACITY);
 	totals.pressure_measured = true;
 	totals.transitions_measured = true;
@@ -107,7 +110,7 @@ void NodeResidency::begin_frame(uint64_t p_frame) {
 	evictions_this_frame = 0;
 	for (uint32_t i = 0; i < retiring.size();) {
 		if (retiring[i].retire_frame <= current_frame) {
-			allocator.release_slot(retiring[i].alloc_key);
+			allocator.release(retiring[i].page_list, retiring[i].pt_base);
 			pages_retiring -= retiring[i].pages;
 			retiring[i] = retiring[retiring.size() - 1];
 			retiring.resize(retiring.size() - 1);
@@ -189,7 +192,7 @@ void NodeResidency::record_allocation_refusal(uint32_t p_pages, uint32_t p_exclu
 	if (p_pages > cfg.page_capacity) {
 		++totals.allocation_over_page_budget_total;
 	} else if (free >= p_pages) {
-		++totals.allocation_no_contiguous_run_total;
+		++totals.allocation_other_total;
 	} else if (free + pages_retiring >= p_pages) {
 		++totals.allocation_pending_retire_total;
 	} else {
@@ -229,7 +232,8 @@ bool NodeResidency::is_protected(uint32_t p_node) const {
 
 void NodeResidency::release_run_now(Node &r_node) {
 	if (r_node.alloc_key != 0) {
-		allocator.release_slot(r_node.alloc_key);
+		allocator.release(r_node.page_list, r_node.pt_base);
+		r_node.page_list.clear();
 		r_node.alloc_key = 0;
 	}
 }
@@ -252,12 +256,14 @@ void NodeResidency::retire_run(Node &r_node) {
 	}
 	Retiring r;
 	r.alloc_key = r_node.alloc_key;
-	r.first_page = r_node.first_page;
+	r.page_list = r_node.page_list;
+	r.pt_base = r_node.pt_base;
 	r.pages = r_node.pages;
 	r.retire_frame = current_frame + cfg.retire_delay_frames;
 	retiring.push_back(r);
 	pages_retiring += r.pages;
 	r_node.alloc_key = 0;
+	r_node.page_list.clear();
 }
 
 bool NodeResidency::evict(uint32_t p_node) {
@@ -282,8 +288,6 @@ bool NodeResidency::evict(uint32_t p_node) {
 uint32_t NodeResidency::evict_for(uint32_t p_pages, uint32_t p_exclude_parent) {
 	uint32_t evicted = 0;
 	if (allocator.get_free_page_count() >= p_pages) {
-		// Pages may be free but fragmented; eviction below only runs when the total is short. A fragmented
-		// pool is compaction's job (D2), not eviction's.
 		return 0;
 	}
 	candidates.clear();
@@ -320,63 +324,6 @@ uint32_t NodeResidency::evict_for(uint32_t p_pages, uint32_t p_exclude_parent) {
 	}
 	return evicted;
 }
-
-uint32_t NodeResidency::evict_window(uint32_t p_pages, uint32_t p_exclude_parent) {
-	const uint32_t capacity = cfg.page_capacity;
-	if (p_pages == 0 || p_pages > capacity || evictions_this_frame >= cfg.evictions_per_frame) {
-		return 0;
-	}
-	const uint32_t FREE_PAGE = UINT32_MAX, BLOCKED_PAGE = UINT32_MAX - 1;
-	window_owner.resize(capacity);
-	for (uint32_t i = 0; i < capacity; ++i) {
-		window_owner[i] = FREE_PAGE;
-	}
-	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
-		const Node &n = nodes[i];
-		if (n.alloc_key == 0) {
-			continue;
-		}
-		const bool evictable = n.state == RESIDENT && !is_protected(i) && i != p_exclude_parent &&
-				(p_exclude_parent == UINT32_MAX || n.parent != p_exclude_parent);
-		for (uint32_t p = n.first_page; p < n.first_page + n.pages && p < capacity; ++p) {
-			window_owner[p] = evictable ? i : BLOCKED_PAGE;
-		}
-	}
-	for (uint32_t i = 0; i < retiring.size(); ++i) {
-		for (uint32_t p = retiring[i].first_page; p < retiring[i].first_page + retiring[i].pages && p < capacity; ++p) {
-			window_owner[p] = BLOCKED_PAGE;
-		}
-	}
-	uint32_t best_start = UINT32_MAX, best_cost = UINT32_MAX;
-	for (uint32_t s = 0; s + p_pages <= capacity; ++s) {
-		uint32_t cost = 0;
-		bool ok = true;
-		uint32_t previous = FREE_PAGE;
-		for (uint32_t p = s; p < s + p_pages; ++p) {
-			const uint32_t owner = window_owner[p];
-			if (owner == BLOCKED_PAGE) { ok = false; break; }
-			if (owner != FREE_PAGE && owner != previous) { cost += nodes[owner].pages; }
-			previous = owner;
-		}
-		if (ok && cost != 0 && cost < best_cost) {
-			best_cost = cost;
-			best_start = s;
-		}
-	}
-	if (best_start == UINT32_MAX) {
-		return 0;
-	}
-	uint32_t evicted = 0, previous = FREE_PAGE;
-	for (uint32_t p = best_start; p < best_start + p_pages; ++p) {
-		const uint32_t owner = window_owner[p];
-		if (owner != FREE_PAGE && owner != previous && evict(owner)) {
-			++evicted;
-		}
-		previous = owner;
-	}
-	return evicted;
-}
-
 
 void NodeResidency::lease_group(uint32_t p_group, bool p_acquire) {
 	Group &g = groups.write[p_group];
@@ -597,12 +544,17 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		auto mix = [&](uint64_t part) { value = (value ^ part) * 1099511628211ULL; };
 		for (uint32_t i = 0; i < count; ++i) {
 			const Node &n = nodes[i];
-			mix(n.state); mix(n.alloc_key); mix(n.first_page);
-			mix(n.shadow_key); mix(n.shadow_first); mix(n.shadow_state);
+			mix(n.state); mix(n.alloc_key); mix(n.pt_base); mix(n.page_list.size());
+			for (uint32_t page : n.page_list) { mix(page); }
+			mix(n.shadow_key); mix(n.shadow_pt_base); mix(n.shadow_state); mix(n.shadow_page_list.size());
+			for (uint32_t page : n.shadow_page_list) { mix(page); }
 			mix(n.protected_frame == current_frame || n.edit_hold || (cfg.pin_root && i == 0));
 		}
 		mix(pages_retiring);
-		for (const Retiring &run : retiring) { mix(run.alloc_key); mix(run.first_page); mix(run.pages); }
+		for (const Retiring &run : retiring) {
+			mix(run.alloc_key); mix(run.pt_base); mix(run.pages);
+			for (uint32_t page : run.page_list) { mix(page); }
+		}
 		for (uint32_t key : group_order) {
 			const auto &d = groups[key].descriptor;
 			mix(key); mix(d.kind); mix(d.first_child); mix(d.visible_mask);
@@ -674,7 +626,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 				(!incremental_bootstrap && requests_this_frame + need_scratch.size() > cfg.max_requests_per_frame)) {
 			out.capped = true; break;
 		}
-		// Existing largest-run-first placement order; no comparator or allocator policy change.
+		// Preserve the existing largest-node-first admission order.
 		for (uint32_t a = 1; a < need_scratch.size(); ++a) {
 			const uint32_t node = need_scratch[a];
 			uint32_t b = a;
@@ -684,22 +636,19 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		// Bootstrap keeps are dependencies of this indivisible plan, not drawn nodes. Protect them only
 		// while attempting/reserving the plan; a failed irreducible placement releases them below.
 		if (g.descriptor.kind == TRANSITION_BOOTSTRAP && !g.active) { g.active = true; lease_group(key, true); }
-		uint32_t failed_pages = 0;
 		auto allocate_all = [&]() {
 			for (uint32_t k = 0; k < need_scratch.size(); ++k) {
 				Node &n = nodes.write[need_scratch[k]];
 				if (n.alloc_key != 0) { continue; } // Reuse the plan's unissued reservations.
 				const uint64_t alloc_key = make_alloc_key(need_scratch[k]);
-				uint32_t slot = 0;
-				if (!allocator.allocate_slot(alloc_key, n.pages, slot)) {
-					failed_pages = n.pages;
+				if (!allocator.allocate(need_scratch[k], n.pages, n.page_list, n.pt_base)) {
 					for (uint32_t r = 0; r < k; ++r) {
 						Node &allocated = nodes.write[need_scratch[r]];
 						if (allocated.request_generation == 0) { release_run_now(allocated); }
 					}
 					return false;
 				}
-				n.alloc_key = alloc_key; n.first_page = slot;
+				n.alloc_key = alloc_key;
 			}
 			return true;
 		};
@@ -707,12 +656,6 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		auto place = [&]() {
 			bool placed = allocate_all();
 			if (!placed) { out.evicted += evict_for(total_pages, parent); placed = allocate_all(); }
-			for (uint32_t round = 0; !placed && round < need_scratch.size() && pages_retiring == 0 &&
-					uint64_t(allocator.get_free_page_count()) >= total_pages; ++round) {
-				const uint32_t freed = evict_window(failed_pages, parent);
-				if (freed == 0) { break; }
-				out.evicted += freed; placed = allocate_all();
-			}
 			return placed;
 		};
 		bool placed = place();
@@ -730,7 +673,6 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		if (!placed) {
 			++out.skipped_groups; ++totals.skipped_groups_total;
 			record_allocation_refusal(total_pages, parent);
-			if (uint64_t(allocator.get_free_page_count()) >= total_pages) { ++out.fragmented_groups; }
 			// Any retirement can remove a blocking run, even if free+retiring is not yet the whole group.
 			// Eviction-limit and request-limit waits are not irreducible coarse blockage.
 			if (pages_retiring != 0 || evictions_this_frame >= cfg.evictions_per_frame) {
@@ -756,7 +698,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			}
 			n.state = LOADING;
 			Ticket ticket;
-			ticket.node = node; ticket.first_page = n.first_page; ticket.page_count = n.pages;
+			ticket.node = node; ticket.pages = n.page_list; ticket.pt_base = n.pt_base;
 			ticket.request_generation = n.request_generation; ticket.world_generation = world_gen; ticket.device_generation = device_gen;
 			r_tickets.push_back(ticket);
 			++out.requested; ++requests_this_frame; ++totals.requested_total;
@@ -858,28 +800,24 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 			out.capped = true;
 			break; // Priority order: lower-priority groups do not jump the queue.
 		}
-		// Largest runs first: they are the hardest to place, small ones fill the holes that remain.
+		// Preserve the existing largest-node-first admission order.
 		for (uint32_t a = 1; a < need_count; ++a) {
 			const uint32_t v = need[a];
 			uint32_t b = a;
 			while (b > 0 && nodes[need[b - 1]].pages < nodes[v].pages) { need[b] = need[b - 1]; --b; }
 			need[b] = v;
 		}
-		uint32_t failed_pages = 0;
 		auto allocate_all = [&]() {
 			for (uint32_t k = 0; k < need_count; ++k) {
 				Node &n = nodes.write[need[k]];
 				const uint64_t key = make_alloc_key(need[k]);
-				uint32_t slot = 0;
-				if (!allocator.allocate_slot(key, n.pages, slot)) {
-					failed_pages = n.pages;
+				if (!allocator.allocate(need[k], n.pages, n.page_list, n.pt_base)) {
 					for (uint32_t r = 0; r < k; ++r) { // Roll back: these runs were never used.
 						release_run_now(nodes.write[need[r]]);
 					}
 					return false;
 				}
 				n.alloc_key = key;
-				n.first_page = slot;
 			}
 			return true;
 		};
@@ -888,21 +826,11 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 			out.evicted += evict_for(total_pages, parent);
 			placed = allocate_all();
 		}
-		// Enough pages free in total but no contiguous run: evict the cheapest unprotected neighbours of a hole.
-		// A shortfall covered by retiring pages waits, and so does a group while a window retires.
-		for (uint32_t round = 0; !placed && round < need_count && pages_retiring == 0 && uint64_t(allocator.get_free_page_count()) >= total_pages; ++round) {
-			const uint32_t freed = evict_window(failed_pages, parent);
-			if (freed == 0) { break; }
-			out.evicted += freed;
-			placed = allocate_all();
-		}
 		if (!placed) {
 			++out.skipped_groups;
 			++totals.skipped_groups_total;
 			record_allocation_refusal(total_pages, parent);
-			if (uint64_t(allocator.get_free_page_count()) >= total_pages) {
-				++out.fragmented_groups;
-			} else if (uint64_t(allocator.get_free_page_count()) + pages_retiring >= total_pages) {
+			if (uint64_t(allocator.get_free_page_count()) + pages_retiring >= total_pages) {
 				// It will fit as soon as the retiring runs are released. Until then the group still outranks
 				// every lower-priority one: its half-finished children and the pages being freed for it stay.
 				++out.pending_retire_groups;
@@ -926,8 +854,8 @@ NodeResidency::RequestResult NodeResidency::request_legacy(const uint32_t *p_dem
 			n.request_generation = ++request_serial;
 			Ticket t;
 			t.node = need[k];
-			t.first_page = n.first_page;
-			t.page_count = n.pages;
+			t.pages = n.page_list;
+			t.pt_base = n.pt_base;
 			t.request_generation = n.request_generation;
 			t.world_generation = world_gen;
 			t.device_generation = device_gen;
@@ -1079,7 +1007,7 @@ bool NodeResidency::cancel(uint32_t p_node) {
 	return true;
 }
 
-bool NodeResidency::run(uint32_t p_node, uint32_t &r_first_page, uint32_t &r_page_count) const {
+bool NodeResidency::page_allocation(uint32_t p_node, Vector<uint32_t> &r_pages, uint32_t &r_pt_base) const {
 	if (p_node >= uint32_t(nodes.size())) {
 		return false;
 	}
@@ -1087,9 +1015,19 @@ bool NodeResidency::run(uint32_t p_node, uint32_t &r_first_page, uint32_t &r_pag
 	if (n.alloc_key == 0) {
 		return false;
 	}
-	r_first_page = n.first_page;
-	r_page_count = n.pages;
+	r_pages = n.page_list;
+	r_pt_base = n.pt_base;
 	return true;
+}
+
+bool NodeResidency::allocation_matches(const Ticket &p_ticket) const {
+	if (!p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen ||
+			p_ticket.node >= uint32_t(nodes.size())) { return false; }
+	const Node &n = nodes[p_ticket.node];
+	const bool current = p_ticket.shadow ? n.shadow_key != 0 && n.shadow_generation == p_ticket.request_generation &&
+			n.shadow_page_list == p_ticket.pages && n.shadow_pt_base == p_ticket.pt_base :
+			n.alloc_key != 0 && n.request_generation == p_ticket.request_generation && n.page_list == p_ticket.pages && n.pt_base == p_ticket.pt_base;
+	return current && allocator.matches(p_ticket.node, p_ticket.pages, p_ticket.pt_base);
 }
 
 bool NodeResidency::root_permanently_failed() const {
@@ -1132,7 +1070,7 @@ NodeResidency::Stats NodeResidency::stats() const {
 	s.committed_edit_revision = committed_revision;
 	s.pages_retiring = pages_retiring;
 	s.pages_free = allocator.get_free_page_count();
-	s.largest_free_run = allocator.get_largest_free_run();
+	s.largest_free_run = s.pages_free;
 	return s;
 }
 
@@ -1147,13 +1085,14 @@ void NodeResidency::release_edit_state() {
 		if (n.shadow_key != 0) {
 			// Transferred atlas bytes remain invisible until metadata publication. No submitted draw names this
 			// run, so cancellation can return it immediately, including a partly transferred run.
-			allocator.release_slot(n.shadow_key);
+			allocator.release(n.shadow_page_list, n.shadow_pt_base);
 		}
 		if (n.shadow_state == Node::SHADOW_LOADING || n.shadow_state == Node::SHADOW_PACKED) {
 			note_cancelled_generation(n.shadow_generation); // A late pack or transfer completion is harmless.
 		}
 		n.shadow_key = 0;
-		n.shadow_first = n.shadow_pages = 0;
+		n.shadow_page_list.clear();
+		n.shadow_pt_base = n.shadow_pages = 0;
 		n.shadow_generation = 0;
 		n.shadow_state = Node::SHADOW_NONE;
 	}
@@ -1200,7 +1139,7 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 	}
 	for (uint32_t i = 0; i < p_count; ++i) {
 		const uint32_t node = p_leaves[i].node;
-		if (node >= node_total || p_leaves[i].splat_count == 0 || has_child[node] || edited_flag[node] || nodes[node].stale) {
+		if (node >= node_total || p_leaves[i].splat_count == 0 || uint64_t(p_leaves[i].splat_count) > uint64_t(allocator.max_pages_per_node()) * cfg.page_splats || has_child[node] || edited_flag[node] || nodes[node].stale) {
 			return reject(EDIT_INVALID);
 		}
 		edited_flag[node] = 1;
@@ -1270,35 +1209,26 @@ bool NodeResidency::try_allocate_shadows(LocalVector<Ticket> &r_tickets) {
 		return false;
 	}
 	const uint32_t count = staged_leaves.size();
-	LocalVector<uint64_t> keys;
-	LocalVector<uint32_t> firsts, pages;
-	keys.resize(count);
-	firsts.resize(count);
-	pages.resize(count);
+	LocalVector<Ticket> reserved;
 	for (uint32_t i = 0; i < count; ++i) {
-		pages[i] = (staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats;
-		const uint64_t key = make_alloc_key(staged_leaves[i]);
-		uint32_t slot = 0;
-		if (!allocator.allocate_slot(key, pages[i], slot)) {
-			for (uint32_t r = 0; r < i; ++r) {
-				allocator.release_slot(keys[r]);
-			}
+		Ticket t;
+		t.node = staged_leaves[i];
+		const uint32_t pages = (staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats;
+		if (!allocator.allocate(t.node, pages, t.pages, t.pt_base)) {
+			for (const Ticket &allocated : reserved) { allocator.release(allocated.pages, allocated.pt_base); }
 			return false;
 		}
-		keys[i] = key;
-		firsts[i] = slot;
+		reserved.push_back(t);
 	}
 	for (uint32_t i = 0; i < count; ++i) {
 		Node &n = nodes.write[staged_leaves[i]];
-		n.shadow_key = keys[i];
-		n.shadow_first = firsts[i];
-		n.shadow_pages = pages[i];
+		Ticket t = reserved[i];
+		n.shadow_key = make_alloc_key(t.node);
+		n.shadow_page_list = t.pages;
+		n.shadow_pt_base = t.pt_base;
+		n.shadow_pages = t.pages.size();
 		n.shadow_generation = ++request_serial;
 		n.shadow_state = Node::SHADOW_LOADING;
-		Ticket t;
-		t.node = staged_leaves[i];
-		t.first_page = firsts[i];
-		t.page_count = pages[i];
 		t.request_generation = n.shadow_generation;
 		t.world_generation = world_gen;
 		t.device_generation = device_gen;
@@ -1316,24 +1246,15 @@ void NodeResidency::advance_edit(LocalVector<Ticket> &r_tickets) {
 	if (try_allocate_shadows(r_tickets)) {
 		return;
 	}
-	// Not enough contiguous free pages: free unprotected nodes (the drawn set and its ancestors are protected once the
+	// Not enough free pages: free unprotected nodes (the drawn set and its ancestors are protected once the
 	// caller ran protect_drawn for this frame; the replacement children are held). A freed run retires after the delay,
 	// so the allocation is retried on a later frame.
 	uint32_t total_pages = 0;
 	for (uint32_t i = 0; i < staged_splats.size(); ++i) {
 		total_pages += (staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats;
 	}
-	const uint32_t evicted = evict_for(total_pages, UINT32_MAX);
-	if (try_allocate_shadows(r_tickets)) {
-		return;
-	}
-	// Enough pages in total but no contiguous run (the retired runs are not adjacent): free the cheapest unprotected
-	// neighbours of a hole, the same bounded answer request() gives to fragmentation (compaction itself is D2).
-	if (evicted == 0 && pages_retiring == 0 && uint64_t(allocator.get_free_page_count()) >= total_pages) {
-		for (uint32_t i = 0; i < staged_splats.size(); ++i) {
-			evict_window((staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats, UINT32_MAX);
-		}
-	}
+	evict_for(total_pages, UINT32_MAX);
+	try_allocate_shadows(r_tickets);
 }
 
 void NodeResidency::edit_prefetch(LocalVector<uint32_t> &r_demand) const {
@@ -1355,7 +1276,7 @@ bool NodeResidency::shadow_ticket_current(const Ticket &p_ticket, Node::ShadowSt
 	}
 	const Node &n = nodes[p_ticket.node];
 	return n.shadow_state == p_expected && n.shadow_key != 0 && n.shadow_pages != 0 && n.shadow_generation == p_ticket.request_generation &&
-			n.shadow_first == p_ticket.first_page && n.shadow_pages == p_ticket.page_count;
+			n.shadow_page_list == p_ticket.pages && n.shadow_pt_base == p_ticket.pt_base;
 }
 
 bool NodeResidency::is_shadow_pending(const Ticket &p_ticket) const {
@@ -1394,8 +1315,8 @@ bool NodeResidency::shadow_ticket(uint32_t p_node, Ticket &r_ticket) const {
 		return false;
 	}
 	r_ticket.node = p_node;
-	r_ticket.first_page = n.shadow_first;
-	r_ticket.page_count = n.shadow_pages;
+	r_ticket.pages = n.shadow_page_list;
+	r_ticket.pt_base = n.shadow_pt_base;
 	r_ticket.request_generation = n.shadow_generation;
 	r_ticket.world_generation = world_gen;
 	r_ticket.device_generation = device_gen;
@@ -1452,7 +1373,8 @@ bool NodeResidency::commit_edit() {
 		release_unrequested_run(n);
 		retire_run(n); // Uses the old page count; the old run serves already submitted frames until it retires.
 		n.alloc_key = n.shadow_key;
-		n.first_page = n.shadow_first;
+		n.page_list = n.shadow_page_list;
+		n.pt_base = n.shadow_pt_base;
 		n.pages = n.shadow_pages;
 		n.request_generation = ++request_serial; // Any ticket made for the old content is dead.
 		n.state = RESIDENT;
@@ -1462,7 +1384,8 @@ bool NodeResidency::commit_edit() {
 		n.last_drawn_frame = current_frame;
 		mask.write[index] = 1;
 		n.shadow_key = 0;
-		n.shadow_first = n.shadow_pages = 0;
+		n.shadow_page_list.clear();
+		n.shadow_pt_base = n.shadow_pages = 0;
 		n.shadow_generation = 0;
 		n.shadow_state = Node::SHADOW_NONE;
 		for (uint32_t e = 0; e < evicted_log.size(); ++e) { // A pending clear must not zero the new metadata.

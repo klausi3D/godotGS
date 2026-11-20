@@ -36,10 +36,6 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 	meta.flags = gs_pack_asset_gpu_flags(p_data.mode_2d, GaussianDCEncoding(node.dc_encoding));
 	for (int a = 0; a < 3; ++a) { meta.bounds_center_local[a] = node.bounds_center[a]; }
 	meta.bounds_radius_local = node.topology.radius;
-	// Unread by the shaders since C2 (the per-draw camera offset places the node); kept for the layout.
-	meta.node_center_x = p_params.relative ? node.payload_center.x : 0.0f;
-	meta.node_center_y = p_params.relative ? node.payload_center.y : 0.0f;
-	meta.node_center_z = p_params.relative ? node.payload_center.z : 0.0f;
 	// i is the index inside the node; the snapshot index (leaf then interior order) is first + i.
 	auto source_gaussian = [&](uint32_t i) -> const Gaussian & {
 		return p_view ? p_view->gaussians[i] : p_data.gaussian(first + i);

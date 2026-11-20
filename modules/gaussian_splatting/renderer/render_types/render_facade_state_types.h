@@ -57,7 +57,7 @@ struct DeviceState {
 // borrowed from its existing sorting subsystem and never appear in owned[].
 struct HlodBundle {
     GaussianRenderPipeline::InstancePipelineBuffers buffers;
-    RID owned[14];
+    RID owned[16];
     uint32_t owned_count = 0;
     uint64_t device_id = 0;
     uint64_t bytes = 0;
@@ -131,6 +131,10 @@ struct ResourceState {
     uint64_t hlod_view_epoch = 0;
     uint32_t hlod_visited_nodes = 0;
     uint32_t hlod_selected_nodes = 0;
+    uint32_t hlod_drawn_nodes_paged = 0;
+    uint32_t hlod_drawn_nodes_contiguous = 0;
+    uint64_t hlod_drawn_nodes_paged_total = 0;
+    uint64_t hlod_drawn_nodes_contiguous_total = 0;
     HlodCutTelemetry hlod_cut_telemetry; // Last main cut, render-thread-owned, no selection input.
     uint32_t hlod_selected_parents = 0;
     uint64_t hlod_selected_splats = 0;

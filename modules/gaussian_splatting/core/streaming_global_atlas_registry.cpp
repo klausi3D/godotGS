@@ -507,7 +507,7 @@ bool StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 
 	// Exclude only trailing alignment padding; compare every serialized field.
 	const bool changed = std::memcmp(&chunk_meta_cpu[global_idx], &meta,
-			offsetof(ChunkMetaGPU, node_center_z) + sizeof(meta.node_center_z)) != 0;
+			offsetof(ChunkMetaGPU, reserved_node_z) + sizeof(meta.reserved_node_z)) != 0;
 	chunk_meta_cpu[global_idx] = meta;
 	return changed;
 }

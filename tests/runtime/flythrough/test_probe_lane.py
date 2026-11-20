@@ -2661,10 +2661,32 @@ class HlodProbe(unittest.TestCase):
         self.assertIn('>= 0', block)
         self.assertTrue(text[:start].rfind('if bool(_plan.get("shared_layers_t0", false)):') > text[:start].rfind('func '))
         baseline = subprocess.check_output(["git", "show", "9faecfb155a:tests/runtime/flythrough/probe_world.gd"], cwd=ROOT, text=True)
+        # #1514 adds telemetry fields; every other byte outside the opt-in collector remains pinned.
+        additions = (
+            ('\t["hlod_stream_allocation_refused_total", "q"], ["hlod_stream_allocation_no_contiguous_run_total", "q"],\n',
+             '\t["hlod_stream_allocation_refused_total", "q"], ["hlod_stream_allocation_no_contiguous_run_total", "q"],\n'
+             '\t["hlod_drawn_nodes_paged", "q"], ["hlod_drawn_nodes_contiguous", "q"],\n'
+             '\t["hlod_drawn_nodes_paged_total", "q"], ["hlod_drawn_nodes_contiguous_total", "q"],\n'
+             '\t["hlod_stream_page_table_publish_refusals_total", "q"], ["hlod_stream_page_table_publish_refusals_this_frame", "q"],\n'),
+            ('\t\t"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),\n',
+             '\t\t"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),\n'
+             '\t\t"hlod_drawn_nodes_paged": _last_stats.get("hlod_drawn_nodes_paged"),\n'
+             '\t\t"hlod_drawn_nodes_contiguous": _last_stats.get("hlod_drawn_nodes_contiguous"),\n'
+             '\t\t"hlod_drawn_nodes_paged_total": _last_stats.get("hlod_drawn_nodes_paged_total"),\n'
+             '\t\t"hlod_drawn_nodes_contiguous_total": _last_stats.get("hlod_drawn_nodes_contiguous_total"),\n'
+             '\t\t"page_table_publish_refusals_total": _last_stats.get("hlod_stream_page_table_publish_refusals_total"),\n'),
+            ('\t\t\t"hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total"]:\n',
+             '\t\t\t"hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total",\n'
+             '\t\t\t"hlod_drawn_nodes_paged", "hlod_drawn_nodes_contiguous", "hlod_drawn_nodes_paged_total", "hlod_drawn_nodes_contiguous_total",\n'
+             '\t\t\t"hlod_stream_page_table_publish_refusals_total", "hlod_stream_page_table_publish_refusals_this_frame"]:\n'),
+        )
+        for before, after in additions:
+            self.assertEqual(baseline.count(before), 1, "telemetry pin must match exactly one immutable anchor")
+            baseline = baseline.replace(before, after)
         begin = text.index('\t\t# HLOD collection only.')
         end = text.index('\t\tvar payload = ', begin)
         self.assertEqual(text[:begin] + text[end:], baseline,
-                         "only the opt-in collector may change; trace keys, frame loop, timing and passes are pinned")
+                         "only the opt-in collector and exact #1514 fields may change; frame loop, timing and passes are pinned")
 
     def test_separate_manifest_cli_uses_source_for_path_and_tree_for_render(self):
         with tempfile.TemporaryDirectory() as tmp:

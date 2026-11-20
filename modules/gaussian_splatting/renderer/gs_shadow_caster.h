@@ -30,6 +30,7 @@ public:
 		RID atlas_gaussian_buffer;
 		RID instance_buffer;
 		RID chunk_meta_buffer;
+		RID page_table_buffer;
 		RID draw_list_buffer; // DrawnNodeGPU[] of the relative bundle (visible_chunk_buffer).
 		uint32_t draw_count = 0;
 		uint32_t slot_stride = 0; // max_chunk_splats

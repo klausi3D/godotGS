@@ -63,6 +63,8 @@ struct Runtime {
 		streamer.shutdown();
 		store.shutdown();
 		if (rd) {
+			if (buffers.page_owner.is_valid()) { rd->free(buffers.page_owner); }
+			if (buffers.page_table.is_valid()) { rd->free(buffers.page_table); }
 			if (buffers.quantization.is_valid()) { rd->free(buffers.quantization); }
 			if (buffers.chunk_meta.is_valid()) { rd->free(buffers.chunk_meta); }
 			if (buffers.atlas.is_valid()) { rd->free(buffers.atlas); }
@@ -168,10 +170,18 @@ static bool check_atlas(const Snapshot &p_observed, const Snapshot &p_old,
 	r_complete = 0;
 	r_changed = 0;
 	for (const ShadowGolden &golden : p_goldens) {
-		if (golden.packed.is_empty() || golden.offset > uint64_t(p_observed.atlas.size()) ||
-				uint64_t(golden.packed.size()) > uint64_t(p_observed.atlas.size()) - golden.offset) { return false; }
-		const bool complete = memcmp(p_observed.atlas.ptr() + golden.offset,
-				golden.packed.ptr(), size_t(golden.packed.size())) == 0;
+		if (golden.packed.is_empty() || golden.ticket.pages.is_empty()) { return false; }
+		bool complete = true;
+		uint64_t logical = 0;
+		const uint64_t page_bytes = uint64_t(Streamer::Config::DEFAULT_PAGE_SPLATS) * sizeof(PackedGaussianQuantized);
+		for (uint32_t page : golden.ticket.pages) {
+			const uint64_t first = uint64_t(page) * page_bytes;
+			const uint64_t bytes = MIN(page_bytes, uint64_t(golden.packed.size()) - logical);
+			if (first > uint64_t(p_observed.atlas.size()) || bytes > uint64_t(p_observed.atlas.size()) - first) { return false; }
+			complete = complete && memcmp(p_observed.atlas.ptr() + first, golden.packed.ptr() + logical, size_t(bytes)) == 0;
+			logical += bytes;
+		}
+		if (logical != uint64_t(golden.packed.size())) { return false; }
 		if (p_require_complete && !complete) { return false; }
 		r_complete += complete ? 1u : 0u;
 	}
@@ -181,11 +191,16 @@ static bool check_atlas(const Snapshot &p_observed, const Snapshot &p_old,
 		if (observed == before) { continue; }
 		bool in_payload = false;
 		for (const ShadowGolden &golden : p_goldens) {
-			if (offset >= golden.offset && offset - golden.offset < uint64_t(golden.packed.size())) {
-				if (observed != golden.packed[int64_t(offset - golden.offset)]) { return false; }
+			const uint64_t page_bytes = uint64_t(Streamer::Config::DEFAULT_PAGE_SPLATS) * sizeof(PackedGaussianQuantized);
+			for (uint32_t i = 0; i < uint32_t(golden.ticket.pages.size()); ++i) {
+				const uint64_t first = uint64_t(golden.ticket.pages[i]) * page_bytes;
+				if (offset < first || offset - first >= page_bytes) { continue; }
+				const uint64_t logical = uint64_t(i) * page_bytes + offset - first;
+				if (logical >= uint64_t(golden.packed.size()) || observed != golden.packed[int64_t(logical)]) { return false; }
 				in_payload = true;
 				break;
 			}
+			if (in_payload) { break; }
 		}
 		if (!in_payload) { return false; }
 		++r_changed;
@@ -238,7 +253,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow][World][SceneTree][RequiresG
 	runtime.buffers.atlas = runtime.zeroed_buffer(uint32_t(runtime.streamer.atlas_bytes_capacity()));
 	runtime.buffers.chunk_meta = runtime.zeroed_buffer(nodes * sizeof(ChunkMetaGPU));
 	runtime.buffers.quantization = runtime.zeroed_buffer(nodes * sizeof(ChunkQuantizationGPU));
-	if (!runtime.buffers.atlas.is_valid() || !runtime.buffers.chunk_meta.is_valid() || !runtime.buffers.quantization.is_valid()) {
+	runtime.buffers.page_table = runtime.zeroed_buffer(config.atlas_pages * runtime.streamer.get_residency().max_pages_per_node() * sizeof(uint32_t));
+	runtime.buffers.page_owner = runtime.zeroed_buffer(config.atlas_pages * sizeof(uint32_t));
+	if (!runtime.buffers.atlas.is_valid() || !runtime.buffers.chunk_meta.is_valid() || !runtime.buffers.quantization.is_valid() ||
+			!runtime.buffers.page_table.is_valid() || !runtime.buffers.page_owner.is_valid()) {
 		FAIL("D3-3 GPU shadow transfer requires real zeroed atlas, metadata and quantization buffers"); return;
 	}
 	gs_hlod_runtime::CutRequest view;
@@ -300,26 +318,28 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow][World][SceneTree][RequiresG
 		if (!ticket || !ticket->valid() || !ticket->shadow) { FAIL("D3-3 GPU edited leaf has no valid reserved shadow ticket"); return; }
 		ShadowGolden golden;
 		golden.ticket = *ticket;
-		golden.offset = uint64_t(ticket->first_page) * config.page_splats * sizeof(PackedGaussianQuantized);
+		if (ticket->pages.is_empty()) { FAIL("D3-3 GPU shadow ticket needs physical pages"); return; }
+		golden.offset = uint64_t(ticket->pages[0]) * config.page_splats * sizeof(PackedGaussianQuantized);
 		ChunkMetaGPU meta = {};
 		ChunkQuantizationGPU quant = {};
-		if (!fixture.pack(leaf, true, config, ticket->first_page * config.page_splats, golden.packed, meta, quant)) { return; }
-		if (uint64_t(golden.packed.size()) > uint64_t(ticket->page_count) * config.page_splats * sizeof(PackedGaussianQuantized)) {
+		if (!fixture.pack(leaf, true, config, ticket->pages[0] * config.page_splats, golden.packed, meta, quant)) { return; }
+		if (uint64_t(golden.packed.size()) > uint64_t(ticket->pages.size()) * config.page_splats * sizeof(PackedGaussianQuantized)) {
 			FAIL("D3-3 GPU packed oracle exceeds the leaf's reserved shadow run"); return;
 		}
-		const uint64_t shadow_end = golden.offset + uint64_t(ticket->page_count) * config.page_splats * sizeof(PackedGaussianQuantized);
-		if (shadow_end > uint64_t(old_snapshot.atlas.size())) {
-			FAIL("D3-3 GPU shadow reservation must fit the actual atlas buffer"); return;
-		}
-		for (uint32_t node = 0; node < nodes; ++node) {
-			ChunkMetaGPU old_meta = {};
-			memcpy(&old_meta, old_snapshot.metadata.ptr() + uint64_t(node) * sizeof(ChunkMetaGPU), sizeof(old_meta));
-			const uint64_t old_begin = uint64_t(old_meta.atlas_base) * sizeof(PackedGaussianQuantized);
-			const uint64_t old_end = old_begin + uint64_t(old_meta.splat_count) * sizeof(PackedGaussianQuantized);
-			if (old_meta.splat_count != 0 && golden.offset < old_end && old_begin < shadow_end) {
-				FAIL("D3-3 GPU invisible shadow reservation overlaps a visible old-revision atlas payload"); return;
+		for (uint32_t page : ticket->pages) {
+			const uint64_t end = uint64_t(page + 1) * config.page_splats * sizeof(PackedGaussianQuantized);
+			if (end > uint64_t(old_snapshot.atlas.size())) { FAIL("D3-3 GPU shadow page escaped the atlas"); return; }
+			for (uint32_t node = 0; node < nodes; ++node) {
+				Vector<uint32_t> old_pages;
+				uint32_t old_pt_base = 0;
+				if (!runtime.streamer.get_residency().page_allocation(node, old_pages, old_pt_base)) { continue; }
+				for (uint32_t old_page : old_pages) {
+					if (page == old_page) { FAIL("D3-3 GPU shadow page overlaps the visible old revision"); return; }
+				}
 			}
 		}
+		meta.page_table_ref = ticket->pt_base + 1;
+		CHECK(meta.page_table_ref != 0);
 		memcpy(new_snapshot.metadata.ptrw() + uint64_t(leaf) * sizeof(ChunkMetaGPU), &meta, sizeof(meta));
 		memcpy(new_snapshot.quantization.ptrw() + uint64_t(leaf) * sizeof(ChunkQuantizationGPU), &quant, sizeof(quant));
 		goldens.push_back(std::move(golden));
@@ -340,6 +360,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow][World][SceneTree][RequiresG
 	uint64_t precommit_changed_bytes = 0, partial_frames = 0, observed_frames = 0;
 	uint64_t write_frame = 0, frame_written_bytes = 0, precommit_atlas_writes = 0, commit_metadata_writes = 0;
 	uint32_t complete_before_boundary = 0;
+	Vector<uint64_t> uploaded;
+	if (uploaded.resize(nodes) != OK) { FAIL("D3-3 GPU logical transfer ledger allocation failed"); return; }
+	uploaded.fill(0);
 	auto verify_writes = [&]() {
 		Vector<Streamer::TestWrite> writes;
 		if (runtime.streamer._test_shadow_writes(writes) != OK) {
@@ -372,12 +395,15 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow][World][SceneTree][RequiresG
 				if (!golden) {
 					FAIL("D3-3 GPU payload write names no edited leaf with a reserved shadow run"); failed = true; return false;
 				}
-				if (write.offset < golden->offset || write.offset - golden->offset > uint64_t(golden->packed.size()) ||
-						write.bytes > uint64_t(golden->packed.size()) - (write.offset - golden->offset)) {
-					FAIL("D3-3 GPU payload write escaped the atlas payload span of its reserved shadow run"); failed = true; return false;
+				if (!TestHlodEditShadowTransfer::page_slice(golden->ticket.pages, uploaded[write.node], write.offset, write.bytes,
+						config.page_splats, sizeof(PackedGaussianQuantized)) ||
+						uploaded[write.node] > uint64_t(golden->packed.size()) ||
+						write.bytes > uint64_t(golden->packed.size()) - uploaded[write.node]) {
+					FAIL("D3-3 GPU payload write escaped its assigned shadow page"); failed = true; return false;
 				}
+				uploaded.write[write.node] += write.bytes;
 				++precommit_atlas_writes;
-			} else {
+			} else if (write.kind == Streamer::TestWrite::METADATA || write.kind == Streamer::TestWrite::QUANTIZATION) {
 				if (!write.during_commit || !committed) {
 					FAIL("D3-3 GPU edit metadata and quantization may be written only at the commit boundary"); failed = true; return false;
 				}

@@ -2376,7 +2376,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         return false;
     }
 
-    if (inputs.hlod_relative && (!inputs.hlod_draw_entry_buffer.is_valid() ||
+    if (inputs.hlod_relative && (!inputs.hlod_draw_entry_buffer.is_valid() || !inputs.hlod_page_table_buffer.is_valid() ||
             inputs.hlod_source_generation == 0 || inputs.hlod_content_generation == 0)) {
         last_compute_error = "HLOD depth contract is incomplete";
         return false;
@@ -2705,6 +2705,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     append_binding(depth_bindings, RD::UNIFORM_TYPE_UNIFORM_BUFFER, 9, instance_param_buffer, "instance_param_buffer");
     if (inputs.hlod_relative) {
         append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 10, inputs.hlod_draw_entry_buffer, "hlod_draw_entry_buffer");
+        append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 11, inputs.hlod_page_table_buffer, "hlod_page_table_buffer");
     }
 
     GaussianSplatting::ComputeInfrastructure::StageValidationHarness stage_validation_harness;

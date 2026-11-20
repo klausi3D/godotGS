@@ -1753,14 +1753,16 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] object add add remove rem
 	if (resident_mask.size() != owner->fixture.node_count) {
 		FAIL("#1473 resident mask must cover the complete fixture topology"); return;
 	}
-	LocalVector<uint32_t> first_pages, page_counts;
+	Vector<Vector<uint32_t>> page_lists;
+	LocalVector<uint32_t> pt_bases;
 	for (uint32_t node = 0; node < owner->fixture.node_count; ++node) {
-		uint32_t first = 0, count = 0;
-		if (resident_mask[node] && !owner->streamer.get_residency().run(node, first, count)) {
+		Vector<uint32_t> pages;
+		uint32_t pt_base = 0;
+		if (resident_mask[node] && !owner->streamer.get_residency().page_allocation(node, pages, pt_base)) {
 			FAIL("#1473 resident world node must have a page run"); return;
 		}
-		first_pages.push_back(first);
-		page_counts.push_back(count);
+		page_lists.push_back(pages);
+		pt_bases.push_back(pt_base);
 	}
 	slow.entered.store(false);
 	slow.deadline_usec.store(0);
@@ -1813,10 +1815,11 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] object add add remove rem
 		for (uint32_t node = 0; node < owner->fixture.node_count; ++node) {
 			CHECK(bool(owner->streamer.get_residency().state(node) == Residency::RESIDENT) == bool(resident_mask[node]));
 			if (!resident_mask[node]) { continue; }
-			uint32_t first = 0, count = 0;
-			CHECK(owner->streamer.get_residency().run(node, first, count));
-			CHECK(first == first_pages[node]);
-			CHECK(count == page_counts[node]);
+			Vector<uint32_t> pages;
+			uint32_t pt_base = 0;
+			CHECK(owner->streamer.get_residency().page_allocation(node, pages, pt_base));
+			CHECK(pages == page_lists[node]);
+			CHECK(pt_base == pt_bases[node]);
 		}
 		CHECK_FALSE(slow.saw_cancel.load());
 		CHECK(owner->store.stats().reads.submitted == store_before.reads.submitted);

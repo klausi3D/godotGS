@@ -80,24 +80,31 @@ inline bool hlod_should_stream(uint64_t whole_atlas_bytes, uint64_t atlas_limit_
     return whole_atlas_bytes > atlas_limit_bytes || !whole_candidate_fits;
 }
 
-// Pages a streamed HLOD atlas may hold. `fixed_bundle_bytes` is the relative bundle without its atlas records.
+// Pages a streamed HLOD atlas may hold. `fixed_bundle_bytes` excludes atlas records and per-page bookkeeping.
 // The result is clamped by the atlas cap, the tree itself, the HLOD-owned cap and the device ledger headroom
 // (the same limits hlod_candidate_fits applies); 0 means not even one page is admissible.
 // The ledger headroom must also hold the frame scratch the route allocates before its first frame
 // (TileRenderer::prepare_hlod_scratch): `scratch_fixed_bytes` plus `scratch_bytes_per_record` per atlas record. A page
 // budget that left less than that would be refused by the scratch admission on every frame and draw nothing for good.
 // The scratch is device memory, not HLOD-owned bundle bytes and not atlas bytes, so only the ledger term reserves it.
+// Per-page bookkeeping belongs to the bundle and ledger; the atlas cap still measures payload alone.
 inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t record_stride, uint32_t page_splats,
         uint64_t total_node_pages, uint64_t fixed_bundle_bytes, uint64_t hlod_owned_cap_bytes,
-        uint64_t ledger_limit_bytes, uint64_t device_bytes, uint64_t scratch_fixed_bytes, uint64_t scratch_bytes_per_record) {
-    if (record_stride == 0 || page_splats == 0) { return 0; }
+        uint64_t ledger_limit_bytes, uint64_t device_bytes, uint64_t scratch_fixed_bytes, uint64_t scratch_bytes_per_record,
+        uint64_t page_bookkeeping_bytes = 0) {
+    if (record_stride == 0 || page_splats == 0 || record_stride > UINT64_MAX / page_splats ||
+            scratch_bytes_per_record > UINT64_MAX / page_splats) { return 0; }
     const uint64_t page_bytes = record_stride * page_splats;
-    const uint64_t page_ledger_bytes = page_bytes + scratch_bytes_per_record * page_splats;
+    if (page_bookkeeping_bytes > UINT64_MAX - page_bytes) { return 0; }
+    const uint64_t page_owned_bytes = page_bytes + page_bookkeeping_bytes;
+    const uint64_t page_scratch_bytes = scratch_bytes_per_record * page_splats;
+    if (page_scratch_bytes > UINT64_MAX - page_owned_bytes) { return 0; }
+    const uint64_t page_ledger_bytes = page_owned_bytes + page_scratch_bytes;
     if (fixed_bundle_bytes >= hlod_owned_cap_bytes || device_bytes > ledger_limit_bytes ||
             ledger_limit_bytes - device_bytes <= fixed_bundle_bytes ||
             ledger_limit_bytes - device_bytes - fixed_bundle_bytes <= scratch_fixed_bytes) { return 0; }
     uint64_t pages = MIN(atlas_limit_bytes / page_bytes, total_node_pages);
-    pages = MIN(pages, (hlod_owned_cap_bytes - fixed_bundle_bytes) / page_bytes);
+    pages = MIN(pages, (hlod_owned_cap_bytes - fixed_bundle_bytes) / page_owned_bytes);
     pages = MIN(pages, (ledger_limit_bytes - device_bytes - fixed_bundle_bytes - scratch_fixed_bytes) / page_ledger_bytes);
     return pages;
 }
@@ -109,7 +116,8 @@ inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t rec
 // that reserved per-record scratch for the world's pages only would leave every frame refused once the region is large.
 inline uint64_t hlod_stream_page_budget_with_instances(uint64_t atlas_limit_bytes, uint64_t instance_records, uint64_t record_stride,
         uint32_t page_splats, uint64_t total_node_pages, uint64_t fixed_bundle_bytes, uint64_t hlod_owned_cap_bytes,
-        uint64_t ledger_limit_bytes, uint64_t device_bytes, uint64_t scratch_fixed_bytes, uint64_t scratch_bytes_per_record) {
+        uint64_t ledger_limit_bytes, uint64_t device_bytes, uint64_t scratch_fixed_bytes, uint64_t scratch_bytes_per_record,
+        uint64_t page_bookkeeping_bytes = 0) {
     if (record_stride != 0 && instance_records > UINT64_MAX / record_stride) { return 0; }
     if (scratch_bytes_per_record != 0 && instance_records > UINT64_MAX / scratch_bytes_per_record) { return 0; }
     const uint64_t instance_atlas_bytes = instance_records * record_stride;
@@ -117,7 +125,7 @@ inline uint64_t hlod_stream_page_budget_with_instances(uint64_t atlas_limit_byte
     if (instance_scratch_bytes > UINT64_MAX - scratch_fixed_bytes) { return 0; }
     return hlod_stream_page_budget(atlas_limit_bytes > instance_atlas_bytes ? atlas_limit_bytes - instance_atlas_bytes : 0u, record_stride,
             page_splats, total_node_pages, fixed_bundle_bytes, hlod_owned_cap_bytes, ledger_limit_bytes, device_bytes,
-            scratch_fixed_bytes + instance_scratch_bytes, scratch_bytes_per_record);
+            scratch_fixed_bytes + instance_scratch_bytes, scratch_bytes_per_record, page_bookkeeping_bytes);
 }
 
 // Records the relative HLOD atlas holds. The tile frame indexes its per-splat scratch (subpixel history, SH colour

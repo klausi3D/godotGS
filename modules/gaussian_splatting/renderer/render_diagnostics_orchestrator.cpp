@@ -1583,6 +1583,10 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_route_owned_bytes"] = int64_t(ledger_snapshot.admitted_device_bytes); // ledger + device buffers, as last admitted
     // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
     stats["hlod_streaming"] = resource_state.hlod_streaming;
+    stats["hlod_drawn_nodes_paged"] = resource_state.hlod_drawn_nodes_paged;
+    stats["hlod_drawn_nodes_contiguous"] = resource_state.hlod_drawn_nodes_contiguous;
+    stats["hlod_drawn_nodes_paged_total"] = int64_t(resource_state.hlod_drawn_nodes_paged_total);
+    stats["hlod_drawn_nodes_contiguous_total"] = int64_t(resource_state.hlod_drawn_nodes_contiguous_total);
     // #1466: the published bundles' device bytes, and the host bytes their creation staged (payload vectors that
     // RenderingDevice copies through a transfer staging buffer). A buffer cleared on the device stages nothing.
     stats["hlod_bundle_device_bytes"] = int64_t(resource_state.hlod_canonical.bytes + resource_state.hlod_relative.bytes);
@@ -1612,6 +1616,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_uploaded_this_frame"] = t.uploaded_this_frame;
         stats["hlod_stream_uploaded_bytes_this_frame"] = int64_t(t.uploaded_bytes_this_frame);
         stats["hlod_stream_uploaded_bytes_total"] = int64_t(t.uploaded_bytes_total);
+        stats["hlod_stream_page_table_publish_refusals_total"] = int64_t(t.page_table_publish_refusals_total);
+        stats["hlod_stream_page_table_publish_refusals_this_frame"] = t.page_table_publish_refusals_this_frame;
         stats["hlod_stream_pages_capacity"] = t.pages_capacity;
         stats["hlod_stream_pages_resident"] = t.pages_resident;
         stats["hlod_stream_pages_in_flight"] = t.pages_in_flight;

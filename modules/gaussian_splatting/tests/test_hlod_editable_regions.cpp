@@ -276,24 +276,26 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a staged edit changes noth
 	GS_NEED(sim.init(40));
 	const Residency::Stats before = sim.res.stats();
 	GS_NEED(before.resident == 15 && before.pages_resident == 23);
-	uint32_t old_first = 0, old_pages = 0;
-	GS_NEED(sim.res.run(9, old_first, old_pages));
-	GS_NEED(old_pages == 2);
+	Vector<uint32_t> old_pages;
+	uint32_t old_pt_base = 0;
+	GS_NEED(sim.res.page_allocation(9, old_pages, old_pt_base));
+	GS_NEED(old_pages.size() == 2);
 
 	LocalVector<Residency::Ticket> tickets;
 	const Residency::EditedLeaf leaf = { 9, 3000 }; // Three pages: the replacement is bigger than the old leaf.
 	GS_NEED(sim.res.stage_edit(1, &leaf, 1, tickets) == Residency::EDIT_OK);
 	GS_NEED(tickets.size() == 1);
 	CHECK(tickets[0].shadow);
-	CHECK(tickets[0].page_count == 3);
+	CHECK(tickets[0].pages.size() == 3);
 	CHECK(sim.res.is_edit_staged());
 	// Staged only: the old cut is intact (mask, states, run), the shadow pages are reserved and counted.
 	CHECK(sim.res.resident_mask()[0] == 1);
 	CHECK(sim.res.resident_mask()[9] == 1);
 	CHECK(sim.res.state(9) == Residency::RESIDENT);
-	uint32_t first = 0, pages = 0;
-	CHECK(sim.res.run(9, first, pages));
-	CHECK(first == old_first);
+	Vector<uint32_t> pages;
+	uint32_t pt_base = 0;
+	CHECK(sim.res.page_allocation(9, pages, pt_base));
+	CHECK(pt_base == old_pt_base);
 	CHECK(pages == old_pages);
 	CHECK(sim.res.stats().pages_shadow == 3);
 	CHECK(sim.res.stats().pages_free == before.pages_free - 3);
@@ -336,9 +338,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a staged edit changes noth
 	CHECK(sim.res.state(0) == Residency::ABSENT);
 	CHECK(sim.res.is_stale(0));
 	CHECK_FALSE(sim.res.is_protected(0)); // The root is no longer pinned: it is no valid fallback.
-	GS_NEED(sim.res.run(9, first, pages));
-	CHECK(first == tickets[0].first_page);
-	CHECK(pages == 3);
+	GS_NEED(sim.res.page_allocation(9, pages, pt_base));
+	CHECK(pages == tickets[0].pages);
+	CHECK(pt_base == tickets[0].pt_base);
+	CHECK(pages.size() == 3);
 	CHECK(sim.res.pages_for(9) == 3);
 	CHECK(sim.res.stats().pages_shadow == 0);
 	CHECK(sim.res.stats().stale_nodes == 3);
@@ -393,10 +396,12 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] an edit invalidates the in
 	CHECK(sim.res.stats().late_dropped_cancelled_total == dropped_cancelled + 1);
 	CHECK(sim.res.stats().late_dropped_total == dropped + 1);
 	CHECK(sim.res.state(9) == Residency::RESIDENT);
-	uint32_t first = 0, pages = 0;
-	GS_NEED(sim.res.run(9, first, pages));
-	CHECK(first == tickets[0].first_page);
-	CHECK(pages == 1);
+	Vector<uint32_t> pages;
+	uint32_t pt_base = 0;
+	GS_NEED(sim.res.page_allocation(9, pages, pt_base));
+	CHECK(pages == tickets[0].pages);
+	CHECK(pt_base == tickets[0].pt_base);
+	CHECK(pages.size() == 1);
 	CHECK(sim.res.stats().cancelled_total >= 1);
 }
 
@@ -912,10 +917,14 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] the node streamer packs an e
 // ---------------------------------------------------------------------------------------------------------------------
 struct GpuEditRun {
 	RenderingDevice *rd = nullptr;
+	Ref<HlodNodeStreamer> streamer;
 	HlodNodeStreamer::Buffers buffers;
 	uint64_t atlas_bytes = 0;
 	~GpuEditRun() {
+		if (streamer.is_valid()) { streamer->shutdown(); }
 		if (rd) {
+			if (buffers.page_owner.is_valid()) { rd->free(buffers.page_owner); }
+			if (buffers.page_table.is_valid()) { rd->free(buffers.page_table); }
 			if (buffers.atlas.is_valid()) { rd->free(buffers.atlas); }
 			if (buffers.chunk_meta.is_valid()) { rd->free(buffers.chunk_meta); }
 		}
@@ -954,15 +963,22 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 	GS_NEED(streamer->init(p_base, config, 1, rd->get_device_instance_id()));
 	GpuEditRun gpu;
 	gpu.rd = rd;
+	gpu.streamer = streamer;
 	gpu.atlas_bytes = streamer->atlas_bytes_capacity();
-	Vector<uint8_t> zero_atlas, zero_meta;
+	Vector<uint8_t> zero_atlas, zero_meta, zero_table, zero_owners;
 	zero_atlas.resize(int64_t(gpu.atlas_bytes));
 	zero_atlas.fill(0);
 	zero_meta.resize(int64_t(node_total) * int64_t(sizeof(ChunkMetaGPU)));
 	zero_meta.fill(0);
+	GS_NEED(zero_table.resize(uint64_t(config.atlas_pages) * streamer->get_residency().max_pages_per_node() * sizeof(uint32_t)) == OK);
+	zero_table.fill(0);
+	GS_NEED(zero_owners.resize(uint64_t(config.atlas_pages) * sizeof(uint32_t)) == OK);
+	zero_owners.fill(0);
 	gpu.buffers.atlas = rd->storage_buffer_create(uint32_t(gpu.atlas_bytes), zero_atlas);
 	gpu.buffers.chunk_meta = rd->storage_buffer_create(uint32_t(zero_meta.size()), zero_meta);
-	GS_NEED(gpu.buffers.atlas.is_valid() && gpu.buffers.chunk_meta.is_valid());
+	gpu.buffers.page_table = rd->storage_buffer_create(uint32_t(zero_table.size()), zero_table);
+	gpu.buffers.page_owner = rd->storage_buffer_create(uint32_t(zero_owners.size()), zero_owners);
+	GS_NEED(gpu.buffers.atlas.is_valid() && gpu.buffers.chunk_meta.is_valid() && gpu.buffers.page_table.is_valid() && gpu.buffers.page_owner.is_valid());
 	streamer->register_view(1, far_view(node_total, 1.0e9));
 
 	// Everything that is not stale is demanded, so the whole tree streams in (children of one parent are consecutive in
@@ -1083,17 +1099,34 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 				view.gaussians = edited_leaf->gaussians.ptr();
 				view.sh = edited_leaf->sh.is_empty() ? nullptr : edited_leaf->sh.ptr();
 				if (gs_hlod_pack::pack_node(*p_served.ptr(), n, params, after[n].atlas_base, out, &view)) {
-					CHECK(memcmp(atlas_after.ptr() + uint64_t(after[n].atlas_base) * sizeof(PackedGaussian), expect.ptr(), size_t(expect.size()) * sizeof(PackedGaussian)) == 0);
+					Vector<uint32_t> pages;
+					uint32_t pt_base = 0;
+					GS_NEED(streamer->get_residency().page_allocation(n, pages, pt_base));
+					CHECK(after[n].page_table_ref == pt_base + 1);
+					uint32_t copied = 0;
+					for (uint32_t page : pages) {
+						const uint32_t count = MIN(uint32_t(expect.size()) - copied, config.page_splats);
+						CHECK(memcmp(atlas_after.ptr() + uint64_t(page) * config.page_splats * sizeof(PackedGaussian),
+								expect.ptr() + copied, size_t(count) * sizeof(PackedGaussian)) == 0);
+						copied += count;
+					}
+					CHECK(copied == uint32_t(expect.size()));
 				}
 			} else if (before[n].splat_count != 0) {
 				// Unedited regions are byte-identical: metadata and atlas run.
 				CHECK(memcmp(&before[n], &after[n], sizeof(ChunkMetaGPU)) == 0);
-				uint32_t first = 0, run_pages = 0;
-				if (streamer->get_residency().run(n, first, run_pages)) {
+				Vector<uint32_t> pages;
+				uint32_t pt_base = 0;
+				if (streamer->get_residency().page_allocation(n, pages, pt_base)) {
 					const uint64_t stride = streamer->record_stride();
-					const uint64_t offset = uint64_t(first) * config.page_splats * stride;
-					const uint64_t bytes = uint64_t(p_served->nodes[n].topology.payload_count) * stride;
-					CHECK(memcmp(p_atlas_ref.ptr() + offset, atlas_after.ptr() + offset, size_t(bytes)) == 0);
+					uint64_t remaining = uint64_t(p_served->nodes[n].topology.payload_count) * stride;
+					for (uint32_t page : pages) {
+						const uint64_t offset = uint64_t(page) * config.page_splats * stride;
+						const uint64_t bytes = MIN(remaining, uint64_t(config.page_splats) * stride);
+						CHECK(memcmp(p_atlas_ref.ptr() + offset, atlas_after.ptr() + offset, size_t(bytes)) == 0);
+						remaining -= bytes;
+					}
+					CHECK(remaining == 0);
 				}
 			}
 		}
@@ -1249,7 +1282,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] admission never evicts; a 
 	}
 	GS_NEED(tickets.size() == 1);
 	CHECK(tickets[0].shadow);
-	CHECK(tickets[0].page_count == 3);
+	CHECK(tickets[0].pages.size() == 3);
 	CHECK(sim.res.stats().evicted_total > before.evicted_total);
 	for (uint32_t keep : { 0u, 1u, 2u, 3u, 4u, 9u, 10u }) {
 		CHECK(sim.res.state(keep) == Residency::RESIDENT); // The drawn cut and its ancestors were never evicted.

@@ -1652,6 +1652,7 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
     RID chunks;
     RID draw_list;
     RID sidecar;
+    RID page_owner;
     InstancePipelineTestInputs instances;
     result.passed = [&]() -> bool {
         if (tile_renderer->initialize(p_rd, Vector2i(16, 16), 16) != OK) {
@@ -1684,8 +1685,9 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
         const DrawnNodeGPU entry = { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } };
         draw_list = upload(entry);
         sidecar = upload(uint32_t(0));
+        page_owner = upload(UINT32_MAX);
         if (!gaussian_buffer.is_valid() || !indices.is_valid() || !instances.is_valid() ||
-                !chunks.is_valid() || !draw_list.is_valid() || !sidecar.is_valid()) {
+                !chunks.is_valid() || !draw_list.is_valid() || !sidecar.is_valid() || !page_owner.is_valid()) {
             result.error_message = "HLOD capture fixture allocation failed";
             return false;
         }
@@ -1699,6 +1701,7 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
         bind_instance_pipeline_inputs(params, instances, 1);
         params.hlod_relative = true;
         params.hlod_draw_entry_buffer = sidecar;
+        params.hlod_page_owner_buffer = page_owner;
         params.hlod_draw_list_buffer = draw_list;
         params.chunk_meta_buffer = chunks;
         params.hlod_source_generation = 1;
@@ -1819,7 +1822,7 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
     // Descriptor owners must release bindings before their fixture inputs are freed.
     tile_renderer->cleanup();
     instances.free(p_rd);
-    const RID fixture_rids[] = { gaussian_buffer, indices, chunks, draw_list, sidecar };
+    const RID fixture_rids[] = { gaussian_buffer, indices, chunks, draw_list, sidecar, page_owner };
     for (RID rid : fixture_rids) {
         if (rid.is_valid()) {
             p_rd->free(rid);

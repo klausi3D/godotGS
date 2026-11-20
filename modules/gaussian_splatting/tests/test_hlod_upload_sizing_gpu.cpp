@@ -62,6 +62,8 @@ struct Runtime {
 		streamer.shutdown();
 		store.shutdown();
 		if (rd) {
+			if (buffers.page_owner.is_valid()) { rd->free(buffers.page_owner); }
+			if (buffers.page_table.is_valid()) { rd->free(buffers.page_table); }
 			if (buffers.quantization.is_valid()) { rd->free(buffers.quantization); }
 			if (buffers.chunk_meta.is_valid()) { rd->free(buffers.chunk_meta); }
 			if (buffers.atlas.is_valid()) { rd->free(buffers.atlas); }
@@ -113,6 +115,8 @@ struct Golden {
 	uint32_t node = 0;
 	uint64_t offset = 0;
 	Vector<uint8_t> packed;
+	Vector<uint32_t> pages;
+	uint64_t page_bytes = 0;
 	ChunkMetaGPU meta = {};
 	ChunkQuantizationGPU quant = {};
 };
@@ -141,8 +145,11 @@ static SliceViolation check_slice(const Snapshot &p_observed, const Snapshot &p_
 			p_observed.quantization.size() != p_initial.quantization.size() ||
 			p_initial.atlas.is_empty() || p_observed.atlas.size() != p_initial.atlas.size() ||
 			p_golden.node >= nodes || p_golden.packed.is_empty() || p_uploaded > uint64_t(p_golden.packed.size()) ||
-			p_golden.offset > uint64_t(p_initial.atlas.size()) ||
-			uint64_t(p_golden.packed.size()) > uint64_t(p_initial.atlas.size()) - p_golden.offset) { return BAD_SHAPE; }
+			p_golden.pages.is_empty() || p_golden.page_bytes == 0 ||
+			uint64_t(p_golden.packed.size()) > uint64_t(p_golden.pages.size()) * p_golden.page_bytes) { return BAD_SHAPE; }
+	for (uint32_t page : p_golden.pages) {
+		if (uint64_t(page + 1u) * p_golden.page_bytes > uint64_t(p_initial.atlas.size())) { return BAD_SHAPE; }
+	}
 	const bool final = p_uploaded == uint64_t(p_golden.packed.size());
 	for (uint64_t node = 0; node < nodes; ++node) {
 		const uint64_t meta_offset = node * sizeof(ChunkMetaGPU);
@@ -159,8 +166,17 @@ static SliceViolation check_slice(const Snapshot &p_observed, const Snapshot &p_
 	}
 	if (p_resident != final) { return final ? FINAL_RESIDENCY : PREMATURE_RESIDENCY; }
 	for (uint64_t offset = 0; offset < uint64_t(p_initial.atlas.size()); ++offset) {
-		const bool in_prefix = offset >= p_golden.offset && offset - p_golden.offset < p_uploaded;
-		const uint8_t expected = in_prefix ? p_golden.packed[int64_t(offset - p_golden.offset)] : p_initial.atlas[int64_t(offset)];
+		bool in_prefix = false;
+		uint64_t logical = 0;
+		for (uint32_t page = 0; page < uint32_t(p_golden.pages.size()); ++page) {
+			const uint64_t first = uint64_t(p_golden.pages[page]) * p_golden.page_bytes;
+			if (offset >= first && offset - first < p_golden.page_bytes) {
+				logical = uint64_t(page) * p_golden.page_bytes + offset - first;
+				in_prefix = logical < p_uploaded;
+				break;
+			}
+		}
+		const uint8_t expected = in_prefix ? p_golden.packed[int64_t(logical)] : p_initial.atlas[int64_t(offset)];
 		if (p_observed.atlas[int64_t(offset)] != expected) { return ATLAS_BYTES; }
 	}
 	return SLICE_VALID;
@@ -184,7 +200,7 @@ TEST_CASE("[GaussianSplatting][HLOD][D3Sizing][World][SceneTree][RequiresGPU] D3
 	Streamer::Config config = fixture.config(true);
 	const uint64_t stride = sizeof(PackedGaussianQuantized);
 	const uint64_t node_bytes = uint64_t(fixture.source.splats_per_node) * stride;
-	const uint64_t publication_bytes = sizeof(ChunkMetaGPU) + sizeof(ChunkQuantizationGPU);
+	const uint64_t publication_bytes = sizeof(ChunkMetaGPU) + sizeof(ChunkQuantizationGPU) + 2 * sizeof(uint32_t);
 	config.upload_bytes_per_frame = 80u * stride + publication_bytes;
 	if (config.upload_bytes_per_frame >= node_bytes / 2u || publication_bytes >= config.upload_bytes_per_frame) {
 		FAIL("D3-4 GPU allowance must force at least three payload slices and fit final publication"); return;
@@ -208,7 +224,10 @@ TEST_CASE("[GaussianSplatting][HLOD][D3Sizing][World][SceneTree][RequiresGPU] D3
 	runtime.buffers.atlas = runtime.zeroed_buffer(uint32_t(atlas_bytes));
 	runtime.buffers.chunk_meta = runtime.zeroed_buffer(nodes * sizeof(ChunkMetaGPU));
 	runtime.buffers.quantization = runtime.zeroed_buffer(nodes * sizeof(ChunkQuantizationGPU));
-	if (!runtime.buffers.atlas.is_valid() || !runtime.buffers.chunk_meta.is_valid() || !runtime.buffers.quantization.is_valid()) {
+	runtime.buffers.page_table = runtime.zeroed_buffer(config.atlas_pages * runtime.streamer.get_residency().max_pages_per_node() * sizeof(uint32_t));
+	runtime.buffers.page_owner = runtime.zeroed_buffer(config.atlas_pages * sizeof(uint32_t));
+	if (!runtime.buffers.atlas.is_valid() || !runtime.buffers.chunk_meta.is_valid() || !runtime.buffers.quantization.is_valid() ||
+			!runtime.buffers.page_table.is_valid() || !runtime.buffers.page_owner.is_valid()) {
 		FAIL("D3-4 GPU sizing requires real zeroed atlas, metadata and quantization buffers"); return;
 	}
 	Streamer::TestControl control;
@@ -230,17 +249,22 @@ TEST_CASE("[GaussianSplatting][HLOD][D3Sizing][World][SceneTree][RequiresGPU] D3
 		return runtime.streamer._test_snapshot().ready_outputs == 1;
 	});
 	if (!packed.ready()) { FAIL("D3-4 GPU ordinary node never reached held packed-ready state: ", packed.describe()); return; }
-	uint32_t first_page = 0, page_count = 0;
-	if (!runtime.streamer.get_residency().run(node, first_page, page_count) || page_count == 0) {
+	Vector<uint32_t> pages;
+	uint32_t pt_base = 0;
+	if (!runtime.streamer.get_residency().page_allocation(node, pages, pt_base) || pages.is_empty()) {
 		FAIL("D3-4 GPU ordinary node must own its live atlas reservation before slicing"); return;
 	}
 	Golden golden;
 	golden.node = node;
-	golden.offset = uint64_t(first_page) * config.page_splats * stride;
-	if (!fixture.pack(node, false, config, first_page * config.page_splats, golden.packed, golden.meta, golden.quant)) {
+	golden.pages = pages;
+	golden.page_bytes = uint64_t(config.page_splats) * stride;
+	golden.offset = uint64_t(pages[0]) * config.page_splats * stride;
+	if (!fixture.pack(node, false, config, pages[0] * config.page_splats, golden.packed, golden.meta, golden.quant)) {
 		FAIL("D3-4 GPU independent packed golden construction failed"); return;
 	}
-	if (uint64_t(golden.packed.size()) != node_bytes || node_bytes > uint64_t(page_count) * config.page_splats * stride ||
+	golden.meta.page_table_ref = pt_base + 1;
+	CHECK(golden.meta.page_table_ref != 0);
+	if (uint64_t(golden.packed.size()) != node_bytes || node_bytes > uint64_t(pages.size()) * config.page_splats * stride ||
 			golden.meta.splat_count == 0) {
 		FAIL("D3-4 GPU independent packed golden must match and fit the live ordinary node run"); return;
 	}
@@ -290,7 +314,7 @@ TEST_CASE("[GaussianSplatting][HLOD][D3Sizing][World][SceneTree][RequiresGPU] D3
 			}
 			frame_bytes += write.bytes;
 			if (write.kind == Streamer::TestWrite::ATLAS) {
-				if (write.offset != golden.offset + uploaded || write.offset % stride != 0 || write.bytes % stride != 0 ||
+				if (!TestHlodEditShadowTransfer::page_slice(golden.pages, uploaded, write.offset, write.bytes, config.page_splats, stride) || write.offset % stride != 0 || write.bytes % stride != 0 ||
 						write.bytes > node_bytes - uploaded || meta_writes != 0 || quant_writes != 0) {
 					FAIL("D3-4 GPU atlas slices must be contiguous, stride-aligned and inside the node run before publication"); failed = true; return true;
 				}
