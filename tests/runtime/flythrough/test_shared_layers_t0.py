@@ -794,8 +794,14 @@ class PressureVariant(unittest.TestCase):
         streamer = (root / "hlod_node_streamer.h").read_text(encoding="utf-8")
         self.assertIn("DEFAULT_PAGE_SPLATS = GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;", streamer)
         runtime_data = (root.parent / "core/gaussian_splat_hlod_runtime_data.h").read_text(encoding="utf-8")
-        self.assertIn('#include "../shaders/includes/gs_hlod_page_constants.glsl"', runtime_data)
-        self.assertIn("DEFAULT_PAGE_SPLATS = GS_HLOD_PAGE_SPLATS;", runtime_data)
+        # runtime_data.h is a tree-key source (world_cache.TREE_SOURCES), so it keeps the literal; the
+        # streamer pins it to the shader constant with a static_assert.
+        page = re.search(r"static constexpr uint32_t DEFAULT_PAGE_SPLATS = (\d+);", runtime_data)
+        self.assertIsNotNone(page, "HLOD page size not found")
+        self.assertEqual(shared.PRESSURE_PAGE_SPLATS, int(page.group(1)))
+        streamer_cpp = (root / "hlod_node_streamer.cpp").read_text(encoding="utf-8")
+        self.assertIn('#include "../shaders/includes/gs_hlod_page_constants.glsl"', streamer_cpp)
+        self.assertIn("static_assert(HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS == GS_HLOD_PAGE_SPLATS,", streamer_cpp)
         constants = (root.parent / "shaders/includes/gs_hlod_page_constants.glsl").read_text(encoding="utf-8")
         shift = re.search(r"^#define GS_HLOD_PAGE_SHIFT (\d+)u$", constants, re.MULTILINE)
         self.assertIsNotNone(shift, "HLOD page shift not found")
