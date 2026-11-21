@@ -58,10 +58,10 @@ struct Gaussian {
     float opacity;
 
     vec3 scale;
-    // Explicit padding, NOT a data lane. std430 aligns vec3 to 16 bytes, so
-    // `rotation` sits at offset 32 either way; this holds the host struct to
-    // the same offset. Previously `area`, which no shader ever read.
-    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
+    // Per-splat semantic word (ADR dynamics 6.2.1; bits in includes/gs_semantic.glsl).
+    // std430 aligns vec3 to 16 bytes, so `rotation` sits at offset 32 either way;
+    // the word fills the slot that was padding (and before that `area`).
+    uint semantic;  // std430 keeps rotation at offset 32; was `area` (never read)
 
     vec4 rotation; // Quaternion
 

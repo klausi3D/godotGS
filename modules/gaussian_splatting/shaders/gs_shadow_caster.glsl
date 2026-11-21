@@ -20,7 +20,7 @@ struct CasterGaussian {
     vec3 position;
     float opacity;
     vec3 scale;
-    uint _pad_rotation_align;
+    uint semantic;
     vec4 rotation;
     vec4 sh_dc;
     uint sh_encoded[24];

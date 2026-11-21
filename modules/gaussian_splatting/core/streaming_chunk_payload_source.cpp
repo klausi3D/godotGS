@@ -489,7 +489,7 @@ bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint
 		LocalVector<Vector3> &r_sh_high_order_out,
 		uint32_t &r_sh_first_order_count,
 		uint32_t &r_sh_high_order_count) const {
-	if (gaussian_layout_version != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+	if (!gaussian_persisted_layout_supported(gaussian_layout_version)) {
 		ERR_PRINT("[StagedFileSource] Gaussian struct layout mismatch; re-export the world from its source with this build.");
 		return false;
 	}
@@ -520,6 +520,11 @@ bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint
 	}
 	physical_bytes_read += got;
 	uint64_t logical_bytes_requested = gaussian_byte_count;
+    String semantic_reason;
+    if (!gaussian_prepare_persisted_payload(r_gaussians.ptr(), p_count, gaussian_layout_version, &semantic_reason)) {
+        ERR_PRINT(semantic_reason);
+        return false;
+    }
 	if (!_apply_position_frames(nullptr, p_start, p_count, r_gaussians)) {
 		return false;
 	}
@@ -558,7 +563,7 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 		LocalVector<Vector3> &r_sh_high_order_out,
 		uint32_t &r_sh_first_order_count,
 		uint32_t &r_sh_high_order_count) const {
-	if (gaussian_layout_version != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+	if (!gaussian_persisted_layout_supported(gaussian_layout_version)) {
 		ERR_PRINT("[StagedFileSource] Gaussian struct layout mismatch; re-export the world from its source with this build.");
 		return false;
 	}
@@ -648,6 +653,11 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 			i = j;
 		}
 	}
+    String semantic_reason;
+    if (!gaussian_prepare_persisted_payload(r_gaussians.ptr(), p_count, gaussian_layout_version, &semantic_reason)) {
+        ERR_PRINT(semantic_reason);
+        return false;
+    }
 	if (!_apply_position_frames(p_indices, 0u, p_count, r_gaussians)) {
 		return false;
 	}

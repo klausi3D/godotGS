@@ -59,7 +59,7 @@ struct Fixture {
 			error = "the deterministic writer fixture must contain five GSQ pages";
 			return;
 		}
-		const gs_world_writer::CodecParams codec = gs_world_writer::gsq_v1_codec_params();
+		const gs_world_writer::CodecParams codec = gs_world_writer::gsq_v2_codec_params();
 		if (gs_world_writer::gsq_encode_params(codec, codec_params, error) != OK) {
 			return;
 		}

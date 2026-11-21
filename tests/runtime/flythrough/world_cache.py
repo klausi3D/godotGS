@@ -91,6 +91,8 @@ GENERATOR_SOURCES: Tuple[str, ...] = (
     "modules/gaussian_splatting/io/gs_world_writer.h",
     "modules/gaussian_splatting/io/gsq/gsq_codec.cpp",
     "modules/gaussian_splatting/io/gsq/gsq_codec.h",
+    "modules/gaussian_splatting/core/gaussian_semantic.h",
+    "modules/gaussian_splatting/shaders/includes/gs_semantic.glsl",
     # BV-C7: the GSQ writer delegates page building (grouping, order, page cuts) here.
     "modules/gaussian_splatting/io/gsq/gsq_page_builder.cpp",
     "modules/gaussian_splatting/io/gsq/gsq_page_builder.h",

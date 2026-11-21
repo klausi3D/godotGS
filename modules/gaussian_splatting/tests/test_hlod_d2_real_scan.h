@@ -257,7 +257,7 @@ inline bool write_input(const String &p_path, const Input &p_input, String &r_re
 	spec.chunk_count = (spec.splat_count + 4095) / 4096;
 	spec.write_chunk_table = true;
 	gs_world_writer::Writer writer;
-	if (writer.begin_plain(p_path, spec, gs_world_writer::gsq_v1_codec_params(), gs_world_writer::SourceMode::REITERABLE,
+	if (writer.begin_plain(p_path, spec, gs_world_writer::gsq_v2_codec_params(), gs_world_writer::SourceMode::REITERABLE,
 			gs_world_writer::Limits::unbounded()) != OK) {
 		r_reason = writer.get_error_message();
 		return false;
@@ -432,7 +432,7 @@ inline bool expected_digest(const gs_hlod::BakeResult &p_bake, uint32_t p_index,
 		LocalVector<Gaussian> decoded;
 		decoded.resize(node.payload_count);
 		decoded_sh.resize(uint64_t(node.payload_count) * p_input.high);
-		if (gs_world_writer::gsq_encode_params(gs_world_writer::gsq_v1_codec_params(), params, r_reason) != OK ||
+		if (gs_world_writer::gsq_encode_params(gs_world_writer::gsq_v2_codec_params(), params, r_reason) != OK ||
 				gs_gsq::encode_page(relative.ptr(), source_sh, node.payload_count, p_input.degree, params, page, r_reason) != OK ||
 				decoder.decode_range(page.ptr(), page.size(), 0, node.payload_count, decoded.ptr(), p_input.high ? decoded_sh.ptr() : nullptr, r_reason) != OK) {
 			return false;
@@ -691,7 +691,7 @@ inline bool run_case(Run &r_run) {
 		}
 		r_run.report["first_divergence"] = difference;
 		if (!write_in_core(reference, r_run.dir.path_join("scratch"), input, bake,
-				gsq ? gs_world_writer::gsq_v1_codec_params() : gs_world_writer::CodecParams(), reason)) {
+				gsq ? gs_world_writer::gsq_v2_codec_params() : gs_world_writer::CodecParams(), reason)) {
 			r_run.report["detail"] = reason;
 			return r_run.fail("independent_in_core_v4_write_failed");
 		}

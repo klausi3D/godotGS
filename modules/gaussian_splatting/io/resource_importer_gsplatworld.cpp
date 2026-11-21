@@ -124,7 +124,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	// Mirror the loader (#1172): the raw Gaussian payload must have been written
 	// with this build's struct layout.
 	const uint32_t recorded_layout = header.has_layout_word ? file->get_32() : GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED;
-	if (recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+	if (!gaussian_persisted_layout_supported(recorded_layout)) {
 		ERR_PRINT(vformat("Refusing to import %s: its splats were written with Gaussian struct layout %d, but this build reads layout %d. Re-export the world from its source with this build.",
 				p_source_file, recorded_layout, GAUSSIAN_STRUCT_LAYOUT_VERSION));
 		return ERR_FILE_UNRECOGNIZED;

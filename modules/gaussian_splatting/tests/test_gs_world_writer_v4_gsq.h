@@ -266,7 +266,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ selection write
 		return;
 	}
 	WriterV4 writer;
-	if (!begin(writer, paths, fixture, gsq_v1_codec_params()) || !append_all(writer, fixture, paths)) {
+	if (!begin(writer, paths, fixture, gsq_v2_codec_params()) || !append_all(writer, fixture, paths)) {
 		return;
 	}
 	if (writer.finalize(fixture.nodes) != OK) {
@@ -619,7 +619,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ unions tight ba
 	if (!paths.create() || !tight_quantisation_fixture(fixture, bake)) {
 		return;
 	}
-	const CodecParams codec = gsq_v1_codec_params();
+	const CodecParams codec = gsq_v2_codec_params();
 	gs_gsq::EncodeParams encode_params;
 	String reason;
 	if (gsq_encode_params(codec, encode_params, reason) != OK) {
@@ -718,7 +718,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ unions tight ba
 			FAIL("tight output reopen failed: ", doctest::String(reason.utf8().get_data()));
 			return;
 		}
-		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV1 : kCodecNone));
+		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV2 : kCodecNone));
 		for (uint32_t i = 0; i < kNodes; ++i) {
 			Vector<Gaussian> actual;
 			Vector<Vector3> sh;
@@ -808,7 +808,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ inflated root r
 		INFO("codec=", gsq ? doctest::String("gsq") : doctest::String("none"));
 		Paths paths; // Separate files; a previously loaded resource cannot mask GSQ output.
 		WriterV4 writer;
-		if (!paths.create() || !begin(writer, paths, fixture, gsq ? gsq_v1_codec_params() : CodecParams())) {
+		if (!paths.create() || !begin(writer, paths, fixture, gsq ? gsq_v2_codec_params() : CodecParams())) {
 			return;
 		}
 		for (uint32_t i : kAppendOrder) {
@@ -830,7 +830,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ inflated root r
 			FAIL("header enclosure output reopen failed: ", doctest::String(reason.utf8().get_data()));
 			return;
 		}
-		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV1 : kCodecNone));
+		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV2 : kCodecNone));
 		double center[3], root_lo[3], root_hi[3];
 		tree.node_cell_center(tree.nodes[0], center);
 		bool escapes_spec = false;

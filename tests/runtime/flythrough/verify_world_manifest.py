@@ -51,7 +51,7 @@ PREFIX_BYTES = 112
 CHUNK_RECORD_BYTES = 56
 GAUSSIAN_BYTES = 144
 VECTOR3_BYTES = 12
-LAYOUT_VERSION = 1
+LAYOUT_VERSION = 2
 FLAG_HAS_METADATA = 1 << 0
 FLAG_HAS_CHUNKS = 1 << 2
 FLAG_HAS_HIGH_SH = 1 << 3
@@ -62,6 +62,8 @@ PAGED_PAGE_RECORD_BYTES = 112
 PAGE_ALIGNMENT = 4096
 CODEC_NONE = 0
 CODEC_GSQ_V1 = 1
+CODEC_GSQ_V2 = 2
+GSQ_CODECS = (CODEC_GSQ_V1, CODEC_GSQ_V2)
 CLASSES = ("plain", "town", "wall", "foliage", "beacon")
 READ_SLICE = 4 << 20
 
@@ -147,7 +149,7 @@ def compute_tree_sha(sidecar: dict) -> str:
             raise ValueError("tree_key_codec_invalid")
         for k in ("codec_id", "opacity_bits", "zstd_level"):
             codec[k] = _tree_number(codec[k], integer=True)
-        if codec["codec_id"] != CODEC_GSQ_V1 or len(codec["sh_bits"]) != 3:
+        if codec["codec_id"] not in GSQ_CODECS or len(codec["sh_bits"]) != 3:
             raise ValueError("tree_key_codec_invalid")
         codec["sh_bits"] = [_tree_number(v, integer=True) for v in codec["sh_bits"]]
         codec["pos_step_m"] = _tree_number(codec["pos_step_m"])
@@ -224,14 +226,14 @@ def verify_v4(world: Path) -> dict:
             require(hashlib.sha256(header[:4064]).digest() == header[4064:], "header_digest_mismatch")
             flags, leaf, interior, node_count, degree, first_sh, high_sh, bake_rule, codec = (
                 words[2], *words[8:16])
-            expected_codec = CODEC_GSQ_V1 if m["codec"]["codec"] == "gsq" else CODEC_NONE
+            expected_codec = m["codec"]["codec_id"] if m["codec"]["codec"] == "gsq" else CODEC_NONE
             require(codec == expected_codec, "codec_mismatch")
-            require(words[3:8] == (4096, 4096, 65536, 256, LAYOUT_VERSION), "header_geometry_mismatch")
+            require(words[3:7] == (4096, 4096, 65536, 256) and words[7] in (1, LAYOUT_VERSION), "header_geometry_mismatch")
             require(flags & ~3 == 0 and not any(header[240:4064]), "header_reserved_invalid")
             require(0 < node_count <= 1 << 20 and leaf > 0 and node_count <= leaf + interior <= 0xFFFFFFFF
                     and bake_rule > 0 and degree <= 4 and first_sh <= 3 and high_sh <= 21,
                     "header_counts_invalid")
-            if codec == CODEC_GSQ_V1:
+            if codec in GSQ_CODECS:
                 require(degree <= 3 and first_sh == (0 if degree == 0 else 3)
                         and high_sh == (0, 0, 5, 12)[degree], "header_sh_layout_invalid")
             geometry = struct.unpack_from("<3d6f", header, 64)
@@ -252,7 +254,7 @@ def verify_v4(world: Path) -> dict:
             require(m["content_generation"] == str(generation), "content_generation_mismatch")
             # #1432: the GSQ builder always records the reopened header bounds,
             # so their absence is a defect, not a reason to skip the comparison.
-            require(codec != CODEC_GSQ_V1 or "header_bounds" in m, "header_bounds_missing")
+            require(codec not in GSQ_CODECS or "header_bounds" in m, "header_bounds_missing")
             if "header_bounds" in m:
                 bits = struct.unpack_from("<6I", header, 88)
                 require(m["header_bounds"] == {"position_f32_bits": list(bits[:3]), "size_f32_bits": list(bits[3:])},
@@ -273,8 +275,9 @@ def verify_v4(world: Path) -> dict:
                     entry = page[64 + j * 256:64 + (j + 1) * 256]
                     payload_first, splats = struct.unpack_from("<QI", entry, 88)
                     offset, stored, extent = struct.unpack_from("<3Q", entry, 128)
-                    require(not any(entry[120:128] + entry[152:192] + entry[224:256]),
+                    require(not any(entry[121:128] + entry[152:192] + entry[224:256]),
                             f"node_reserved_invalid: node {i}")
+                    require((words[7] != 1 and codec != CODEC_GSQ_V1) or entry[120] == 0, f"node_reserved_invalid: node {i}")
                     require(0 < splats <= 16384 and offset == cursor and stored >= 64
                             and extent == (stored + 4095) // 4096 * 4096
                             and offset + extent <= payload_offset + payload_bytes,
@@ -294,7 +297,7 @@ def verify_v4(world: Path) -> dict:
                 envelope = read(64)
                 fields = struct.unpack_from("<4I4QI", envelope)
                 require(fields == (0x504E5347, i, splats, high_sh, splats * GAUSSIAN_BYTES,
-                                   splats * high_sh * VECTOR3_BYTES, generation, payload_first, LAYOUT_VERSION)
+                                   splats * high_sh * VECTOR3_BYTES, generation, payload_first, words[7])
                         and not any(envelope[52:]), f"node_header_mismatch: node {i}")
                 digest = hashlib.sha256(envelope)
                 consume(stored - 64, digest)
@@ -368,12 +371,12 @@ class Verifier:
             else:
                 self.checked.append("tier A content table equals ADR §6.2")
         codec_id = m["writer"]["codec"]["codec_id"]
-        if codec_id not in (CODEC_NONE, CODEC_GSQ_V1) or (codec_id == CODEC_GSQ_V1) != ("codec" in m):
+        if codec_id not in (CODEC_NONE, *GSQ_CODECS) or (codec_id in GSQ_CODECS) != ("codec" in m):
             self.fail(f"codec_mismatch: writer codec {codec_id} and the manifest's codec block disagree")
         self.checked.append("manifest digests and content-table sums")
 
     def is_gsq(self) -> bool:
-        return self.m["writer"]["codec"]["codec_id"] == CODEC_GSQ_V1
+        return self.m["writer"]["codec"]["codec_id"] in GSQ_CODECS
 
     # -- GSQ v1 file checks (plain v3 + bit 7, BV-C7) ---------------------------
     def check_paged_file(self) -> None:
@@ -410,7 +413,7 @@ class Verifier:
                 world["splat_count"], world["chunk_count"], world["sh_degree"], world["sh_first_order"], sh_high
             ):
                 self.fail("header: counts differ from the manifest")
-            if layout != LAYOUT_VERSION or reserved != 0 or sh_off != 0 or idx_off != 0:
+            if layout not in (1, LAYOUT_VERSION) or reserved != 0 or sh_off != 0 or idx_off != 0:
                 self.fail("header: layout word / reserved / unused section offsets")
             if header[PREFIX_BYTES + 32:] != bytes(32):
                 self.fail("header: paged extension reserved bytes")
@@ -418,7 +421,7 @@ class Verifier:
                 wcodec["codec_id"], wcodec["sh_bits"], wcodec["opacity_bits"], wcodec["zstd_level"]
             ) or pos_step != f32(wcodec["pos_step_m"]):
                 self.fail("codec_params_mismatch: the file's codec block differs from the manifest's writer codec")
-            if codec_id != CODEC_GSQ_V1 or align != PAGE_ALIGNMENT:
+            if codec_id not in GSQ_CODECS or align != PAGE_ALIGNMENT:
                 self.fail("header: codec id / page alignment")
             if page_count != codec["page_count"]:
                 self.fail("codec_block_mismatch: page_count")
@@ -569,7 +572,7 @@ class Verifier:
                     world["splat_count"], world["chunk_count"], world["sh_degree"], world["sh_first_order"], sh_high
                 ):
                     self.fail("header: counts differ from the manifest")
-                if layout != LAYOUT_VERSION or reserved != 0:
+                if layout not in (1, LAYOUT_VERSION) or reserved != 0:
                     self.fail("header: layout word / reserved")
                 if g_off != PREFIX_BYTES:
                     self.fail("header: gaussian offset")

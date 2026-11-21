@@ -504,12 +504,12 @@ class RunnerPlumbing(unittest.TestCase):
         plain = self.tmp / "plain.gsplatworld"
         table = bytearray(400)
         struct.pack_into("<I4BfiIIQ", table, shared.vm.PREFIX_BYTES,
-                         shared.vm.CODEC_GSQ_V1, 6, 5, 5, 16, 0.00025, 3,
+                         shared.vm.CODEC_GSQ_V2, 6, 5, 5, 16, 0.00025, 3,
                          2, shared.vm.PAGE_ALIGNMENT, 176)
         table[176 + 48:176 + 80] = bytes.fromhex("ab" * 32)
         table[288 + 48:288 + 80] = bytes.fromhex("cd" * 32)
         plain.write_bytes(table)
-        source = {"codec": {"page_count": 2, "decoded_digest_set_sha256":
+        source = {"codec": {"codec_id": shared.vm.CODEC_GSQ_V2, "page_count": 2, "decoded_digest_set_sha256":
                   shared.hashlib.sha256(bytes.fromhex("ab" * 32 + "cd" * 32)).hexdigest()}}
         tree = {"nodes": [{"decoded_sha256": "1" * 64}, {"decoded_sha256": "2" * 64}]}
         w13 = {"available": True, "passed": True, "nodes_verified": 2, "node_count": 2}

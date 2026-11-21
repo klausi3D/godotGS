@@ -282,7 +282,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] page builder: W12 refuses a page da
 	CHECK(pages.size() == 2u);
 
 	// The writer's GSQ block: the D-12 values map onto the encoder; out-of-range fields are refused.
-	gs_world_writer::CodecParams codec = gs_world_writer::gsq_v1_codec_params();
+	gs_world_writer::CodecParams codec = gs_world_writer::gsq_v2_codec_params();
 	EncodeParams mapped;
 	CHECK(gs_world_writer::gsq_encode_params(codec, mapped, reason) == OK);
 	CHECK(mapped.sh_bits[0] == 6u);

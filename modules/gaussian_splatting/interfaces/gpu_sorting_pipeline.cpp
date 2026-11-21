@@ -1811,7 +1811,7 @@ struct Gaussian {
     float opacity;
 
     vec3 scale;
-    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
+    uint semantic;  // std430 keeps rotation at offset 32; was `area` (never read)
 
     vec4 rotation;
 

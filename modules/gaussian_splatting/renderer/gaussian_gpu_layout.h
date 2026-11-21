@@ -351,11 +351,9 @@ struct alignas(16) PackedGaussian {
     float opacity;
 
     float scale[3];
-    // Explicit padding, NOT a data lane. std430 gives vec3 a 16-byte alignment,
-    // so the GLSL mirror places `rotation` at offset 32 regardless. This field
-    // holds the C++ layout to the same offset. It previously carried `area`,
-    // which no shader ever read -- the lane was serving as padding in practice.
-    uint32_t _pad_rotation_align;
+    // ADR dynamics semantic word in the former alignment slot. Rotation stays
+    // at offset 32 on both host and GLSL; wind consumption belongs to B3.
+    uint32_t semantic;
 
     float rotation[4];
 
@@ -372,7 +370,7 @@ static_assert(offsetof(PackedGaussian, scale) == 16, "PackedGaussian.scale offse
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset mismatch");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset mismatch");
 static_assert(offsetof(PackedGaussian, normal) == 160, "PackedGaussian.normal offset mismatch");
-static_assert(offsetof(PackedGaussian, _pad_rotation_align) == 28, "PackedGaussian rotation-alignment padding moved");
+static_assert(offsetof(PackedGaussian, semantic) == 28, "PackedGaussian semantic offset mismatch");
 static_assert(offsetof(PackedGaussian, sh_metadata) == 172, "PackedGaussian.sh_metadata offset mismatch");
 
 /**
@@ -411,9 +409,11 @@ struct alignas(16) PackedGaussianQuantized {
 
     uint32_t normal_xy;             // 4 bytes @144 - packHalf2x16(nx, ny)
     uint32_t normal_z_stroke;       // 4 bytes @148 - packHalf2x16(nz, stroke_age)
-    uint32_t _tail_padding[2];      // 8 bytes @152 - explicit std430 stride padding
+    uint32_t semantic;          // 4 bytes @152 - identical to authoring semantic
+    uint32_t _tail_padding;      // 4 bytes @156 - explicit std430 stride padding
 };
 
+static_assert(offsetof(PackedGaussianQuantized, semantic) == 152, "Quantized semantic offset mismatch");
 static_assert(sizeof(PackedGaussianQuantized) == 160, "PackedGaussianQuantized must be 160 bytes");
 static_assert(sizeof(PackedGaussianQuantized) % 16 == 0, "PackedGaussianQuantized must be 16-byte aligned");
 static_assert(offsetof(PackedGaussianQuantized, chunk_id) == 6, "PackedGaussianQuantized.chunk_id offset mismatch");

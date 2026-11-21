@@ -73,7 +73,7 @@ static bool check_gaussian(const Gaussian &p_got, const Dictionary &p_expected) 
 		}
 	}
 	CHECK_EQ(p_got.stroke_age, float(p_expected["stroke_age"]));
-	CHECK_EQ(p_got._padding, float(p_expected["padding"]));
+	CHECK_EQ(p_got.semantic, 0u); // Legacy padding is never semantic input.
 	CHECK_EQ(p_got.painterly_meta, uint32_t(p_expected["painterly_meta"]));
 	CHECK_EQ(p_got.render_meta, uint32_t(p_expected["render_meta"]));
 	return true;

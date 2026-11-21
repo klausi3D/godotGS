@@ -1,3 +1,4 @@
+#include "gs_semantic.glsl"
 #ifndef GS_INSTANCE_LAYOUT_GLSL
 #define GS_INSTANCE_LAYOUT_GLSL
 

@@ -120,7 +120,7 @@ Error parse_options(const Dictionary &p_options, uint64_t p_started, Options &r_
 	}
 	const String codec = p_options.get("codec", "none");
 	if (codec == "gsq") {
-		r_options.codec = gs_world_writer::gsq_v1_codec_params();
+		r_options.codec = gs_world_writer::gsq_v2_codec_params();
 	} else if (codec != "none") {
 		return refuse(r_reason, "codec_invalid");
 	}
@@ -283,7 +283,7 @@ Error gsq_node_digest(const Gaussian *p_g, const Vector3 *p_sh, uint32_t p_count
 	if (p_desc.is_leaf) {
 		gs_world_paged::reconstruct_leaf_positions(decoded.ptrw(), p_count, p_desc.cell_center);
 	}
-	gs_gsq::decoded_digest(decoded.ptr(), sh.ptr(), p_count, p_degree, r_digest.bytes);
+	gs_gsq::decoded_digest(decoded.ptr(), sh.ptr(), p_count, p_degree, r_digest.bytes, p_params.codec_id);
 	return OK;
 }
 
@@ -984,7 +984,7 @@ Error prepare_streaming(const String &input, const String &output, const String 
 	spec.is_2d = source.is_2d();
 	spec.bounds = source.get_bounds();
 	const uint64_t max_body = uint64_t(gs_hlod::kMaxNodeSplats) * (sizeof(Gaussian) + uint64_t(spec.sh_high_order) * sizeof(Vector3));
-	const bool gsq = p_options.codec.codec_id == gs_world_writer::kCodecGsqV1;
+	const bool gsq = gs_world_writer::is_gsq_codec(p_options.codec.codec_id);
 	gs_gsq::EncodeParams encode_params;
 	uint64_t writer_fixed = (16ull << 20) + 16 * max_body;
 	uint64_t verification_fixed = 0;
@@ -1142,7 +1142,7 @@ Error prepare_retained_reference(const String &input, const String &output, cons
 	const uint64_t max_body = uint64_t(gs_hlod::kMaxNodeSplats) * (sizeof(Gaussian) + uint64_t(spec.sh_high_order) * sizeof(Vector3));
 	uint64_t writer_reserved = (16ull << 20) + 16 * max_body + uint64_t(spec.node_count) *
 			(16384 + 64 * uint64_t(output.length() + scratch_root.length() + 256));
-	const bool gsq = p_options.codec.codec_id == gs_world_writer::kCodecGsqV1;
+	const bool gsq = gs_world_writer::is_gsq_codec(p_options.codec.codec_id);
 	gs_gsq::EncodeParams encode_params;
 	uint64_t verification_reserved = 0;
 	if (gsq) {
@@ -1313,7 +1313,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	auto &nodes = prepared.nodes;
 	auto &decoded_digests = prepared.decoded_digests;
 	auto &errors = prepared.errors;
-	const bool gsq = p_options.codec.codec_id == gs_world_writer::kCodecGsqV1;
+	const bool gsq = gs_world_writer::is_gsq_codec(p_options.codec.codec_id);
 	const String staged_world = stage.path.path_join("world");
 	error = writer.finalize(nodes);
 	if (error != OK) {
@@ -1386,7 +1386,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		}
 		uint8_t digest[32];
 		if (gsq) {
-			gs_gsq::decoded_digest(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_degree, digest);
+			gs_gsq::decoded_digest(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_degree, digest, p_options.codec.codec_id);
 		} else {
 			// Preserve codec-none's existing raw-byte digest and manifest identity.
 			hash_payload(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_high_order, digest);

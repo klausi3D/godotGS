@@ -2101,11 +2101,12 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 	}
 	const String selection_sha = is_ref ? sha256_of_string(canonical_json(sel_ids)) : String();
 
-	if (p_options.codec_id != gs_world_writer::kCodecNone && p_options.codec_id != gs_world_writer::kCodecGsqV1) {
+	if (p_options.codec_id != gs_world_writer::kCodecNone && !gs_world_writer::is_gsq_codec(p_options.codec_id)) {
 		return fail(ERR_INVALID_PARAMETER, vformat("codec_id %d is neither none (0) nor GSQ v1 (1)", p_options.codec_id));
 	}
-	const bool gsq = p_options.codec_id == gs_world_writer::kCodecGsqV1;
-	const gs_world_writer::CodecParams codec = gsq ? gs_world_writer::gsq_v1_codec_params() : gs_world_writer::CodecParams();
+	const bool gsq = gs_world_writer::is_gsq_codec(p_options.codec_id);
+	gs_world_writer::CodecParams codec = gsq ? gs_world_writer::gsq_v2_codec_params() : gs_world_writer::CodecParams();
+	codec.codec_id = p_options.codec_id;
 	r_report.codec_id = codec.codec_id;
 	Dictionary gen_inputs;
 	gen_inputs["generator_id"] = kGeneratorId;
@@ -2590,13 +2591,13 @@ Error verify_world(const String &p_world_path, Dictionary &r_report) {
 	if (int64_t(u32(12)) != splat_count || int64_t(u32(52)) != chunk_count || int64_t(u32(24)) != sh_high) {
 		problems.push_back("header_counts_mismatch");
 	}
-	if (u32(104) != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+	if (!gaussian_persisted_layout_supported(u32(104))) {
 		problems.push_back("header_layout_version");
 	}
 	// BV-C7: the manifest's writer codec must be the file's encoding.
 	const bool file_paged = (u32(8) & gs_world_format::kFlagPagedChunks) != 0u;
 	const int64_t manifest_codec = dict_int(Dictionary(Dictionary(m.get("writer", Dictionary())).get("codec", Dictionary())), "codec_id");
-	if (file_paged != (manifest_codec == int64_t(gs_world_writer::kCodecGsqV1))) {
+	if (file_paged != (gs_world_writer::is_gsq_codec(uint32_t(manifest_codec)))) {
 		problems.push_back("codec_mismatch: the manifest's writer codec is not the file's encoding");
 		return done();
 	}

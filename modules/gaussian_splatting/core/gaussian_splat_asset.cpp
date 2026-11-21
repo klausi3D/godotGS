@@ -1907,6 +1907,12 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
         return ERR_INVALID_PARAMETER;
     }
 
+    // The packed asset lanes do not yet carry semantics. Refuse before mutation.
+    for (int i = 0; i < p_gaussian_data->get_count(); ++i) {
+        ERR_FAIL_COND_V_MSG(p_gaussian_data->get_gaussian(i).semantic != 0u, ERR_UNAVAILABLE,
+                "semantic_export_unsupported: packed asset lanes cannot carry semantic; use GSF or gsplatworld.");
+    }
+
     // This is the one legitimate runtime-to-asset persistence writer. It
     // bypasses the public Packed setter gate because it mutates the internal
     // fields directly under the class's own control. Snapshot the prior seal

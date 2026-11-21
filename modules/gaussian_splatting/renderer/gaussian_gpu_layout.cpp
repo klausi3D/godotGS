@@ -225,15 +225,9 @@ static void _pack_gaussian_finite(const Gaussian &src,
     dst.scale[1] = src.scale.y;
     dst.scale[2] = src.scale.z;
 
-    // Zero the alignment padding EXPLICITLY. PackedGaussian is trivially
-    // constructible and these records are produced through Vector::resize, so
-    // the storage arrives uninitialized. `dst.area` used to write offset 28 as a
-    // side effect; with the lane removed nothing did, leaving an indeterminate
-    // word that (a) is hashed by _packed_gaussian_payload_checksum() in both
-    // gaussian_streaming.cpp and streaming_upload_pipeline.cpp -- where it gates
-    // upload verification -- making identical payloads compare unequal, and
-    // (b) is memcpy'd into the GPU buffer on every unquantized upload.
-    dst._pad_rotation_align = 0u;
+    // The former alignment word now carries semantic. Always initialize it;
+    // both the upload checksum and the GPU buffer include these exact bits.
+    dst.semantic = src.semantic;
 
     dst.rotation[0] = src.rotation.x;
     dst.rotation[1] = src.rotation.y;
@@ -491,8 +485,8 @@ void pack_gaussian_quantized(const Gaussian &src,
     const Vector3 safe_normal = sanitize_finite_vec3(src.normal, Vector3());
     dst.normal_xy = Float16Utils::pack_half2(safe_normal.x, safe_normal.y);
     dst.normal_z_stroke = Float16Utils::pack_half2(safe_normal.z, sanitize_finite(src.stroke_age, 0.0f));
-    dst._tail_padding[0] = 0;
-    dst._tail_padding[1] = 0;
+    dst.semantic = src.semantic;
+    dst._tail_padding = 0;
 
     metrics.raw_bytes += sizeof(Gaussian);
     metrics.compressed_bytes += sizeof(PackedGaussianQuantized);

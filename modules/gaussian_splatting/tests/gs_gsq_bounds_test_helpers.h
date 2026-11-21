@@ -56,7 +56,7 @@ inline bool quantisation_budget(const Gaussian *p_original, uint32_t p_count,
 		FAIL("GSQ bounds oracle needs a complete independently encoded node");
 		return false;
 	}
-	CHECK(p_params.codec_id == gs_world_writer::kCodecGsqV1);
+	CHECK(p_params.codec_id == gs_world_writer::kCodecGsqV2);
 	const double q24 = std::ldexp(1.0, 24);
 	double ranges[3];
 	double longest = 0;
@@ -177,7 +177,7 @@ inline bool check_decoded_support(const GaussianSplatHlodPagedSource &p_source, 
 	String reason;
 	const uint8_t *body = stored.ptr() + header_bytes;
 	const uint64_t body_bytes = record.stored_bytes - header_bytes;
-	if (p_source.get_codec_id() == gs_world_writer::kCodecGsqV1) {
+	if (p_source.get_codec_id() == gs_world_writer::kCodecGsqV2) {
 		gs_gsq::PageInfo page;
 		gs_gsq::DecodeContext decoder;
 		if (gs_gsq::verify_page(body, body_bytes, page, reason) != OK || page.splat_count != node.payload_count ||

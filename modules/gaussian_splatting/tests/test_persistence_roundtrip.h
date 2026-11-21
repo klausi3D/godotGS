@@ -2983,7 +2983,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's highly
         CHECK_MESSAGE(probe.is_valid(), "Saved fixture should be readable");
         if (probe.is_valid()) {
             const uint64_t on_disk = probe->get_length();
-            const uint64_t uncompressed_payload = 32ull + uint64_t(kSplats) * 132ull;
+            const uint64_t uncompressed_payload = 32ull + uint64_t(kSplats) * 136ull;
             CHECK_MESSAGE(uncompressed_payload > 16ull * 1024 * 1024,
                     "Fixture payload must exceed the old 16 MiB floor for this to be a real regression test");
             CHECK_MESSAGE(on_disk * 4096 < uncompressed_payload,
@@ -3062,7 +3062,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's LZ4/Fa
         CHECK_MESSAGE(probe.is_valid(), "Saved LZ4 fixture should be readable");
         if (probe.is_valid()) {
             const uint64_t on_disk = probe->get_length();
-            const uint64_t uncompressed_payload = 32ull + uint64_t(kSplats) * 132ull;
+            const uint64_t uncompressed_payload = 32ull + uint64_t(kSplats) * 136ull;
             CHECK_MESSAGE(uncompressed_payload > 64ull * 1024,
                     "Fixture payload must exceed 64 KiB so FastLZ level 2 (the uncapped one) is selected");
             CHECK_MESSAGE(on_disk * 128 < uncompressed_payload,
@@ -4193,7 +4193,7 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF v3 rejects invalid metadata with
     input.unref();
     const uint32_t payload_start = 16 + 60 + 16;
     const uint32_t offsets[] = { 0, 4, 8, 12, 16, 20, 24, 28 };
-    const uint32_t invalid_values[] = { 1, 2, 144, 3, 4, 22, 4, 1 };
+    const uint32_t invalid_values[] = { 1, 3, 144, 3, 4, 22, 4, 1 };
     for (uint32_t field = 0; field < 8; field++) {
         PackedByteArray invalid = original;
         encode_uint32(invalid_values[field], invalid.ptrw() + payload_start + offsets[field]);
@@ -4272,7 +4272,7 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF v3 rejects ambiguous chunks and 
     const PackedByteArray original = file->get_buffer(file->get_length());
     file.unref();
     const int header_size = 76;
-    const int gaussian_size = 16 + 32 + 2 * (132 + 21 * 12);
+    const int gaussian_size = 16 + 32 + 2 * (136 + 21 * 12);
     const int eof_offset = header_size + gaussian_size;
     if (original.size() != eof_offset + 16) {
         FAIL("Seed must use the documented uncompressed v3 structure");
@@ -4324,14 +4324,14 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF v3 bounds in-memory staging sepa
     }
     Ref<GaussianData> source;
     source.instantiate();
-    source->resize(100);
+    source->resize(97);
     GaussianSplatting::GaussianSceneSerializer serializer;
     serializer.set_compression_type(GaussianSplatting::CompressionType::NONE);
     if (serializer.save_scene(path, source.ptr()) != OK) {
         FAIL("Valid seed save failed");
         return;
     }
-    // The complete 13232-byte wire payload fits; the 14400-byte staging ABI does not.
+    // The complete 13224-byte wire payload fits; the 13968-byte staging ABI does not.
     GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(13300);
     Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
     const uint64_t revision = target->get_content_revision();

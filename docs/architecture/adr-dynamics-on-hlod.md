@@ -671,6 +671,7 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 | Item | From | To | Old files |
 | --- | --- | --- | --- |
 | `GAUSSIAN_STRUCT_LAYOUT_VERSION` | 1 | 2 (`_padding` → `uint32_t semantic`) | Layout 1 loads with the word forced to 0. |
+| GSF canonical payload schema | 1 (132-byte records) | 2 (136-byte records carrying `semantic`) | Schema 1 loads with semantic forced to 0. |
 | GSQ codec id | 1 | 2 (adds semantic planes) | v1 decodes with the word = 0. |
 | V4 node record | reserved word = 0 | `max_wind_weight` | 0 = no wind bound needed. |
 | Auto-tree `tree_sha` | codec v1 | codec v2 | Stale by key; rebuilt. |

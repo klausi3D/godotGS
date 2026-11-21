@@ -648,27 +648,27 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] begin_plain refuses specs t
 	LocalVector<Case> cases;
 	{
 		// The D-12 block is valid, but bit 7 needs the chunk table: it is the page directory (W11).
-		Case c{ "codec GSQ v1 without the chunk table", good, gs_world_writer::gsq_v1_codec_params(), ERR_INVALID_PARAMETER };
+		Case c{ "codec GSQ v2 without the chunk table", good, gs_world_writer::gsq_v2_codec_params(), ERR_INVALID_PARAMETER };
 		cases.push_back(c);
 	}
 	{
-		Case c{ "codec GSQ v1 with an out-of-range field", good, gs_world_writer::gsq_v1_codec_params(), ERR_INVALID_PARAMETER };
+		Case c{ "codec GSQ v2 with an out-of-range field", good, gs_world_writer::gsq_v2_codec_params(), ERR_INVALID_PARAMETER };
 		c.codec.sh_bits[2] = 9;
 		cases.push_back(c);
 	}
 	{
-		Case c{ "codec GSQ v1 with fields left zero", good, CodecParams(), ERR_INVALID_PARAMETER };
-		c.codec.codec_id = 1;
+		Case c{ "codec GSQ v2 with fields left zero", good, CodecParams(), ERR_INVALID_PARAMETER };
+		c.codec.codec_id = gs_world_writer::kCodecGsqV2;
 		cases.push_back(c);
 	}
 	{
-		Case c{ "codec GSQ v1 at SH degree 4", good, gs_world_writer::gsq_v1_codec_params(), ERR_INVALID_PARAMETER };
+		Case c{ "codec GSQ v2 at SH degree 4", good, gs_world_writer::gsq_v2_codec_params(), ERR_INVALID_PARAMETER };
 		c.spec.sh_degree = 4;
 		cases.push_back(c);
 	}
 	{
 		Case c{ "unknown codec", good, CodecParams(), ERR_UNAVAILABLE };
-		c.codec.codec_id = 2;
+		c.codec.codec_id = 3;
 		cases.push_back(c);
 	}
 	{

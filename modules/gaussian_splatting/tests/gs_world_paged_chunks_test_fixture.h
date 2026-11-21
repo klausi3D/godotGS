@@ -63,7 +63,7 @@ inline PCWorld pc_make(uint32_t p_degree) {
 
 inline Error pc_write(const PCWorld &p_w, SourceMode p_mode, const String &p_path, uint32_t *r_pages = nullptr, String *r_message = nullptr) {
 	Writer writer;
-	Error err = writer.begin_plain(p_path, p_w.spec, gs_world_writer::gsq_v1_codec_params(), p_mode, Limits::unbounded());
+	Error err = writer.begin_plain(p_path, p_w.spec, gs_world_writer::gsq_v2_codec_params(), p_mode, Limits::unbounded());
 	if (err == OK && writer.get_pass_count() != 1u) {
 		err = ERR_BUG; // the SH travels inside the pages: one pass in every mode
 	}

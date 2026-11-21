@@ -205,7 +205,7 @@ public:
 	// Adapter calls after ALL reconstruction/validation, before publication. IDs
 	// are source-local page/node ordinals; one entry per node, never per splat.
 	void record_decoded_content(uint64_t p_id, const Gaussian *p_gaussians, const Vector3 *p_sh,
-			uint32_t p_count, uint32_t p_sh_degree);
+			uint32_t p_count, uint32_t p_sh_degree, uint32_t p_codec_id = gs_gsq::kCodecId);
 	bool uses_retained_admission() const;
 	void record_node_load(uint64_t p_record_verify_nsec, uint64_t p_node_load_nsec);
 

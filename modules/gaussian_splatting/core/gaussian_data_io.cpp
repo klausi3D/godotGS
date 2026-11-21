@@ -306,7 +306,7 @@ Error GaussianData::populate_from_asset(const Ref<GaussianSplatAsset> &p_asset) 
 
         g.normal = normals[i];
         g.stroke_age = stroke_ages[i];
-        g._padding = 0.0f;
+        g.semantic = 0u;
         g.brush_axes = brush_axes[i];
         g.painterly_meta = gaussian_pack_painterly_meta(
                 uint16_t(CLAMP(palette_ids[i], 0, 65535)),
@@ -373,6 +373,10 @@ Error GaussianData::save_to_file(const String &p_path, bool p_include_painterly_
         }
     }
 
+    for (const Gaussian &g : snapshot.gaussians) {
+        ERR_FAIL_COND_V_MSG(g.semantic != 0u, ERR_UNAVAILABLE,
+                "semantic_export_unsupported: PLY export cannot carry the semantic word; save GSF or gsplatworld.");
+    }
     const uint32_t high_order_slots = uint32_t(SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL) - SAVE_TO_FILE_SH_FIRST_ORDER_TERMS;
     if (snapshot.sh_high_order_count > high_order_slots) {
         // A PLY has room for degree 3 (15 non-DC terms). Anything above that cannot

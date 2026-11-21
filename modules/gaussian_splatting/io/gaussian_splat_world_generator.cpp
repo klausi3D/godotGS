@@ -97,10 +97,10 @@ Dictionary GaussianSplatWorldGenerator::generate(const Dictionary &p_params, con
 	}
 	gs_world_generator::GenerateOptions options;
 	options.print_progress = p_print_progress;
-	if (p_codec == "gsq_v1") {
-		options.codec_id = gs_world_writer::kCodecGsqV1;
+	if (p_codec == "gsq_v1" || p_codec == "gsq_v2") {
+		options.codec_id = p_codec == "gsq_v1" ? gs_world_writer::kCodecGsqV1 : gs_world_writer::kCodecGsqV2;
 	} else if (p_codec != "none") {
-		return error_dict("codec must be \"none\" or \"gsq_v1\"");
+		return error_dict("codec must be \"none\" or \"gsq_v2\"");
 	}
 	for (int64_t i = 0; i < p_chunk_selection.size(); i++) {
 		const int64_t c = p_chunk_selection[i];

@@ -29,7 +29,7 @@ _spec.loader.exec_module(vwm)
 
 SH_HIGH = 12
 FLAT_CODEC = {"codec_id": 0, "sh_bits": [0, 0, 0], "opacity_bits": 0, "pos_step_m": 0.0, "zstd_level": 0}
-GSQ_CODEC = {"codec_id": 1, "sh_bits": [6, 5, 5], "opacity_bits": 16, "pos_step_m": 0.00025, "zstd_level": 3}
+GSQ_CODEC = {"codec_id": 2, "sh_bits": [6, 5, 5], "opacity_bits": 16, "pos_step_m": 0.00025, "zstd_level": 3}
 
 
 def build_world(directory: Path, tier: str = "test", counts=(3, 5, 2)) -> Path:
@@ -158,7 +158,7 @@ def build_paged_world(directory: Path, counts=(3, 5, 2), pages=(1, 2, 1)) -> Pat
     struct.pack_into("<I", body, 52, len(counts))
     struct.pack_into("<6Q", body, 56, chunks[0]["pages_offset"], 0, ct_off, 0, md_off, len(metadata))
     struct.pack_into("<2I", body, 104, vwm.LAYOUT_VERSION, 0)
-    struct.pack_into("<I4BfiIIQ", body, vwm.PREFIX_BYTES, 1, 6, 5, 5, 16, 0.00025, 3, page_index, vwm.PAGE_ALIGNMENT, pt_off)
+    struct.pack_into("<I4BfiIIQ", body, vwm.PREFIX_BYTES, GSQ_CODEC["codec_id"], 6, 5, 5, 16, 0.00025, 3, page_index, vwm.PAGE_ALIGNMENT, pt_off)
     blob = bytes(body) + bytes(records) + bytes(page_records) + metadata
     world = directory / "world.gsplatworld"
     world.write_bytes(blob)
@@ -169,7 +169,7 @@ def build_paged_world(directory: Path, counts=(3, 5, 2), pages=(1, 2, 1)) -> Pat
         "schema": vwm.MANIFEST_SCHEMA, "generator_params": params, "generator_params_sha": params_sha,
         "gen_sha": gen_sha, "gen_sha_inputs": gen_inputs, "content_table": table, "chunks": chunks,
         "writer": {"codec": dict(GSQ_CODEC)},
-        "codec": {"codec_id": 1, "page_count": page_index, "pages_stored_bytes": stored_total,
+        "codec": {"codec_id": 2, "page_count": page_index, "pages_stored_bytes": stored_total,
                   "decoded_digest_set_sha256": decoded_set.hexdigest()},
         "world": {"file_bytes": len(blob), "file_sha256": hashlib.sha256(blob).hexdigest(), "splat_count": n,
                   "chunk_count": len(counts), "sh_degree": 3, "sh_first_order": 3, "sh_high_order": SH_HIGH},
@@ -345,7 +345,7 @@ def build_v4_structure_world(directory: Path) -> Path:
     generation = 1234567890123456789
     header = bytearray(header_bytes)
     struct.pack_into("<16I", header, 0, 0x57505347, 4, 0, header_bytes, 4096,
-                     index_bytes, 256, 1, 2, 1, 3, 0, 0, 0, 1, 1)
+                     index_bytes, 256, vwm.LAYOUT_VERSION, 2, 1, 3, 0, 0, 0, 1, GSQ_CODEC["codec_id"])
     struct.pack_into("<3d6f", header, 64, 0, 0, 0, -1, -1, -1, 2, 2, 2)
     struct.pack_into("<8Q", header, 112, header_bytes, 1, payload_offset,
                      3 * payload_bytes, 0, 0, payload_offset + 3 * payload_bytes, generation)
@@ -356,7 +356,7 @@ def build_v4_structure_world(directory: Path) -> Path:
         body = bytes((i * 47 + j) % 251 for j in range(160))
         envelope = bytearray(64)
         struct.pack_into("<4I4QI", envelope, 0, 0x504E5347, i, 1, 0,
-                         144, 0, generation, 0 if i == 0 else i - 1, 1)
+                         144, 0, generation, 0 if i == 0 else i - 1, vwm.LAYOUT_VERSION)
         record = bytes(envelope) + body
         digest = hashlib.sha256(record).digest()
         entry = 64 + i * 256

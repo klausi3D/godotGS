@@ -26,7 +26,7 @@ struct PackedGaussian {
     vec3 position;
     float opacity;
     vec3 scale;
-    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
+    uint semantic;  // std430 keeps rotation at offset 32; was `area` (never read)
     vec4 rotation;
     vec4 sh_dc;
     uint sh_encoded[24];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals

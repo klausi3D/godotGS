@@ -436,7 +436,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] the reader fails closed w
 		expect_open("payload record size inflated", f, "v4_payload_record_size_inconsistent", ERR_FILE_CORRUPT);
 
 		f = good;
-		wr64(f, index_record_at(f, 0) + 120, 1u); // reserved word must be zero
+		wr64(f, index_record_at(f, 0) + 120, uint64_t(1) << 8); // low byte is max_wind_weight; upper 56 bits remain reserved
 		reseal(f);
 		expect_open("reserved node field set", f, "v4_nonzero_reserved_node_record", ERR_FILE_CORRUPT);
 
@@ -780,7 +780,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] every remaining header, i
 	expect("page geometry", f, "v4_unexpected_page_geometry", ERR_FILE_CORRUPT);
 
 	// Header word 60 became the codec id in BV-C4.
-	for (uint32_t codec : { 2u, 0xFFFFFFFFu }) {
+	for (uint32_t codec : { 3u, 0xFFFFFFFFu }) {
 		f = good;
 		wr32(f, 60, codec);
 		reseal_header_only(f);

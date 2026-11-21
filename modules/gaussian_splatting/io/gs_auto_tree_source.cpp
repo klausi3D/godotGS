@@ -104,8 +104,10 @@ Error GsqAutoTreeSource::open(const String &p_path, String *r_error, uint64_t p_
 	validated_source.unref();
 	world.unref();
 
-	file->seek(gs_world_format::kPrefixBytes + 4u);
+	file->seek(gs_world_format::kPrefixBytes);
+	const uint32_t codec_id = file->get_32();
 	gs_gsq::EncodeParams params;
+	params.codec_id = codec_id;
 	for (int axis = 0; axis < 3; ++axis) {
 		params.sh_bits[axis] = file->get_8();
 	}
@@ -240,7 +242,7 @@ Error GsqAutoTreeSource::read_chunk(uint32_t p_chunk, gs_hlod::TiledBakeChunk &r
 	if (gs_gsq::verify_page(stored.ptr(), page.stored_bytes, decoded_info, reason) != OK) {
 		return fail(ERR_FILE_CORRUPT, reason, r_error);
 	}
-	bool matches = decoded_info.splat_count == page.chunk.splat_count && decoded_info.stored_bytes == page.stored_bytes &&
+	bool matches = decoded_info.codec_id == codec_params.codec_id && decoded_info.splat_count == page.chunk.splat_count && decoded_info.stored_bytes == page.stored_bytes &&
 			decoded_info.sh_degree == sh_degree && decoded_info.opacity_bits == codec_params.opacity_bits &&
 			std::memcmp(decoded_info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
 			std::memcmp(decoded_info.position_min, page.extent, sizeof(float) * 3u) == 0 &&
@@ -268,7 +270,7 @@ Error GsqAutoTreeSource::read_chunk(uint32_t p_chunk, gs_hlod::TiledBakeChunk &r
 	}
 	uint8_t digest[gs_gsq::kDigestBytes];
 	gs_gsq::decoded_digest(output.gaussians.ptr(), output.sh_high_order.is_empty() ? nullptr : output.sh_high_order.ptr(),
-			page.chunk.splat_count, sh_degree, digest);
+			page.chunk.splat_count, sh_degree, digest, codec_params.codec_id);
 	{
 		MutexLock lock(stats_mutex);
 		++stats.pages_decoded;

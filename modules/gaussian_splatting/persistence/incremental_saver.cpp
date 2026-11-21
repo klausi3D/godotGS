@@ -47,7 +47,7 @@ bool _color_different(const Color &a, const Color &b) {
 // _track_splat_change() records only position/sh_dc/opacity/scale/rotation, so a change
 // touching any of these other Gaussian fields cannot be expressed incrementally. Detect
 // it so the saver can fail closed instead of silently dropping the field on reload.
-// (_padding / _padding2 are alignment only and intentionally ignored.)
+// Only _padding2 remains alignment storage. Semantic changes require a full save.
 bool _gaussian_unsupported_field_changed(const Gaussian &a, const Gaussian &b) {
     if (!Math::is_equal_approx(a.area, b.area)) {
         return true;
@@ -69,7 +69,7 @@ bool _gaussian_unsupported_field_changed(const Gaussian &a, const Gaussian &b) {
     if (a.painterly_meta != b.painterly_meta) {
         return true;
     }
-    if (a.render_meta != b.render_meta) {
+    if (a.semantic != b.semantic || a.render_meta != b.render_meta) {
         return true;
     }
     return false;

@@ -2926,6 +2926,9 @@ class HlodProbe(unittest.TestCase):
              '\t\t\t"hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total",\n'
              '\t\t\t"hlod_drawn_nodes_paged", "hlod_drawn_nodes_contiguous", "hlod_drawn_nodes_paged_total", "hlod_drawn_nodes_contiguous_total",\n'
              '\t\t\t"hlod_stream_page_table_publish_refusals_total", "hlod_stream_page_table_publish_refusals_this_frame"]:\n'),
+            # WP3 B1 (ADR dynamics-on-HLOD 9): GSQ codec 2 is also "gsq"; any other id stays "unknown".
+            ('int(codec_params.get("codec_id", -1)) == 1 else "unknown",\n',
+             'int(codec_params.get("codec_id", -1)) in [1, 2] else "unknown",\n'),
         )
         for before, after in additions:
             self.assertEqual(baseline.count(before), 1, "telemetry pin must match exactly one immutable anchor")

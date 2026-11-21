@@ -460,6 +460,7 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
             interior_extent.sh_high_order_count = hlod_tree.sh_high_order_count;
             interior_extent.interior_file_path = hlod_tree.interior_file_path;
             interior_extent.interior_gaussian_offset = hlod_tree.interior_gaussian_offset;
+            interior_extent.interior_gaussian_layout_version = hlod_tree.interior_gaussian_layout_version;
             interior_extent.interior_sh_offset = hlod_tree.interior_sh_offset;
             load_interior = true;
         }

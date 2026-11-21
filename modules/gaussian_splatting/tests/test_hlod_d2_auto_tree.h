@@ -170,7 +170,7 @@ struct Fixture {
 	// p_near_plane selects the plain chunks that touch the x = 0 or z = 0 plane
 	// instead: their splats sit close to a coordinate plane, where a leaf's
 	// node-relative float32 position does not reconstruct bit-exactly (#1432).
-	bool create(uint32_t p_total = 32768, uint32_t p_codec = gs_world_writer::kCodecGsqV1, int64_t p_seed_delta = 0, bool p_near_plane = false) {
+	bool create(uint32_t p_total = 32768, uint32_t p_codec = gs_world_writer::kCodecGsqV2, int64_t p_seed_delta = 0, bool p_near_plane = false) {
 		static uint32_t sequence = 0;
 		dir = OS::get_singleton()->get_temp_path().path_join("gs_d2_auto_" + itos(OS::get_singleton()->get_ticks_usec()) + "_" + itos(sequence++));
 		scratch = dir.path_join("scratch");
@@ -531,7 +531,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ to codec-none V4 equals in
 // exactly that reconstructed payload, not the pre-store absolute input.
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Codec-none auto-tree reopens near-plane leaves whose positions do not round-trip exactly") {
 	Fixture fixture;
-	D2_AUTO_NEED(fixture.create(262144, gs_world_writer::kCodecGsqV1, 0, true));
+	D2_AUTO_NEED(fixture.create(262144, gs_world_writer::kCodecGsqV2, 0, true));
 	D2_AUTO_NEED(fixture.generated.splat_count > 0);
 	Resident resident;
 	D2_AUTO_NEED(resident.load(fixture));
@@ -646,7 +646,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Worker schedule preserves V4 b
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Manifest hash pins sources frozen parameters and input bytes") {
 	Fixture fixture, changed;
 	D2_AUTO_NEED(fixture.create());
-	D2_AUTO_NEED(changed.create(32768, gs_world_writer::kCodecGsqV1, 1));
+	D2_AUTO_NEED(changed.create(32768, gs_world_writer::kCodecGsqV2, 1));
 	String original_sha;
 	for (int variant = 0; variant < 4; ++variant) {
 		Dictionary options = fixture.options();
@@ -991,14 +991,14 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound GSQ auto-tree output rec
 		const PackedByteArray bytes = FileAccess::get_file_as_bytes(output);
 		D2_AUTO_NEED(bytes.size() >= int64_t(gs_world_paged::kHeaderBytes));
 		CHECK(decode_uint32(bytes.ptr() + 4) == 4u);
-		CHECK(decode_uint32(bytes.ptr() + 60) == (String(name) == "gsq" ? 1u : 0u));
+		CHECK(decode_uint32(bytes.ptr() + 60) == (String(name) == "gsq" ? 2u : 0u));
 		const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(output));
 		D2_AUTO_NEED(!manifest.is_empty());
 		const Dictionary codec = manifest.get("codec", Dictionary());
 		CHECK(String(codec.get("codec", "")) == name);
 		if (String(name) == "gsq") {
 			// Flat CodecParams block, using the generator's existing field names.
-			const gs_world_writer::CodecParams params = gs_world_writer::gsq_v1_codec_params();
+			const gs_world_writer::CodecParams params = gs_world_writer::gsq_v2_codec_params();
 			CHECK(double(codec.get("codec_id", -1)) == double(params.codec_id));
 			const Array bits = codec.get("sh_bits", Array());
 			D2_AUTO_NEED(bits.size() == 3);
@@ -1059,7 +1059,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 	D2_AUTO_NEED(oracle.tree.interior_sh_high_order.size() == uint64_t(oracle.tree.interior_splat_count) * resident.high);
 	D2_AUTO_NEED(oracle.tree.interior_splat_count > 0);
 	gs_gsq::EncodeParams encode_params;
-	D2_AUTO_NEED(gs_world_writer::gsq_encode_params(gs_world_writer::gsq_v1_codec_params(), encode_params, reason) == OK);
+	D2_AUTO_NEED(gs_world_writer::gsq_encode_params(gs_world_writer::gsq_v2_codec_params(), encode_params, reason) == OK);
 	gs_gsq::DecodeContext decoder;
 
 	Ref<GaussianSplatHlodPagedSource> paged;
@@ -1118,7 +1118,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 		gs_gsq::PageInfo page_info;
 		D2_AUTO_NEED(gs_gsq::verify_page(page.ptr(), page.size(), page_info, reason) == OK);
 		D2_AUTO_NEED(TestGSQBounds::quantisation_budget(g, expected.payload_count, center, expected.is_leaf(), page_info,
-				gs_world_writer::gsq_v1_codec_params(), bounds_budget[i]));
+				gs_world_writer::gsq_v2_codec_params(), bounds_budget[i]));
 		D2_AUTO_NEED(decoder.decode_range(page.ptr(), page.size(), 0, expected.payload_count, decoded.ptr(), decoded_sh.ptr(), reason) == OK);
 		if (expected.is_leaf()) {
 			for (Gaussian &splat : decoded) {
@@ -1164,7 +1164,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree GSQ output refuses o
 	PackedByteArray bytes = FileAccess::get_file_as_bytes(output);
 	D2_AUTO_NEED(bytes.size() >= int64_t(gs_world_paged::kHeaderBytes));
 	CHECK(decode_uint32(bytes.ptr() + 4) == 4u);
-	CHECK(decode_uint32(bytes.ptr() + 60) == 1u);
+	CHECK(decode_uint32(bytes.ptr() + 60) == 2u);
 	// Pre-BV-C4 V4 readers require this reserved word to be zero.
 	const bool old_reader_accepts = decode_uint32(bytes.ptr() + 60) == 0u;
 	CHECK_FALSE(old_reader_accepts);

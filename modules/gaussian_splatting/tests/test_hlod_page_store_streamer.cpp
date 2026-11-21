@@ -469,6 +469,7 @@ static bool failure_root_descriptor(const TestHlodPageStore::Fixture &p_fixture,
 	r_page.stored_bytes = uint32_t(record.stored_bytes);
 	r_page.splat_count = record.topology.payload_count;
 	r_page.sh_degree = p_fixture.degree;
+	r_page.codec_params.codec_id = gs_world_writer::kCodecNone;
 	memcpy(r_page.stored_digest, record.digest, sizeof(r_page.stored_digest));
 	return true;
 }

@@ -175,6 +175,7 @@ struct GaussianSplatHlodTree {
 	LocalVector<Vector3> interior_sh_high_order;
 	String interior_file_path;
 	uint64_t interior_gaussian_offset = 0u;
+	uint32_t interior_gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION;
 	uint64_t interior_sh_offset = 0u;
 
 	bool is_empty() const { return nodes.is_empty(); }
