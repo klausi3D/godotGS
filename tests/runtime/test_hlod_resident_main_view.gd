@@ -640,6 +640,16 @@ func _wind_capture(node: GaussianSplatWorld3D, deadline: int) -> Image:
 
 
 func _run_streamed_wind_proof() -> bool:
+	# The proof renders at 128x128. Restore the root size so later sections (shadow casters, WI_SIZE) capture
+	# at the size they expect, on every exit path.
+	var previous_size := get_root().size
+	var ok: bool = await _run_streamed_wind_proof_body()
+	get_root().size = previous_size
+	await process_frame
+	return ok
+
+
+func _run_streamed_wind_proof_body() -> bool:
 	_cleanup()
 	await process_frame
 	get_root().size = Vector2i(128, 128)
