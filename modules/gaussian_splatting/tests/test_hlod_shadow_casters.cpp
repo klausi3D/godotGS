@@ -133,32 +133,6 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] newly admitted rows are coun
 	CHECK(entered_rows(previous, current) == 0u);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] swapping cast flags between byte-identical rows still refreshes positional shadows") {
-	// Assertion RED pre-P3: casting_rows alone is byte-identical when equal rows swap cast flags.
-	gs_shadow_refresh::PublishedContent content;
-	FrameRecord record;
-	record.valid = true;
-	record.draw_count = 2;
-	record.row_casts.push_back(1);
-	record.row_casts.push_back(0);
-	DrawnNodeGPU draws[2]{};
-	draws[1].instance_id = 1;
-	LocalVector<InstanceDataGPU> rows;
-	rows.push_back(InstanceDataGPU{});
-	rows.push_back(InstanceDataGPU{});
-	const uint64_t before = content.publish(record, draws, rows, 0);
-	CHECK(content.refresh_rows(record, rows) == before);
-	record.row_casts[0] = 0;
-	record.row_casts[1] = 1;
-	const uint64_t changed = content.refresh_rows(record, rows);
-	CHECK(changed > before);
-	CHECK(content.refresh_rows(record, rows) == changed);
-	// Returning to the original flags is another change even though the row payload remains identical.
-	record.row_casts[0] = 1;
-	record.row_casts[1] = 0;
-	CHECK(content.refresh_rows(record, rows) > changed);
-}
-
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a directional pass casts exactly the main view's draw list") {
 	const FrameRecord record = active_record();
 	const PassPlan plan = plan_pass(record, true, true);
@@ -872,7 +846,8 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] spot perspective casters mat
 		}
 		// Each forcing case must miss this independent receiver reference for every off-axis point.
 		const Vector3 ortho_sample = caster_atlas_sample(wrong_ortho, rect, world);
-		CHECK(std::fabs(ortho_sample.x - receiver.x) > uv_tolerance || std::fabs(ortho_sample.y - receiver.y) > uv_tolerance);
+		const bool ortho_misses_uv = std::fabs(ortho_sample.x - receiver.x) > uv_tolerance || std::fabs(ortho_sample.y - receiver.y) > uv_tolerance;
+		CHECK(ortho_misses_uv);
 		CHECK(std::fabs(ortho_sample.z - receiver.z) > depth_tolerance);
 		CHECK(std::fabs(caster_atlas_sample(wrong_flip, rect, world).y - receiver.y) > uv_tolerance);
 		CHECK(std::fabs(caster_atlas_sample(wrong_depth, rect, world).z - receiver.z) > depth_tolerance);
@@ -909,7 +884,7 @@ static Vector3 cube_caster_sample_after_copy(const Projection &p_clip, const Vec
 		const Vector2 &p_second_cell_offset, float p_atlas_size, float p_near, float p_range) {
 	const Vector3 face_sample = caster_atlas_sample(p_clip, Rect2(0, 0, 1, 1), p_relative_point);
 	const Vector3 face_ray(2.0f * face_sample.x - 1.0f, 1.0f - 2.0f * face_sample.y, -1.0f);
-	const Vector3 direction = (p_base_light.basis.inverse() * (p_face_light.basis * face_ray)).normalized();
+	const Vector3 direction = p_base_light.basis.inverse().xform(p_face_light.basis.xform(face_ray)).normalized();
 	const float major = std::fmax(std::fabs(direction.x), std::fmax(std::fabs(direction.y), std::fabs(direction.z)));
 	const double forward_depth = 2.0 * face_sample.z - 1.0;
 	const double near_plane = p_near;
@@ -1291,6 +1266,31 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] noncasting records cannot an
 	wind.strength = 1;
 	f.rows[1].params[2] = 1;
 	CHECK_FALSE(gs_wind::wind_active_on_casting_row(wind, f.rows[1], false));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] swapping cast flags between byte-identical rows still refreshes positional shadows") {
+	// WP6 (P3) case, rewritten for the per-light key of P1c: the same row payload and bounds, only the cast flags swap.
+	RefreshFixture f;
+	f.rows[1] = f.rows[0];
+	f.geometry[1].bounds = f.geometry[0].bounds;
+	f.record.row_casts[0] = 1;
+	f.record.row_casts[1] = 0;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+	f.record.row_casts[0] = 0;
+	f.record.row_casts[1] = 1;
+	f.publish();
+	const auto swapped = f.query(light);
+	CHECK(swapped.refresh);
+	light.commit(swapped);
+	CHECK_FALSE(f.query(light).refresh);
+	// Returning to the original flags is another change even though the row payload remains identical.
+	f.record.row_casts[0] = 1;
+	f.record.row_casts[1] = 0;
+	f.publish();
+	CHECK(f.query(light).refresh);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] wind and effectors refresh only casting records near the light") {
