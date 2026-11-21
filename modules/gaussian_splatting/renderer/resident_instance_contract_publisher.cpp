@@ -1752,7 +1752,9 @@ void GaussianSplatRenderer::release_hlod_resources(bool p_renderer_teardown) {
     state.clear_hlod_level_drawn();
     state.hlod_instance_draws.clear();
     frame_context_manager.clear_hlod_views();
-    publish_hlod_shadow_rows_snapshot();
+    if (!p_renderer_teardown) {
+        publish_hlod_shadow_rows_snapshot();
+    }
 }
 
 bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {

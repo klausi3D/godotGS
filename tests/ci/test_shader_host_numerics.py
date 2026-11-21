@@ -592,9 +592,13 @@ class ShadowCasterCurrentRowsTests(unittest.TestCase):
 
     def test_release_retains_same_frame_refusal_before_destroying_the_latched_bundle(self):
         publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
-        match = re.search(r"void GaussianSplatRenderer::release_hlod_resources\(\)\s*\{(.*?)\n\}", publisher, re.S)
+        match = re.search(r"void GaussianSplatRenderer::release_hlod_resources\(bool p_renderer_teardown\)\s*\{(.*?)\n\}", publisher, re.S)
         self.assertIsNotNone(match)
         release = match.group(1)
+        # Renderer teardown may outlive RSG::rasterizer (freed without nulling): it neither retains a refusal nor
+        # publishes a snapshot that reads the server frame. Every other release keeps the retention below.
+        self.assertIn("p_renderer_teardown ? UINT64_MAX :", release)
+        self.assertIn("if (!p_renderer_teardown) {\n        publish_hlod_shadow_rows_snapshot();", release)
         retained = re.search(r"retained_refusal_frame\(\s*hlod_shadow_rows_latched\(\),\s*hlod_shadow_colour_refused\(\),\s*"
                              r"state\.hlod_shadow_rows_server_frame,\s*state\.hlod_shadow_rows_contract_refused_frame\)", release)
         self.assertIsNotNone(retained, "resource teardown must capture this frame's terminal refusal before clearing its latch")
