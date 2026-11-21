@@ -650,6 +650,35 @@ TEST_CASE("[Gaussian Diagnostics] BV-04b accumulator keeps per-pass frame serial
     CHECK(snap.coherent_total_ms == doctest::Approx(4.0f));
 }
 
+TEST_CASE("[Gaussian Diagnostics] HLOD shaped timings cannot certify their own dispatched pass record") {
+    // The active HLOD route has no standalone cull dispatch. Its fine GPU rejection
+    // is already timed as projection. Durations alone do not prove what was dispatched.
+    PassTimingAccumulator acc;
+    FrameDurations frame;
+    frame.has_data = true;
+    frame.serial = 34;
+    for (uint32_t i = PASS_PROJECTION; i < PIPELINE_PASS_COUNT; i++) {
+        frame.valid[i] = true;
+        frame.ms[i] = 1.0;
+    }
+    acc.ingest(frame, 100);
+    const PassTimingSnapshot &snapshot = acc.get_snapshot();
+    CHECK(snapshot.coherent_pass_mask == (ALL_PIPELINE_PASSES_MASK & ~(1u << PASS_CULL)));
+    CHECK_FALSE(snapshot.valid[PASS_CULL]);
+    CHECK_FALSE(snapshot.all_bv04b_passes_coherent()); // Preserve the global BV-04b rule.
+
+    Dictionary metrics;
+    append_to_dictionary(metrics, snapshot);
+    const Dictionary timing = metrics.get("gpu_pass_timing", Dictionary());
+    // RED by assertion, using the existing API. A future explicit frame-record API
+    // is needed for a positive HLOD host case; never infer dispatch from valid timings.
+    CHECK(timing.has("coherent_route"));
+    CHECK(timing.has("coherent_dispatch_frame_serial"));
+    CHECK(timing.has("coherent_dispatched_pass_mask"));
+    CHECK(timing.has("coherent_has_all_route_passes"));
+    CHECK_FALSE(bool(timing.get("coherent_has_all_route_passes", true)));
+}
+
 TEST_CASE("[Gaussian Diagnostics] BV-04b telemetry dictionary publishes every pass, flat BV-04b keys and the coherent frame") {
     PassTimingAccumulator acc;
     FrameDurations frame;

@@ -599,6 +599,99 @@ class CapturedTrace(unittest.TestCase):
         self.assertEqual(fresh, [])
         self.assertGreater(counts["incomplete_mask"], 0)
 
+    def _with_gpu_frame_record(self, route=2, missing_pass=None, omit_dispatch=False, serial_delta=0):
+        """Proposed policy inputs over captured timings, NOT a new producer-format fixture.
+
+        Route 1 keeps a standalone GPU cull; route 2 is HLOD, whose GPU rejection is
+        included in projection. The appended record is deliberately constructed to
+        specify the future contract; no claim that the captured driver emitted it.
+        """
+        tr = ps.read_trace(self.path_trace)
+        dispatched = (1 << len(ps.PASS_NAMES)) - 1
+        if route == 2:
+            dispatched &= ~(1 << ps.PASS_NAMES.index("cull"))
+        missing_bit = 0 if missing_pass is None else 1 << ps.PASS_NAMES.index(missing_pass)
+        declared = dispatched & ~missing_bit if omit_dispatch else dispatched
+        rows = []
+        for row in tr.rows:
+            values = list(row)
+            mask = tr.get(row, "coherent_pass_mask") & dispatched & ~missing_bit
+            values[tr.index["coherent_pass_mask"]] = mask
+            values[tr.index["coherent_all_bv04b"]] = int(mask & ps.BV04B_PASSES_MASK == ps.BV04B_PASSES_MASK)
+            values[tr.index["coherent_total_ms"]] = sum(
+                tr.get(row, f"{name}_ms") for bit, name in enumerate(ps.PASS_NAMES) if mask & (1 << bit)
+            )
+            if route == 2:
+                values[tr.index["cull_ms"]] = 0.0  # Invalid storage, never a GPU measurement.
+                values[tr.index["pass_valid_mask"]] &= ~1
+            rows.append(tuple(values) + (route, tr.get(row, "coherent_frame_serial") + serial_delta, declared))
+        fields = ["coherent_route", "coherent_dispatch_frame_serial", "coherent_dispatched_pass_mask"]
+        return ps.Trace(tr.fields + fields, tr.types + "qqq", rows, 0)
+
+    def _route_moving_gpu(self, tr):
+        m = manifest()
+        path = pp.resolve_path(m)
+        truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+        summary = rp.summarise_path(tr, self.run_of(self.path_trace, self.path_result), path, truth, 1)
+        return summary["passes"][0]["moving_gpu"]
+
+    def test_hlod_gpu_frame_record_produces_moving_pass_values(self) -> None:
+        """RED: the observed 0x3fe shape is coherent with a same-frame HLOD dispatch record."""
+        tr = self._with_gpu_frame_record()
+        gpu = self._route_moving_gpu(tr)
+        self.assertGreater(gpu["freshness"]["fresh"], 0, gpu["freshness"])
+        moving = ps.rows_where(tr, phase=0, pass_index=0, state=ps.STATE_MOVING)
+        mask = (1 << len(ps.PASS_NAMES)) - 2
+        expected = [i for i in moving if i > 0 and tr.get(tr.rows[i], "coherent_frame_serial") != 0
+                    and tr.get(tr.rows[i], "coherent_pass_mask") == mask
+                    and tr.get(tr.rows[i], "coherent_resolve_usec") > tr.get(tr.rows[i - 1], "coherent_resolve_usec")
+                    and tr.get(tr.rows[i], "coherent_frame_serial") != tr.get(tr.rows[i - 1], "coherent_frame_serial")]
+        self.assertEqual(gpu["freshness"]["fresh"], len(expected))
+        for name in ps.PASS_NAMES[1:]:
+            entry = gpu["passes"][name]
+            self.assertEqual(entry["mean"]["status"], ps.OK, (name, entry))
+            self.assertEqual(entry["samples"], len(expected))
+            self.assertAlmostEqual(entry["mean"]["value"], ps.mean([tr.get(tr.rows[i], f"{name}_ms") for i in expected]))
+
+    def test_gpu_frame_record_complete_canonical_still_has_cull(self) -> None:
+        gpu = self._route_moving_gpu(self._with_gpu_frame_record(route=1))
+        self.assertGreater(gpu["freshness"]["fresh"], 0, gpu["freshness"])
+        self.assertEqual(gpu["passes"]["cull"]["mean"]["status"], ps.OK)
+        self.assertGreater(gpu["passes"]["cull"]["mean"]["value"], 0)
+
+    def test_hlod_gpu_cull_is_explicitly_not_applicable(self) -> None:
+        cull = self._route_moving_gpu(self._with_gpu_frame_record())["passes"]["cull"]
+        self.assertEqual(cull["status"], "NOT_APPLICABLE", cull)
+        self.assertIsNone(cull.get("value"))
+        self.assertNotIn("mean", cull)
+        self.assertIn("projection", cull["reason"])
+
+    def test_gpu_frame_record_missing_dispatched_raster_is_missing(self) -> None:
+        """Raster is outside BV04b's four bits: retaining those bits must not hide its loss."""
+        for route in (1, 2):
+            with self.subTest(route=route):
+                gpu = self._route_moving_gpu(self._with_gpu_frame_record(route, missing_pass="raster"))
+                self.assertEqual(gpu["freshness"]["fresh"], 0, gpu["freshness"])
+                self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+                self.assertEqual(gpu["passes"]["projection"]["status"], ps.MISSING)
+
+    def test_gpu_frame_record_cannot_omit_a_route_required_dispatch(self) -> None:
+        for route, required in ((1, "cull"), (2, "projection")):
+            with self.subTest(route=route, required=required):
+                gpu = self._route_moving_gpu(self._with_gpu_frame_record(route, required, omit_dispatch=True))
+                self.assertEqual(gpu["freshness"]["fresh"], 0)
+                self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_gpu_frame_record_from_another_serial_is_missing(self) -> None:
+        gpu = self._route_moving_gpu(self._with_gpu_frame_record(route=1, serial_delta=1))
+        self.assertEqual(gpu["freshness"]["fresh"], 0, gpu["freshness"])
+        self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_gpu_frame_record_unknown_route_is_not_legacy_evidence(self) -> None:
+        gpu = self._route_moving_gpu(self._with_gpu_frame_record(route=99))
+        self.assertEqual(gpu["freshness"]["fresh"], 0, gpu["freshness"])
+        self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
     def test_settings_drift_fires_on_a_revision_change(self) -> None:
         tr = ps.read_trace(self.sweep_trace)
         # The measured rows (ADR V7 "in every measured frame"); the load frames before
