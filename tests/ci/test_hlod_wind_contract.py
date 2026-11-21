@@ -46,7 +46,11 @@ class HlodWindContract(unittest.TestCase):
     def test_gpu_case_runs_inside_existing_ci_scenario(self):
         scenario = (ROOT / "tests/runtime/test_hlod_resident_main_view.gd").read_text()
         self.assertIn("await _run_streamed_wind_proof()", body_gd(scenario, "_run"))
-        proof = body_gd(scenario, "_run_streamed_wind_proof")
+        wrapper = body_gd(scenario, "_run_streamed_wind_proof")
+        # The wrapper restores the root size so later sections capture at WI_SIZE.
+        self.assertIn("await _run_streamed_wind_proof_body()", wrapper)
+        self.assertIn("get_root().size = previous_size", wrapper)
+        proof = body_gd(scenario, "_run_streamed_wind_proof_body")
         for signal in ("has_hlod_paged_source", "wind_enabled", "get_data()", "wind_off_identical",
                        "legacy_static", "wind_on_moved"):
             self.assertIn(signal, proof)
