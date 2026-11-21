@@ -2,6 +2,9 @@ extern "C" int test_hlod_view_set_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_view_set.h"
 #include "../renderer/render_frame_context_manager.h"
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 
 // ADR 14.1 / 14.2 / 6.9: stable node identity, per-view cuts and one shared residency budget. CPU only.
@@ -1597,6 +1600,134 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] the view set never publishes a stale 
 		} else {
 			CHECK(records[i].version == (NodeVersion{ 7, 1 }));
 		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] wind bound inflation keeps a displaced node at the frustum edge, with a forcing control") {
+	// The same rest node is invisible with zero margin and visible once its displacement envelope reaches x=0.
+	// This test-only environment switch makes the positive assertion fail through the real selector; it changes
+	// no shipping setting or production branch. Run with GODOTGS_TEST_DISABLE_WIND_BOUND_INFLATION=1 to force RED.
+	const char *forcing = std::getenv("GODOTGS_TEST_DISABLE_WIND_BOUND_INFLATION");
+	for (const double scale : { 1.0, 4.0 }) {
+		auto tree = make_tree(IDENT);
+		tree->nodes.resize(1); // A single root has no child dependency to hide the culling result.
+		auto &node = tree->nodes.write[0];
+		node.topology.child_count = 0;
+		node.topology.radius = 0.5f;
+		node.topology.aabb_min = Vector3(-0.5, -0.5, -0.5);
+		node.topology.aabb_max = Vector3(0.5, 0.5, 0.5);
+		node.bounds_center = Vector3(0.9, 0, 0);
+		for (const bool enabled : { false, true }) {
+			auto snap = snapshot(tree);
+			snap.instances.write[0].placement.basis = Basis().scaled(Vector3(scale, scale, scale));
+			snap.instances.write[0].displacement_margin = enabled && !(forcing && std::strcmp(forcing, "1") == 0) ? 0.25 * scale : 0.0;
+			ViewSpec spec = box_view(1);
+			spec.camera = Vector3(0, 0, 10 * scale);
+			snap.views.push_back(spec);
+			ViewSet set;
+			if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("edge-case view was not admitted"); return; }
+			Vector<ViewSet::ViewResult> results;
+			CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+			const auto *result = result_of(results, 1);
+			if (!result) { FAIL("edge-case result missing"); return; }
+			CHECK(result->readiness == ViewSet::READY);
+			if (enabled) {
+				CHECK(same(nodes_of(set, 1), { 0 })); // FORCING: zero inflation must turn this assertion red.
+			} else {
+				CHECK(nodes_of(set, 1).is_empty()); // The control really is culled.
+			}
+		}
+		// The source snapshot is immutable: an opted-in row never changes the bounds used by other rows.
+		CHECK(tree->nodes[0].topology.radius == 0.5f);
+		CHECK(tree->nodes[0].topology.aabb_min == Vector3(-0.5, -0.5, -0.5));
+		CHECK(tree->nodes[0].topology.aabb_max == Vector3(0.5, 0.5, 0.5));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] wind inflation participates in screen error and changed margins update an admitted cut") {
+	auto tree = make_tree(IDENT);
+	tree->nodes.resize(3);
+	for (uint32_t i = 0; i < 3; ++i) {
+		auto &node = tree->nodes.write[i];
+		node.bounds_center = Vector3();
+		node.topology.radius = i == 0 ? 1.0f : 0.5f;
+		node.topology.geometric_error = i == 0 ? 1.0f : 0.0f;
+		node.topology.payload_count = 2;
+		node.topology.child_count = i == 0 ? 2 : 0;
+	}
+	auto snap = snapshot(tree);
+	snap.instances.write[0].displacement_margin = 0.01;
+	ViewSpec spec = perspective(1);
+	spec.tau_pixels = 9; // 100/(10-1.0173) < 1.25*tau; 100/(10-1.1732) > 1.25*tau.
+	snap.views.push_back(spec);
+	ViewSet set;
+	if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("screen-error view was not admitted"); return; }
+	Vector<ViewSet::ViewResult> results;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	CHECK(same(nodes_of(set, 1), { 0 }));
+	const uint64_t allocated = set.allocated_bytes();
+	snap.instances.write[0].displacement_margin = 0.1;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	CHECK(same(nodes_of(set, 1), { 1, 2 }));
+	CHECK(set.allocated_bytes() == allocated); // A changed bound reuses its reserved node table.
+	CHECK(tree->nodes[0].topology.radius == 1.0f);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] wind inflation never decreases record estimates including inside and zero-radius nodes") {
+	for (const float radius : { 0.0f, 0.5f }) {
+		for (const float distance : { 0.0f, 0.5f, 2.0f, 10.0f }) {
+			auto tree = make_tree(IDENT);
+			tree->nodes.resize(1);
+			tree->nodes.write[0].topology.child_count = 0;
+			tree->nodes.write[0].topology.radius = radius;
+			tree->nodes.write[0].bounds_center = Vector3();
+			tree->nodes.write[0].footprint = 1;
+			double estimates[2] = {};
+			for (uint32_t leg = 0; leg < 2; ++leg) {
+				auto snap = snapshot(tree);
+				snap.instances.write[0].displacement_margin = leg ? 0.1 : 0;
+				ViewSpec spec = perspective(1);
+				spec.camera = Vector3(0, 0, distance);
+				spec.focal_pixels = 1.0e-5; // Keeps even the zero-radius, camera-at-centre control within the normal cap.
+				snap.views.push_back(spec);
+				ViewSet set;
+				if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("record-estimate view was not admitted"); return; }
+				Vector<ViewSet::ViewResult> results;
+				CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+				const auto *result = result_of(results, 1);
+				if (!result) { FAIL("record-estimate result missing"); return; }
+				CHECK(result->readiness == ViewSet::READY);
+				CHECK(same(nodes_of(set, 1), { 0 }));
+				estimates[leg] = result->estimated_records;
+				CHECK(std::isfinite(estimates[leg]));
+			}
+			CHECK(estimates[1] + 1.0e-12 >= estimates[0]);
+			if (distance == 10.0f) { CHECK(estimates[1] > estimates[0]); }
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] displaced selection tables are reserved before admission and invalid margins fail closed") {
+	auto tree = make_tree(IDENT);
+	uint64_t node_bytes = 0;
+	CHECK(allocation_bytes(7, sizeof(GaussianSplatHlodRuntimeData::Node), node_bytes));
+	const uint64_t overlay_bytes = node_bytes + sizeof(GaussianSplatHlodRuntimeData);
+	CHECK(ViewSet::slot_bytes(7, true) == ViewSet::slot_bytes(7) + overlay_bytes);
+	auto snap = snapshot(tree, 1000, 1000 + vb(1) + overlay_bytes - 1);
+	snap.instances.write[0].displacement_margin = 1;
+	ViewSet set;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::REFUSED_BUDGET);
+	snap.budget.physical_bytes += 1;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
+	ViewSet::Ledger ledger;
+	CHECK(set.ledger(snap, ledger));
+	CHECK(ledger.total() == snap.budget.physical_bytes);
+	for (const double invalid : { -1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN() }) {
+		auto bad = snap;
+		bad.instances.write[0].displacement_margin = invalid;
+		ViewSet other;
+		CHECK(other.admit_view(bad, perspective(1)).status == ViewSet::REFUSED_INVALID);
+		CHECK(other.select(bad) == ViewSet::SNAPSHOT_INVALID);
 	}
 }
 }

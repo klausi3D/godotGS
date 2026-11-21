@@ -2,6 +2,7 @@
 #include "../renderer/gpu_sorter.h"
 #include "../renderer/shader_compilation_helper.h"
 #include "../renderer/hlod_shadow_caster_plan.h"
+#include "../renderer/gs_shadow_caster.h"
 #include "../lod/hlod_page_pool.h"
 #include "../shaders/gs_shadow_caster.glsl.gen.h"
 #include "../renderer/tile_renderer.h"
@@ -940,9 +941,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
     constexpr uint32_t page_capacity = 4;
     constexpr uint32_t node_splats = page_splats + 1;
     const uint32_t slot_width = (gs_hlod::kMaxNodeSplats + page_splats - 1u) / page_splats;
-    Vector<uint8_t> pixels[3];
+    Vector<uint8_t> pixels[5];
     Vector<uint32_t> placements[2];
-    for (uint32_t pass = 0; pass < 3; ++pass) {
+    for (uint32_t pass = 0; pass < 5; ++pass) {
         gs_hlod_runtime::HlodPagePool pool;
         if (!pool.reset(page_capacity, slot_width)) { FAIL("page-pool fixture allocation failed"); return; }
         if (pass != 0) { pool.test_reverse_free_pages(); }
@@ -973,17 +974,27 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         InstanceDataGPU instance = {};
         instance.rotation[3] = instance.inv_rotation[3] = instance.translation_scale[3] = 1.0f;
         instance.params[0] = 1.0f;
+        instance.params[2] = pass >= 3 ? 1.0f : 0.0f;
         instance.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO;
         const DrawnNodeGPU drawn = { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } };
         const uint32_t casts = 1u;
-        const RID inputs[6] = {
+        GsSplatShadowCaster::DeformationUniform deformation;
+        deformation.wind_dir_strength[0] = 1.0f;
+        deformation.wind_dir_strength[3] = 0.5f;
+        // Opposite near-peak phases move the footprint several pixels at this resolution.
+        deformation.wind_time_config[0] = pass == 4 ? 4.71238898038f : (pass == 3 ? 1.57079632679f : 0.0f);
+        deformation.wind_time_config[1] = 1.0f;
+        deformation.wind_time_config[2] = 0.1f;
+        deformation.wind_time_config[3] = pass >= 3 ? 1.0f : 0.0f;
+        const RID inputs[7] = {
             resources.buffer(uint32_t(atlas.size()) * sizeof(PackedGaussian), atlas.ptr()),
             resources.buffer(sizeof(instance), &instance), resources.buffer(sizeof(meta), &meta),
             resources.buffer(sizeof(drawn), &drawn), resources.buffer(sizeof(casts), &casts),
-            resources.buffer(uint32_t(forward.size()) * sizeof(uint32_t), forward.ptr())
+            resources.buffer(uint32_t(forward.size()) * sizeof(uint32_t), forward.ptr()),
+            resources.buffer(sizeof(deformation), &deformation)
         };
         Vector<RD::Uniform> uniforms;
-        for (uint32_t binding = 0; binding < 6; ++binding) {
+        for (uint32_t binding = 0; binding < 7; ++binding) {
             if (!inputs[binding].is_valid()) { FAIL("page-table draw input unavailable"); return; }
             RD::Uniform u;
             u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
@@ -1024,6 +1035,11 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
     }
     CHECK(covered > 0);
     CHECK(memcmp(pixels[0].ptr(), pixels[1].ptr(), size_t(pixels[0].size())) == 0);
+    // The same resident page-table draw/list uses this frame's time in the
+    // production caster. A missing deformation call or a cached time makes
+    // both images equal. Wind-off page relocation above remains byte identical.
+    CHECK(memcmp(pixels[3].ptr(), pixels[4].ptr(), size_t(pixels[3].size())) != 0);
+    CHECK(memcmp(pixels[0].ptr(), pixels[3].ptr(), size_t(pixels[0].size())) != 0);
     CHECK(memcmp(pixels[1].ptr(), pixels[2].ptr(), size_t(pixels[1].size())) != 0);
 }
 }

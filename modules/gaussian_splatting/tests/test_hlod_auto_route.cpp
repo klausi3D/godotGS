@@ -10,6 +10,7 @@ extern "C" int test_hlod_auto_route_cpp_force_link() { return 0; }
 #include "../lod/lod_config.h"
 #include "../nodes/gaussian_splat_world_3d.h"
 #include "../renderer/quantization_config.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/resource_saver.h"
@@ -43,7 +44,7 @@ static const char *CUT_KEY = LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH;
 static const char *ROUTE_KEY = "rendering/gaussian_splatting/streaming/route_policy";
 
 TEST_CASE("[GaussianSplatting][HLOD] automatic route: the plan over tree x payload x opt-out x paged x route policy x transform x domain") {
-	const char *domains[] = { nullptr, "lod_disabled", "deformation_or_instance_domain", "painterly_enabled", "shadow_instance_filter" };
+	const char *domains[] = { nullptr, "lod_disabled", "painterly_enabled", "shadow_instance_filter" };
 	for (int kind = 0; kind < 4; ++kind) { // 0 no tree, 1 tree over a resident payload, 2 paged package, 3 tree over a file-backed payload
 		for (bool cut : { true, false }) {
 			for (bool streaming : { true, false }) {
@@ -193,6 +194,8 @@ struct RouteCase {
 	bool moved = false; // a non-identity world transform
 	bool mixed_dc = false; // the tree's node mixes DC encodings
 	bool quantized = false; // per-chunk quantization on (g_quantization_config) while the world submits
+	bool wind = false;
+	bool effectors = false;
 	String demote_cause; // non-empty: then call the submission's demotion callback with it, as the renderer's request does
 };
 
@@ -225,6 +228,11 @@ static RouteResult run_case(const RouteCase &p_case) {
 	const Variant prev_cut = had_cut ? ps->get_setting(CUT_KEY) : Variant(), prev_route = had_route ? ps->get_setting(ROUTE_KEY) : Variant();
 	ps->set_setting(CUT_KEY, p_case.opt_out ? Variant(false) : ps->property_get_revert(CUT_KEY));
 	ps->set_setting(ROUTE_KEY, p_case.route_policy_resident ? Variant(int64_t(gs::settings::GS_ROUTE_RESIDENT)) : ps->property_get_revert(ROUTE_KEY));
+	const char *wind_key = gs::settings::WIND_ENABLED_PATH;
+	const char *effectors_key = "rendering/gaussian_splatting/effects/sphere_effector_enabled";
+	const Variant prev_wind = ps->get_setting(wind_key), prev_effectors = ps->get_setting(effectors_key);
+	ps->set_setting(wind_key, p_case.wind);
+	ps->set_setting(effectors_key, p_case.effectors);
 	String path;
 	const bool previous_quantized = g_quantization_config.per_chunk_quantization;
 	g_quantization_config.per_chunk_quantization = p_case.quantized;
@@ -290,6 +298,8 @@ static RouteResult run_case(const RouteCase &p_case) {
 	g_quantization_config.per_chunk_quantization = previous_quantized;
 	if (had_cut) { ps->set_setting(CUT_KEY, prev_cut); } else { ps->clear(CUT_KEY); }
 	if (had_route) { ps->set_setting(ROUTE_KEY, prev_route); } else { ps->clear(ROUTE_KEY); }
+	ps->set_setting(wind_key, prev_wind);
+	ps->set_setting(effectors_key, prev_effectors);
 	result.has_snapshot = result.submission.hlod_snapshot.is_valid();
 	result.snapshot_paged = result.has_snapshot && result.submission.hlod_snapshot->is_paged();
 	result.submission.hlod_snapshot.unref();
@@ -298,6 +308,75 @@ static RouteResult run_case(const RouteCase &p_case) {
 	world.unref();
 	if (!path.is_empty()) { DirAccess::remove_absolute(path); }
 	return result;
+}
+
+// Red by assertion on pre-P2: project wind/effectors refuse the resident route and materialize V4 pages.
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] project wind and sphere effectors preserve the streamed HLOD world route and V4 pages") {
+	for (Tree tree : { Tree::RESIDENT, Tree::PAGED }) {
+		for (bool wind : { false, true }) {
+			for (bool effectors : { false, true }) {
+				RouteCase c;
+				c.tree = tree;
+				c.wind = wind;
+				c.effectors = effectors;
+				const RouteResult r = run_case(c);
+				if (!r.ok) { FAIL("wind route: ", r.failure); return; }
+				CHECK_MESSAGE(r.has_snapshot, "wind=", wind, " effectors=", effectors, " reason=", r.submission.hlod_reason);
+				CHECK(r.hlod_world_submission);
+				CHECK(r.submission.hlod_reason.is_empty());
+				CHECK(r.still_paged == (tree == Tree::PAGED));
+			}
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] publisher allows wind and effectors but still refuses painterly and shadow filtering") {
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (!ps) { FAIL("ProjectSettings required"); return; }
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = !director;
+	if (owns_director) { director = memnew(GaussianSplatSceneDirector); }
+	const char *wind_key = gs::settings::WIND_ENABLED_PATH;
+	const char *effectors_key = "rendering/gaussian_splatting/effects/sphere_effector_enabled";
+	const Variant prev_wind = ps->get_setting(wind_key), prev_effectors = ps->get_setting(effectors_key);
+	ps->set_setting(wind_key, true);
+	ps->set_setting(effectors_key, true);
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	renderer->set_lod_enabled(true);
+	CHECK(renderer->hlod_streaming_unsupported_reason(nullptr) == nullptr);
+	renderer->get_painterly_config().enabled = true;
+	const char *painterly = renderer->hlod_streaming_unsupported_reason(nullptr);
+	CHECK(String(painterly ? painterly : "") == "unsupported_view_or_material");
+	renderer->get_painterly_config().enabled = false;
+	renderer->set_shadow_instance_filter_enabled(true);
+	const char *shadow = renderer->hlod_streaming_unsupported_reason(nullptr);
+	CHECK(String(shadow ? shadow : "") == "shadow_instance_filter");
+	renderer.unref();
+	ps->set_setting(wind_key, prev_wind);
+	ps->set_setting(effectors_key, prev_effectors);
+	if (owns_director) { memdelete(director); }
+}
+
+// New public API: compile-error red on pre-P2 (the row default assertion elsewhere does not require this API).
+TEST_CASE("[GaussianSplatting][HLOD] legacy World3D wind and effectors default off and opt in independently") {
+	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
+	CHECK_FALSE(node->is_wind_enabled());
+	CHECK_FALSE(node->is_effectors_enabled());
+	CHECK(node->get_wind_intensity() == doctest::Approx(1.0f));
+	node->set_wind_enabled(true);
+	CHECK(node->is_wind_enabled());
+	CHECK_FALSE(node->is_effectors_enabled());
+	node->set_effectors_enabled(true);
+	CHECK(node->is_effectors_enabled());
+	node->set_wind_enabled(false);
+	CHECK_FALSE(node->is_wind_enabled());
+	CHECK(node->is_effectors_enabled());
+	node->set_wind_intensity(-0.25f);
+	CHECK(node->get_wind_intensity() == 0.0f);
+	node->set_wind_intensity(0.8f);
+	CHECK(node->get_wind_intensity() == doctest::Approx(0.8f));
+	memdelete(node);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: a loaded world with an HLOD tree takes the HLOD route with no flag set, with or without nodes") {
@@ -434,6 +513,8 @@ TEST_CASE("[GaussianSplatting][HLOD] automatic route: the demotion state machine
 	};
 	const RefusalStage F = RefusalStage::FRAME, P = RefusalStage::PUBLISH;
 	// Per frame, on a streamed or paged world (no canonical copy), in the main view: the view domains and late domains.
+	// Historical deformation strings remain recognized by the demotion taxonomy for queued older submissions. The
+	// production refusal sources are tested above: current wind/effectors never emit these strings.
 	CHECK(cause(F, "unsupported_view_or_material", true, true, false) == "unsupported_view_or_material");
 	CHECK(cause(F, "deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");
 	CHECK(cause(F, "hlod_paged_deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");

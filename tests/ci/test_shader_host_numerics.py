@@ -18,6 +18,7 @@ import struct
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 SHADERS_DIR = ROOT / "modules" / "gaussian_splatting" / "shaders"
@@ -439,7 +440,7 @@ class HlodCameraRelativeFrame(unittest.TestCase):
         # Wind phase and effector spheres take the anchor (the deformation functions are outside the evaluator's
         # subset: ternaries, continue, pow/sin, so this part is a source check).
         deformation = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
-        self.assertIn("(world_position + frame_anchor).xz", deformation)
+        self.assertIn("gs_wind_displacement(world_position + frame_anchor", deformation)
         self.assertIn("effector_sphere.xyz -= frame_anchor", deformation)
 
 
@@ -515,6 +516,142 @@ class ShadowCasterPerspectiveTests(unittest.TestCase):
         self.assertIsNotNone(re.search(r"if \(has_hlod_shadow_owner\)\s*\{[^{}]*light->last_version\+\+;\s*\}\s*#endif\s*bool redraw = .*shadow_atlas_update_light", cull),
                              "HLOD positional atlas refresh is disconnected")
         self.assertTrue("renderer.is_valid() && renderer->uses_hlod_shadow_casters()" in cull, "refresh owner check missing")
+
+
+class HlodWindFieldTests(unittest.TestCase):
+    """W-S: execute the production position field; reject identity/address inputs."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.source = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
+        cls.program = glsl.GlslProgram(cls.source, defines={
+            "GS_INSTANCE_WIND_MODE_FORCE_ENABLED": "2u",
+            "GS_INSTANCE_WIND_MODE_FORCE_DISABLED": "1u",
+        })
+        # Standard GLSL scalar sin, evaluated in double as the rest of this harness.
+        cls.program.namespace["sin"] = math.sin
+
+    def test_phase_is_smooth_scene_rest_field_without_identity_inputs(self) -> None:
+        noise = self.program.fn("gs_wind_phase_noise")
+        vec3 = self.program.namespace["vec3"]
+        for position in ((1.2, 7.1, -3.4), (31.999, 0.0, -64.001), (-0.001, 1.0, 32.0)):
+            # Relocating this rest point to any atlas slot or row cannot enter the field's API.
+            reference = noise(vec3(*position))
+            for atlas_index, instance_id in ((0, 0), (413, 21), (900001, 63)):
+                self.assertEqual(noise(vec3(*position)), reference, (atlas_index, instance_id))
+            nearby = noise(vec3(position[0] + 0.001, position[1], position[2]))
+            self.assertLess(abs(reference - nearby), 0.001)
+        for boundary in (-64.0, -32.0, 0.0, 32.0, 64.0):
+            left = noise(vec3(boundary - 1.0e-4, 0.0, 11.0))
+            right = noise(vec3(boundary + 1.0e-4, 0.0, 11.0))
+            self.assertAlmostEqual(left, right, delta=1.0e-5)
+        self.assertNotIn("stable_seed", self.source)
+        self.assertNotIn("phase_jitter", self.source)
+        for path in (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl", SHADERS_DIR / "tile_binning.glsl"):
+            self.assertNotIn("uint stable_seed", path.read_text(encoding="utf-8"))
+
+    def test_fade_reaches_zero_at_distance_and_coarse_level(self) -> None:
+        fade = self.program.fn("gs_wind_distance_level_fade")
+        vec3 = self.program.namespace["vec3"]
+        self.assertEqual(fade(vec3(0.0), glsl.U32(0)), 1.0)
+        self.assertEqual(fade(vec3(64.0, 0.0, 0.0), glsl.U32(0)), 1.0)
+        self.assertEqual(fade(vec3(128.0, 0.0, 0.0), glsl.U32(0)), 0.0)
+        self.assertEqual(fade(vec3(0.0), glsl.U32(4)), 0.0)
+        self.assertGreater(fade(vec3(96.0, 0.0, 0.0), glsl.U32(2)), 0.0)
+        self.assertLess(fade(vec3(96.0, 0.0, 0.0), glsl.U32(2)), 1.0)
+
+    def test_displacement_bound_dominates_signed_wind_and_effector_push(self) -> None:
+        bound = self.program.fn("gs_wind_displacement_bound")
+        self.assertEqual(bound(2.0, 3.0, 4.0), 30.0)
+        self.assertEqual(bound(0.0, 3.0, 4.0), 0.0)
+        self.assertEqual(bound(2.0, 0.0, 4.0), 0.0)
+        self.assertEqual(bound(-1.0, 3.0, 4.0), 0.0)
+        for strength in (1.0, 2.0, 10.0):
+            for intensity in (0.0, 0.3, 2.0):
+                for push in (0.0, 0.2, 4.0):
+                    for phase in (-1.0, 0.0, 1.0):
+                        displacement = phase * strength * intensity + phase * push * intensity
+                        self.assertLessEqual(abs(displacement), bound(strength, intensity, push))
+
+    def test_caster_and_colour_math_follow_current_frame_time(self) -> None:
+        displacement = self.program.fn("gs_wind_displacement")
+        vec3 = self.program.namespace["vec3"]
+        rest = vec3(1.25, 0.5, -4.0)
+        previous = displacement(rest, 0.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        colour = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        caster = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        self.assertEqual(caster, colour)
+        self.assertGreater(abs(caster - previous), 0.01)
+        self.assertEqual(displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 0.0), 0.0)
+
+    def test_depth_inflation_retains_wind_reachable_edge_splat(self) -> None:
+        # Execute the actual GPU frustum helper and actual displacement bound,
+        # with one right plane at x=1. A resting splat centred at x=1.4 can
+        # sway into the view; culling its uninflated sphere would pop it out.
+        source = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text(encoding="utf-8")
+        helper = re.search(r"bool gs_sphere_frustum_visible\([^\n]+\).*?\n\}", source, re.S)
+        self.assertIsNotNone(helper)
+        program = glsl.GlslProgram(helper.group(0))
+        vec3, vec4 = program.namespace["vec3"], program.namespace["vec4"]
+        program.namespace["dot"] = lambda a, b: sum(x * y for x, y in zip(a.c, b.c))
+        program.namespace["params"] = SimpleNamespace(
+            cull_frustum_radius=vec4(1.0, 1.0, 1.0, 0.0),
+            frustum_planes=[vec4(1.0, 0.0, 0.0, 1.0)] + [vec4(0.0, 0.0, 0.0, 10.0)] * 5)
+        visible = program.fn("gs_sphere_frustum_visible")
+        margin = self.program.fn("gs_wind_displacement_bound")(0.5, 1.0, 0.0)
+        rest, radius = vec3(1.4, 0.0, 0.0), 0.1
+        self.assertFalse(visible(rest, radius), "forcing control must actually cull the rest sphere")
+        self.assertTrue(visible(rest, radius + margin), "inflation must preserve the wind-reachable splat")
+
+    def test_colour_depth_and_caster_use_same_rest_field_and_caster_current_time(self) -> None:
+        paths = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl",
+                 SHADERS_DIR / "tile_binning.glsl", SHADERS_DIR / "gs_shadow_caster.glsl")
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            self.assertIn('gs_deformation.glsl"', source, path)
+            self.assertIn("gs_apply_wind_deformation(", source, path)
+            self.assertIn("gs_wind_distance_level_fade(", source, path)
+            for field in ("instance.params.z", "instance.params.w", "instance.wind_params", "instance.effect_params"):
+                self.assertIn(field, source, path)
+        caster = paths[2].read_text(encoding="utf-8")
+        self.assertLess(caster.index("GSDeformationResult deformation"), caster.index("params.light_from_frame * vec4(frame_position"))
+        self.assertIn("deformation.opacity * instance.params.x", caster)
+        self.assertIn("frame_position = deformation.position", caster)
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        start = host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")
+        body = host[start:host.index("bool GaussianSplatRenderer::render_shadow_depth_map(", start)]
+        self.assertIn("compute_wind_time_seconds(", body)
+        self.assertIn("inputs.deformation.wind_time_config[0]", body)
+        # The previous view supplies rows/list, never a cached animation timestamp.
+        self.assertNotRegex(body, r"record\.(?:wind_time|animation_time)")
+        depth = paths[0].read_text(encoding="utf-8")
+        self.assertIn("gs_row_deformation_bound(", depth)
+        self.assertIn("splat_radius + deformation_margin", depth)
+
+    def test_caster_deformation_buffer_matches_host_without_growing_push_constants(self) -> None:
+        shader = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        header = (renderer / "gs_shadow_caster.h").read_text(encoding="utf-8")
+        host = (renderer / "gs_shadow_caster.cpp").read_text(encoding="utf-8")
+        shader_block = re.search(r"binding = 6, std430\) readonly buffer DeformationBuffer\s*\{([^}]+)\}", shader)
+        host_block = re.search(r"struct DeformationUniform\s*\{(.*?)\n\s*\};", header, re.S)
+        self.assertIsNotNone(shader_block)
+        self.assertIsNotNone(host_block)
+        # Derive field order and array extents from both definitions, including
+        # the actual shared effector capacity, rather than checking a spare size.
+        layout = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text(encoding="utf-8")
+        count = int(re.search(r"#define GS_MAX_SPHERE_EFFECTORS\s+(\d+)", layout).group(1))
+        shader_fields = [(name, count if array else 1) for name, array in
+                         re.findall(r"vec4\s+(\w+)\s*(\[GS_MAX_SPHERE_EFFECTORS\])?\s*;", shader_block.group(1))]
+        # Each host field ends in four floats; nested arrays describe N vec4s.
+        host_fields = []
+        for name, rows, columns in re.findall(r"float\s+(\w+)\[(\d+)\](?:\[(\d+)\])?", host_block.group(1)):
+            self.assertEqual(int(columns or rows), 4)
+            host_fields.append((name, int(rows) if columns else 1))
+        self.assertEqual(shader_fields, host_fields)
+        self.assertEqual(sum(extent * 16 for _, extent in shader_fields), 256)
+        self.assertIn("storage_uniform(6, deformation_buffer)", host)
+        self.assertIn("_free_deformation_buffer();", host)
 
 
 if __name__ == "__main__":
