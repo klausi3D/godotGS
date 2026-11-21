@@ -59,7 +59,7 @@ TEST_CASE("[GaussianSplatting][HLOD] automatic route: the plan over tree x paylo
 						in.route_policy_streaming = streaming;
 						in.domain_refusal = domain;
 						const WorldPlan plan = plan_world(in);
-						const String what = vformat("kind=%d cut=%d streaming=%d identity=%d domain=%s", kind, cut, streaming, identity, domain ? domain : "none");
+						const String what = vformat("kind=%d cut=%d streaming=%d identity=%d domain=%s", kind, int(cut), int(streaming), int(identity), domain ? domain : "none");
 						if (kind == 0 || kind == 3 || !cut) {
 							// No snapshot-capable tree, or the opt-out: exactly the routing from before (no snapshot, no reason,
 							// route_policy decides). A file-backed tree cannot be snapshotted, so it is not an HLOD-route world.
