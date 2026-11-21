@@ -10,6 +10,28 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="create_island_nodes">
+			<return type="Array" />
+			<param index="0" name="parent" type="Node" default="null" />
+			<description>
+				Loads the assigned world's [code]islands[][/code] manifest and creates one [GaussianSplatNode3D] per valid entry. Returns only newly created nodes, in manifest order. A [code]null[/code] [param parent] uses this world node. Each node has the island's exact name and its [code]rest_transform[/code] as a local transform relative to the chosen parent. The serialized transform is a row-major 3 by 3 basis followed by the three origin coordinates. B2 currently writes identity rest transforms and always writes plain v3 island assets (no V4 size threshold exists).
+				Calls are idempotent for a given parent: an existing direct child with the same name, of any type, is left unchanged and is not returned, reloaded or duplicated. Duplicate names within the manifest reject every occurrence, including the first. Invalid entries, missing or unreadable assets create no node for that entry; other valid entries can still succeed. Inspect [method get_island_errors] after the call, since an empty return can mean either nothing new or a failure.
+				Relative [code]asset_path[/code] values resolve from the world resource's file directory and require a world resource path. Absolute filesystem, [code]res://[/code] and [code]user://[/code] paths are accepted, matching B2's output-directory convention. Paths containing a [code]..[/code] component are refused. Names must be valid node names; bounds and the twelve transform numbers must be finite and correctly typed, and bounds sizes must be nonnegative.
+				Created nodes use the ordinary instance path and count against the instance tail and shared ledger. Their asset payload, including baked semantic words, is loaded synchronously. The parent owns their lifetime; scene ownership is not assigned automatically (use [method Node.set_owner] if saving them into a scene). Call on the main thread.
+			</description>
+		</method>
+		<method name="get_island_names">
+			<return type="PackedStringArray" />
+			<description>
+				Returns names of structurally valid, uniquely named island entries in manifest order. Validates names, bounds, rest transforms and path resolution without reading assets or creating nodes. Asset existence and readability are checked by [method create_island_nodes]. Replaces the diagnostics returned by [method get_island_errors].
+			</description>
+		</method>
+		<method name="get_island_errors" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns diagnostics from the most recent [method create_island_nodes] or [method get_island_names] call. Each entry failure includes its [code]islands[index][/code], name when available, and a reason: [code]island_entry_type[/code], [code]island_name[/code], [code]island_duplicate_name[/code], [code]island_bounds[/code], [code]island_rest_transform[/code], [code]island_asset_path[/code], [code]island_asset_path_escape[/code], [code]island_world_path_missing[/code], [code]island_asset_missing[/code], [code]island_asset_unreadable[/code] (including path and error code), or [code]island_parent_rejected[/code]. Whole-manifest failures use [code]island_world_missing[/code] or [code]island_manifest_type[/code]. A world without an islands manifest and a call that only finds existing children both produce no errors.
+			</description>
+		</method>
 		<method name="set_world">
 			<return type="void" />
 			<param index="0" name="world" type="GaussianSplatWorld" />

@@ -100,6 +100,8 @@ private:
 
     AABB local_aabb;
     AABB world_aabb;
+    // Main-thread diagnostics from the most recent island manifest query or placement.
+    PackedStringArray island_errors;
 
     // Renderer parity settings (matches the core controls on GaussianSplatNode3D).
     bool lod_enabled = true;
@@ -204,10 +206,9 @@ public:
     void apply_world();
     void clear_world();
 
-    // Inert WP5 seam: tests-first stays buildable and fails on placement assertions.
-    Array create_island_nodes(Node *p_parent = nullptr) { return Array(); }
-    PackedStringArray get_island_names() { return PackedStringArray(); }
-    PackedStringArray get_island_errors() const { return PackedStringArray(); }
+    Array create_island_nodes(Node *p_parent = nullptr);
+    PackedStringArray get_island_names();
+    PackedStringArray get_island_errors() const { return island_errors; }
 
     Ref<GaussianSplatRenderer> get_renderer() const;
 
