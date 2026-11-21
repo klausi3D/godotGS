@@ -123,6 +123,7 @@ struct GaussianSplatHlodNode {
 	uint32_t flags = 0u;
 	// Per-node overlap footprint (§6.5); reserved in S1a, filled by S2a. Written as 0.
 	float overlap_footprint = 0.0f;
+	uint8_t max_wind_weight = 0; // V4 byte 120; B2 supplies the bound.
 
 	gs_hlod::NodeKind get_kind() const { return gs_hlod::NodeKind(flags & gs_hlod::kNodeFlagKindMask); }
 	bool is_leaf() const { return child_count == 0u; }

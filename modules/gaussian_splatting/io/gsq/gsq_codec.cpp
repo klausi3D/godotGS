@@ -790,7 +790,8 @@ Error verify_page(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &r_info
 }
 
 void decoded_digest(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree,
-		uint8_t r_digest[kDigestBytes]) {
+		uint8_t r_digest[kDigestBytes], uint32_t p_codec_id) {
+	(void)p_codec_id; // Test seam: parent digest intentionally retains v1 behavior.
 	CryptoCore::SHA256Context ctx;
 	ctx.start();
 	uint8_t prefix[8];

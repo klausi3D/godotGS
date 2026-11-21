@@ -80,6 +80,10 @@ bool _add_u64(uint64_t p_a, uint64_t p_b, uint64_t &r_out) {
 
 } // namespace
 
+CodecParams gsq_v2_codec_params() {
+	return gsq_v1_codec_params(); // Parent seam: assertion demands codec 2.
+}
+
 CodecParams gsq_v1_codec_params() {
 	const gs_gsq::EncodeParams defaults;
 	CodecParams codec;

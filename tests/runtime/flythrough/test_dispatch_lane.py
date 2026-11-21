@@ -1826,6 +1826,31 @@ class D25AutoTreeCache(_CacheCase):
             self.lock, encoding=lane.ENCODING_GSQ, auto_tree=True,
         )
 
+    def test_b1_codec1_tree_is_stale_and_never_served(self):
+        from verify_world_manifest import compute_tree_sha
+        plain, tree = self.tree_fixture()
+        before = self.snapshot(plain)
+        manifest_path = tree / lane.MANIFEST_NAME
+        sidecar = json.loads(manifest_path.read_text())
+        current_sha = sidecar["tree_sha"]
+        sidecar["codec"]["codec_id"] = 1
+        sidecar["tree_sha"] = compute_tree_sha(sidecar)
+        self.assertNotEqual(current_sha, sidecar["tree_sha"])
+        manifest_path.write_text(json.dumps(sidecar))
+        # Keep the historical cache internally consistent. Only the codec differs
+        # from today's request; mismatched metadata would be an unrelated refusal.
+        old_sha = sidecar["tree_sha"]
+        metadata_path = tree / wc.KEY_META_FILE
+        metadata = json.loads(metadata_path.read_text())
+        metadata["tree_sha"] = old_sha
+        metadata_path.write_text(json.dumps(metadata))
+        old_tree = tree.with_name(f"{GEN_SHA[:12]}-{old_sha[:12]}")
+        tree.rename(old_tree)
+        self.tree_sha = old_sha
+        self.assertEqual(self.tree_check(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_stale")
+        self.assertEqual(self.snapshot(plain), before)
+
     def test_tree_source_edit_stales_only_tree_key(self):
         plain, tree = self.tree_fixture()
         self.assertEqual(self.tree_check(), lane.EXIT_OK)

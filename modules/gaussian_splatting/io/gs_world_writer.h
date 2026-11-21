@@ -118,6 +118,7 @@ constexpr uint32_t kCodecGsqV1 = 1u;
 
 // The D-12 pre-registered GSQ v1 parameters (sh bits 6/5/5, opacity 16, 0.25 mm, zstd 3).
 CodecParams gsq_v1_codec_params();
+CodecParams gsq_v2_codec_params();
 
 // codec_id 1 only: the encoder parameters of a GSQ codec block, or ERR_INVALID_PARAMETER
 // with a gsq_invalid_params reason. No field defaults: W16 compares the block as given.

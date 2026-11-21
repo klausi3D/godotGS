@@ -227,6 +227,17 @@ constexpr uint32_t gaussian_resolve_persisted_layout_version(uint32_t p_recorded
     return p_recorded == 0u ? GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED : p_recorded;
 }
 
+// Migration seam shared by persisted raw-record readers. The tests-first patch
+// deliberately preserves parent behavior; the implementation follows separately.
+inline bool gaussian_prepare_persisted_payload(Gaussian *p_gaussians, uint32_t p_count,
+        uint32_t p_layout, String *r_reason = nullptr) {
+    (void)p_gaussians;
+    (void)p_count;
+    (void)p_layout;
+    (void)r_reason;
+    return true;
+}
+
 #define GS_PIN_GAUSSIAN_FIELD(m_field, m_type, m_offset) \
     static_assert(offsetof(Gaussian, m_field) == (m_offset), \
             "Gaussian::" #m_field " moved: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)"); \

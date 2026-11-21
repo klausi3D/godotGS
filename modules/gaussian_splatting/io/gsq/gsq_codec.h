@@ -73,6 +73,7 @@ constexpr uint32_t kDigestBytes = 32u;
 
 // Mirrors gs_world_writer::CodecParams; the defaults are the D-12 pre-registered values.
 struct EncodeParams {
+	uint32_t codec_id = 1u; // Version-selection seam; default advances with the encoder.
 	uint8_t sh_bits[3] = { 6, 5, 5 }; // 2..8
 	uint8_t opacity_bits = 16; // 8..16
 	float pos_step_m = 0.00025f; // Positions take 21 bits when 16 would be coarser than this.
@@ -80,6 +81,7 @@ struct EncodeParams {
 };
 
 struct PageInfo {
+	uint32_t codec_id = 1u;
 	uint32_t splat_count = 0;
 	uint32_t sh_degree = 0;
 	uint32_t sh_high_order = 0; // Vector3 coefficients per splat in the high-order array
@@ -122,7 +124,7 @@ Error verify_page(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &r_info
 // then the high-order SH. It covers the floats the decoder produced, so it pins dequantization
 // as well as the quantized integers.
 void decoded_digest(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree,
-		uint8_t r_digest[kDigestBytes]);
+		uint8_t r_digest[kDigestBytes], uint32_t p_codec_id = kCodecId);
 
 // The zstd version the module was compiled against and the one it links (risk K11).
 uint32_t zstd_header_version();
