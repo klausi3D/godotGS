@@ -520,7 +520,7 @@ class ShadowCasterCurrentRowsTests(unittest.TestCase):
                     host.index("bool GaussianSplatRenderer::render_shadow_depth_map(")]
         self.assertIn("refresh_hlod_shadow_rows()", collect, "positional cache must observe current rows before deciding reuse")
         self.assertIn("refresh_hlod_shadow_rows()", cast, "directional/first shadow pass must upload current rows")
-        self.assertLess(collect.index("refresh_hlod_shadow_rows()"), collect.index("refresh_rows("))
+        self.assertLess(collect.index("refresh_hlod_shadow_rows()"), collect.index("index.rebuild("))
         self.assertLess(cast.index("refresh_hlod_shadow_rows()"), cast.index("plan_pass("))
         self.assertIn("current_rows_refusal(", host, "row-key/asset mismatches must gate the real shadow submission")
         self.assertIn("Refusal::ROWS_MISMATCH", host)
@@ -725,7 +725,7 @@ class ShadowCasterPerspectiveTests(unittest.TestCase):
 
 
 class HlodPositionalRefreshTests(unittest.TestCase):
-    """P1b: run the real host decision/geometry bodies; native [HLOD] cases cover publication and per-light state."""
+    """P1c: execute host geometry/decision and pin spatial, anchor-free key wiring; strict native cases exercise state."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -742,6 +742,12 @@ class HlodPositionalRefreshTests(unittest.TestCase):
         body = geometry.group(1).replace("p_bounds.position", "p_min").replace("p_bounds.size", "p_size")
         body = body.replace("Vector3", "vec3").replace("real_t", "float").replace("MAX", "max")
         cls.geometry = glsl.GlslProgram("bool intersects(vec3 p_center, float p_radius, vec3 p_min, vec3 p_size) {" + body + "}")
+        contained = re.search(r"inline bool sphere_contains_bounds\([^{}]+\)\s*\{([^{}]+)\}", cls.source)
+        if contained is None:
+            raise AssertionError("missing production cell-enclosure fast path")
+        body = contained.group(1).replace("p_bounds.position", "p_min").replace("p_bounds.size", "p_size")
+        body = body.replace("Vector3", "vec3").replace("real_t", "float").replace("MAX", "max").replace("Math::abs", "abs")
+        cls.containment = glsl.GlslProgram("bool contains(vec3 p_center, float p_radius, vec3 p_min, vec3 p_size) {" + body + "}")
         prepare = cls.source[cls.source.index("inline LightUpdate prepare_light("):]
         removal = re.search(r"if \(([^\n]+)\) \{ update.refresh = true; \}", prepare)
         if removal is None:
@@ -804,24 +810,105 @@ class HlodPositionalRefreshTests(unittest.TestCase):
         for required in ("gaussian_get_casts_shadow(owner_rid)", "!renderer->uses_hlod_shadow_casters()",
                          "record.bundle_builds != state.hlod_bundle_builds", "record.draw_list_upload != state.hlod_draw_list_uploads",
                          "record.row_casts.size() != state.hlod_instance_row_data.instances.size()",
-                         "record.content_revision = state.hlod_shadow_content.refresh_rows(record, state.hlod_instance_row_data.instances)",
-                         "owner.revision = record.content_revision", "owner.bounds = storage->gaussian_get_aabb(owner_rid)",
+                         "owner.bounds = storage->gaussian_get_aabb(owner_rid)",
                          "gs_wind::wind_active_on_casting_row(wind, rows[row], casts)",
                          "effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,",
-                         "pack_deformation_effectors", "owner.bounds.grow_by"):
+                         "pack_deformation_effectors", "owner.bounds.grow_by",
+                         "frame_displacement_bound(wind, &rows[row], 1, effector_push",
+                         "index.rebuild(state.hlod_shadow_content, record, rows, row_margins, row_animated)",
+                         "owner.content = &index", "indexed_renderers.has(renderer_key)", "indexed_renderers.insert(renderer_key)",
+                         "owner.owner = renderer_key", "gs_shadow_refresh::enclosing_merge(owner.bounds, index.cells[0].bounds)"):
             self.assertIn(required, collect)
+        self.assertNotRegex(collect, r"owner\.revision\s*[+^|*/-]?=", "collector must not supply a global list key")
         self.assertIn("(p_meta[3] > 0.5f && (mask & (1u << slot)) == 0)", self.source)
         self.assertIn("if (!p_casts) { return false; }", self.source)
         self.assertIn("hlod_shadow_lights.erase(p_light.get_id())", host)
         self.assertIn("if (p_update.owners.is_empty()) { hlod_shadow_lights.erase(p_light.get_id()); return; }", host)
-        self.assertIn("caster.content_revision = state.hlod_shadow_content.publish(caster, draws,", publisher)
+        self.assertIn("state.hlod_shadow_content.publish(caster, draws, geometry)", publisher)
+        self.assertIn("outcome.records[i].version.content_revision", publisher)
+        self.assertIn("outcome.records[i].version.bake_rule_revision", publisher)
+        self.assertIn("g.payload = gs_shadow_refresh::hash_value(world_shadow_versions[i], source->source_epoch)", publisher)
+        self.assertIn("geometry.chunk_key = k - region.assets[meta.asset_id - 1u].first_chunk", publisher)
+        self.assertIn("g.bounds = gs_shadow_refresh::enclosing_bounds(lo, hi)", publisher)
+        self.assertIn("state.hlod_relative.shadow_instance_geometry[chunk - uint32_t(source->nodes.size())]", publisher)
         self.assertIn("p_world_records ? state.hlod_relative.draw_entries.ptr() : state.hlod_instance_draws.ptr()", publisher)
-        self.assertIn("equal_bytes(draws, casting_draws.ptr(), casting_draws.size())", self.source)
+        self.assertNotIn("previous.camera ==", self.source)
+        self.assertNotIn("equal_bytes(draws, casting_draws.ptr(), casting_draws.size())", self.source)
         self.assertNotIn("previous.draw_list_upload ==", self.source)
         runner = (ROOT / "tests/ci/run_module_tests.py").read_text(encoding="utf-8")
         self.assertRegex(runner, r"\(\s*True,\s*_run_shader_host_numerics_guard,")
         self.assertTrue(re.search(r'"GaussianSplatting \[HLOD\]",\s*\("\*GaussianSplatting\*\]\[HLOD\]\*",\),\s*\([^()]*\),\s*True,', runner),
                         "native HLOD regressions must remain in the strict host lane")
+
+    def test_camera_and_whole_list_cannot_enter_per_light_key(self) -> None:
+        self.assertIn("inline AABB record_bounds(", self.source, "P1c requires world-space per-record content")
+        publish = self.source[self.source.index("struct PublishedContent {"):self.source.index("inline AABB record_bounds(")]
+        self.assertIn("for (float &offset : draws[i].camera_offset) { offset = 0; }", publish)
+        digest = self.source[self.source.index("inline uint64_t record_digest("):self.source.index("inline uint64_t row_digest(")]
+        for forbidden in ("camera", "bundle_builds", "source_revision", "draw_list_upload", "instance_id", "content_revision", "p_draw.chunk_id"):
+            self.assertNotIn(forbidden, digest)
+        for required in ("p_geometry.chunk_key", "p_geometry.payload", "p_row_digest", "p_geometry.bounds"):
+            self.assertIn(required, digest)
+        prepare = self.source[self.source.index("inline LightUpdate prepare_light("):]
+        self.assertIn("owner.revision = 0;", prepare)
+        self.assertEqual(re.findall(r"owner\.revision\s*[+^|*/-]?=", prepare), ["owner.revision ="])
+        self.assertNotIn("source.revision", prepare, "light-local digest must not mix in a whole-owner/list revision")
+        self.assertIn("owner.animated = false;", prepare)
+        self.assertIn("source.content->query(0, p_center, p_radius, owner.revision, owner.record_count, owner.animated)", prepare)
+        self.assertIn("if (owner.record_count == 0) { continue; }", prepare)
+        query = self.source[self.source.index("inline void ContentIndex::query("):self.source.index("inline uint64_t record_digest(")]
+        self.assertIn("if (!sphere_intersects_bounds(p_center, p_radius, cell.bounds)) { return; }", query)
+        self.assertIn("if (!sphere_intersects_bounds(p_center, p_radius, record.bounds)) { continue; }", query)
+        self.assertIn("r_digest += record.digest;", query)
+        self.assertIn("r_animated |= record.animated;", query)
+        self.assertIn("if (sphere_contains_bounds(p_center, p_radius, cell.bounds))", query)
+        for field in ("digest", "count", "animated"):
+            self.assertIn("cell." + field, query)
+        self.assertIn("root.add(record)", self.source)
+        self.assertIn("cells[child].add(records[i])", self.source)
+        self.assertIn("bounds = enclosing_merge(bounds, p_record.bounds)", self.source)
+        self.assertIn("row.ids[0] = 0;", self.source)
+        self.assertIn("row.lod[0] = row.lod[1] = 0;", self.source)
+        self.assertNotIn("p_content", query) # No whole-list fallback in the per-light query.
+        rebuild = self.source[self.source.index("inline void ContentIndex::rebuild("):self.source.index("inline bool needs_refresh(")]
+        self.assertIn("if (row >= p_rows.size() || !p_record.row_casts[row]) { continue; }", rebuild)
+        self.assertIn("p_margins[row]", rebuild)
+        self.assertIn("spatial.animated = p_animated[row] != 0;", rebuild)
+        self.assertIn("spatial.digest = record_digest(draw, p_content.geometry[i], row_digests[row]);", rebuild)
+        # Structural RED on P1b and on removal of native assertion wiring, not a helper that nobody calls.
+        native = (ROOT / "modules/gaussian_splatting/tests/test_hlod_shadow_casters.cpp").read_text(encoding="utf-8")
+        for case in ("static omni ignores moving anchor and far cut but refreshes near cut",
+                     "wind and effectors refresh only casting records near the light",
+                     "inflated records enter light and final departure clears once",
+                     "static depth at two anchors has the same light clip coordinates",
+                     "dense chunk row and legacy camera LOD remaps preserve light content",
+                     "large-coordinate record and aggregate bounds retain their positive edge"):
+            self.assertIn('TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] ' + case + '")', native)
+
+    def test_aggregate_cell_requires_complete_sphere_enclosure(self) -> None:
+        vec3 = self.containment.namespace["vec3"]
+        contains = self.containment.fn("contains")
+        self.assertTrue(contains(vec3(0), 2, vec3(-1), vec3(2)))
+        self.assertFalse(contains(vec3(0), 1, vec3(-1), vec3(2)), "intersecting does not mean fully contained")
+        self.assertFalse(contains(vec3(0), 2, vec3(99, -1, -1), vec3(2)))
+        self.assertTrue(contains(vec3(0), 3, vec3(0), vec3(3, 0, 0)))
+        self.assertFalse(contains(vec3(0), -1, vec3(0), vec3(0)))
+
+    def test_light_volume_filter_excludes_far_cut_and_animation_with_inflation(self) -> None:
+        # Execute production sphere/AABB arithmetic and production refresh predicate, varying light-local inputs.
+        vec3 = self.geometry.namespace["vec3"]
+        intersects = self.geometry.fn("intersects")
+        def hits(x: float, margin: float = 0.0) -> bool:
+            return intersects(vec3(0, 0, 0), 2, vec3(x - margin, -1 - margin, -1 - margin),
+                              vec3(2 + 2 * margin))
+        self.assertTrue(hits(-1))
+        self.assertFalse(hits(99))
+        for far_changed, far_animated in ((True, False), (False, True), (True, True)):
+            self.assertFalse(self.decision(True, True, far_changed and hits(99), far_animated and hits(99)))
+        self.assertTrue(self.decision(True, True, hits(-1), False))
+        self.assertTrue(self.decision(True, True, False, hits(-1)))
+        self.assertFalse(hits(4))
+        self.assertTrue(hits(4, 2), "wind/effector bound can reach the light even when rest bounds cannot")
 
 
 class HlodWindFieldTests(unittest.TestCase):

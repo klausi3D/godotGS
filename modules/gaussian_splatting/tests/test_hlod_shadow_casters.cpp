@@ -1131,78 +1131,223 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a needle tilted across both 
 }
 
 // Existing [HLOD] is a strict host lane. These cases exercise production helpers without a device or scene tree.
-TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a static omni reuses identical reuploads and each light observes its own pass") {
+// Synthetic world with world-sized owner bounds and two independently casting rows/records.
+struct RefreshFixture {
 	gs_shadow_refresh::PublishedContent content;
+	gs_shadow_refresh::ContentIndex index;
 	FrameRecord record;
-	record.valid = true;
-	record.draw_count = 1;
-	record.row_casts.push_back(1);
-	DrawnNodeGPU draw{};
+	DrawnNodeGPU draws[2]{};
+	LocalVector<gs_shadow_refresh::Geometry> geometry;
 	LocalVector<InstanceDataGPU> rows;
-	rows.push_back(InstanceDataGPU{});
-	gs_shadow_refresh::Owner owner;
-	owner.owner = 42;
-	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
-	owner.revision = content.publish(record, &draw, rows, 0);
+	LocalVector<real_t> margins;
+	LocalVector<uint32_t> animated;
 	LocalVector<gs_shadow_refresh::Owner> owners;
-	owners.push_back(owner);
-	gs_shadow_refresh::LightState light_a, light_b;
-	const auto first = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a);
+	RefreshFixture() {
+		record.valid = true;
+		record.draw_count = 2;
+		for (uint32_t i = 0; i < 2; ++i) {
+			record.row_casts.push_back(1);
+			record.row_keys.push_back(42 + i);
+			record.row_asset_ids.push_back(i);
+			InstanceDataGPU row{};
+			row.rotation[3] = row.inv_rotation[3] = row.translation_scale[3] = 1;
+			rows.push_back(row);
+			margins.push_back(0);
+			animated.push_back(0);
+			gs_shadow_refresh::Geometry g;
+			g.bounds = AABB(Vector3(i == 0 ? -1 : 99, -1, -1), Vector3(2, 2, 2));
+			g.payload = 1;
+			g.chunk_key = i;
+			geometry.push_back(g);
+			draws[i].instance_id = i;
+			draws[i].chunk_id = i;
+			draws[i].fade = 1;
+		}
+		gs_shadow_refresh::Owner owner;
+		owner.owner = 42;
+		owner.bounds = AABB(Vector3(-1000, -1000, -1000), Vector3(2000, 2000, 2000));
+		owner.content = &index;
+		owners.push_back(owner);
+		publish();
+	}
+	void publish() { content.publish(record, draws, geometry); rebuild(); }
+	void rebuild() { index.rebuild(content, record, rows, margins, animated); }
+	gs_shadow_refresh::LightUpdate query(const gs_shadow_refresh::LightState &p_light) const {
+		return gs_shadow_refresh::prepare_light(owners, Vector3(), 2, p_light);
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] static omni ignores moving anchor and far cut but refreshes near cut") {
+	RefreshFixture f;
+	f.draws[1].instance_id = 0; // Far and near cuts belong to the SAME world row and world-sized owner.
+	f.publish();
+	gs_shadow_refresh::LightState light, never_observed;
+	const auto first = f.query(light);
 	CHECK(first.refresh);
-	light_a.commit(first);
-	++record.draw_list_upload;
-	++record.renderer_frame;
-	owners[0].revision = content.publish(record, &draw, rows, 0);
-	CHECK(owners[0].revision == owner.revision);
-	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
-	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b).refresh);
-	// Querying without scheduling a pass must not consume a change (allocation/update budget can refuse it).
-	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b).refresh);
-	light_b.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b));
-	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b).refresh);
-
-	// The new main-view cut is published AFTER this frame's shadows and first refreshes the following frame.
-	++draw.chunk_id;
-	owners[0].revision = content.publish(record, &draw, rows, 0);
-	CHECK(owners[0].revision != owner.revision);
-	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
-	light_a.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a));
-	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
-
-	// A casting-row transform uploaded during idle restore changes what that retained list will draw.
-	rows[0].translation_scale[0] = 3.0f;
-	owners[0].revision = content.refresh_rows(record, rows);
-	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
-	light_a.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a));
-	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
-	const uint64_t before_edit = owners[0].revision;
-	CHECK(content.publish(record, &draw, rows, 1) != before_edit);
-	const uint64_t before_rebuild = content.revision;
-	++record.bundle_builds;
-	CHECK(content.publish(record, &draw, rows, 1) != before_rebuild);
+	light.commit(first);
+	CHECK_FALSE(f.query(light).refresh);
+	CHECK(f.query(never_observed).refresh);
+	CHECK(f.query(never_observed).refresh); // No scheduled pass: no observation consumed.
+	++f.record.draw_list_upload;
+	++f.record.renderer_frame;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	f.record.camera = Vector3(11, -7, 23);
+	for (auto &draw : f.draws) { draw.camera_offset[0] = -11; draw.camera_offset[1] = 7; draw.camera_offset[2] = -23; }
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh); // Same world geometry at another anchor.
+	++f.draws[1].chunk_id; // Far cut changes while camera moves again.
+	++f.geometry[1].chunk_key;
+	f.record.camera.x += 3;
+	f.draws[0].camera_offset[0] -= 3;
+	f.draws[1].camera_offset[0] -= 3;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	++f.draws[0].chunk_id;
+	++f.geometry[0].chunk_key;
+	f.publish();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+	++f.geometry[1].payload; // Unrelated leaf edit, not a global source revision.
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	++f.geometry[0].payload;
+	f.publish();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	f.rows[1].translation_scale[0] = 1; // Current far row changes during idle restore.
+	f.rebuild();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows[0].params[0] = 0.75f;
+	f.rebuild();
+	CHECK(f.query(light).refresh);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] noncasting rows cannot animate or dirty positional content") {
-	gs_shadow_refresh::PublishedContent content;
-	FrameRecord record;
-	record.draw_count = 2;
-	record.row_casts.push_back(1);
-	record.row_casts.push_back(0);
-	DrawnNodeGPU draws[2]{};
-	draws[1].instance_id = 1;
-	LocalVector<InstanceDataGPU> rows;
-	rows.push_back(InstanceDataGPU{});
-	rows.push_back(InstanceDataGPU{});
-	const uint64_t revision = content.publish(record, draws, rows, 0);
-	rows[1].translation_scale[0] = 17;
-	draws[1].chunk_id = 7;
-	CHECK(content.publish(record, draws, rows, 0) == revision);
-	CHECK(content.refresh_rows(record, rows) == revision);
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] dense chunk row and legacy camera LOD remaps preserve light content") {
+	RefreshFixture f;
+	f.draws[0].instance_id = 1; // The near record is an object; its stable row/asset keys stay fixed.
+	f.draws[1].instance_id = 0;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	f.draws[0].chunk_id += 123; // A far lower-ID asset grew the preceding chunk table.
+	f.rows[1].ids[0] += 10;
+	f.rows[1].lod[0] = 3;
+	f.rows[1].params[1] = 2;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows.push_back(f.rows[1]); // The same object moves to another dense row.
+	f.record.row_keys.push_back(f.record.row_keys[1]);
+	f.record.row_asset_ids.push_back(f.record.row_asset_ids[1]);
+	f.record.row_casts.push_back(1);
+	f.record.row_casts[1] = 0;
+	f.margins.push_back(0);
+	f.animated.push_back(0);
+	f.draws[0].instance_id = 2;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	++f.geometry[0].chunk_key; // A different chunk of this asset is a real content change.
+	f.publish();
+	CHECK(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] large-coordinate record and aggregate bounds retain their positive edge") {
+	const AABB world = gs_shadow_refresh::enclosing_bounds(Vector3(-200000000, -1, -1), Vector3(1, 1, 1));
+	CHECK(world.position.x + world.size.x >= real_t(1));
+	gs_shadow_refresh::ContentIndex index;
+	gs_shadow_refresh::SpatialRecord far, near;
+	far.bounds = AABB(Vector3(-200000000, 0, 0), Vector3());
+	far.digest = 10;
+	near.bounds = AABB(Vector3(1, 0, 0), Vector3());
+	near.digest = 20;
+	index.records.push_back(far);
+	index.records.push_back(near);
+	index.build();
+	if (index.cells.is_empty()) { FAIL("index must contain both records"); return; }
+	CHECK(index.cells[0].bounds.position.x + index.cells[0].bounds.size.x >= real_t(1));
+	uint64_t digest = 0;
+	uint32_t count = 0;
+	bool animated = false;
+	index.query(0, Vector3(1, 0, 0), 0, digest, count, animated);
+	CHECK(count == 1);
+	CHECK(digest == 20);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] noncasting records cannot animate or dirty per-light content") {
+	RefreshFixture f;
+	f.record.row_casts[1] = 0;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	f.geometry[1].bounds = f.geometry[0].bounds;
+	f.animated[1] = 1;
+	f.rows[1].translation_scale[0] = 1;
+	++f.draws[1].chunk_id;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
 	gs::settings::GSWindSettings wind;
 	wind.enabled = true;
 	wind.strength = 1;
-	rows[1].params[2] = 1;
-	CHECK_FALSE(gs_wind::wind_active_on_casting_row(wind, rows[1], record.row_casts[1] != 0));
+	f.rows[1].params[2] = 1;
+	CHECK_FALSE(gs_wind::wind_active_on_casting_row(wind, f.rows[1], false));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] wind and effectors refresh only casting records near the light") {
+	RefreshFixture f;
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 1;
+	wind.direction = Vector3(1, 0, 0);
+	f.rows[1].params[2] = 1;
+	f.animated[1] = gs_wind::wind_active_on_casting_row(wind, f.rows[1], true);
+	CHECK(f.animated[1] == 1);
+	f.rebuild();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows[0].params[2] = 1;
+	f.animated[0] = gs_wind::wind_active_on_casting_row(wind, f.rows[0], true);
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK(f.query(light).refresh);
+	f.animated[0] = 0; // Turn off: one final static map.
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+	// Selected opacity effectors use the same per-record animation path.
+	f.rows[1].effect_params[1] = 1;
+	float meta[4] = { 1, 0, 0, 0 };
+	float spheres[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float configs[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float opacity[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	spheres[0][3] = 2; configs[0][0] = 1; opacity[0][1] = 1; opacity[0][2] = 0.5f;
+	f.animated[1] = gs_shadow_refresh::effectors_active_on_casting_row(f.rows[1], true, meta, spheres, configs, opacity);
+	f.rebuild();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows[0].effect_params[1] = 1;
+	f.animated[0] = gs_shadow_refresh::effectors_active_on_casting_row(f.rows[0], true, meta, spheres, configs, opacity);
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] inflated records enter light and final departure clears once") {
+	RefreshFixture f;
+	f.geometry[0].bounds.position.x = 4;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	CHECK_FALSE(f.query(light).refresh); // Coarse world bounds alone must not observe this lamp.
+	f.margins[0] = 2;
+	f.rebuild();
+	CHECK(f.query(light).refresh); // Inflated bound touches sphere.
+	light.commit(f.query(light));
+	f.margins[0] = 0;
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] wind forces intersecting casters while never-observing lights stay untouched") {
@@ -1311,25 +1456,17 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] removing or replacing one of
 	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a moving camera changes the published relative list but a static camera reuses it") {
-	gs_shadow_refresh::PublishedContent content;
-	FrameRecord record;
-	record.draw_count = 1;
-	record.row_casts.push_back(1);
-	DrawnNodeGPU draw{};
-	LocalVector<InstanceDataGPU> rows;
-	rows.push_back(InstanceDataGPU{});
-	const uint64_t first = content.publish(record, &draw, rows, 0);
-	++record.draw_list_upload;
-	++record.renderer_frame;
-	CHECK(content.publish(record, &draw, rows, 0) == first);
-	record.camera.x = 1;
-	draw.camera_offset[0] = -1; // Same world position, expressed against the new main-view camera.
-	const uint64_t moved = content.publish(record, &draw, rows, 0);
-	CHECK(moved != first);
-	++record.draw_list_upload;
-	++record.renderer_frame;
-	CHECK(content.publish(record, &draw, rows, 0) == moved);
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] static depth at two anchors has the same light clip coordinates") {
+	Projection light;
+	light.set_perspective(70, 1, 0.1, 100);
+	const Vector3 world(2, 3, -10);
+	const Vector3 anchors[2] = { Vector3(), Vector3(11, -7, 23) };
+	const Vector4 expected = godot_shadow_clip(light, Transform3D(), false).xform(Vector4(world.x, world.y, world.z, 1));
+	for (const Vector3 &anchor : anchors) {
+		const Vector3 relative = world - anchor;
+		const Vector4 clip = frame_relative_shadow_clip(light, Transform3D(), false, anchor).xform(Vector4(relative.x, relative.y, relative.z, 1));
+		for (int axis = 0; axis < 4; ++axis) { CHECK(clip[axis] == doctest::Approx(expected[axis]).epsilon(1e-5)); }
+	}
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] selected sphere effectors refresh only responsive casting rows") {
