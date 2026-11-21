@@ -58,7 +58,7 @@ struct Checker {
 							if (forward_entries >= uint32_t(pages.size()) || w.offset + byte != uint64_t(pt_base + forward_entries) * sizeof(uint32_t) || value != pages[forward_entries]) { return violation = PAYLOAD_IDENTITY; }
 							++forward_entries;
 						} else {
-							if (reverse_entries >= uint32_t(pages.size()) || w.offset + byte != uint64_t(pages[reverse_entries]) * sizeof(uint32_t) || value != 0) { return violation = PAYLOAD_IDENTITY; }
+							if (reverse_entries >= uint32_t(pages.size()) || w.offset + byte != uint64_t(pages[reverse_entries]) * sizeof(uint32_t) || value != pt_base + reverse_entries) { return violation = PAYLOAD_IDENTITY; }
 							++reverse_entries;
 						}
 					}
@@ -234,6 +234,23 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] noncontiguous page uploa
 	CHECK(h.checker.atlas_writes >= uint32_t(h.pages.size()));
 	CHECK(h.checker.forward_entries == uint32_t(h.pages.size()));
 	CHECK(h.checker.reverse_entries == uint32_t(h.pages.size()));
+	// The real reverse uploads above recover distinct local pages, while CPU
+	// allocator ownership remains the node id. Node 0 spans at least two pages,
+	// so its second GPU reverse value must differ from its CPU owner value.
+	const auto &owners = h.streamer.get_residency().page_owners();
+	uint32_t reverse_entries = 0;
+	for (const auto &write : h.writes) {
+		if (write.kind != Streamer::TestWrite::PAGE_OWNER) { continue; }
+		if (reverse_entries >= uint32_t(h.pages.size()) || write.payload.size() != sizeof(uint32_t) ||
+				h.pages[reverse_entries] >= uint32_t(owners.size())) { FAIL("reverse upload must name an allocated physical page and one slot"); return; }
+		uint32_t slot = UINT32_MAX;
+		memcpy(&slot, write.payload.ptr(), sizeof(slot));
+		CHECK(slot == h.pt_base + reverse_entries);
+		CHECK(owners[h.pages[reverse_entries]] == 0u);
+		if (reverse_entries != 0) { CHECK(slot != owners[h.pages[reverse_entries]]); }
+		++reverse_entries;
+	}
+	CHECK(reverse_entries == uint32_t(h.pages.size()));
 }
 
 struct PageInvalidationTrace {

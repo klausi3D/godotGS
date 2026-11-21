@@ -117,6 +117,7 @@ public:
         last_instance_count.source_valid = p_valid;
     }
     bool _test_get_last_instance_visible_splat_count_valid() const { return last_instance_count.valid; }
+    bool _test_uses_address_identity() const { return depth_compute_shader.is_valid() && depth_address_identity_enabled; }
     uint32_t _test_get_last_instance_visible_splat_count_frame() const { return last_instance_count.frame; }
 #endif
     String get_last_compute_error() const { return last_compute_error; }
@@ -222,6 +223,9 @@ private:
     bool depth_submission_requires_wait = false;
     bool depth_quantization_enabled = false;
     bool depth_hlod_relative_enabled = false;
+#ifdef TESTS_ENABLED
+    bool depth_address_identity_enabled = false;
+#endif
     RID instance_param_buffer = RID();
     RenderingDevice *instance_resource_device = nullptr;
 

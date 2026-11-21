@@ -15,6 +15,7 @@
 #include "../renderer/splat_ref_encoding.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
+#include "../renderer/splat_identity_test_control.h"
 #include "core/config/project_settings.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
@@ -28,6 +29,42 @@
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.h"
 #include <cmath>
 #include <cstring>
+
+TEST_CASE("[GaussianSplatting][HLOD] stable splat identity survives scattered page relocation and row reorder") {
+	using namespace GSSplatIdentityTestControl;
+	set_force_address_keying(false);
+	const auto first = keys(7, 1029, 0x123456789ULL, 3 * 1024 + 5, 65521, 1);
+	const auto relocated = keys(7, 1029, 0x123456789ULL, 19 * 1024 + 5, 65521, 19);
+	CHECK(first.tie_break == relocated.tie_break);
+	CHECK(first.history_slot == relocated.history_slot);
+	CHECK(first.history_key == relocated.history_key);
+	CHECK(first.tie_break == 2280985405u); // Same vector is executed from the GLSL in Python.
+	CHECK(first.history_slot == 2832u);
+	CHECK(first.history_key == 133501757u);
+	for (const auto other : { keys(8, 1029, 0x123456789ULL, 3 * 1024 + 5, 65521),
+			keys(7, 1030, 0x123456789ULL, 3 * 1024 + 5, 65521),
+			keys(7, 1029, 0x223456789ULL, 3 * 1024 + 5, 65521) }) {
+		CHECK(first.tie_break != other.tie_break);
+		CHECK(first.history_slot != other.history_slot);
+		CHECK(first.history_key != other.history_key);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] address identity forcing control is observable and discriminates relocation") {
+	using namespace GSSplatIdentityTestControl;
+	struct Restore { ~Restore() { set_force_address_keying(false); } } restore;
+	CHECK_FALSE(get_force_address_keying());
+	set_force_address_keying(true);
+	CHECK(get_force_address_keying());
+	const auto first = keys(7, 1029, 17, 3 * 1024 + 5, 65521);
+	const auto relocated = keys(7, 1029, 17, 19 * 1024 + 5, 65521);
+	CHECK(first.tie_break != relocated.tie_break);
+	CHECK(first.history_slot != relocated.history_slot);
+	CHECK(first.history_key != relocated.history_key);
+	set_force_address_keying(false);
+	const auto stable = keys(7, 1029, 17, 3 * 1024 + 5, 65521);
+	CHECK(stable.tie_break != first.tie_break);
+}
 
 extern "C" int test_hlod_runtime_gpu_identity_cpp_force_link() { return 0; }
 
@@ -161,7 +198,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         }
         return rid;
     };
-    PackedGaussian splats[2] = {};
+    PackedGaussian splats[4] = {};
     ChunkMetaGPU chunks[2] = {};
     for (uint32_t i = 0; i < 2; ++i) {
         splats[i].position[0] = -16.0f;
@@ -199,10 +236,26 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
     buffers.hlod_draw_count = buffers.max_visible_chunks = buffers.dispatch_chunk_count = 2;
     buffers.max_visible_splats = buffers.atlas_gaussian_count = 2;
     buffers.instance_count = buffers.max_chunk_splats = 1;
+    buffers.atlas_gaussian_count = 4;
     buffers.world_submission_active = true;
     renderer->get_subsystem_state().gpu_culler->get_state().culled_indices.clear();
-    // Same camera and storage on both passes: HLOD reuse must remain disabled.
-    for (uint32_t pass = 0; pass < 2; ++pass) {
+    // Same camera, relocated payload. Compare actual GPU key words, then repeat
+    // with the observable address-keying variant as the negative control.
+    struct RestoreIdentity { ~RestoreIdentity() { GSSplatIdentityTestControl::set_force_address_keying(false); } } restore_identity;
+    uint32_t first_ties[2] = {};
+    for (uint32_t pass = 0; pass < 4; ++pass) {
+        const bool forced = pass >= 2;
+        GSSplatIdentityTestControl::set_force_address_keying(forced);
+        CHECK(GSSplatIdentityTestControl::get_force_address_keying() == forced);
+        const uint32_t placement = (pass & 1u) * 2u;
+        for (uint32_t node = 0; node < 2; ++node) {
+            splats[placement + node] = splats[node];
+            chunks[node].atlas_base = placement + node;
+        }
+        if (rd->buffer_update(buffers.atlas_gaussian_buffer, 0, sizeof(splats), splats) != OK ||
+                rd->buffer_update(buffers.chunk_meta_buffer, 0, sizeof(chunks), chunks) != OK) {
+            FAIL("identity relocation upload failed"); return;
+        }
         if (rd->buffer_update(buffers.counter_buffer, 0, sizeof(counters), counters) != OK) {
             FAIL("cut counter upload failed"); return;
         }
@@ -221,13 +274,15 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         }
         const auto result = renderer->test_sort_for_view(Transform3D(), GaussianRenderState::IndexDomain::CHUNK_REF);
         CHECK(result.did_execute);
+        CHECK(pipeline->_test_uses_address_identity() == forced);
         CHECK(renderer->get_debug_state().sort_route_uid == String(RenderRouteUID::INSTANCE_SORT_GPU));
         const Vector<uint8_t> count_bytes = rd->buffer_get_data(buffers.instance_count_buffer);
         const Vector<uint8_t> sorted_bytes = rd->buffer_get_data(pipeline->get_sort_indices_buffer(), 0, 2 * sizeof(uint32_t));
         const Vector<uint8_t> ref_bytes = rd->buffer_get_data(buffers.splat_ref_buffer, 0, 2 * sizeof(SplatRefGPU));
         const Vector<uint8_t> sidecar_bytes = rd->buffer_get_data(buffers.hlod_draw_entry_buffer, 0, 2 * sizeof(uint32_t));
+        const Vector<uint8_t> key_bytes = rd->buffer_get_data(buffers.sort_key_buffer, 0, 4 * sizeof(uint32_t));
         if (count_bytes.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout)) ||
-                sorted_bytes.size() != 8 || ref_bytes.size() != 16 || sidecar_bytes.size() != 8) {
+                sorted_bytes.size() != 8 || ref_bytes.size() != 16 || sidecar_bytes.size() != 8 || key_bytes.size() != 16) {
             FAIL("complete GPU output required"); return;
         }
         GaussianSplatting::IndirectDispatchLayout count_header = {};
@@ -241,11 +296,22 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         const auto *sorted = reinterpret_cast<const uint32_t *>(sorted_bytes.ptr());
         const auto *refs = reinterpret_cast<const SplatRefGPU *>(ref_bytes.ptr());
         const auto *entries = reinterpret_cast<const uint32_t *>(sidecar_bytes.ptr());
+        uint32_t key_words[4] = {};
+        std::memcpy(key_words, key_bytes.ptr(), sizeof(key_words));
+        // Depths are distinct, so sorted key order identifies node 0 then node 1.
+        // Neither word's value is inferred from whether a dispatch was attempted.
         for (uint32_t i = 0; i < 2; ++i) {
             CHECK(sorted[i] < 2);
             if (sorted[i] >= 2) { continue; }
-            CHECK(gs_splat_ref::gs_splat_ref_atlas_index(refs[sorted[i]].atlas_index) == i);
+            CHECK(gs_splat_ref::gs_splat_ref_atlas_index(refs[sorted[i]].atlas_index) == placement + i);
             CHECK(entries[sorted[i]] == i);
+            const uint32_t tie = key_words[2 * i];
+            if (pass == 0) { first_ties[i] = tie; }
+            if (pass == 1) { CHECK(tie == first_ties[i]); }
+            if (forced) {
+                CHECK(tie == placement + i);
+                CHECK(tie != first_ties[i]);
+            }
         }
     }
     pipeline.unref();
