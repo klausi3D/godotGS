@@ -8,7 +8,7 @@ extern "C" int test_hlod_shadow_casters_cpp_force_link() { return 0; }
 
 // Splat shadow casters on the HLOD route (#1095, #1163; renderer/hlod_shadow_caster_plan.h). CPU only: the caster list a
 // light pass draws (the last active main view's draw list), its refusals, the caster budget (exactly the view's admitted
-// set), the per-frame accounting, and the clip transform (Godot's directional shadow convention, camera-relative input).
+// set), the per-frame accounting, and Godot's directional/spot/cube shadow conventions with camera-relative input.
 namespace TestHlodShadowCasters {
 using namespace gs_shadow_caster;
 
@@ -474,6 +474,104 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] explicit positional types re
 	CHECK(plan_pass(record, pass.supports_hlod_casters(), true).refusal == Refusal::NOT_DIRECTIONAL);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] perspective spot and all six omni cube passes cast the admitted list") {
+	const FrameRecord record = active_record();
+	for (LightKind kind : { LightKind::SPOT, LightKind::OMNI_CUBE }) {
+		LightPassInfo pass;
+		pass.kind = kind;
+		pass.light_type = kind == LightKind::SPOT ? RS::LIGHT_SPOT : RS::LIGHT_OMNI;
+		pass.omni_shadow_mode = kind == LightKind::OMNI_CUBE ? RS::LIGHT_OMNI_SHADOW_CUBE : -1;
+		pass.orthographic = false;
+		const int pass_count = kind == LightKind::OMNI_CUBE ? 6 : 1;
+		for (int index = 0; index < pass_count; ++index) {
+			pass.pass_index = index;
+			CHECK_MESSAGE(pass.supports_hlod_casters(), light_kind_name(kind), " pass ", index);
+			// Deliberately use the existing bool API: before the fix this compiles and fails with NOT_DIRECTIONAL.
+			const PassPlan plan = plan_pass(record, pass.supports_hlod_casters(), true);
+			CHECK(plan.draws());
+			CHECK(plan.refusal == Refusal::NONE);
+			CHECK(plan.casters == record.casters());
+			CHECK(plan.instance_slots == record.draw_count * record.max_chunk_splats);
+		}
+		FrameRecord quantized = record;
+		quantized.quantized = true;
+		CHECK(plan_pass(quantized, pass.supports_hlod_casters(), true).refusal == Refusal::QUANTIZED_PAYLOAD);
+		FrameRecord empty = record;
+		empty.draw_count = 0;
+		CHECK(plan_pass(empty, pass.supports_hlod_casters(), true).refusal == Refusal::EMPTY_DRAW_LIST);
+		CHECK(plan_pass(FrameRecord(), pass.supports_hlod_casters(), true).refusal == Refusal::NO_ACTIVE_HLOD_VIEW);
+		CHECK(plan_pass(record, pass.supports_hlod_casters(), false).refusal == Refusal::BUNDLE_CHANGED);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] omni paraboloid passes name their unsupported projection") {
+	LightPassInfo pass;
+	pass.kind = LightKind::OMNI_PARABOLOID;
+	pass.light_type = RS::LIGHT_OMNI;
+	pass.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID;
+	pass.orthographic = true; // Godot supplies an identity projection for both hemispheres.
+	for (int hemisphere = 0; hemisphere < 2; ++hemisphere) {
+		pass.pass_index = hemisphere;
+		const PassPlan plan = plan_pass(active_record(), pass, true);
+		CHECK_FALSE(plan.draws());
+		CHECK(plan.refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+		CHECK(String(refusal_reason(plan.refusal)) == "shadow_caster_omni_paraboloid_unsupported");
+		CHECK(plan.casters == 0);
+		CHECK(plan.instance_slots == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-light named refusal survives other lights and snapshot but resets next frame") {
+	LightFrameStats stats;
+	LightPassInfo paraboloid;
+	paraboloid.kind = LightKind::OMNI_PARABOLOID;
+	paraboloid.light_type = RS::LIGHT_OMNI;
+	paraboloid.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID;
+	paraboloid.orthographic = true;
+	paraboloid.pass_index = 0;
+	stats.record(1041, 41, 11, false, 0, paraboloid, Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	LightPassInfo spot;
+	spot.kind = LightKind::SPOT;
+	spot.light_type = RS::LIGHT_SPOT;
+	spot.pass_index = 0;
+	stats.record(1041, 41, 22, true, 123, spot);
+	paraboloid.pass_index = 1;
+	stats.record(1041, 41, 11, false, 0, paraboloid, Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	const LightFrameStats::Snapshot refused = stats.snapshot();
+	if (refused.lights.size() != 2) {
+		FAIL("expected the refused omni and casting spot in the snapshot, got ", refused.lights.size());
+		return;
+	}
+	CHECK(refused.lights[0].id == 11);
+	CHECK(refused.lights[0].last_refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	CHECK(String(refusal_reason(refused.lights[0].last_refusal)) == "shadow_caster_omni_paraboloid_unsupported");
+	CHECK(refused.lights[0].passes == 2);
+	CHECK(refused.lights[0].no_caster_passes == 2);
+	CHECK(refused.lights[0].casters == 0);
+	CHECK(refused.no_caster_count == 1); // Naming the refusal does not turn a no-caster observation into a cast.
+	CHECK(refused.lights[1].casters == 123);
+	CHECK(refused.lights[1].last_refusal == Refusal::NONE);
+	// No new refusal on an unrelated light can clear the omni's named diagnostic in this RS frame.
+	stats.record(1041, 42, 22, true, 456, spot);
+	CHECK(stats.lights[0].last_refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	CHECK(stats.no_caster_lights() == 1);
+	// The same RID with a supported projection next frame must not retain the old mode's refusal.
+	LightPassInfo cube = paraboloid;
+	cube.kind = LightKind::OMNI_CUBE;
+	cube.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_CUBE;
+	cube.orthographic = false;
+	stats.record(1042, 42, 11, true, 789, cube);
+	if (stats.lights.size() != 1) {
+		FAIL("new frame must contain only the current light, got ", stats.lights.size());
+		return;
+	}
+	CHECK(stats.lights[0].last_refusal == Refusal::NONE);
+	CHECK(stats.lights[0].casters == 789);
+	CHECK(stats.no_caster_lights() == 0);
+	CHECK(refused.lights[0].last_refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED); // Snapshot owns the diagnostic too.
+	CHECK(refused.no_caster_count == 1);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] snapshot owns its values across later records and frame resets") {
 	LightFrameStats stats;
 	LightPassInfo pass;
@@ -591,6 +689,162 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster writes every casc
 			CHECK(std::fabs(a.x - b.x) <= tolerance);
 			CHECK(std::fabs(a.y - b.y) <= tolerance);
 			CHECK(std::fabs(a.z - b.z) <= tolerance);
+		}
+	}
+}
+
+// Receiver references stay in this test file and do not call the caster's transform helpers. Spot receivers use
+// light_storage.cpp's bias * correction(false, true, false) * projection * inverse-light, with the atlas rect
+// applied after perspective division by scene_forward_lights_inc.glsl. Projection::xform(Vector3) divides by w.
+static Vector3 spot_receiver_sample(const Projection &p_projection, const Transform3D &p_light,
+		const Rect2 &p_rect, const Vector3 &p_world) {
+	Projection receiver_correction;
+	receiver_correction.set_depth_correction(false, true, false);
+	Projection receiver_bias;
+	receiver_bias.set_light_bias();
+	const Projection receiver_matrix = receiver_bias * receiver_correction * p_projection * Projection(p_light.affine_inverse());
+	const Vector3 sample = receiver_matrix.xform(p_world);
+	return Vector3(p_rect.position.x + sample.x * p_rect.size.x,
+			p_rect.position.y + sample.y * p_rect.size.y, sample.z);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] spot perspective casters match Godot receiver uv and reverse depth") {
+	const float near_plane = 0.025f;
+	const float range = 32.0f;
+	Projection perspective;
+	perspective.set_perspective(80.0f, 1.0f, near_plane, range); // Godot's twice-spot-angle projection.
+	Transform3D light;
+	light.basis = Basis::from_euler(Vector3(-0.55f, 0.32f, 0.11f));
+	light.origin = Vector3(3.0f, 12.0f, -4.0f);
+	const Rect2 rect(0.5f, 0.25f, 0.25f, 0.25f);
+	const Vector3 local_points[] = { Vector3(1.5f, 2.0f, -6.0f), Vector3(-3.0f, -1.5f, -12.0f), Vector3(2.0f, -4.0f, -20.0f) };
+	const Vector3 cameras[] = { Vector3(), Vector3(128.0f, -32.0f, 80.0f) };
+	const float uv_tolerance = 0.5f / 4096.0f; // Half an atlas texel, not an arbitrary world-space epsilon.
+	const float depth_tolerance = 1.0f / 65536.0f;
+	Projection orthographic;
+	orthographic.set_orthogonal(-8.0f, 8.0f, -8.0f, 8.0f, near_plane, range);
+	const Projection wrong_ortho = godot_shadow_clip(orthographic, light, true);
+	const Projection wrong_flip = godot_shadow_clip(perspective, light, false);
+	const Projection wrong_depth = perspective * Projection(light.affine_inverse()); // Raw OpenGL forward [-1,1] depth.
+	for (const Vector3 &local : local_points) {
+		const Vector3 world = light.xform(local);
+		const Vector3 receiver = spot_receiver_sample(perspective, light, rect, world);
+		for (const Vector3 &camera : cameras) {
+			const Projection clip = frame_relative_shadow_clip(perspective, light, true, camera);
+			const Vector3 caster = caster_atlas_sample(clip, rect, world - camera);
+			CHECK(std::fabs(caster.x - receiver.x) <= uv_tolerance);
+			CHECK(std::fabs(caster.y - receiver.y) <= uv_tolerance);
+			CHECK(std::fabs(caster.z - receiver.z) <= depth_tolerance);
+		}
+		// Each forcing case must miss this independent receiver reference for every off-axis point.
+		const Vector3 ortho_sample = caster_atlas_sample(wrong_ortho, rect, world);
+		CHECK(std::fabs(ortho_sample.x - receiver.x) > uv_tolerance || std::fabs(ortho_sample.y - receiver.y) > uv_tolerance);
+		CHECK(std::fabs(ortho_sample.z - receiver.z) > depth_tolerance);
+		CHECK(std::fabs(caster_atlas_sample(wrong_flip, rect, world).y - receiver.y) > uv_tolerance);
+		CHECK(std::fabs(caster_atlas_sample(wrong_depth, rect, world).z - receiver.z) > depth_tolerance);
+	}
+	const Projection clip = godot_shadow_clip(perspective, light, true);
+	CHECK(clip.xform(light.xform(Vector3(0, 0, -near_plane))).z == doctest::Approx(1.0f).epsilon(1e-3));
+	CHECK(std::fabs(clip.xform(light.xform(Vector3(0, 0, -range))).z) <= depth_tolerance);
+}
+
+// The unchanged omni receiver first transforms world to BASE light space, then uses radial reverse depth and
+// stereographic xy/(1+abs(z)), with one atlas texel inset (scene_forward_lights_inc.glsl). Positive Z selects the
+// second atlas cell; neither hemisphere flips X. Bias and PCF are zero here so the sampled point is unambiguous.
+static Vector3 omni_receiver_sample(const Transform3D &p_base_light, const Rect2 &p_first_cell,
+		const Vector2 &p_second_cell_offset, float p_atlas_size, float p_range, const Vector3 &p_world) {
+	const Vector3 q = p_base_light.affine_inverse().xform(p_world);
+	const float distance = q.length();
+	const Vector3 direction = q / distance;
+	const Vector2 chart(direction.x / (1.0f + std::fabs(direction.z)), direction.y / (1.0f + std::fabs(direction.z)));
+	Rect2 cell = p_first_cell;
+	if (direction.z >= 0.0f) {
+		cell.position += p_second_cell_offset;
+	}
+	const float texel = 1.0f / p_atlas_size;
+	return Vector3(cell.position.x + texel + (chart.x * 0.5f + 0.5f) * (cell.size.x - 2.0f * texel),
+			cell.position.y + texel + (chart.y * 0.5f + 0.5f) * (cell.size.y - 2.0f * texel), 1.0f - distance / p_range);
+}
+
+// Follow a splat's cube-face write through Godot's existing cube_to_dp.glsl copy. Recover the face ray from its
+// written UV (undo correction(true)'s Y flip), rotate to base-light space, reconstruct perspective axis distance,
+// then apply the copy shader's 1/max(abs(direction)) radial-depth correction and its inverse one-texel UV expansion.
+// This consumes the caster's output, never the receiver's world point or receiver shadow matrix.
+static Vector3 cube_caster_sample_after_copy(const Projection &p_clip, const Vector3 &p_relative_point,
+		const Transform3D &p_base_light, const Transform3D &p_face_light, const Rect2 &p_first_cell,
+		const Vector2 &p_second_cell_offset, float p_atlas_size, float p_near, float p_range) {
+	const Vector3 face_sample = caster_atlas_sample(p_clip, Rect2(0, 0, 1, 1), p_relative_point);
+	const Vector3 face_ray(2.0f * face_sample.x - 1.0f, 1.0f - 2.0f * face_sample.y, -1.0f);
+	const Vector3 direction = (p_base_light.basis.inverse() * (p_face_light.basis * face_ray)).normalized();
+	const float major = std::fmax(std::fabs(direction.x), std::fmax(std::fabs(direction.y), std::fabs(direction.z)));
+	const double forward_depth = 2.0 * face_sample.z - 1.0;
+	const double near_plane = p_near;
+	const double far_plane = p_range;
+	const double axis_distance = 2.0 * near_plane * far_plane / (far_plane + near_plane + forward_depth * (far_plane - near_plane));
+	const float radial_depth = 1.0f - float(axis_distance / major) / p_range;
+	const Vector2 chart(direction.x / (1.0f + std::fabs(direction.z)), direction.y / (1.0f + std::fabs(direction.z)));
+	Rect2 cell = p_first_cell;
+	if (direction.z >= 0.0f) {
+		cell.position += p_second_cell_offset;
+	}
+	const float texel_x = 1.0f / (cell.size.x * p_atlas_size);
+	const float texel_y = 1.0f / (cell.size.y * p_atlas_size);
+	const Vector2 copy_uv(((chart.x * 0.5f + 0.5f) + texel_x) / (1.0f + 2.0f * texel_x),
+			((chart.y * 0.5f + 0.5f) + texel_y) / (1.0f + 2.0f * texel_y));
+	return Vector3(cell.position.x + copy_uv.x * cell.size.x, cell.position.y + copy_uv.y * cell.size.y, radial_depth);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] every omni cube face reaches Godot receiver atlas uv and radial depth") {
+	const float near_plane = 0.025f;
+	const float range = 32.0f;
+	const float atlas_size = 4096.0f;
+	const float uv_tolerance = 0.5f / atlas_size;
+	// Decoding the float32 perspective depth magnifies its rounding near the far plane; four 16-bit depth units
+	// still distinguish the wrong orthographic/forward-depth conventions by several orders of magnitude.
+	const float depth_tolerance = 4.0f / 65536.0f;
+	Projection perspective;
+	perspective.set_perspective(90.0f, 1.0f, near_plane, range);
+	Projection orthographic;
+	orthographic.set_orthogonal(-8.0f, 8.0f, -8.0f, 8.0f, near_plane, range);
+	Transform3D base_light;
+	base_light.basis = Basis::from_euler(Vector3(-0.45f, 0.23f, 0.17f));
+	base_light.origin = Vector3(3.0f, 12.0f, -4.0f);
+	// Exactly renderer_scene_cull.cpp's face order and bases, independently of the caster implementation.
+	const Vector3 normals[] = { Vector3(+1, 0, 0), Vector3(-1, 0, 0), Vector3(0, -1, 0), Vector3(0, +1, 0), Vector3(0, 0, +1), Vector3(0, 0, -1) };
+	const Vector3 ups[] = { Vector3(0, -1, 0), Vector3(0, -1, 0), Vector3(0, 0, -1), Vector3(0, 0, +1), Vector3(0, -1, 0), Vector3(0, -1, 0) };
+	// Horizontal and vertical atlas allocations both occur; neither may assume a hard-coded second-cell axis.
+	const Rect2 first_cell(0.25f, 0.25f, 0.25f, 0.25f);
+	const Vector2 second_offsets[] = { Vector2(0.25f, 0.0f), Vector2(0.0f, 0.25f) };
+	const Vector3 cameras[] = { Vector3(), Vector3(128.0f, -32.0f, 80.0f) };
+	for (int face = 0; face < 6; ++face) {
+		const Transform3D face_light = base_light * Transform3D().looking_at(normals[face], ups[face]);
+		const Transform3D wrong_face = base_light * Transform3D().looking_at(normals[(face + 1) % 6], ups[(face + 1) % 6]);
+		// Nonaxial rays exercise the perspective divide, both UV axes, and the cube-to-radial depth correction.
+		for (float distance : { 6.0f, 12.0f, 20.0f }) {
+			const Vector3 world = face_light.xform(Vector3(0.25f * distance, -0.35f * distance, -distance));
+			for (const Vector2 &offset : second_offsets) {
+				const Vector3 receiver = omni_receiver_sample(base_light, first_cell, offset, atlas_size, range, world);
+				for (const Vector3 &camera : cameras) {
+					const Projection clip = frame_relative_shadow_clip(perspective, face_light, false, camera);
+					const Vector3 caster = cube_caster_sample_after_copy(clip, world - camera, base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+					CHECK_MESSAGE(std::fabs(caster.x - receiver.x) <= uv_tolerance, "face ", face);
+					CHECK_MESSAGE(std::fabs(caster.y - receiver.y) <= uv_tolerance, "face ", face);
+					CHECK_MESSAGE(std::fabs(caster.z - receiver.z) <= depth_tolerance, "face ", face);
+				}
+				const Vector3 wrong_ortho = cube_caster_sample_after_copy(godot_shadow_clip(orthographic, face_light, false), world,
+						base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+				CHECK(std::fabs(wrong_ortho.x - receiver.x) > uv_tolerance || std::fabs(wrong_ortho.y - receiver.y) > uv_tolerance);
+				CHECK(std::fabs(wrong_ortho.z - receiver.z) > depth_tolerance);
+				const Vector3 wrong_flip = cube_caster_sample_after_copy(godot_shadow_clip(perspective, face_light, true), world,
+						base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+				CHECK(std::fabs(wrong_flip.x - receiver.x) > uv_tolerance || std::fabs(wrong_flip.y - receiver.y) > uv_tolerance);
+				const Vector3 wrong_face_sample = cube_caster_sample_after_copy(godot_shadow_clip(perspective, face_light, false), world,
+						base_light, wrong_face, first_cell, offset, atlas_size, near_plane, range);
+				CHECK(std::fabs(wrong_face_sample.x - receiver.x) > uv_tolerance || std::fabs(wrong_face_sample.y - receiver.y) > uv_tolerance);
+				const Projection raw_depth = perspective * Projection(face_light.affine_inverse());
+				const Vector3 wrong_depth = cube_caster_sample_after_copy(raw_depth, world, base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+				CHECK(std::fabs(wrong_depth.z - receiver.z) > depth_tolerance);
+			}
 		}
 	}
 }

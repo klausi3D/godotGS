@@ -443,5 +443,79 @@ class HlodCameraRelativeFrame(unittest.TestCase):
         self.assertIn("effector_sphere.xyz -= frame_anchor", deformation)
 
 
+class ShadowCasterPerspectiveTests(unittest.TestCase):
+    """Evaluate the caster's real quotient rule; also check that its three consumers are wired in."""
+
+    def test_perspective_jacobian_matches_projected_finite_differences(self) -> None:
+        text = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        match = re.search(r"vec3 gs_caster_perspective_gradient\([^{}]+\)\s*\{[^{}]+\}", text)
+        self.assertIsNotNone(match, "the caster still uses an orthographic Jacobian for positional lights")
+        program = glsl.GlslProgram(match.group(0))
+        gradient = program.fn("gs_caster_perspective_gradient")
+        vec3 = program.namespace["vec3"]
+        # Rows of a rotated, translated perspective clip transform. Include both UV and reverse-Z depth rows,
+        # at unequal distances and off-axis points so dropping either /w or the quotient's w derivative fails.
+        rows = ((1.1, 0.2, -0.3), (-0.1, -0.8, 0.25), (0.002, -0.003, 0.006))
+        offsets = (0.7, -0.2, 0.08)
+        w_row, w_offset = (0.2, -0.3, -0.9), 2.0
+        failures_without_divide = failures_without_w_derivative = 0
+        for point in ((0.4, 0.7, -2.0), (-1.2, 0.3, -7.0), (2.1, -1.7, -13.0)):
+            clip_w = sum(a * b for a, b in zip(w_row, point)) + w_offset
+            for row, offset in zip(rows, offsets):
+                ndc = (sum(a * b for a, b in zip(row, point)) + offset) / clip_w
+                actual = gradient(vec3(*row), vec3(*w_row), ndc, clip_w).c
+                for axis in range(3):
+                    step = 1.0e-4
+                    def sample(delta: float) -> float:
+                        shifted = tuple(value + (delta if i == axis else 0.0) for i, value in enumerate(point))
+                        return ((sum(a * b for a, b in zip(row, shifted)) + offset)
+                                / (sum(a * b for a, b in zip(w_row, shifted)) + w_offset))
+                    expected = (sample(step) - sample(-step)) / (2.0 * step)
+                    self.assertAlmostEqual(actual[axis], expected, delta=1.0e-7)
+                    failures_without_divide += abs(row[axis] - expected) > 1.0e-5
+                    failures_without_w_derivative += abs(row[axis] / clip_w - expected) > 1.0e-5
+        self.assertGreater(failures_without_divide, 0)
+        self.assertGreater(failures_without_w_derivative, 0)
+
+    def test_perspective_shader_and_host_mode_are_wired(self) -> None:
+        shader = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        renderer = ROOT / "modules" / "gaussian_splatting" / "renderer"
+        host = (renderer / "gs_shadow_caster.cpp").read_text(encoding="utf-8")
+        hook = (renderer / "gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        for axis in ("x", "y", "z"):
+            self.assertIsNotNone(re.search(rf"j{axis}\s*=\s*gs_caster_perspective_gradient\([^;]+ndc\.{axis}, clip\.w\)", shader),
+                                 f"perspective {axis} gradient consumer is disconnected")
+        self.assertTrue("bool perspective = params.counts.z == 2u;" in shader, "shader perspective mode missing")
+        self.assertTrue("perspective && clip.w <= 1e-6" in shader, "perspective behind-light rejection missing")
+        self.assertTrue("p_inputs.perspective ? 2u : (p_inputs.pancake ? 1u : 0u)" in host, "host mode encoding changed")
+        self.assertTrue("inputs.perspective = !r_result.light_pass.orthographic;" in hook, "hook perspective selection missing")
+        self.assertTrue("inputs.pancake = !inputs.perspective;" in hook, "positional pancake disabling missing")
+        self.assertTrue("sizeof(ShadowCasterPushConstant) == 96" in host, "host packet size changed")
+        # Both stages must agree on the unchanged 96-byte layout; no new bindings or include inputs are needed.
+        blocks = re.findall(r"layout\(push_constant, std430\) uniform Params\s*\{([^}]+)\}", shader)
+        self.assertEqual(len(blocks), 2)
+        layouts = [re.findall(r"\b(mat4|vec4|uvec4)\s+(\w+)\s*;", block) for block in blocks]
+        self.assertEqual(layouts, [[("mat4", "light_from_frame"), ("vec4", "viewport"), ("uvec4", "counts")]] * 2)
+
+    def test_hlod_cube_shader_consumer_runs_before_shared_cube_copy(self) -> None:
+        forward = (ROOT / "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp").read_text(encoding="utf-8")
+        start = forward.index("void RenderForwardClustered::_render_shadow_pass(")
+        body = forward[start:forward.index("void RenderForwardClustered::_render_shadow_begin()", start)]
+        self.assertTrue("GaussianShadowRoute::HLOD" in body, "cube-only lights still cannot reach the HLOD shader")
+        mesh_end = body.index("_render_shadow_end();")
+        submit = body.index("_gaussian_shadow_dispatch(")
+        copy = body.index("copy_effects->copy_cubemap_to_dp(")
+        camera_reset = body.index("light_instance_set_shadow_transform(p_light, Projection()")
+        self.assertLess(mesh_end, submit)
+        self.assertLess(submit, copy)
+        self.assertLess(copy, camera_reset)
+        self.assertTrue("p_render_data->render_shadows[index].light == p_light" in body, "cube faces mix light IDs")
+        self.assertTrue("}, GaussianShadowRoute::CANONICAL);" in forward[:start], "late replay still includes HLOD")
+        cull = (ROOT / "servers/rendering/renderer_scene_cull.cpp").read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r"if \(has_hlod_shadow_owner\)\s*\{[^{}]*light->last_version\+\+;\s*\}\s*#endif\s*bool redraw = .*shadow_atlas_update_light", cull),
+                             "HLOD positional atlas refresh is disconnected")
+        self.assertTrue("renderer.is_valid() && renderer->uses_hlod_shadow_casters()" in cull, "refresh owner check missing")
+
+
 if __name__ == "__main__":
     unittest.main()
