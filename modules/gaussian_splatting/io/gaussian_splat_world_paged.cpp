@@ -657,7 +657,8 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 			rec.bytes(r.digest, 32);
 			const uint8_t *base = p + kIndexPageHeaderBytes + size_t(k) * kIndexRecordBytes;
 			tree.nodes[node].max_wind_weight = uint8_t(reserved0);
-			if ((reserved0 >> 8u) != 0u || ((h.codec_id == gs_gsq::kCodecV1 || h.gaussian_layout_version == 1u) && reserved0 != 0u) || !all_zero(base + 152, 40) || !all_zero(base + 224, 32) || (node_flags & ~kNodeKnownFlags) != 0u) {
+			if ((reserved0 >> 8u) != 0u || ((h.codec_id == gs_gsq::kCodecV1 || h.gaussian_layout_version == 1u) &&
+					(reserved0 != 0u || tree.nodes[node].is_semantic_valid())) || !all_zero(base + 152, 40) || !all_zero(base + 224, 32) || (node_flags & ~kNodeKnownFlags) != 0u) {
 				r_reason = "v4_nonzero_reserved_node_record";
 				return ERR_FILE_CORRUPT;
 			}

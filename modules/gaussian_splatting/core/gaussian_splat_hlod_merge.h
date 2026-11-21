@@ -18,6 +18,8 @@
 
 #include <cstdint>
 
+struct GaussianSplatHlodNode;
+
 namespace gs_hlod {
 
 // Fallible allocation probe for the bake's data-sized allocations (the OOM-probe row of
@@ -132,10 +134,14 @@ void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t 
 struct MergeCellEntry {
 	uint64_t key = 0u;
 	uint32_t index = 0u;
+	uint16_t region_id = 0u;
 	bool operator<(const MergeCellEntry &p_other) const {
-		return key < p_other.key || (key == p_other.key && index < p_other.index);
+		return key < p_other.key || (key == p_other.key &&
+				(region_id < p_other.region_id || (region_id == p_other.region_id && index < p_other.index)));
 	}
+	bool same_cell(const MergeCellEntry &p_other) const { return key == p_other.key && region_id == p_other.region_id; }
 };
+static_assert(sizeof(MergeCellEntry) == 16, "Region key must fit the existing merge scratch reservation");
 
 // Reusable buffers of the cell bucketing (avoids per-call allocation in the eps search).
 struct MergeScratch {
@@ -189,6 +195,9 @@ struct InteriorBakeResult {
 	uint64_t merge_usec = 0u; // eps search + merge
 	uint64_t order_usec = 0u;
 };
+
+// Payload provenance is independent of the subtree. Also used by tiled stitching.
+void set_node_payload_semantics(GaussianSplatHlodNode &r_node, const SplatSpan &p_payload);
 
 // Builds one interior node from its children's payloads, all in one frame of reference:
 // eps = max(p_cell_edge / merge_grid, 2 x p_max_child_error), raised by eps_growth until the `sat`

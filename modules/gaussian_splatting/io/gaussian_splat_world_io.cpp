@@ -976,6 +976,9 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 	p_file->seek(ext.node_table_offset);
 	for (uint32_t i = 0; i < ext.node_count; i++) {
 		tree.nodes[i] = _read_hlod_node(p_file);
+		if (gaussian_resolve_persisted_layout_version(p_recorded_layout) == 1u && tree.nodes[i].is_semantic_valid()) {
+			return refuse("semantic_node_flag_in_legacy_layout");
+		}
 	}
 	tree.top_level_nodes.resize(ext.top_level_node_count);
 	if (ext.top_level_node_count > 0u) {

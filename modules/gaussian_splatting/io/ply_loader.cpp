@@ -1,4 +1,5 @@
 #include "ply_loader.h"
+#include "../core/gs_project_settings.h"
 #include "gaussian_splat_world_io.h"
 #include "core/io/dir_access.h"
 #include "core/os/os.h"
@@ -10,6 +11,7 @@
 #include "../logger/startup_trace.h"
 
 #include <climits>
+#include <cmath>
 
 namespace {
 
@@ -43,7 +45,8 @@ namespace {
 //       verbatim, so a v3 cache would keep serving untagged splats, which the
 //       shader decodes with the legacy sigmoid. A stale v3 cache is rejected and
 //       the raw PLY re-parsed.
-static constexpr int PLY_CACHE_VERSION = 4;
+// v5: semantic properties and PLY island side data must survive cache hits.
+static constexpr int PLY_CACHE_VERSION = 5;
 
 static constexpr int SH_DC_COMPONENTS = 3;
 static constexpr int SH_REST_COMPONENTS = 45;
@@ -243,6 +246,11 @@ Error PLYLoader::load_file(const String &p_path) {
         return err;
     }
 
+    err = parse_semantic_properties(file);
+    if (err != OK) {
+        gaussian_data.unref();
+        return err;
+    }
     if (_is_ply_cache_enabled()) {
         write_cache(p_path, source_size, source_mtime);
     }
@@ -468,13 +476,46 @@ bool PLYLoader::try_load_cache(const String &p_source_path, uint64_t p_source_si
     if (!_cache_metadata_matches(cache_metadata, p_source_path, p_source_size, p_source_mtime)) {
         return false;
     }
+    int expected_fields = 0;
+    if (find_property_index("region_id") >= 0) { expected_fields |= 1; }
+    if (find_property_index(gs::settings::WIND_WEIGHT_PROPERTY) >= 0) { expected_fields |= 2; }
+    if (find_property_index("island_id") >= 0) { expected_fields |= 4; }
+    const Variant cached_side_value = cache_metadata.get("gs_ply_semantics", Dictionary());
+    if (cached_side_value.get_type() != Variant::DICTIONARY) { return false; }
+    const Dictionary cached_side = cached_side_value;
+    if (int64_t(cached_side.get("fields", 0)) != expected_fields || (expected_fields && cached_side.is_empty())) { return false; }
 
     Ref<::GaussianData> cached_data = world->get_gaussian_data();
     if (!_cached_gaussian_data_matches(cached_data, header.vertex_count)) {
         return false;
     }
+    if (expected_fields) {
+        for (int i = 0; i < cached_data->get_count(); ++i) {
+            if (!gaussian_semantic_valid(cached_data->get_gaussian(i).semantic)) { return false; }
+        }
+    }
 
     gaussian_data = cached_data;
+    if (cache_metadata.has("gs_ply_semantics")) {
+        Dictionary side = cache_metadata["gs_ply_semantics"];
+        if ((expected_fields & 4) && !side.has("island_ids")) { return false; }
+        if (side.has("island_ids") && side["island_ids"].get_type() == Variant::ARRAY) {
+            const Array ids = side["island_ids"]; PackedInt32Array packed;
+            if (ids.size() != cached_data->get_count() || packed.resize(ids.size()) != OK) { return false; }
+            for (int i = 0; i < ids.size(); ++i) {
+                if ((ids[i].get_type() != Variant::INT && ids[i].get_type() != Variant::FLOAT) || !std::isfinite(double(ids[i])) || double(ids[i]) < 0 || double(ids[i]) > INT32_MAX || std::floor(double(ids[i])) != double(ids[i])) { return false; }
+                packed.set(i, int32_t(ids[i]));
+            }
+            side["island_ids"] = packed;
+        }
+        if (side.has("island_ids")) {
+            if (side["island_ids"].get_type() != Variant::PACKED_INT32_ARRAY) { return false; }
+            const PackedInt32Array ids = side["island_ids"];
+            if (ids.size() != cached_data->get_count()) { return false; }
+            for (int32_t id : ids) { if (id < 0) { return false; } }
+        }
+        gaussian_data->set_meta("gs_ply_semantics", side);
+    }
 
     return true;
 }
@@ -499,6 +540,9 @@ void PLYLoader::write_cache(const String &p_source_path, uint64_t p_source_size,
     cache_metadata[StringName("cache_source_size")] = static_cast<int64_t>(p_source_size);
     cache_metadata[StringName("cache_source_mtime")] = static_cast<int64_t>(p_source_mtime);
     cache_metadata[StringName("cache_version")] = PLY_CACHE_VERSION;
+    if (gaussian_data->has_meta("gs_ply_semantics")) {
+        cache_metadata["gs_ply_semantics"] = gaussian_data->get_meta("gs_ply_semantics");
+    }
     world->set_metadata(cache_metadata);
 
     // Write through the format saver directly so .gsplatcache does not need
@@ -508,6 +552,72 @@ void PLYLoader::write_cache(const String &p_source_path, uint64_t p_source_size,
     if (err != OK && GaussianSplattingIO::is_data_log_enabled()) {
         GS_LOG_STREAMING_DEBUG(vformat("Failed to write PLY cache: %s (error %d)", cache_path, err));
     }
+}
+
+
+Error PLYLoader::parse_semantic_properties(Ref<FileAccess> file) {
+    const int columns[3] = {find_property_index("region_id"), find_property_index(gs::settings::WIND_WEIGHT_PROPERTY), find_property_index("island_id")};
+    int fields = 0; uint64_t stride = 0;
+    for (const PLYProperty &prop : header.properties) { stride += prop.size; }
+    for (int k = 0; k < 3; ++k) {
+        if (columns[k] < 0) { continue; }
+        fields |= 1 << k;
+        const String type = header.properties[columns[k]].type;
+        const bool byte = type == "uchar" || type == "uint8";
+        const bool floating = type == "float" || type == "float32" || type == "double" || type == "float64";
+        const bool integer = type == "int" || type == "int32" || type == "uint" || type == "uint32" ||
+                type == "short" || type == "int16" || type == "ushort" || type == "uint16" || type == "char" || type == "int8" || byte;
+        ERR_FAIL_COND_V_MSG(k == 1 ? (!byte && !floating) : !integer, ERR_FILE_CORRUPT, "semantic_ply_property_type");
+    }
+    if (fields == 0) { return OK; }
+    PackedInt32Array islands;
+    if ((fields & 4) && islands.resize(header.vertex_count) != OK) { return ERR_OUT_OF_MEMORY; }
+    file->seek(header.is_binary ? header.vertex_data_offset : header.header_size);
+    if (!header.is_binary) {
+        for (int64_t i = 0; i < header.pre_vertex_row_count; ++i) { file->get_line(); }
+    }
+    for (int i = 0; i < header.vertex_count; ++i) {
+        PackedStringArray tokens;
+        if (!header.is_binary) {
+            tokens = file->get_line().strip_edges().replace("\t", " ").split(" ", false);
+            if (tokens.size() != header.properties.size()) { return ERR_FILE_CORRUPT; }
+        }
+        uint32_t values[3] = {};
+        for (int k = 0; k < 3; ++k) {
+            if (columns[k] < 0) { continue; }
+            const PLYProperty &prop = header.properties[columns[k]];
+            double value;
+            if (header.is_binary) {
+                uint8_t bytes[8] = {};
+                file->seek(header.vertex_data_offset + uint64_t(i) * stride + prop.offset);
+                if (file->get_buffer(bytes, prop.size) != uint64_t(prop.size)) { return ERR_FILE_CORRUPT; }
+                PLYProperty local = prop; local.offset = 0;
+                if (k != 1) {
+                    if (read_float_property(bytes, local) < 0) { return ERR_FILE_CORRUPT; }
+                    value = read_uint_property(bytes, local);
+                } else if (prop.type == "double" || prop.type == "float64") {
+                    uint64_t bits; memcpy(&bits, bytes, 8); if (!header.is_little_endian) { bits = BSWAP64(bits); }
+                    memcpy(&value, &bits, 8);
+                } else { value = read_float_property(bytes, local); }
+            } else {
+                if (!tokens[columns[k]].is_valid_float()) { return ERR_FILE_CORRUPT; }
+                value = tokens[columns[k]].to_float();
+            }
+            const bool byte_wind = k == 1 && (prop.type == "uchar" || prop.type == "uint8");
+            const double maximum = k == 0 ? 65535.0 : (k == 2 ? double(INT32_MAX) : (byte_wind ? 255.0 : 1.0));
+            ERR_FAIL_COND_V_MSG(!std::isfinite(value) || value < 0 || value > maximum ||
+                    ((k != 1 || byte_wind) && std::floor(value) != value), ERR_FILE_CORRUPT, "semantic_ply_property_range");
+            values[k] = k == 1 ? uint32_t(std::floor(value * (byte_wind ? 1.0 : 255.0) + 0.5)) : uint32_t(value);
+        }
+        Gaussian g = gaussian_data->get_gaussian(i);
+        g.semantic = gaussian_pack_semantic(uint16_t(values[0]), uint8_t(values[1]), true);
+        gaussian_data->set_gaussian(i, g);
+        if (fields & 4) { islands.set(i, values[2]); }
+    }
+    Dictionary side; side["fields"] = fields;
+    if (fields & 4) { side["island_ids"] = islands; }
+    gaussian_data->set_meta("gs_ply_semantics", side);
+    return OK;
 }
 
 Error PLYLoader::parse_binary_data(Ref<FileAccess> file) {

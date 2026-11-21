@@ -1,4 +1,5 @@
 #include "gaussian_splat_hlod_auto_tree.h"
+#include "gaussian_splat_bake_semantics.h"
 
 #include "gaussian_splat_hlod_tiled_bake.h"
 #include "gaussian_splat_world.h"
@@ -62,6 +63,9 @@ struct JobLease {
 };
 
 struct Options {
+	Array volumes;
+	String island_directory;
+	bool measure_region_compression = false;
 	String scratch;
 	String fingerprint;
 	uint32_t workers = 1;
@@ -105,12 +109,16 @@ Error parse_options(const Dictionary &p_options, uint64_t p_started, Options &r_
 		}
 		const String name = key;
 		Variant::Type type;
-		if (name == "scratch_dir" || name == "source_fingerprint" || name == "codec") {
+		if (name == "scratch_dir" || name == "source_fingerprint" || name == "codec" || name == "island_output_dir") {
 			type = Variant::STRING;
 		} else if (name == "worker_count" || name == "max_tile_splats") {
 			type = Variant::INT;
 		} else if (name == "limits") {
 			type = Variant::DICTIONARY;
+		} else if (name == "volumes") {
+			type = Variant::ARRAY;
+		} else if (name == "measure_region_compression") {
+			type = Variant::BOOL;
 		} else {
 			return refuse(r_reason, "unknown_option: " + name);
 		}
@@ -135,6 +143,9 @@ Error parse_options(const Dictionary &p_options, uint64_t p_started, Options &r_
 		return refuse(r_reason, "scratch_dir_required");
 	}
 	r_options.scratch = p_options["scratch_dir"];
+	r_options.volumes = p_options.get("volumes", Array());
+	r_options.island_directory = p_options.get("island_output_dir", "");
+	r_options.measure_region_compression = p_options.get("measure_region_compression", false);
 	const int64_t workers = p_options.get("worker_count", 1);
 	const int64_t tile = p_options.get("max_tile_splats", 1000000);
 	if (workers < 1 || workers > 64) {
@@ -310,7 +321,7 @@ bool same_node(const GaussianSplatHlodNode &a, const GaussianSplatHlodNode &b, b
 			bounds_match && a.geometric_error == b.geometric_error &&
 			a.error_chosen == b.error_chosen && a.error_rejected == b.error_rejected && a.parent == b.parent &&
 			a.first_child == b.first_child && a.child_count == b.child_count && a.height == b.height && a.payload_first == b.payload_first &&
-			a.payload_count == b.payload_count && a.flags == b.flags && a.overlap_footprint == b.overlap_footprint;
+			a.payload_count == b.payload_count && a.flags == b.flags && a.max_wind_weight == b.max_wind_weight && a.overlap_footprint == b.overlap_footprint;
 }
 
 void memory_report(Dictionary &r_report) {
@@ -546,6 +557,8 @@ Error input_provenance(const String &p_input, uint64_t p_deadline, uint64_t p_pa
 }
 
 struct PreparedBuild {
+	gs_hlod::SemanticBakeSource semantics;
+	bool has_semantics = false;
 	gs_world_writer::PagedV4Spec spec;
 	gs_world_writer::WriterV4 writer;
 	LocalVector<gs_world_writer::V4Node> nodes;
@@ -975,9 +988,28 @@ Error prepare_streaming(const String &input, const String &output, const String 
 	}
 	const auto info = source.get_info();
 	auto &spec = r_build.spec;
+	spec.metadata = source.get_metadata(); // Explicit regions[]/islands[] forwarding.
+	const gs_hlod::TiledBakeSource *bake_source = &source;
+	uint64_t semantic_reserved = 0;
+	if (!p_options.volumes.is_empty() || spec.metadata.has("gs_ply_semantics")) {
+		const uint64_t retained = base_reserved + source.get_reserved_bytes() + source.get_decode_scratch_bytes();
+		if (retained >= p_options.limits.max_ram_bytes) { return refuse(r_reason, "semantic_limit_ram", ERR_OUT_OF_MEMORY); }
+		error = r_build.semantics.open(source, p_options.volumes, spec.metadata,
+				p_options.island_directory.is_empty() ? output.get_basename() + ".islands" : p_options.island_directory,
+				p_options.limits.max_ram_bytes - retained, p_options.limits.max_output_bytes,
+				p_options.deadline, source.get_sh_degree(), source.is_2d());
+		if (error != OK) { return refuse(r_reason, r_build.semantics.get_reason(), error); }
+		r_build.has_semantics = true;
+		bake_source = &r_build.semantics;
+		semantic_reserved = r_build.semantics.get_reserved_bytes();
+		spec.metadata = r_build.semantics.get_metadata();
+		r_report.merge(r_build.semantics.get_report(), true);
+		r_report["island_output_bytes"] = int64_t(r_build.semantics.get_island_output_bytes());
+		if (bake_source->get_info().splat_count == 0) { return refuse(r_reason, "semantic_world_empty_after_island_extraction", ERR_INVALID_DATA); }
+	}
 	spec.deferred_counts = true;
 	spec.compact_gsq_spill = true;
-	spec.leaf_splat_count = info.splat_count;
+	spec.leaf_splat_count = bake_source->get_info().splat_count;
 	spec.sh_degree = source.get_sh_degree();
 	spec.sh_first_order = info.sh_first_order_count;
 	spec.sh_high_order = info.sh_high_order_count;
@@ -1001,7 +1033,7 @@ Error prepare_streaming(const String &input, const String &output, const String 
 		writer_fixed += codec_workspace;
 		verification_fixed = codec_workspace + 12 * max_body + 2 * max_stored + gs_world_paged::gsq_decode_workspace_bytes();
 	}
-	const uint64_t external_fixed = base_reserved + source.get_reserved_bytes() + verification_fixed;
+	const uint64_t external_fixed = base_reserved + source.get_reserved_bytes() + semantic_reserved + verification_fixed;
 	const uint64_t fixed = external_fixed + writer_fixed;
 	const uint64_t per_node = 16384 + 16384 + 64 * uint64_t(output.length() + scratch_root.length() + 256) +
 			(gsq ? 2 * sizeof(NodeDigest) : 0);
@@ -1010,6 +1042,7 @@ Error prepare_streaming(const String &input, const String &output, const String 
 	}
 	r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), fixed));
 	gs_world_writer::Limits writer_limits = p_options.limits;
+	writer_limits.max_output_bytes -= r_build.semantics.get_island_output_bytes();
 	// The coordinator admits writer growth together with every worker. WriterV4
 	// also enforces its own maximum; its ceiling is not counted as a live allocation.
 	writer_limits.max_ram_bytes -= external_fixed;
@@ -1032,13 +1065,21 @@ Error prepare_streaming(const String &input, const String &output, const String 
 	}
 	gs_hlod::TiledBakeParams params;
 	params.worker_count = p_options.workers;
+	params.measure_region_compression = p_options.measure_region_compression;
 	params.max_tile_splats = p_options.tile_splats;
-	params.source_decoder_bytes = source.get_decode_scratch_bytes();
+	params.source_decoder_bytes = source.get_decode_scratch_bytes() + r_build.semantics.get_read_workspace_bytes();
 	params.limits.max_ram_bytes = p_options.limits.max_ram_bytes;
 	params.limits.deadline_usec = p_options.deadline;
 	gs_hlod::TiledBakeReport tiled_report;
 	String tiled_reason;
-	error = gs_hlod::TiledAutoTree::build_streamed(source, params, sink, tiled_report, &tiled_reason);
+	error = gs_hlod::TiledAutoTree::build_streamed(*bake_source, params, sink, tiled_report, &tiled_reason);
+	if (p_options.measure_region_compression) {
+		r_report["region_keyed_interior_bytes"] = int64_t(tiled_report.region_keyed_interior_bytes);
+		r_report["single_region_interior_bytes"] = int64_t(tiled_report.single_region_interior_bytes);
+		if (tiled_report.single_region_interior_bytes) {
+			r_report["region_key_compression_ratio"] = double(tiled_report.region_keyed_interior_bytes) / double(tiled_report.single_region_interior_bytes);
+		} else { r_report["region_key_compression_ratio_unavailable_reason"] = "no interior payload"; }
+	}
 	const auto stats = source.get_stats();
 	r_report["pages_decoded"] = int64_t(stats.pages_decoded);
 	r_report["pages_decoded_digest_checked"] = int64_t(stats.pages_decoded_digest_checked);
@@ -1085,12 +1126,19 @@ Error prepare_retained_reference(const String &input, const String &output, cons
 			return error;
 		}
 		const auto info = source.get_info();
+		spec.metadata = source.get_metadata();
+		// The retained route is an unbound legacy identity oracle. Semantic
+		// production always uses the bounded, pre-partition filtering route.
+		if (!p_options.volumes.is_empty() || spec.metadata.has("gs_ply_semantics")) {
+			return refuse(r_reason, "semantic_retained_test_oracle_unsupported", ERR_UNAVAILABLE);
+		}
 		const uint64_t source_reserved = source.get_reserved_bytes() + uint64_t(p_options.workers) * source.get_decode_scratch_bytes();
 		if (source_reserved >= p_options.limits.max_ram_bytes - base_reserved) {
 			return refuse(r_reason, "limit_ram", ERR_OUT_OF_MEMORY);
 		}
 		gs_hlod::TiledBakeParams params;
 		params.worker_count = p_options.workers;
+		params.measure_region_compression = p_options.measure_region_compression;
 		params.max_tile_splats = p_options.tile_splats;
 		params.limits.max_ram_bytes = p_options.limits.max_ram_bytes - base_reserved - source_reserved;
 		params.limits.deadline_usec = p_options.deadline;
@@ -1498,6 +1546,9 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		codec["zstd_level"] = int64_t(p_options.codec.zstd_level);
 	}
 	Dictionary params = build_parameters(p_options);
+	// Semantic authoring changes the bytes, so it participates in tree identity.
+	// Default options retain the legacy key shape.
+	if (!p_options.volumes.is_empty()) { params["volumes"] = p_options.volumes; }
 	Dictionary key;
 	key["source_fingerprint"] = p_options.fingerprint;
 	key["build_params"] = params;
@@ -1509,6 +1560,9 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	document["build_params"] = params;
 	document["codec"] = codec;
 	document["tree_sha"] = tree_sha;
+	for (const char *name : { "regions", "islands" }) {
+		if (spec.metadata.has(name)) { document[name] = spec.metadata[name]; }
+	}
 	r_report["error"] = OK;
 	r_report["reason"] = String();
 	r_report["tree_sha"] = tree_sha;
@@ -1519,6 +1573,16 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	r_report["wall_usec"] = int64_t(MAX(uint64_t(1), OS::get_singleton()->get_ticks_usec() - p_started));
 	memory_report(r_report);
 	document["report"] = r_report;
+	Dictionary persisted_document = document.duplicate();
+	String semantic_json;
+	for (const char *name : { "regions", "islands" }) {
+		if (!spec.metadata.has(name)) { continue; }
+		// Embed the same JSON numeric tokens as WriterV4's metadata encoder.
+		// Re-encoding these fields with the sidecar's full_precision=true would
+		// give two different manifest values for the same island bounds.
+		persisted_document.erase(name);
+		semantic_json += ",\"" + String(name) + "\":" + JSON::stringify(spec.metadata[name]);
+	}
 	CharString json;
 	if (gsq) {
 		// JSON::stringify(full_precision=true) emits fixed-point decimals, but
@@ -1538,17 +1602,18 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		persisted_codec.erase("pos_step_m");
 		const String codec_json = JSON::stringify(persisted_codec, "", true, true).trim_suffix("}") +
 				",\"pos_step_m\":" + String(step_text) + "}";
-		Dictionary persisted_document = document.duplicate();
 		persisted_document.erase("codec");
-		json = (JSON::stringify(persisted_document, "", true, true).trim_suffix("}") + ",\"codec\":" + codec_json + "}").utf8();
+		json = (JSON::stringify(persisted_document, "", true, true).trim_suffix("}") + ",\"codec\":" + codec_json + semantic_json + "}").utf8();
 	} else {
-		json = JSON::stringify(document, "", true, true).utf8();
+		json = (JSON::stringify(persisted_document, "", true, true).trim_suffix("}") + semantic_json + "}").utf8();
 	}
 	if (uint64_t(json.length()) > p_options.limits.max_scratch_bytes) {
 		return refuse(r_reason, "limit_scratch", ERR_PARAMETER_RANGE_ERROR);
 	}
-	if (uint64_t(json.length()) > kManifestLimit || writer.get_report().output_bytes > p_options.limits.max_output_bytes ||
-			uint64_t(json.length()) > p_options.limits.max_output_bytes - writer.get_report().output_bytes) {
+	const uint64_t island_bytes = prepared.semantics.get_island_output_bytes();
+	if (uint64_t(json.length()) > kManifestLimit || island_bytes > p_options.limits.max_output_bytes ||
+			writer.get_report().output_bytes > p_options.limits.max_output_bytes - island_bytes ||
+			uint64_t(json.length()) > p_options.limits.max_output_bytes - island_bytes - writer.get_report().output_bytes) {
 		return refuse(r_reason, "limit_output", ERR_PARAMETER_RANGE_ERROR);
 	}
 	GSAtomicFileTransaction manifest_transaction;
@@ -1572,7 +1637,9 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		return error;
 	}
 	r_reason = String();
-	return publish_pair(stage, output, manifest, p_options.deadline, r_reason);
+	error = publish_pair(stage, output, manifest, p_options.deadline, r_reason);
+	if (error == OK) { prepared.semantics.commit_islands(); }
+	return error;
 }
 
 } // namespace

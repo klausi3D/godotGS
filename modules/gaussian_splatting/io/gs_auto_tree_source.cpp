@@ -100,6 +100,12 @@ Error GsqAutoTreeSource::open(const String &p_path, String *r_error, uint64_t p_
 	source_info.sh_high_order_count = world->get_sh_high_order_count();
 	const AABB source_bounds = world->get_bounds();
 	const bool source_2d = world->get_2d_mode();
+	// Explicitly retain the semantic manifests and source-only PLY island lane.
+	const Dictionary source_metadata = world->get_metadata();
+	metadata.clear();
+	for (const char *key : { "regions", "islands", "gs_ply_semantics" }) {
+		if (source_metadata.has(key)) { metadata[key] = source_metadata[key]; }
+	}
 	// Drop the loader's temporary directory before allocating our own.
 	validated_source.unref();
 	world.unref();
@@ -184,7 +190,7 @@ Error GsqAutoTreeSource::open(const String &p_path, String *r_error, uint64_t p_
 	sh_degree = degree;
 	mode_2d = source_2d;
 	bounds = source_bounds;
-	reserved_bytes = uint64_t(page_count) * sizeof(Page) * 2u + uint64_t(p_path.length() + 1) * sizeof(char32_t) + sizeof(*this);
+	reserved_bytes = uint64_t(page_count) * sizeof(Page) * 2u + uint64_t(p_path.length() + 1) * sizeof(char32_t) + sizeof(*this) + (metadata.is_empty() ? 0u : metadata_bytes * 128u);
 	// The codec retains one sub-block, not an entire decoded page: at degree 3
 	// its raw scratch is <= 4096 * (9 position + 14 core + 45 SH + 6 normal)
 	// = 303104 bytes, plus 15 KiB of lookup tables. ZSTD_decompressDCtx uses

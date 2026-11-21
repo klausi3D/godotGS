@@ -371,6 +371,11 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     // final_count splats of the FILE: a spatial prefix of an unshuffled 3DGS
     // scan, not a thinning. No reduction -> no stride, unchanged.
     const bool stride_subsample = final_count < original_count;
+    const Dictionary semantic_source = gaussian_data->get_meta("gs_ply_semantics", Dictionary());
+    // The legacy density/prune merge has no region/island key. Refuse that
+    // lossy operation rather than attach a winner's labels to another object.
+    ERR_FAIL_COND_V_MSG(!semantic_source.is_empty() && (stride_subsample || prune_ratio < 1.0 || prune_importance_threshold > 0),
+            ERR_UNAVAILABLE, "semantic_ply_reduction_unsupported: import semantic PLY at full density without pruning.");
     const double merge_stride = stride_subsample ? double(original_count) / double(final_count) : 1.0;
     if (stride_subsample) {
         GS_LOG_STREAMING_INFO(vformat("PLY import: reducing %d -> %d splats by uniform stride %.3f over the %s order (limit: %s)",
@@ -405,6 +410,13 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     PackedFloat32Array scales;
     PackedFloat32Array rotations;
     PackedFloat32Array opacity_logits;
+    PackedInt32Array semantic_words;
+    PackedInt32Array semantic_islands;
+    const PackedInt32Array source_islands = semantic_source.get("island_ids", PackedInt32Array());
+    if (!semantic_source.is_empty()) {
+        if (semantic_words.resize(final_count) != OK || (!source_islands.is_empty() && semantic_islands.resize(final_count) != OK)) { return ERR_OUT_OF_MEMORY; }
+        ERR_FAIL_COND_V(!source_islands.is_empty() && source_islands.size() != original_count, ERR_INVALID_DATA);
+    }
 
     // #798: every count here derives from final_count, which derives from the PLY's own
     // splat count -- FILE-DERIVED. The write loop below drives raw ptrw() pointers with an
@@ -467,6 +479,10 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
         Gaussian g = stride_subsample ? _merge_gaussian_range(gaussian_data, indices_ptr, start, end, normalize_opacity, &source_index)
                                       : gaussian_data->get_gaussian(source_index);
         int pos_base = i * 3;
+        if (!semantic_words.is_empty()) {
+            semantic_words.set(i, int32_t(g.semantic));
+            if (!source_islands.is_empty()) { semantic_islands.set(i, source_islands[source_index]); }
+        }
         positions_ptr[pos_base + 0] = g.position.x;
         positions_ptr[pos_base + 1] = g.position.y;
         positions_ptr[pos_base + 2] = g.position.z;
@@ -531,6 +547,13 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
         asset->set_sh_high_order_coefficients(sh_high_order);
     }
     asset->set_import_quality_preset(preset_name);
+    Dictionary semantic_side = semantic_source.duplicate(true);
+    if (!semantic_source.is_empty()) {
+        semantic_side["semantic_words"] = semantic_words;
+        if (!semantic_islands.is_empty()) { semantic_side["island_ids"] = semantic_islands; }
+        Dictionary early_metadata; early_metadata["gs_ply_semantics"] = semantic_side;
+        asset->set_import_metadata(early_metadata);
+    }
 
     // GS-PERF-PRUNE (#456): importance prune runs on the asset's post-transform
     // arrays (after density merge / sort_by_opacity / max_splats) and BEFORE the
@@ -579,6 +602,7 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     option_dict[OPTION_CUSTOMIZED] = customized;
 
     Dictionary import_metadata;
+    if (!semantic_side.is_empty()) { import_metadata["gs_ply_semantics"] = semantic_side; }
     import_metadata[StringName("source_file")] = p_source_file;
     import_metadata[StringName("dc_encoding")] = "linear_rgb";
     import_metadata[StringName("import_time")] = Time::get_singleton()->get_datetime_dict_from_system();

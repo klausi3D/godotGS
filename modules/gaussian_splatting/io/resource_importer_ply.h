@@ -108,7 +108,9 @@ public:
     //       must be re-imported. Imports below the cap, uncapped imports and
     //       density < 0.999 imports produce the same output as v11. No
     //       PLY_CACHE_VERSION bump: the selection runs after the raw decode.
-    virtual int get_format_version() const override { return 12; }
+    //   v13: semantic words and island ids travel with packed-lane source rows.
+    //       Older imported assets dropped optional semantic PLY properties.
+    virtual int get_format_version() const override { return 13; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;

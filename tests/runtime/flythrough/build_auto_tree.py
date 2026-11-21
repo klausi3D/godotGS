@@ -32,6 +32,7 @@ JSON_LIMIT = 16 * 1024 * 1024
 MAX_JSON_INTEGER = (1 << 53) - 1  # Godot's JSON reader uses doubles.
 JOB_KEYS = {"schema", "codec", "worker_count", "max_tile_splats", "limits",
             "drawn_budget_splats", "drawn_budget_source", "oracle"}
+SEMANTIC_JOB_KEYS = {"volumes", "island_output_dir", "measure_region_compression"}
 SOURCE_FIELDS = {"source_fingerprint", "source_fingerprint_source"}
 SOURCE_PROVENANCE = "checkout TREE_SOURCES fingerprint (world_cache.py)"
 LIMIT_KEYS = {"max_ram_bytes", "max_scratch_bytes", "max_output_bytes", "deadline_sec"}
@@ -83,7 +84,40 @@ def _number(value, *, integer=False, low=0, high=MAX_JSON_INTEGER):
 def validate_job_manifest(job):
     if type(job) is dict and SOURCE_FIELDS & job.keys():
         raise BuildError("job_manifest_source_fingerprint_forbidden")
-    _keys(job, JOB_KEYS)
+    _keys(job, JOB_KEYS | (SEMANTIC_JOB_KEYS & job.keys()) if type(job) is dict else JOB_KEYS)
+    if "measure_region_compression" in job and type(job["measure_region_compression"]) is not bool:
+        raise BuildError("job_manifest_type")
+    if "island_output_dir" in job and type(job["island_output_dir"]) is not str:
+        raise BuildError("job_manifest_type")
+    if "volumes" in job:
+        if type(job["volumes"]) is not list:
+            raise BuildError("job_manifest_type")
+        paths = set()
+        def finite(value):
+            return type(value) in (int, float) and math.isfinite(value)
+        for volume in job["volumes"]:
+            if type(volume) is not dict or volume.keys() - {"kind", "path", "name", "size", "hull", "transform", "wind_weight"}:
+                raise BuildError("job_manifest_volume")
+            if volume.get("kind") not in ("region", "wind", "island") or type(volume.get("path")) is not str or not volume["path"] or volume["path"] in paths:
+                raise BuildError("job_manifest_volume")
+            paths.add(volume["path"])
+            if "name" in volume and type(volume["name"]) is not str:
+                raise BuildError("job_manifest_type")
+            size = volume.get("size", [1, 1, 1])
+            if type(size) is not list or len(size) != 3 or not all(finite(v) and v > 0 for v in size):
+                raise BuildError("job_manifest_volume")
+            transform = volume.get("transform", [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])
+            if type(transform) is not list or len(transform) != 12 or not all(finite(v) for v in transform):
+                raise BuildError("job_manifest_volume")
+            a, b, c, d, e, f, g, h, i = transform[:9]
+            if abs(a * (e*i-f*h) - b * (d*i-f*g) + c * (d*h-e*g)) < 1e-12:
+                raise BuildError("job_manifest_volume")
+            weight = volume.get("wind_weight", 0)
+            if not finite(weight) or not 0 <= weight <= 1:
+                raise BuildError("job_manifest_volume")
+            hull = volume.get("hull", [])
+            if type(hull) is not list or (hull and len(hull) < 4) or any(type(p) is not list or len(p) != 3 or not all(finite(v) for v in p) for p in hull):
+                raise BuildError("job_manifest_volume")
     _keys(job["limits"], LIMIT_KEYS)
     _keys(job["oracle"], CAMERA_KEYS)
     for key in ("schema", "codec", "drawn_budget_source"):

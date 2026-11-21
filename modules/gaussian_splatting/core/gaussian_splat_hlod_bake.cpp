@@ -738,6 +738,8 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 				return fail(vformat("HLOD node %d: %s", i, error), interior_code == ERR_OUT_OF_MEMORY ? ERR_OUT_OF_MEMORY : ERR_INVALID_DATA);
 			}
 			merge_usec += interior_result.merge_usec;
+			tree.bake_stats.region_keyed_interior_bytes += interior_result.region_keyed_interior_bytes;
+			tree.bake_stats.single_region_interior_bytes += interior_result.single_region_interior_bytes;
 			order_usec += interior_result.order_usec;
 			NodePayload &chosen = interior_payloads[i];
 			if (quality_selection) {
@@ -813,6 +815,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			node.height = tallest + 1u;
 		}
 
+		set_node_payload_semantics(node, own);
 		// Store bounds relative to the cell centre, rounded outward; record the world bounds the
 		// validator will reconstruct, so parents contain exactly what children store.
 		for (int a = 0; a < 3; a++) {

@@ -673,7 +673,7 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 | `GAUSSIAN_STRUCT_LAYOUT_VERSION` | 1 | 2 (`_padding` → `uint32_t semantic`) | Layout 1 loads with the word forced to 0. |
 | GSF canonical payload schema | 1 (132-byte records) | 2 (136-byte records carrying `semantic`) | Schema 1 loads with semantic forced to 0. |
 | GSQ codec id | 1 | 2 (adds semantic planes) | v1 decodes with the word = 0. |
-| V4 node record | reserved word = 0 | `max_wind_weight` | 0 = no wind bound needed. |
+| V4 node record | reserved word = 0; topology flag bit 5 = 0 | `max_wind_weight` in byte 120; flag bit 5 = AND of payload `semantic_valid` | A valid rigid node has flag bit 5 set and wind byte 0; legacy nodes have the flag clear. Remaining reserved bits stay zero. |
 | Auto-tree `tree_sha` | codec v1 | codec v2 | Stale by key; rebuilt. |
 | World cache (CI) | sources as today | changed generator and tree sources | Invalidated once (`world_cache.py:84-120`) [V]. |
 

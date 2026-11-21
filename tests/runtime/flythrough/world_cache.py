@@ -113,6 +113,8 @@ GENERATOR_SOURCES: Tuple[str, ...] = (
 #: Sources already in GENERATOR_SOURCES are covered by the tree key's generator
 #: fingerprint. test_world_cache.py derives that required set from the includes.
 TREE_SOURCES: Tuple[str, ...] = (
+    "modules/gaussian_splatting/core/gaussian_splat_bake_semantics.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_bake_semantics.h",
     "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree.cpp",
     "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree.h",
     "modules/gaussian_splatting/core/gaussian_splat_hlod_bake.cpp",

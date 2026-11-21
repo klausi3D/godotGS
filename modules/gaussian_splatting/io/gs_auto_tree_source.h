@@ -31,6 +31,7 @@ public:
 	uint32_t get_sh_degree() const { return sh_degree; }
 	bool is_2d() const { return mode_2d; }
 	AABB get_bounds() const { return bounds; }
+	Dictionary get_metadata() const { return metadata; }
 	// Conservative retained directory/path estimate, excluding caller-owned output.
 	uint64_t get_reserved_bytes() const { return reserved_bytes; }
 	// Admitted transient loader/index/directory reservation during open().
@@ -55,6 +56,7 @@ private:
 	uint32_t sh_degree = 0;
 	bool mode_2d = false;
 	AABB bounds;
+	Dictionary metadata;
 	uint64_t reserved_bytes = 0;
 	uint64_t open_peak_reserved_bytes = 0;
 	uint64_t decode_scratch_bytes = 0;
