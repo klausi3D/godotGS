@@ -3423,6 +3423,25 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		}
 
 		// Positional Shadows
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+		// HLOD casters consume the previous main view's changing list. GS instances do not participate in mesh
+		// geometry/light dirty pairing, so a cached positional map would otherwise omit their updates and passes.
+		bool has_hlod_shadow_owner = false;
+		RendererRD::GaussianSplatStorage *gaussian_storage = RendererRD::GaussianSplatStorage::get_singleton();
+		if (gaussian_storage) {
+			for (uint64_t i = 0; i < scene_cull_result.gaussian_splats.size(); i++) {
+				const RID gaussian = scene_cull_result.gaussian_splats[i];
+				if (!gaussian_storage->gaussian_get_casts_shadow(gaussian)) {
+					continue;
+				}
+				const Ref<GaussianSplatRenderer> renderer = gaussian_storage->gaussian_get_renderer(gaussian);
+				if (renderer.is_valid() && renderer->uses_hlod_shadow_casters()) {
+					has_hlod_shadow_owner = true;
+					break;
+				}
+			}
+		}
+#endif
 		for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++) {
 			Instance *ins = scene_cull_result.lights[i];
 
@@ -3533,6 +3552,12 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				}
 			}
 
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+			if (has_hlod_shadow_owner) {
+				// Advance only the atlas version: leave mesh dirty counts and tight/full caster culling unchanged.
+				light->last_version++;
+			}
+#endif
 			bool redraw = RSG::light_storage->shadow_atlas_update_light(p_shadow_atlas, light->instance, coverage, light->last_version);
 
 			if (redraw && max_shadows_used < MAX_UPDATE_SHADOWS) {

@@ -475,7 +475,7 @@ bool GaussianSplatRenderer::_finish_shadow_render_result(const ShadowRenderResul
 	// Every hook exit, including pre-device failures and canonical refusals, records exactly one pass.
 	auto &state = get_resource_state();
 	state.shadow_light_stats.record(p_result.server_frame, p_result.renderer_frame, p_result.light_id,
-			p_result.success, p_result.rastered_splat_count, p_result.light_pass);
+			p_result.success, p_result.rastered_splat_count, p_result.light_pass, p_result.hlod_refusal);
 	// Publish every exit (including refusals), so no route depends on a later successful pass to expose its data.
 	// At most 256 plain light entries; readers copy under the same lock and never touch the live recorder.
 	{
@@ -2068,9 +2068,9 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
             valid_buffer(buffers.instance_buffer) && valid_buffer(buffers.chunk_meta_buffer) &&
             valid_buffer(buffers.hlod_page_table_buffer) &&
             valid_buffer(buffers.visible_chunk_buffer);
-    // Mesh cube finalization replaces face 0's camera with identity before the GS hook reads it. Explicit RS type
-    // prevents that orthographic omni face (and dual paraboloids) from masquerading as a directional cascade.
-    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass.supports_hlod_casters(), bundle_current);
+    // Cube views arrive before Godot converts this light's combined mesh/splat cube into the atlas. Explicit type
+    // and projection checks prevent identity cameras or direct paraboloids from masquerading as directional views.
+    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass, bundle_current);
     if (plan.draws()) {
         if (!splat_shadow_caster) {
             splat_shadow_caster = std::make_unique<GsSplatShadowCaster>();
@@ -2086,7 +2086,8 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         inputs.instance_slots = plan.instance_slots;
         // The hook does not carry the light's pancake size; casters in front of a cascade's near
         // plane are always clamped (Godot's default directional pancake is on). Never rejected.
-        inputs.pancake = true;
+        inputs.perspective = !r_result.light_pass.orthographic;
+        inputs.pancake = !inputs.perspective;
         // The colour path scales every splat of every row by the renderer-wide multiplier (render_pipeline_stages.cpp
         // render_params.opacity_multiplier -> tile_binning.glsl); the caster applies the same current value.
         inputs.opacity_multiplier = get_render_config().opacity_multiplier;
@@ -2101,6 +2102,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         }
     }
     state.hlod_shadow_caster_stats.record(get_frame_state().frame_counter, plan);
+    r_result.hlod_refusal = plan.refusal;
     r_result.rastered_splat_count = plan.draws() ? plan.casters : 0;
     r_result.depth_size = p_atlas_rect.size;
     r_result.success = plan.draws();

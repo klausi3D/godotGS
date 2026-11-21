@@ -2,8 +2,8 @@
 #define GS_SHADOW_CASTER_H
 
 // GPU half of the HLOD splat shadow caster (#1095, #1163): one graphics pipeline (shaders/gs_shadow_caster.glsl) that
-// draws the main view's HLOD draw list as depth-only Gaussian quads into the shadow-atlas rect Godot hands a directional
-// shadow pass. Planning and the depth convention live in hlod_shadow_caster_plan.h (device-free, CPU-tested).
+// draws the main view's HLOD draw list as depth-only Gaussian quads into a directional/spot atlas rect or omni cube face.
+// Planning and the depth convention live in hlod_shadow_caster_plan.h (device-free, CPU-tested).
 //
 // Ownership: the shader is compiled on the device passed to draw() and freed through that recorded owner by clear()
 // (renderer teardown) or when draw() sees a different device. Uniform sets come from UniformSetCacheRD, which drops a set
@@ -36,6 +36,7 @@ public:
 		uint32_t slot_stride = 0; // max_chunk_splats
 		uint32_t instance_slots = 0; // draw_count * slot_stride
 		bool pancake = true;
+		bool perspective = false; // Spot or omni cube: quotient-rule footprint and depth Jacobians, no pancake.
 		// The renderer-wide opacity multiplier (render_config.opacity_multiplier: GaussianSplatWorld3D.opacity via the
 		// world's "opacity_multiplier" override), the same value tile_binning.glsl multiplies into every splat of every row.
 		float opacity_multiplier = 1.0f;

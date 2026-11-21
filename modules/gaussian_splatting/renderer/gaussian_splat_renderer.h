@@ -332,6 +332,7 @@ public:
         uint64_t renderer_frame = 0;
         uint64_t light_id = 0; // Scene instance RID (Light3D.get_instance()). Zero is excluded from per-light stats.
         gs_shadow_caster::LightPassInfo light_pass;
+        gs_shadow_caster::Refusal hlod_refusal = gs_shadow_caster::Refusal::NONE;
         bool success = false;
         ShadowRenderFailureReason failure_reason = ShadowRenderFailureReason::NONE;
         String route_label;
@@ -1889,6 +1890,8 @@ public:
     bool render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,
             const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, RID p_light = RID(),
             int p_light_type = -1, int p_omni_shadow_mode = -1, int p_shadow_pass = -1);
+    // Render-thread query: HLOD cube casters run before Godot's cube-to-atlas copy; canonical casters keep their path.
+    bool uses_hlod_shadow_casters() const { return _is_hlod_shadow_route_owner(); }
     const ShadowRenderResult &get_last_shadow_render_result() const { return last_shadow_render_result; }
 
     /**

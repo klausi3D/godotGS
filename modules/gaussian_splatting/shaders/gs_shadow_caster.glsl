@@ -1,4 +1,4 @@
-// gs_shadow_caster.glsl -- depth-only splat shadow caster for directional cascades on the HLOD route (#1095, #1163).
+// gs_shadow_caster.glsl -- depth-only HLOD splat casters: directional, spot and omni cube (#1095, #1163, #1424).
 //
 // One instanced quad per splat slot of the main view's HLOD draw list (DrawnNodeGPU[]): slot = record * max_chunk_splats
 // + splat, the depth pass's 2D dispatch flattened (compute/depth_compute.glsl). Slots past a record's payload emit a
@@ -53,9 +53,9 @@ layout(set = 0, binding = 5, std430) readonly buffer HlodPageTableBuffer {
 
 // Host mirror: ShadowCasterPushConstant in renderer/gs_shadow_caster.cpp (96 bytes).
 layout(push_constant, std430) uniform Params {
-    mat4 light_from_frame;  // Godot directional shadow clip transform of a camera-relative position
+    mat4 light_from_frame;  // Godot shadow clip transform of a camera-relative position
     vec4 viewport;          // xy = atlas rect size in texels, z = alpha threshold, w = low-pass dilation (texels^2)
-    uvec4 counts;           // x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = opacity multiplier (float bits)
+    uvec4 counts;           // x = draw records, y = slot stride, z = ortho (0), pancake (1), perspective (2), w = opacity float bits
 } params;
 
 layout(location = 0) out vec2 v_sigma_uv; // Fragment position in units of sigma along the ellipse's eigen axes.
@@ -76,6 +76,12 @@ vec3 gs_caster_quat_rotate(vec4 q, vec3 v) {
 
 vec4 gs_caster_quat_mul(vec4 a, vec4 b) {
     return vec4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
+}
+
+// Quotient rule for one row of clip.xyz / clip.w. Kept scalar/vector-only so the host shader evaluator tests the
+// actual GPU expression against finite differences; directional views never enter this branch.
+vec3 gs_caster_perspective_gradient(vec3 row, vec3 w_row, float ndc, float clip_w) {
+    return (row - ndc * w_row) / clip_w;
 }
 
 mat3 gs_caster_quat_to_matrix(vec4 q) {
@@ -181,13 +187,15 @@ void main() {
             : gs_caster_quat_mul(instance.rotation, local_rotation);
 
     vec4 clip = params.light_from_frame * vec4(frame_position, 1.0);
-    if (!(abs(clip.w) > 1e-6)) {
+    bool perspective = params.counts.z == 2u;
+    if (!(abs(clip.w) > 1e-6) || (perspective && clip.w <= 1e-6)) {
         gs_caster_reject();
         return;
     }
     vec3 ndc = clip.xyz / clip.w;
 
-    // Orthographic (directional) projection: the screen Jacobian is the constant linear part of light_from_frame.
+    // Directional views keep the original constant Jacobian. Perspective views differentiate clip.xyz / clip.w;
+    // merely dividing the centre while retaining the orthographic footprint gives the wrong size and depth slope.
     mat3 r = gs_caster_quat_to_matrix(rotation * inversesqrt(quat_length_sq));
     mat3 rs = mat3(r[0] * scale.x, r[1] * scale.y, r[2] * scale.z);
     mat3 cov3 = rs * transpose(rs);
@@ -195,6 +203,11 @@ void main() {
     // Rows 0 and 1 of the linear part, in texels per unit.
     vec3 jx = vec3(params.light_from_frame[0][0], params.light_from_frame[1][0], params.light_from_frame[2][0]) * half_size.x;
     vec3 jy = vec3(params.light_from_frame[0][1], params.light_from_frame[1][1], params.light_from_frame[2][1]) * half_size.y;
+    if (perspective) {
+        vec3 jw = vec3(params.light_from_frame[0][3], params.light_from_frame[1][3], params.light_from_frame[2][3]);
+        jx = gs_caster_perspective_gradient(jx, half_size.x * jw, ndc.x, clip.w);
+        jy = gs_caster_perspective_gradient(jy, half_size.y * jw, ndc.y, clip.w);
+    }
     vec3 cjx = cov3 * jx;
     vec3 cjy = cov3 * jy;
     // Mirrors gs_shadow_caster::footprint_eigenvalues (renderer/hlod_shadow_caster_plan.h): the minor eigenvalue is
@@ -231,7 +244,7 @@ void main() {
         return;
     }
     float depth = ndc.z;
-    bool pancaked = params.counts.z != 0u && depth >= 0.9999;
+    bool pancaked = params.counts.z == 1u && depth >= 0.9999;
     if (pancaked) {
         depth = 0.9999; // Pancake: kPancakeDepth in renderer/hlod_shadow_caster_plan.h.
     } else if (depth > 1.0) {
@@ -254,6 +267,10 @@ void main() {
     float plane_cap = 0.0;
     if (!pancaked) {
         vec3 jz = vec3(params.light_from_frame[0][2], params.light_from_frame[1][2], params.light_from_frame[2][2]);
+        if (perspective) {
+            vec3 jw = vec3(params.light_from_frame[0][3], params.light_from_frame[1][3], params.light_from_frame[2][3]);
+            jz = gs_caster_perspective_gradient(jz, jw, ndc.z, clip.w);
+        }
         vec3 cjz = cov3 * jz;
         // g = S'^-1 c through the footprint's own eigenbasis (S' = the dilated covariance the quad already uses, so
         // lambda1 >= the low-pass and g is the conditional mean depth slope of the blurred Gaussian). Mirrors
@@ -294,7 +311,7 @@ void main() {
     // Mirrors gs_shadow_caster::caster_fragment_depth (renderer/hlod_shadow_caster_plan.h). A pancaked caster has
     // cap 0 and its clamped centre depth; a pancake pass keeps every fragment at or in front of kPancakeDepth.
     float depth = v_depth_center_cap.x + clamp(v_depth_dz, -v_depth_center_cap.y, v_depth_center_cap.y);
-    if (params.counts.z != 0u) {
+    if (params.counts.z == 1u) {
         depth = min(depth, 0.9999);
     }
     gl_FragDepth = clamp(depth, 0.0, 1.0);

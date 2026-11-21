@@ -1771,6 +1771,9 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
             kind["last_pass"] = light.last_pass.pass_index;
             kind["light_type"] = light.last_pass.light_type;
             kind["omni_shadow_mode"] = light.last_pass.omni_shadow_mode;
+            if (light.last_refusal != gs_shadow_caster::Refusal::NONE) {
+                kind["refusal_reason"] = String(gs_shadow_caster::refusal_reason(light.last_refusal));
+            }
             pass_kinds[int64_t(light.id)] = kind;
         }
         stats["shadow_casters_rastered_per_light"] = per_light;

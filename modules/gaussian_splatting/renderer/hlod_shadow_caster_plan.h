@@ -11,8 +11,9 @@
 // shadow pass consumes the record of the previous main view: the draw list, rows and atlas the GPU still holds, with
 // camera offsets formed against that view's camera position (recorded here).
 //
-// Representation: depth only, written straight into Godot's directional shadow atlas rect with Godot's own projection
-// and depth convention (reverse-Z, depth correction, pancake clamp), so every mesh receiver samples it unchanged. A
+// Representation: depth only, written into Godot's directional/spot atlas rect or omni cube face with Godot's projection
+// and depth convention (reverse-Z, depth correction, directional pancake clamp). Godot converts the combined mesh/splat
+// cube into its radial-depth dual-paraboloid atlas, so every mesh receiver samples it unchanged. A
 // fragment of a splat is an occluder when its Gaussian alpha reaches kAlphaThreshold.
 
 #include "hlod_world_instances.h"
@@ -39,7 +40,7 @@ static constexpr uint64_t kMaxInstanceSlots = uint64_t(1) << 31;
 
 enum class Refusal : uint8_t {
 	NONE = 0,
-	NOT_DIRECTIONAL, // Spot / omni passes: perspective light projections are not cast yet.
+	NOT_DIRECTIONAL, // Legacy refusal name: unknown light or a projection inconsistent with the explicit light type.
 	NO_ACTIVE_HLOD_VIEW, // No main view published an active HLOD draw list since the bundle was (re)built.
 	QUANTIZED_PAYLOAD, // The caster shader reads the raw relative payload only.
 	EMPTY_DRAW_LIST,
@@ -47,6 +48,7 @@ enum class Refusal : uint8_t {
 	BUNDLE_CHANGED, // The relative bundle's buffers are not the ones the record names (rebuilt or released).
 	PIPELINE_UNAVAILABLE,
 	INVALID_ATLAS_RECT,
+	OMNI_PARABOLOID_UNSUPPORTED, // Direct nonlinear hemisphere rasterization is not implemented by these quads.
 };
 
 inline const char *refusal_reason(Refusal p_refusal) {
@@ -69,6 +71,8 @@ inline const char *refusal_reason(Refusal p_refusal) {
 			return "shadow_caster_pipeline_unavailable";
 		case Refusal::INVALID_ATLAS_RECT:
 			return "shadow_caster_invalid_atlas_rect";
+		case Refusal::OMNI_PARABOLOID_UNSUPPORTED:
+			return "shadow_caster_omni_paraboloid_unsupported";
 	}
 	return "shadow_caster_unknown";
 }
@@ -171,16 +175,19 @@ struct LightPassInfo {
 	bool orthographic = false;
 
 	bool supports_hlod_casters() const {
-		// Identity projections also occur for omni paraboloids and after mesh cube finalization. They are not
-		// directional lights. Only legacy calls without an explicit RS type retain projection-only inference.
-		return orthographic && (kind == LightKind::DIRECTIONAL || light_type == -1);
+		// Cube faces must arrive BEFORE mesh cube finalization replaces face 0's camera with identity. Direct
+		// paraboloids are nonlinear, not orthographic light views. Legacy callers retain orthographic inference.
+		if (kind == LightKind::SPOT || kind == LightKind::OMNI_CUBE) {
+			return !orthographic;
+		}
+		return orthographic && (kind == LightKind::DIRECTIONAL || (kind == LightKind::UNKNOWN && light_type == -1));
 	}
 };
 
-// One light pass. The caller must check both the explicit light type and the projection for directional eligibility.
-inline PassPlan plan_pass(const FrameRecord &p_record, bool p_orthographic_light, bool p_bundle_current) {
+// One supported light view. The bool overload retains legacy callers; typed callers also get mode-specific refusals.
+inline PassPlan plan_pass(const FrameRecord &p_record, bool p_supported_light, bool p_bundle_current) {
 	PassPlan plan;
-	if (!p_orthographic_light) {
+	if (!p_supported_light) {
 		plan.refusal = Refusal::NOT_DIRECTIONAL;
 	} else if (!p_record.valid) {
 		plan.refusal = Refusal::NO_ACTIVE_HLOD_VIEW;
@@ -200,6 +207,15 @@ inline PassPlan plan_pass(const FrameRecord &p_record, bool p_orthographic_light
 		}
 	}
 	return plan;
+}
+
+inline PassPlan plan_pass(const FrameRecord &p_record, const LightPassInfo &p_light, bool p_bundle_current) {
+	if (p_light.kind == LightKind::OMNI_PARABOLOID) {
+		PassPlan plan;
+		plan.refusal = Refusal::OMNI_PARABOLOID_UNSUPPORTED;
+		return plan;
+	}
+	return plan_pass(p_record, p_light.supports_hlod_casters(), p_bundle_current);
 }
 
 // Godot's shadow-pass clip transform (render_forward_clustered.cpp): _render_shadow_pass hands _render_shadow_append
@@ -371,6 +387,7 @@ struct LightFrameStats {
 		uint64_t ortho_passes = 0;
 		LightKind kind = LightKind::UNKNOWN;
 		LightPassInfo last_pass;
+		Refusal last_refusal = Refusal::NONE; // Last HLOD refusal this RS frame; successful passes still count normally.
 	};
 	// Plain values only: LocalVector copies own their storage. No shared Dictionary/Variant or recorder references.
 	struct Snapshot {
@@ -384,7 +401,7 @@ struct LightFrameStats {
 	LocalVector<Light> lights;
 	uint64_t overflow_passes = 0;
 
-	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count, const LightPassInfo &p_pass = LightPassInfo()) {
+	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count, const LightPassInfo &p_pass = LightPassInfo(), Refusal p_refusal = Refusal::NONE) {
 		if (p_light_id == 0) {
 			return;
 		}
@@ -415,6 +432,9 @@ struct LightFrameStats {
 			light.kind = LightKind::UNKNOWN; // A mixed-type ID remains visibly inconsistent for the rest of the frame.
 		}
 		light.last_pass = p_pass;
+		if (p_refusal != Refusal::NONE) {
+			light.last_refusal = p_refusal;
+		}
 		light.cast_passes += p_success ? 1 : 0;
 		light.ortho_passes += p_pass.orthographic ? 1 : 0;
 		++light.passes;
