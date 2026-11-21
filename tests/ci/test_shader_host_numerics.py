@@ -1082,6 +1082,17 @@ class B3WindWeightTests(unittest.TestCase):
         self.assertAlmostEqual(self.weight(rigid, program=forced), 0.4)
         shipping = self.make_program({"GS_TEST_LEGACY_WIND_WEIGHT": "1"})
         self.assertEqual(self.weight(rigid, program=shipping), 0.0, "forcing define alone cannot alter production")
+        # The GPU fixture must deliver its control to the final graphics compiler.
+        # ShaderRD variant defines alone do nothing without #VERSION_DEFINES in
+        # the caster template. Read the defines actually passed at this call site.
+        fixture = (ROOT / "modules/gaussian_splatting/tests/test_b3_wind_gpu.h").read_text()
+        compiler = re.search(r'"b3_wind_pixels",\s*(\w+),\s*&error,\s*&processed_vertex', fixture)
+        self.assertIsNotNone(compiler, "W4 control defines must reach ShaderCompilationHelper, with processed-source readback")
+        define_literals = re.findall(r'\b' + re.escape(compiler.group(1)) + r'\.push_back\("([^"\n]+)"\)', fixture)
+        actual_defines = dict(re.findall(r"#define\s+(\w+)\s+(\d+)", "\n".join(define_literals).replace("\\n", "\n")))
+        self.assertEqual(actual_defines.get("GS_TESTS_ENABLED"), "1")
+        self.assertEqual(actual_defines.get("GS_TEST_LEGACY_WIND_WEIGHT"), "1")
+        self.assertAlmostEqual(self.weight(rigid, opacity=1.0, program=self.make_program(actual_defines)), 0.2)
 
     def test_full_half_weights_replace_opacity_and_keep_row_intensity(self):
         p = self.program

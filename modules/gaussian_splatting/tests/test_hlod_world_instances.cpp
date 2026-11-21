@@ -193,8 +193,8 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] a world with 0, 1
 				(GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO));
 		CHECK(rows.instances[0].translation_scale[0] == 0.0f);
 		CHECK(rows.instances[0].translation_scale[3] == 1.0f);
-		// O4: the legacy world has no semantics and did not opt in. Project wind must not move it.
-		CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
+		// AUTO preserves the per-splat semantic gate: a legacy world still has W=0 (O4).
+		CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT));
 		// Rows 1..N: the visible nodes, in registration order, with their transform, 64-bit asset id and stable key.
 		uint32_t row = 1;
 		for (uint32_t i = 0; i < k; ++i) {

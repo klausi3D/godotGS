@@ -44,8 +44,12 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][B3] baked wind weights a
     for (int forced = 0; forced < 2; ++forced) {
         GsShadowCasterShaderRD source;
         Vector<String> variants;
-        // W4's switch is compiled only when BOTH test defines are present.
-        variants.push_back(forced ? "#define GS_TESTS_ENABLED 1\n#define GS_TEST_LEGACY_WIND_WEIGHT 1\n" : "");
+        variants.push_back(String());
+        // This template has no #VERSION_DEFINES marker, so ShaderRD variant
+        // defines are not injected. Pass W4's test-only control to the final
+        // graphics compiler, which inserts it after #version in each stage.
+        Vector<String> defines;
+        if (forced) { defines.push_back("#define GS_TESTS_ENABLED 1\n#define GS_TEST_LEGACY_WIND_WEIGHT 1\n"); }
         source.initialize(variants);
         const RID version = source.version_create();
         if (!version.is_valid()) { FAIL("B3 production caster version unavailable"); return; }
@@ -53,9 +57,18 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][B3] baked wind weights a
         source.version_free(version);
         if (stages.size() <= RD::SHADER_STAGE_FRAGMENT) { FAIL("B3 production stages unavailable"); return; }
         String error;
+        String processed_vertex;
         shaders[forced] = resources.keep(ShaderCompilationHelper::compile_graphics_shader_on_device(rd,
-                stages[RD::SHADER_STAGE_VERTEX], stages[RD::SHADER_STAGE_FRAGMENT], "b3_wind_pixels", Vector<String>(), &error));
+                stages[RD::SHADER_STAGE_VERTEX], stages[RD::SHADER_STAGE_FRAGMENT], "b3_wind_pixels", defines, &error, &processed_vertex));
         if (!shaders[forced].is_valid()) { FAIL("B3 shader compilation failed: ", error.utf8().get_data()); return; }
+        const int control_pos = processed_vertex.find("#define GS_TEST_LEGACY_WIND_WEIGHT 1");
+        if (forced) {
+            CHECK(processed_vertex.find("#define GS_TESTS_ENABLED 1") >= 0);
+            CHECK(control_pos >= 0);
+            CHECK(control_pos < processed_vertex.find("float gs_splat_wind_weight("));
+        } else {
+            CHECK(control_pos == -1);
+        }
         RD::PipelineRasterizationState raster;
         raster.cull_mode = RD::POLYGON_CULL_DISABLED;
         RD::PipelineDepthStencilState depth;
