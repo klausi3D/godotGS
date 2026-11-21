@@ -27,6 +27,138 @@ static FrameRecord active_record() {
 	return r;
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] current rows keep previous list identity and refuse count key or asset changes") {
+	// P3: compile-error RED before current_rows_refusal/FrameRecord identity fields exist.
+	gs_hlod_bundle::Rows rows;
+	rows.instances.resize(3);
+	rows.grading.resize(3);
+	rows.asset_ids.push_back(0);
+	rows.asset_ids.push_back(41);
+	rows.asset_ids.push_back(42);
+	LocalVector<uint64_t> keys;
+	keys.push_back(0);
+	keys.push_back(101);
+	keys.push_back(102);
+	FrameRecord record = active_record();
+	record.row_keys = keys;
+	record.row_asset_ids = rows.asset_ids;
+	record.row_casts.resize(3);
+	LightPassInfo light;
+	light.kind = LightKind::DIRECTIONAL;
+	light.orthographic = true;
+	CHECK(current_rows_refusal(record, rows, keys) == Refusal::NONE);
+	CHECK(plan_pass(record, light, true, current_rows_refusal(record, rows, keys)).draws());
+	// A moving/graded/windy row retains its identity: current payload changes are the legal route.
+	rows.instances[1].translation_scale[0] = 17.0f;
+	rows.instances[1].rotation[3] = 1.0f;
+	rows.instances[1].params[2] = 0.7f;
+	CHECK(current_rows_refusal(record, rows, keys) == Refusal::NONE);
+	for (uint32_t mutation = 0; mutation < 7; ++mutation) {
+		gs_hlod_bundle::Rows changed = rows;
+		LocalVector<uint64_t> changed_keys = keys;
+		FrameRecord previous = record;
+		switch (mutation) {
+			case 0: changed.instances.resize(2); break;
+			case 1: changed.grading.resize(2); break;
+			case 2: changed.asset_ids.resize(2); break;
+			case 3: changed_keys.resize(2); break;
+			case 4: changed_keys[1] = 999; break; // Equal-size replacement must not alias the old list.
+			case 5: changed.asset_ids[2] = 99; break;
+			case 6: previous.row_casts.resize(2); break;
+		}
+		const Refusal refusal = current_rows_refusal(previous, changed, changed_keys);
+		CHECK(refusal == Refusal::ROWS_MISMATCH);
+		CHECK(String(refusal_reason(refusal)) == "shadow_caster_rows_mismatch");
+		const PassPlan plan = plan_pass(previous, light, true, refusal);
+		CHECK(plan.refusal == Refusal::ROWS_MISMATCH);
+		CHECK(!plan.draws());
+		CHECK(plan.casters == 0);
+		CHECK(plan.instance_slots == 0);
+	}
+	CHECK(plan_pass(record, light, false, Refusal::NONE).refusal == Refusal::BUNDLE_CHANGED);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] row snapshot latches only for its exact server frame and bundle") {
+	// Compile-error RED before the P3 once-per-RS-frame helper exists. A late director
+	// edit keeps this frame's rows; the next frame or a replacement bundle must refresh.
+	CHECK(rows_frame_latched(41, 7, 41, 7));
+	CHECK_FALSE(rows_frame_latched(42, 7, 41, 7));
+	CHECK_FALSE(rows_frame_latched(41, 8, 41, 7));
+	CHECK_FALSE(rows_frame_latched(42, 8, 41, 7));
+	CHECK_FALSE(rows_frame_latched(41, 7, 0, 0));
+	CHECK(rows_frame_latched(42, 8, 42, 8));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] releasing a latched or refused contract retains terminal refusal for that frame") {
+	// Compile-error RED before retained_refusal_frame exists. Its booleans are the
+	// current-frame predicates, so an unrelated release cannot revive an older refusal.
+	CHECK(retained_refusal_frame(true, false, 41, UINT64_MAX) == 41u);
+	CHECK(retained_refusal_frame(false, true, 41, 41) == 41u);
+	CHECK(retained_refusal_frame(false, true, UINT64_MAX, 41) == 41u); // Repeated teardown after sync fields were reset.
+	CHECK(retained_refusal_frame(false, false, UINT64_MAX, 41) == UINT64_MAX); // Next frame: neither predicate matches.
+	CHECK(retained_refusal_frame(false, false, 40, 39) == UINT64_MAX); // Unrelated release clears stale history.
+	CHECK(retained_refusal_frame(true, true, 42, 41) == 42u); // The newer successful latch owns the refusal frame.
+	CHECK(retained_refusal_frame(true, false, 43, 41) == 43u);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] newly admitted rows are counted by stable key independently of world and record count") {
+	// P3 compile-error RED before row_in_list/entered_rows exist. Rows are unique director keys;
+	// many DrawnNodeGPU records for one object collapse to its single row_in_list bit.
+	FrameRecord previous;
+	previous.valid = true;
+	previous.row_keys.push_back(0);
+	previous.row_keys.push_back(101);
+	previous.row_keys.push_back(102);
+	previous.row_keys.push_back(103);
+	previous.row_in_list.push_back(1);
+	previous.row_in_list.push_back(1);
+	previous.row_in_list.push_back(0);
+	previous.row_in_list.push_back(0);
+	FrameRecord current = previous;
+	current.row_keys[1] = 102;
+	current.row_keys[2] = 101; // Reordering an existing object does not make it newly entered.
+	current.row_in_list[2] = 1;
+	current.instance_records = 19; // Number of node records cannot multiply the per-object counter.
+	CHECK(entered_rows(previous, current) == 1u);
+	CHECK(entered_rows(current, current) == 0u);
+	previous.row_in_list[0] = 0; // World entering the list is never counted as an entering object.
+	CHECK(entered_rows(previous, current) == 1u);
+	current.row_keys[3] = 999; // Visible but refused/unadmitted rows do not enter the previous-list caster set.
+	CHECK(entered_rows(previous, current) == 1u);
+	current.row_in_list[3] = 1;
+	CHECK(entered_rows(previous, current) == 2u);
+	const FrameRecord no_previous;
+	CHECK(entered_rows(no_previous, current) == 3u);
+	current.row_in_list[1] = current.row_in_list[2] = current.row_in_list[3] = 0;
+	CHECK(entered_rows(previous, current) == 0u);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] swapping cast flags between byte-identical rows still refreshes positional shadows") {
+	// Assertion RED pre-P3: casting_rows alone is byte-identical when equal rows swap cast flags.
+	gs_shadow_refresh::PublishedContent content;
+	FrameRecord record;
+	record.valid = true;
+	record.draw_count = 2;
+	record.row_casts.push_back(1);
+	record.row_casts.push_back(0);
+	DrawnNodeGPU draws[2]{};
+	draws[1].instance_id = 1;
+	LocalVector<InstanceDataGPU> rows;
+	rows.push_back(InstanceDataGPU{});
+	rows.push_back(InstanceDataGPU{});
+	const uint64_t before = content.publish(record, draws, rows, 0);
+	CHECK(content.refresh_rows(record, rows) == before);
+	record.row_casts[0] = 0;
+	record.row_casts[1] = 1;
+	const uint64_t changed = content.refresh_rows(record, rows);
+	CHECK(changed > before);
+	CHECK(content.refresh_rows(record, rows) == changed);
+	// Returning to the original flags is another change even though the row payload remains identical.
+	record.row_casts[0] = 1;
+	record.row_casts[1] = 0;
+	CHECK(content.refresh_rows(record, rows) > changed);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a directional pass casts exactly the main view's draw list") {
 	const FrameRecord record = active_record();
 	const PassPlan plan = plan_pass(record, true, true);

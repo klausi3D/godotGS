@@ -26,6 +26,7 @@
 #include "scene/main/window.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.h"
+#include <cmath>
 #include <cstring>
 
 extern "C" int test_hlod_runtime_gpu_identity_cpp_force_link() { return 0; }
@@ -941,9 +942,14 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
     constexpr uint32_t page_capacity = 4;
     constexpr uint32_t node_splats = page_splats + 1;
     const uint32_t slot_width = (gs_hlod::kMaxNodeSplats + page_splats - 1u) / page_splats;
-    Vector<uint8_t> pixels[5];
+    Vector<uint8_t> pixels[8];
     Vector<uint32_t> placements[2];
-    for (uint32_t pass = 0; pass < 5; ++pass) {
+    // 0..4: existing page-table and current wind-time controls. 5: P3 current rows,
+    // 6: force the old rows-after-shadow order, 7: world must retain its old draw offset.
+    const float previous_translation_x = -0.5f;
+    const float current_translation_x = 0.5f;
+    const float previous_camera_x = 0.25f;
+    for (uint32_t pass = 0; pass < 8; ++pass) {
         gs_hlod_runtime::HlodPagePool pool;
         if (!pool.reset(page_capacity, slot_width)) { FAIL("page-pool fixture allocation failed"); return; }
         if (pass != 0) { pool.test_reverse_free_pages(); }
@@ -957,9 +963,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         // Only the first record of each logical page is opaque; losing either page changes the pixels.
         for (uint32_t local_page = 0; local_page < 2; ++local_page) {
             PackedGaussian &g = atlas.write[pages[local_page] * page_splats];
-            g.position[0] = local_page == 0 ? -0.4f : 0.4f;
+            g.position[0] = pass >= 5 ? 0.0f : (local_page == 0 ? -0.4f : 0.4f);
             g.position[2] = 0.5f;
-            g.opacity = 1.0f;
+            g.opacity = pass >= 5 && local_page == 1 ? 0.0f : 1.0f;
             g.rotation[3] = 1.0f;
             for (uint32_t axis = 0; axis < 3; ++axis) { g.scale[axis] = 0.1f; }
         }
@@ -974,10 +980,21 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         InstanceDataGPU instance = {};
         instance.rotation[3] = instance.inv_rotation[3] = instance.translation_scale[3] = 1.0f;
         instance.params[0] = 1.0f;
-        instance.params[2] = pass >= 3 ? 1.0f : 0.0f;
+        instance.params[2] = pass == 3 || pass == 4 ? 1.0f : 0.0f;
         instance.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO;
-        const DrawnNodeGPU drawn = { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } };
-        const uint32_t casts = 1u;
+        InstanceDataGPU rows[2] = { instance, instance };
+        if (pass >= 5) {
+            rows[1].translation_scale[0] = pass == 6 ? previous_translation_x : current_translation_x;
+            rows[1].ids[1] &= ~GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+            // World payload centres live in drawn.camera_offset, never this row translation.
+            rows[0].translation_scale[0] = 0.9f;
+        }
+        DrawnNodeGPU drawn = { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } };
+        if (pass >= 5) {
+            drawn.instance_id = pass == 7 ? 0u : 1u;
+            drawn.camera_offset[0] = previous_translation_x - previous_camera_x;
+        }
+        const uint32_t casts[2] = { 1u, 1u };
         GsSplatShadowCaster::DeformationUniform deformation;
         deformation.wind_dir_strength[0] = 1.0f;
         deformation.wind_dir_strength[3] = 0.5f;
@@ -985,10 +1002,11 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         deformation.wind_time_config[0] = pass == 4 ? 4.71238898038f : (pass == 3 ? 1.57079632679f : 0.0f);
         deformation.wind_time_config[1] = 1.0f;
         deformation.wind_time_config[2] = 0.1f;
-        deformation.wind_time_config[3] = pass >= 3 ? 1.0f : 0.0f;
+        deformation.wind_time_config[3] = pass == 3 || pass == 4 ? 1.0f : 0.0f;
+        if (pass >= 5) { deformation.frame_anchor[0] = previous_camera_x; }
         const RID inputs[7] = {
             resources.buffer(uint32_t(atlas.size()) * sizeof(PackedGaussian), atlas.ptr()),
-            resources.buffer(sizeof(instance), &instance), resources.buffer(sizeof(meta), &meta),
+            resources.buffer(sizeof(rows), rows), resources.buffer(sizeof(meta), &meta),
             resources.buffer(sizeof(drawn), &drawn), resources.buffer(sizeof(casts), &casts),
             resources.buffer(uint32_t(forward.size()) * sizeof(uint32_t), forward.ptr()),
             resources.buffer(sizeof(deformation), &deformation)
@@ -1007,6 +1025,8 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         struct Push { float matrix[16]; float viewport[4]; uint32_t counts[4]; } push{};
         static_assert(sizeof(Push) == 96, "shadow page-table test push layout");
         for (uint32_t axis = 0; axis < 4; ++axis) { push.matrix[axis * 5] = 1.0f; }
+        // Fold the old record camera into the light transform, as the real renderer does.
+        if (pass >= 5) { push.matrix[12] = previous_camera_x; }
         push.viewport[0] = push.viewport[1] = 64.0f;
         push.viewport[2] = gs_shadow_caster::kAlphaThreshold;
         push.viewport[3] = gs_shadow_caster::kLowPassTexels2;
@@ -1041,5 +1061,25 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
     CHECK(memcmp(pixels[3].ptr(), pixels[4].ptr(), size_t(pixels[3].size())) != 0);
     CHECK(memcmp(pixels[0].ptr(), pixels[3].ptr(), size_t(pixels[0].size())) != 0);
     CHECK(memcmp(pixels[1].ptr(), pixels[2].ptr(), size_t(pixels[1].size())) != 0);
+    double centroids[3] = {};
+    for (uint32_t sample = 0; sample < 3; ++sample) {
+        uint32_t count = 0;
+        double sum_x = 0.0;
+        for (uint32_t i = 0; i < 64 * 64; ++i) {
+            float z = 0.0f;
+            memcpy(&z, pixels[5 + sample].ptr() + i * sizeof(float), sizeof(z));
+            if (z > 0.0f) { sum_x += double(i % 64) + 0.5; ++count; }
+        }
+        if (count == 0) { FAIL("P3 moving/world caster must produce measured depth texels, sample ", sample); return; }
+        centroids[sample] = sum_x / double(count);
+    }
+    // Local centre is zero and wind is disabled: project the current colour row's
+    // world translation into this orthographic 64-texel target. This checks the
+    // production caster raster against the colour row position, not the colour raster.
+    const double colour_current_x = (double(current_translation_x) + 1.0) * 32.0;
+    const double previous_world_x = (double(previous_translation_x) + 1.0) * 32.0;
+    CHECK(std::abs(centroids[0] - colour_current_x) <= 1.0); // assertion RED pre-P3 (32 texels stale).
+    CHECK(std::abs(centroids[1] - colour_current_x) > 1.0); // same assertion would fail in the forced old order.
+    CHECK(std::abs(centroids[2] - previous_world_x) <= 1.0); // row 0 keeps the previous list's world centre.
 }
 }

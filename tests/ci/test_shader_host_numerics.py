@@ -444,6 +444,213 @@ class HlodCameraRelativeFrame(unittest.TestCase):
         self.assertIn("effector_sphere.xyz -= frame_anchor", deformation)
 
 
+class ShadowCasterCurrentRowsTests(unittest.TestCase):
+    """P3: run the offset expression wired into the real caster main, including its old-order control."""
+
+    def _offset_program(self):
+        source = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        main = source[source.index("void main() {"):]
+        match = re.search(r"vec3 frame_position\s*=\s*gs_hlod_camera_relative_position\(\s*local_position,\s*"
+                          r"instance_flags,\s*instance\.rotation,\s*uniform_scale,\s*(.*?)\);", main, re.S)
+        self.assertIsNotNone(match, "caster position consumer disappeared")
+        expression = match.group(1)
+        for original, parameter in (("drawn.instance_id", "row"), ("drawn.camera_offset.xyz", "drawn_offset"),
+                                    ("instance.translation_scale.xyz", "translation"),
+                                    ("deformation_params.frame_anchor.xyz", "frame_camera")):
+            expression = expression.replace(original, parameter)
+        helper = re.search(r"vec3 gs_caster_camera_offset\([^{}]+\)\s*\{.*?\n\}", source, re.S)
+        # Before P3 the actual expression is simply drawn.camera_offset.xyz. Evaluate it too:
+        # the moving-row assertion below must go RED numerically, not error on a missing new helper.
+        return glsl.GlslProgram((helper.group(0) if helper else "") +
+                               "\nvec3 wired_offset(uint row, vec3 drawn_offset, vec3 translation, vec3 frame_camera) {"
+                               "return " + expression + "; }")
+
+    def _positions(self, previous_camera, current_camera, current_row, previous_row, *, rows_before_shadow=True):
+        offset_program = self._offset_program()
+        vec3 = offset_program.namespace["vec3"]
+        current_q, current_scale, current_translation = current_row
+        q, scale, translation = current_row if rows_before_shadow else previous_row
+        previous_translation = previous_row[2]
+        drawn_offset = tuple(previous_translation[i] - previous_camera[i] for i in range(3))
+        offset = offset_program.fn("wired_offset")(glsl.U32(1), vec3(*drawn_offset),
+                                                   vec3(*translation), vec3(*previous_camera))
+        camera_program = _camera_relative_program()
+        v3, v4 = camera_program.namespace["vec3"], camera_program.namespace["vec4"]
+        local = (0.25, -0.5, 0.125)
+        position = camera_program.fn("gs_hlod_camera_relative_position")(
+            v3(*local), glsl.U32(0), v4(*q), scale, v3(*offset.c)).c
+        caster_world = tuple(position[i] + previous_camera[i] for i in range(3))
+        # The colour view forms this frame's offset against its own camera.
+        colour_offset = tuple(current_translation[i] - current_camera[i] for i in range(3))
+        colour = camera_program.fn("gs_hlod_camera_relative_position")(
+            v3(*local), glsl.U32(0), v4(*current_q), current_scale, v3(*colour_offset)).c
+        colour_world = tuple(colour[i] + current_camera[i] for i in range(3))
+        return caster_world, colour_world
+
+    def _assert_same_frame(self, caster, colour):
+        for actual, expected in zip(caster, colour):
+            self.assertAlmostEqual(actual, expected, places=6, msg="caster must use colour frame N, not frame N-1")
+
+    def test_moving_rigid_row_matches_same_colour_frame_with_previous_list_camera(self):
+        previous_row = (_quat_axis_angle((0.3, 1.0, -0.2), -0.2), 0.75, (-1.0, 2.0, -7.0))
+        current_row = (_quat_axis_angle((0.3, 1.0, -0.2), 0.7), 1.5, (1.0, 3.0, -6.0))
+        for cameras in (((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), ((17.0, 2.0, -4.0), (18.0, 3.0, -2.0))):
+            with self.subTest(cameras=cameras):
+                self._assert_same_frame(*self._positions(*cameras, current_row, previous_row))
+
+    def test_forcing_rows_after_shadow_fails_the_same_frame_assertion(self):
+        previous_row = (_quat_axis_angle((0.3, 1.0, -0.2), -0.2), 0.75, (-1.0, 2.0, -7.0))
+        current_row = (_quat_axis_angle((0.3, 1.0, -0.2), 0.7), 1.5, (1.0, 3.0, -6.0))
+        with self.assertRaises(AssertionError):
+            self._assert_same_frame(*self._positions((17.0, 2.0, -4.0), (18.0, 3.0, -2.0),
+                                                    current_row, previous_row, rows_before_shadow=False))
+
+    def test_world_keeps_previous_draw_offset_instead_of_instance_translation(self):
+        program = self._offset_program()
+        vec3 = program.namespace["vec3"]
+        drawn = (-2.25, 1.5, -8.0)
+        got = program.fn("wired_offset")(glsl.U32(0), vec3(*drawn), vec3(123.0), vec3(19.0))
+        self.assertEqual(got.c, list(drawn), "world centres are encoded only in the previous draw list")
+
+    def test_current_rows_refresh_is_wired_before_light_cache_decisions_and_shadow_plan(self):
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        collect = host[host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners("):
+                       host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")]
+        cast = host[host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters("):
+                    host.index("bool GaussianSplatRenderer::render_shadow_depth_map(")]
+        self.assertIn("refresh_hlod_shadow_rows()", collect, "positional cache must observe current rows before deciding reuse")
+        self.assertIn("refresh_hlod_shadow_rows()", cast, "directional/first shadow pass must upload current rows")
+        self.assertLess(collect.index("refresh_hlod_shadow_rows()"), collect.index("refresh_rows("))
+        self.assertLess(cast.index("refresh_hlod_shadow_rows()"), cast.index("plan_pass("))
+        self.assertIn("current_rows_refusal(", host, "row-key/asset mismatches must gate the real shadow submission")
+        self.assertIn("Refusal::ROWS_MISMATCH", host)
+
+    def test_shadow_and_colour_reuse_one_row_snapshot_per_server_frame(self):
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        host = (renderer / "gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        publisher = (renderer / "resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        shadow = host[host.index("gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows()"):
+                      host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(")]
+        colour = publisher[publisher.index("bool GaussianSplatRenderer::refresh_hlod_instance_rows("):
+                           publisher.index("uint32_t GaussianSplatRenderer::get_hlod_view_splat_cap()")]
+        for name, body in (("shadow", shadow), ("colour", colour)):
+            self.assertRegex(body, r"if\s*\(\s*hlod_shadow_rows_latched\(\)\s*\)\s*\{[^{}]*\breturn\b",
+                             name + ": a late director edit must not change this frame's already shadowed rows")
+            self.assertLess(body.index("hlod_shadow_rows_latched()"), body.index("GaussianSplatSceneDirector::get_singleton()"))
+        self.assertLess(colour.index("hlod_shadow_rows_latched()"), colour.index("build_hlod_instance_rows_for_renderer("))
+        self.assertLess(colour.index("hlod_shadow_rows_latched()"), colour.index("rd->buffer_update("))
+        self.assertIn("bool GaussianSplatRenderer::hlod_shadow_rows_latched() const", host)
+        self.assertIn("rows_frame_latched(", host, "real latch must use the tested frame/bundle predicate")
+
+    def test_changed_latched_contract_clears_bindings_and_cannot_fall_through_to_fresh_canonical_rows(self):
+        publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+
+        def block_after(pattern, source):
+            match = re.search(pattern + r"\s*\{", source)
+            self.assertIsNotNone(match, "missing terminal refusal block: " + pattern)
+            start = match.end() - 1
+            depth = 1
+            cursor = start + 1
+            while cursor < len(source) and depth:
+                depth += (source[cursor] == "{") - (source[cursor] == "}")
+                cursor += 1
+            self.assertEqual(depth, 0, "unterminated refusal block")
+            return source[start + 1:cursor - 1], start
+
+        attempt = publisher.index("try_publish_hlod_resident_contract(hlod_reason);")
+        outer = publisher[attempt:]
+        refusal, position = block_after(r"if\s*\(\s*hlod_result\s*<\s*0\s*\|\|\s*"
+                                        r"p_renderer->hlod_shadow_colour_refused\(\)\s*\|\|\s*"
+                                        r"\(hlod_result\s*==\s*0\s*&&\s*p_renderer->hlod_shadow_rows_latched\(\)\)\s*\)", outer)
+        self.assertIn("clear_instance_pipeline_buffers();", refusal, "terminal refusal must discard a previously bound contract")
+        self.assertRegex(refusal, r"return\s+false\s*;")
+        self.assertLess(refusal.index("clear_instance_pipeline_buffers();"), refusal.index("return false;"))
+        self.assertLess(position, outer.index("hlod_edit_committed_here()"), "edited-world fallback must not bypass terminal refusal")
+        self.assertLess(position, outer.index("resident_atlas_override_mb"), "canonical fallback must not pack fresh rows after refusal")
+
+        for method, result in (("idle_hlod_streaming_bundle", "false"), ("publish_hlod_bundle", "false"),
+                               ("try_publish_hlod_resident_contract", "-1")):
+            body, _ = block_after(r"(?:bool|int)\s+GaussianSplatRenderer::" + method + r"\([^{}]*\)", publisher)
+            guard, _ = block_after(r"if\s*\(\s*hlod_shadow_colour_refused\(\)\s*\|\|\s*"
+                                   r"\(hlod_shadow_rows_latched\(\)\s*&&\s*change\.action\s*!=\s*"
+                                   r"gs_hlod_bundle::ContractChangeAction::ROWS_ONLY\)\s*\)", body)
+            self.assertIn('"hlod_shadow_rows_contract_changed_within_frame"', guard)
+            marker = "state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;"
+            self.assertIn(marker, guard, method + ": nested return-zero paths need a terminal signal lasting this RS frame")
+            stamp, _ = block_after(r"if\s*\(\s*!hlod_shadow_colour_refused\(\)\s*\)", guard)
+            self.assertIn(marker, stamp, method + ": repeated refusal must preserve a frame retained across resource release")
+            self.assertIn("clear_instance_pipeline_buffers();", guard,
+                          method + ": ignored prepare failure must not leave a stale contract bound")
+            self.assertRegex(guard, r"return\s+" + re.escape(result) + r"\s*;")
+            self.assertLess(guard.index(marker), guard.index("clear_instance_pipeline_buffers();"))
+            self.assertLess(guard.index("clear_instance_pipeline_buffers();"), guard.index("return " + result + ";"))
+
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        getter, _ = block_after(r"bool\s+GaussianSplatRenderer::hlod_shadow_colour_refused\(\)\s+const", host)
+        self.assertRegex(getter, r"(?:RSG::rasterizer->get_frame_number\(\)\s*==\s*state\.hlod_shadow_rows_contract_refused_frame|"
+                                r"state\.hlod_shadow_rows_contract_refused_frame\s*==\s*RSG::rasterizer->get_frame_number\(\))")
+
+    def test_release_retains_same_frame_refusal_before_destroying_the_latched_bundle(self):
+        publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        match = re.search(r"void GaussianSplatRenderer::release_hlod_resources\(\)\s*\{(.*?)\n\}", publisher, re.S)
+        self.assertIsNotNone(match)
+        release = match.group(1)
+        retained = re.search(r"retained_refusal_frame\(\s*hlod_shadow_rows_latched\(\),\s*hlod_shadow_colour_refused\(\),\s*"
+                             r"state\.hlod_shadow_rows_server_frame,\s*state\.hlod_shadow_rows_contract_refused_frame\)", release)
+        self.assertIsNotNone(retained, "resource teardown must capture this frame's terminal refusal before clearing its latch")
+        self.assertLess(retained.start(), release.index("release_hlod_bundle("))
+        self.assertLess(retained.start(), release.index("state.hlod_shadow_rows_server_frame = UINT64_MAX;"))
+        self.assertIn("state.hlod_shadow_rows_contract_refused_frame = refused_frame;", release)
+
+    def test_edited_world_release_cannot_escape_through_final_canonical_fallback(self):
+        publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        outer = publisher[publisher.index("try_publish_hlod_resident_contract(hlod_reason);"):]
+        match = re.search(r"if\s*\(\s*p_renderer->hlod_shadow_rows_latched\(\)\s*\|\|\s*"
+                          r"p_renderer->hlod_shadow_colour_refused\(\)\s*\)\s*\{", outer)
+        self.assertIsNotNone(match, "an edited-world release after the first refusal check must still block canonical fallback")
+        self.assertGreater(match.start(), outer.index("if (hlod_result != 0 && !omit_edited_world)"))
+        self.assertLess(match.start(), outer.index("resident_atlas_override_mb"))
+        self.assertLess(match.start(), outer.index("LocalVector<ResidentAssetDescriptor> assets;"))
+        start = match.end() - 1
+        depth, cursor = 1, start + 1
+        while cursor < len(outer) and depth:
+            depth += (outer[cursor] == "{") - (outer[cursor] == "}")
+            cursor += 1
+        self.assertEqual(depth, 0)
+        guard = outer[start + 1:cursor - 1]
+        self.assertIn("clear_instance_pipeline_buffers();", guard)
+        self.assertRegex(guard, r"return\s+false\s*;")
+        self.assertLess(guard.index("clear_instance_pipeline_buffers();"), guard.index("return false;"))
+
+    def test_rows_oracles_remain_linked_and_selected_by_required_lanes(self):
+        renderer_module = ROOT / "modules/gaussian_splatting"
+        compiled = (renderer_module / "SCsub").read_text(encoding="utf-8")
+        anchors = (renderer_module / "tests/test_gaussian_splatting.h").read_text(encoding="utf-8")
+        self.assertIn('add_source_files(module_sources, "tests/*.cpp")', compiled)
+        for stem in ("test_hlod_shadow_casters", "test_hlod_runtime_gpu_identity"):
+            self.assertIn(stem + "_cpp_force_link_anchor = " + stem + "_cpp_force_link();", anchors)
+        gpu_source = (renderer_module / "tests/test_hlod_runtime_gpu_identity.cpp").read_text(encoding="utf-8")
+        names = re.findall(r'TEST_CASE\("([^"\n]+)"\)', gpu_source)
+        moving = [name for name in names if "noncontiguous page placement preserves drawn pixels and corrupted mapping changes them (#1514)" in name]
+        self.assertEqual(len(moving), 1, "required moving-caster oracle disappeared")
+        spec = importlib.util.spec_from_file_location("_p3_gpu_harness", ROOT / "tests/ci/run_gpu_harness.py")
+        self.assertIsNotNone(spec)
+        harness = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = harness
+        spec.loader.exec_module(harness)
+        batches = [batch for batch in harness.BATCHES if batch.name == "GpuSorting"]
+        self.assertEqual(len(batches), 1)
+        self.assertIn("GpuSorting", harness.REQUIRED_BATCHES, "moving-caster GPU oracle must fail a REQUIRED lane")
+        def matches(pattern):
+            # doctest wildcards treat brackets literally (fnmatch does not).
+            return re.fullmatch(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), moving[0], re.I) is not None
+        self.assertTrue(any(matches(pattern) for pattern in batches[0].filters))
+        self.assertFalse(any(matches(pattern) for pattern in batches[0].excludes))
+        runner = (ROOT / "tests/ci/run_module_tests.py").read_text(encoding="utf-8")
+        self.assertRegex(runner, r"\(\s*True,\s*_run_shader_host_numerics_guard,")
+        self.assertRegex(runner, r'"GaussianSplatting \[HLOD\]",\s*\("\*GaussianSplatting\*\]\[HLOD\]\*",\),\s*\([^()]*\),\s*True,')
+
+
 class ShadowCasterPerspectiveTests(unittest.TestCase):
     """Evaluate the caster's real quotient rule; also check that its three consumers are wired in."""
 
