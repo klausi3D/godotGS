@@ -47,6 +47,7 @@
 #include "gpu_memory_stream.h"
 #include "gaussian_gpu_layout.h"
 #include "hlod_contract_lifecycle.h"
+#include "hlod_shadow_refresh.h"
 #include "../core/gaussian_streaming.h"
 #include "tile_renderer.h"
 #include "gpu_buffer_manager.h"
@@ -76,6 +77,7 @@
 
 // Forward declarations for interface implementations
 class DebugOverlaySystem;
+class GaussianSplatSceneDirector;
 class InteractiveStateManager;
 class TileRasterizer;
 class GPUCuller;
@@ -332,6 +334,7 @@ public:
         uint64_t renderer_frame = 0;
         uint64_t light_id = 0; // Scene instance RID (Light3D.get_instance()). Zero is excluded from per-light stats.
         gs_shadow_caster::LightPassInfo light_pass;
+        gs_shadow_caster::Refusal hlod_refusal = gs_shadow_caster::Refusal::NONE;
         bool success = false;
         ShadowRenderFailureReason failure_reason = ShadowRenderFailureReason::NONE;
         String route_label;
@@ -903,7 +906,9 @@ public:
     bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
     // The chunk route's frame report into the device ledger (report-only until Step C, ADR D-11). Render thread.
     void report_chunk_route_to_device_vram_ledger(uint64_t p_chunk_bytes);
-    void release_hlod_resources();
+    // p_renderer_teardown: called from _teardown_resources(). It must not query the rendering server; RSG::rasterizer
+    // can already be freed (rendering_server_default.cpp memdeletes it without nulling), and no refusal is retained.
+    void release_hlod_resources(bool p_renderer_teardown = false);
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
     bool is_hlod_prepared_contract_current() const;
     gs_hlod_bundle::ContractChangeDecision hlod_prepared_contract_change() const;
@@ -911,7 +916,14 @@ public:
     bool publish_hlod_bundle(bool p_relative);
     // Re-uploads the prepared bundles' instance and grading rows in place when only the director's row generation moved
     // (gs_hlod_bundle::PreparedRows::REUPLOAD). False when the rows can no longer be served in place (the caller releases).
-    bool refresh_hlod_instance_rows();
+    bool refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal = nullptr);
+    // Render thread, before positional cache decisions or the first directional shadow pass; retains the previous list.
+    gs_shadow_caster::Refusal refresh_hlod_shadow_rows();
+    // Row freshness for HLOD instance rows: instance-store generation mixed with the sphere-effector generation.
+    uint64_t hlod_row_generation(const GaussianSplatSceneDirector *p_director) const;
+    bool hlod_shadow_rows_latched() const;
+    bool hlod_shadow_colour_refused() const;
+    void publish_hlod_shadow_rows_snapshot();
     // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
     // PR1b (ADR 4.4): with `p_with_instances` the view's instance records (resource state hlod_instance_draws, offsets
     // for `p_origin_revision`) are still drawn: a loading world never hides the objects.
@@ -1889,6 +1901,14 @@ public:
     bool render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,
             const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, RID p_light = RID(),
             int p_light_type = -1, int p_omni_shadow_mode = -1, int p_shadow_pass = -1);
+    // Render-thread query: HLOD cube casters run before Godot's cube-to-atlas copy; canonical casters keep their path.
+    bool uses_hlod_shadow_casters() const { return _is_hlod_shadow_route_owner(); }
+    static void collect_hlod_shadow_refresh_owners(const PagedArray<RID> &p_visible,
+            LocalVector<gs_shadow_refresh::Owner> &r_owners);
+    static gs_shadow_refresh::LightUpdate prepare_hlod_shadow_light(RID p_light,
+            const LocalVector<gs_shadow_refresh::Owner> &p_owners, const Vector3 &p_center, real_t p_range, real_t p_spot_angle);
+    static void commit_hlod_shadow_light(RID p_light, const gs_shadow_refresh::LightUpdate &p_update);
+    static void forget_hlod_shadow_light(RID p_light);
     const ShadowRenderResult &get_last_shadow_render_result() const { return last_shadow_render_result; }
 
     /**

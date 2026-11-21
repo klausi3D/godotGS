@@ -1752,6 +1752,18 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["shadow_caster_total_passes_cast"] = int64_t(sc.total_passes_cast);
         stats["shadow_caster_total_passes_refused"] = int64_t(sc.total_passes_refused);
         stats["shadow_caster_source"] = "hlod_main_view_draw_list";
+        gs_shadow_caster::RowSyncSnapshot rows;
+        {
+            MutexLock lock(resource_state.shadow_light_snapshot_mutex);
+            rows = resource_state.hlod_shadow_rows_snapshot;
+        }
+        stats["shadow_caster_rows_current"] = rows.current;
+        stats["shadow_caster_rows_observed_server_frame"] = rows.observed_server_frame == UINT64_MAX ? int64_t(-1) : int64_t(rows.observed_server_frame);
+        stats["shadow_caster_rows_server_frame"] = rows.synced_server_frame == UINT64_MAX ? int64_t(-1) : int64_t(rows.synced_server_frame);
+        stats["shadow_caster_rows_generation"] = int64_t(rows.generation);
+        stats["shadow_caster_rows_refusal"] = String(gs_shadow_caster::refusal_reason(rows.refusal));
+        stats["rows_entered_this_frame_not_cast"] = int64_t(rows.entered);
+        stats["rows_entered_view_frame"] = rows.entry_renderer_frame == UINT64_MAX ? int64_t(-1) : int64_t(rows.entry_renderer_frame);
     }
     {
         gs_shadow_caster::LightFrameStats::Snapshot sl;
@@ -1771,6 +1783,9 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
             kind["last_pass"] = light.last_pass.pass_index;
             kind["light_type"] = light.last_pass.light_type;
             kind["omni_shadow_mode"] = light.last_pass.omni_shadow_mode;
+            if (light.last_refusal != gs_shadow_caster::Refusal::NONE) {
+                kind["refusal_reason"] = String(gs_shadow_caster::refusal_reason(light.last_refusal));
+            }
             pass_kinds[int64_t(light.id)] = kind;
         }
         stats["shadow_casters_rastered_per_light"] = per_light;

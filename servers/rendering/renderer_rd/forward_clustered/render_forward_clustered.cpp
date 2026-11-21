@@ -211,12 +211,17 @@ static bool _gaussian_shadow_setup_omni_cube(RendererRD::LightStorage *p_light_s
 	return true;
 }
 
+enum class GaussianShadowRoute { ALL, HLOD, CANONICAL };
+
 // Returns true if any renderer wrote splat depth into p_dispatch.framebuffer.
-static bool _gaussian_shadow_submit(const LocalVector<Ref<GaussianSplatRenderer>> &p_renderers, const GaussianShadowDispatch &p_dispatch) {
+static bool _gaussian_shadow_submit(const LocalVector<Ref<GaussianSplatRenderer>> &p_renderers, const GaussianShadowDispatch &p_dispatch, GaussianShadowRoute p_route = GaussianShadowRoute::ALL) {
 	bool written = false;
 	for (int renderer_index = 0; renderer_index < p_renderers.size(); renderer_index++) {
 		const Ref<GaussianSplatRenderer> &renderer = p_renderers[renderer_index];
 		if (renderer.is_valid()) {
+			if (p_route != GaussianShadowRoute::ALL && renderer->uses_hlod_shadow_casters() != (p_route == GaussianShadowRoute::HLOD)) {
+				continue;
+			}
 			written = renderer->render_shadow_depth_map(p_dispatch.projection, p_dispatch.transform, p_dispatch.rect, p_dispatch.framebuffer, p_dispatch.flip_y, p_dispatch.light,
 					p_dispatch.light_type, p_dispatch.omni_shadow_mode, p_dispatch.shadow_pass) || written;
 		}
@@ -251,7 +256,7 @@ static void _gaussian_shadow_finalize_omni_cube(RendererRD::LightStorage *p_ligh
 }
 
 template <typename SetupFunc, typename FinalizeFunc>
-static void _gaussian_shadow_dispatch(const RenderDataRD *p_render_data, const LocalVector<int> &p_shadow_list, RendererRD::LightStorage *p_light_storage, SetupFunc &&p_setup_func, FinalizeFunc &&p_finalize_func) {
+static void _gaussian_shadow_dispatch(const RenderDataRD *p_render_data, const LocalVector<int> &p_shadow_list, RendererRD::LightStorage *p_light_storage, SetupFunc &&p_setup_func, FinalizeFunc &&p_finalize_func, GaussianShadowRoute p_route = GaussianShadowRoute::ALL) {
 	RID written_light;
 	bool light_written = false;
 	for (uint32_t i = 0; i < p_shadow_list.size(); i++) {
@@ -270,7 +275,7 @@ static void _gaussian_shadow_dispatch(const RenderDataRD *p_render_data, const L
 			written_light = light_instance;
 			light_written = false;
 		}
-		light_written = _gaussian_shadow_submit(p_render_data->gaussian_shadow_renderers, dispatch) || light_written;
+		light_written = _gaussian_shadow_submit(p_render_data->gaussian_shadow_renderers, dispatch, p_route) || light_written;
 		p_finalize_func(shadow, light_instance, base_light, light_type, dispatch, light_written);
 	}
 }
@@ -1719,7 +1724,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 		RENDER_TIMESTAMP("Render OmniLight Shadows");
 		// Cube shadows are rendered in their own way.
 		for (const int &index : p_render_data->cube_shadows) {
-			_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
+			_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform, p_render_data);
 		}
 
 		if (p_render_data->directional_shadows.size()) {
@@ -1802,7 +1807,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 				}
 			}
 
-			// Gaussian splat shadow casting for omni cube lights.
+			// Canonical cube casters retain their existing path. HLOD casters already ran before each light's cube copy.
 			if (p_render_data->cube_shadows.size()) {
 				RID atlas_fb;
 				uint32_t atlas_size = 0;
@@ -1817,7 +1822,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 							},
 							[light_storage, gaussian_copy_effects, atlas_fb, atlas_size](const RendererSceneRender::RenderShadowData &p_shadow, RID, RID p_base_light, RS::LightType, const GaussianShadowDispatch &p_dispatch, bool p_light_written) {
 								_gaussian_shadow_finalize_omni_cube(light_storage, gaussian_copy_effects, atlas_fb, atlas_size, p_shadow, p_base_light, p_dispatch, p_light_written);
-							});
+							}, GaussianShadowRoute::CANONICAL);
 				}
 			}
 		}
@@ -2855,7 +2860,7 @@ void RenderForwardClustered::_render_buffers_debug_draw(const RenderDataRD *p_re
 	}
 }
 
-void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingMethod::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform) {
+void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingMethod::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform, const RenderDataRD *p_render_data) {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	ERR_FAIL_COND(!light_storage->owns_light_instance(p_light));
@@ -3014,6 +3019,23 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 		if (finalize_cubemap) {
 			_render_shadow_process();
 			_render_shadow_end();
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+			// All six mesh faces are now rasterized. Add only this light's HLOD casters while its face cameras and
+			// shared cubemap are still intact, even in a cube-only scene. The original copy below combines both.
+			if (p_render_data && !p_render_data->gaussian_shadow_renderers.is_empty()) {
+				LocalVector<int> faces;
+				for (const int &index : p_render_data->cube_shadows) {
+					if (p_render_data->render_shadows[index].light == p_light) {
+						faces.push_back(index);
+					}
+				}
+				_gaussian_shadow_dispatch(p_render_data, faces, light_storage,
+						[light_storage, p_shadow_atlas, atlas_size](const RendererSceneRender::RenderShadowData &p_shadow, RID p_light_instance, RID p_base_light, RS::LightType p_light_type, GaussianShadowDispatch &r_dispatch) {
+							return _gaussian_shadow_setup_omni_cube(light_storage, p_shadow_atlas, atlas_size, p_shadow, p_light_instance, p_base_light, p_light_type, r_dispatch);
+						},
+						[](const RendererSceneRender::RenderShadowData &, RID, RID, RS::LightType, const GaussianShadowDispatch &, bool) {}, GaussianShadowRoute::HLOD);
+			}
+#endif
 			//reblit
 			Rect2 atlas_rect_norm = atlas_rect;
 			atlas_rect_norm.position /= float(atlas_size);

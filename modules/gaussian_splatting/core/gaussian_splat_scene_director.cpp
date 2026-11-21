@@ -4,16 +4,19 @@
 #include "../renderer/gaussian_splat_renderer.h"
 #include "gs_project_settings.h"
 #include "core/config/project_settings.h"
+#include "core/object/callable_method_pointer.h"
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
 #include "../logger/gs_logger.h"
 #include "../logger/gs_debug_trace.h"
 #include "gaussian_splat_manager.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/gs_wind_bounds.h"
 #include "../renderer/render_debug_state_orchestrator.h"
 #include "../resources/color_grading_resource.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/node.h"
+#include "servers/rendering_server.h"
 
 #include <cstring>
 #include <utility>
@@ -440,9 +443,21 @@ GaussianSplatSceneDirector::GaussianSplatSceneDirector() {
     if (!singleton) {
         singleton = this;
     }
+    _ensure_deformation_pre_draw_connected();
+}
+
+void GaussianSplatSceneDirector::_ensure_deformation_pre_draw_connected() {
+    if (RenderingServer *rs = RenderingServer::get_singleton()) {
+        const Callable callback = callable_mp(this, &GaussianSplatSceneDirector::_on_deformation_frame_pre_draw);
+        if (!rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->connect(SNAME("frame_pre_draw"), callback); }
+    }
 }
 
 GaussianSplatSceneDirector::~GaussianSplatSceneDirector() {
+    if (RenderingServer *rs = RenderingServer::get_singleton()) {
+        const Callable callback = callable_mp(this, &GaussianSplatSceneDirector::_on_deformation_frame_pre_draw);
+        if (rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->disconnect(SNAME("frame_pre_draw"), callback); }
+    }
     // Release all SharedWorld entries so their Ref<GaussianSplatRenderer>
     // instances are unreferenced, allowing GPU resources (compute/shader
     // RIDs, buffers) to be freed.  Without this, each F6 runtime cycle
@@ -451,6 +466,14 @@ GaussianSplatSceneDirector::~GaussianSplatSceneDirector() {
     if (singleton == this) {
         singleton = nullptr;
     }
+}
+
+void GaussianSplatSceneDirector::_on_deformation_frame_pre_draw() {
+    // RenderingServer emits this synchronously on the main thread, before its draw is queued. This is an invalidation
+    // sequence owned by the director, not a rendering statistic, and its connection is removed before teardown.
+    GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+    ++deformation_pre_draw_epoch;
+    if (deformation_pre_draw_epoch == 0) { ++deformation_pre_draw_epoch; }
 }
 
 void GaussianSplatSceneDirector::_bind_methods() {
@@ -886,6 +909,9 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.desired_residency_hint = p_submission.desired_residency_hint;
 	r_record.desired_renderer_overrides = p_submission.desired_renderer_overrides;
 	r_record.casts_shadow = p_submission.casts_shadow;
+	r_record.wind_intensity = MAX(0.0f, p_submission.wind_intensity);
+	r_record.wind_mode = MIN(p_submission.wind_mode, uint32_t(INSTANCE_WIND_FORCE_ENABLED));
+	r_record.scene_effectors_enabled = p_submission.scene_effectors_enabled;
 	r_record.hlod_demotion_callback = p_submission.hlod_demotion_callback;
 	r_record.renderer_restore_state = GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
 	r_record.active = true;
@@ -922,6 +948,9 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->desired_residency_hint = p_record.desired_residency_hint;
 	r_submission->desired_renderer_overrides = p_record.desired_renderer_overrides;
 	r_submission->casts_shadow = p_record.casts_shadow;
+	r_submission->wind_intensity = p_record.wind_intensity;
+	r_submission->wind_mode = p_record.wind_mode;
+	r_submission->scene_effectors_enabled = p_record.scene_effectors_enabled;
 	r_submission->hlod_demotion_callback = p_record.hlod_demotion_callback;
 }
 
@@ -1073,6 +1102,7 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
         float p_wind_intensity, uint32_t p_wind_mode, const Vector3 &p_wind_direction, float p_wind_frequency,
         bool p_visible, bool p_has_desired_residency_hint, int32_t p_desired_residency_hint,
         float p_effect_position_scale, float p_effect_opacity_scale) {
+	_ensure_deformation_pre_draw_connected();
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
@@ -1730,7 +1760,8 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 	}
 }
 
-void GaussianSplatSceneDirector::_fill_world_identity_row(const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry) {
+void GaussianSplatSceneDirector::_fill_world_identity_row(const WorldSubmissionRecord &p_record,
+		const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry) {
 	InstanceDataGPU &entry = r_entry;
 	entry = InstanceDataGPU{};
 	entry.rotation[3] = 1.0f;
@@ -1738,8 +1769,8 @@ void GaussianSplatSceneDirector::_fill_world_identity_row(const LocalVector<Sphe
 	entry.translation_scale[3] = 1.0f;
 	entry.params[0] = 1.0f; // opacity
 	entry.params[1] = 1.0f; // lod_bias
-	entry.params[2] = 1.0f; // wind_intensity
-	entry.params[3] = 0.0f; // wind_mode
+	entry.params[2] = p_record.wind_intensity;
+	entry.params[3] = float(p_record.wind_mode);
 	entry.ids[0] = 0u; // primary asset id
 	entry.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY |
 			GS_INSTANCE_FLAG_SCALE_IDENTITY |
@@ -1754,22 +1785,86 @@ void GaussianSplatSceneDirector::_fill_world_identity_row(const LocalVector<Sphe
 	entry.wind_params[1] = 0.0f;
 	entry.wind_params[2] = 0.0f;
 	entry.wind_params[3] = 1.0f;
-	entry.effect_params[0] = 1.0f;
-	entry.effect_params[1] = 1.0f;
-	// Encode the scene-effector mask so world-submitted content isn't
-	// filtered out by the shader's `effector_meta.w > 0.5` gate.
-	// World-submission renders have no node-side filter state, so
-	// default to "accept every WORLD-scope effector" — matches what
-	// a world-scope effector is meant to do (affect everything in
-	// this renderer's scenario).
+	entry.effect_params[0] = p_record.scene_effectors_enabled ? 1.0f : 0.0f;
+	entry.effect_params[1] = p_record.scene_effectors_enabled ? 1.0f : 0.0f;
+	// A legacy world has no baked semantic weights. Its own explicit effector opt-in admits WORLD-scope effectors;
+	// node instances retain their independent scope/layer masks. A disabled world always carries an empty row mask.
 	uint32_t world_scope_mask = 0u;
 	for (uint32_t i = 0; i < p_payload.size(); ++i) {
-		if (p_payload[i].scope_mode == SPHERE_EFFECTOR_SCOPE_WORLD) {
+		if (p_record.scene_effectors_enabled && p_payload[i].scope_mode == SPHERE_EFFECTOR_SCOPE_WORLD) {
 			world_scope_mask |= (1u << i);
 		}
 	}
 	entry.effect_params[2] = _encode_u32_as_float_bits(world_scope_mask);
 	entry.effect_params[3] = float(p_payload.size());
+}
+
+double GaussianSplatSceneDirector::_deformation_visibility_margin_locked(const SharedWorld *p_world,
+		const InstanceDataGPU &p_fallback_row, const gs::settings::GSWindSettings &p_wind, uint64_t p_pre_draw_epoch) {
+	// Caller holds world_mutex. Build masks against one ordered payload; do not call the locking public getters here.
+	const auto project = gs::settings::get_sphere_effector_settings(ProjectSettings::get_singleton());
+	if (p_world) {
+		const auto &cache = p_world->deformation_visibility_cache;
+		const auto &cached_project = cache.project_effector;
+		if (cache.valid && cache.pre_draw_epoch == p_pre_draw_epoch && cache.row_generation == p_world->instance_store.generation() &&
+				cache.effector_generation == p_world->sphere_effector_store.generation() &&
+				cache.wind_enabled == p_wind.enabled && cache.wind_strength == p_wind.strength &&
+				cached_project.enabled == project.enabled && cached_project.max_effectors == project.max_effectors &&
+				cached_project.affect_position == project.affect_position && cached_project.radius == project.radius &&
+				cached_project.strength == project.strength) {
+			return cache.margin;
+		}
+	}
+	LocalVector<SphereEffectorSelection> payload;
+	LocalVector<InstanceDataGPU> rows;
+	if (p_world) {
+		_build_sorted_sphere_effector_payload(*p_world, payload);
+		if (p_world->submission_store.is_active() && SubmissionStore::record_has_renderable_payload(p_world->submission_store.get_record())) {
+			InstanceDataGPU row;
+			_fill_world_identity_row(p_world->submission_store.get_record(), payload, row);
+			rows.push_back(row);
+		}
+		for (const InstanceRecord &record : p_world->instance_store.records()) {
+			// Include currently software-culled rows: their displacement can bring the rest bounds back into the view.
+			InstanceDataGPU row;
+			_fill_instance_row(record, payload, row);
+			rows.push_back(row);
+		}
+	}
+	if (rows.is_empty()) { rows.push_back(p_fallback_row); }
+	double push = 0.0;
+	for (const SphereEffectorSelection &effector : payload) {
+		if (effector.enabled && effector.affect_position && effector.radius > 0.0f && std::isfinite(effector.strength)) {
+			push += std::abs(double(effector.strength));
+		}
+	}
+	const bool project_fallback = payload.is_empty() && project.enabled && project.max_effectors > 0;
+	if (project_fallback && project.affect_position && project.radius > 0.0f && std::isfinite(project.strength)) {
+		push = std::abs(double(project.strength));
+	}
+	const double margin = gs_wind::frame_displacement_bound(p_wind, rows.ptr(), rows.size(), push, project_fallback);
+	if (p_world) {
+		auto &cache = p_world->deformation_visibility_cache;
+		cache.valid = true;
+		cache.pre_draw_epoch = p_pre_draw_epoch;
+		cache.row_generation = p_world->instance_store.generation();
+		cache.effector_generation = p_world->sphere_effector_store.generation();
+		cache.wind_enabled = p_wind.enabled;
+		cache.wind_strength = p_wind.strength;
+		cache.project_effector = project;
+		cache.margin = margin;
+	}
+	return margin;
+}
+
+double GaussianSplatSceneDirector::deformation_visibility_margin_for_renderer(const GaussianSplatRenderer *p_renderer,
+		const InstanceDataGPU &p_fallback_row) {
+	const auto wind = gs::settings::get_wind_settings(ProjectSettings::get_singleton());
+	GaussianSplatSceneDirector *director = get_singleton();
+	if (!director) { return _deformation_visibility_margin_locked(nullptr, p_fallback_row, wind, 0); }
+	GaussianSplatting::ThreadOwnedMutexLock lock(director->world_mutex);
+	return _deformation_visibility_margin_locked(p_renderer ? director->_find_world_for_renderer(p_renderer) : nullptr,
+			p_fallback_row, wind, director->deformation_pre_draw_epoch);
 }
 
 void GaussianSplatSceneDirector::_fill_instance_row(const InstanceRecord &p_record, const LocalVector<SphereEffectorSelection> &p_payload,
@@ -1890,7 +1985,7 @@ void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWo
 	r_rows.reserve(world->instance_store.instance_count() + 1);
 	// Row 0: the world, exactly the row build_instance_buffer_for_renderer emits for a world without node instances.
 	InstanceDataGPU world_row = {};
-	_fill_world_identity_row(scene_payload, world_row);
+	_fill_world_identity_row(world->submission_store.get_record(), scene_payload, world_row);
 	r_rows.push_back(world_row);
 	InstanceGradingGPU world_grading = {};
 	fill_instance_grading_entry(renderer_default, world_grading);
@@ -1960,7 +2055,7 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 		if (world->submission_store.is_active() &&
 				SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
 			InstanceDataGPU entry = {};
-			_fill_world_identity_row(scene_payload, entry);
+			_fill_world_identity_row(world->submission_store.get_record(), scene_payload, entry);
 			out.push_back(entry);
 			if (r_submission_asset_ids) {
 				// Primary/world-submission asset id is 0 (kPrimary*AssetId).
@@ -2336,6 +2431,7 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 		float p_radius, float p_strength, float p_falloff, float p_frequency, bool p_enabled,
 		bool p_affect_position, bool p_affect_opacity, float p_opacity_strength, float p_target_opacity,
 		uint32_t p_layer_mask, uint32_t p_scope_mode, ObjectID p_scope_root_id, int32_t p_priority) {
+	_ensure_deformation_pre_draw_connected();
 	if (p_effector_id == ObjectID()) {
 		return;
 	}
@@ -2508,6 +2604,7 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 }
 
 bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &p_submission) {
+	_ensure_deformation_pre_draw_connected();
 	if (p_submission.owner_id == ObjectID() || !p_submission.scenario.is_valid()) {
 		return false;
 	}
@@ -2689,6 +2786,13 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 				previous_world->submission_store.reset();
 			}
 
+			const WorldSubmissionRecord &previous_record = world->submission_store.get_record();
+			if (!previous_record.active || !Math::is_equal_approx(previous_record.wind_intensity, candidate_record.wind_intensity) ||
+					previous_record.wind_mode != candidate_record.wind_mode ||
+					previous_record.scene_effectors_enabled != candidate_record.scene_effectors_enabled) {
+				// Row-only edits refresh prepared HLOD/resident rows without repacking the immutable asset payload.
+				world->instance_store.bump_generation();
+			}
 			world->submission_store.mutable_record() = candidate_record;
 			committed = true;
 		} else {
@@ -3243,5 +3347,13 @@ void GaussianSplatSceneDirector::test_build_hlod_instance_rows_for_scenario(cons
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	_build_hlod_instance_rows_locked(world_registry.find(p_scenario), Ref<ColorGradingResource>(), r_rows, r_grading, r_asset_ids,
 			r_instance_keys);
+}
+
+double GaussianSplatSceneDirector::test_deformation_visibility_margin_for_scenario(const RID &p_scenario,
+		const gs::settings::GSWindSettings &p_wind) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	InstanceDataGPU fallback = {};
+	fallback.params[3] = float(INSTANCE_WIND_FORCE_DISABLED);
+	return _deformation_visibility_margin_locked(world_registry.find(p_scenario), fallback, p_wind, deformation_pre_draw_epoch);
 }
 #endif

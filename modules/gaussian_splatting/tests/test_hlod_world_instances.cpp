@@ -3,8 +3,10 @@ extern "C" int test_hlod_world_instances_cpp_force_link() { return 0; }
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../core/gs_project_settings.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/hlod_world_instances.h"
+#include "../renderer/gs_wind_bounds.h"
 #include "core/math/random_pcg.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/scene_tree.h"
@@ -191,6 +193,8 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] a world with 0, 1
 				(GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO));
 		CHECK(rows.instances[0].translation_scale[0] == 0.0f);
 		CHECK(rows.instances[0].translation_scale[3] == 1.0f);
+		// O4: the legacy world has no semantics and did not opt in. Project wind must not move it.
+		CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
 		// Rows 1..N: the visible nodes, in registration order, with their transform, 64-bit asset id and stable key.
 		uint32_t row = 1;
 		for (uint32_t i = 0; i < k; ++i) {
@@ -221,6 +225,170 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] a world with 0, 1
 	LocalVector<uint64_t> after_keys;
 	scene.rows(after, after_keys);
 	CHECK(after.count() == 0u);
+}
+
+// Pre-P2 this case is a compile error: WorldSubmission has no per-world wind/mask fields.
+// The existing row-0 assertion above is separately red by assertion on the pre-P2 implementation.
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] world wind and effector opt-ins are per row and edits refresh rows without repacking assets") {
+	DirectorScene scene;
+	GS_NEED(scene.init());
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
+	CHECK(submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+	CHECK_FALSE(submission.scene_effectors_enabled);
+	Node3D *node = scene.add_node();
+	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u, false,
+			0.75f, GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_ENABLED);
+	const uint64_t before_rows = scene.director->test_instance_generation_for_scenario(scene.scenario);
+	const uint64_t before_assets = scene.director->test_instance_asset_generation_for_scenario(scene.scenario);
+	submission.wind_intensity = 0.4f;
+	submission.wind_mode = GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT;
+	submission.scene_effectors_enabled = true;
+	GS_NEED(scene.director->submit_world_submission(submission));
+	Rows rows;
+	LocalVector<uint64_t> keys;
+	scene.rows(rows, keys);
+	GS_NEED(rows.count() == 2u);
+	CHECK(rows.instances[0].params[2] == doctest::Approx(0.4f));
+	CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT));
+	CHECK(rows.instances[1].params[2] == doctest::Approx(0.75f));
+	CHECK(rows.instances[1].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_ENABLED));
+	CHECK(scene.director->test_instance_generation_for_scenario(scene.scenario) > before_rows);
+	CHECK(scene.director->test_instance_asset_generation_for_scenario(scene.scenario) == before_assets);
+	GaussianSplatSceneDirector::WorldSubmission queried;
+	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &queried));
+	CHECK(queried.wind_intensity == doctest::Approx(0.4f));
+	CHECK(queried.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT);
+	CHECK(queried.scene_effectors_enabled);
+	const uint64_t opted_rows = scene.director->test_instance_generation_for_scenario(scene.scenario);
+	submission.wind_mode = GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED;
+	submission.scene_effectors_enabled = false;
+	GS_NEED(scene.director->submit_world_submission(submission));
+	scene.rows(rows, keys);
+	GS_NEED(rows.count() == 2u);
+	CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
+	CHECK(rows.instances[1].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_ENABLED));
+	CHECK(scene.director->test_instance_generation_for_scenario(scene.scenario) > opted_rows);
+	CHECK(scene.director->test_instance_asset_generation_for_scenario(scene.scenario) == before_assets);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] world effectors require their own opt-in while instance row masks retain their scope") {
+	DirectorScene scene;
+	GS_NEED(scene.init());
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
+	Node3D *node = scene.add_node();
+	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u);
+	Node3D *effector = scene.add_node();
+	scene.director->register_sphere_effector(effector->get_instance_id(), Transform3D(), 10.0f, 1.0f, 1.0f, 1.0f,
+			true, true, false, 1.0f, 0.0f, 1u, GaussianSplatSceneDirector::SPHERE_EFFECTOR_SCOPE_WORLD);
+	Rows defaults;
+	LocalVector<uint64_t> keys;
+	scene.rows(defaults, keys);
+	submission.scene_effectors_enabled = true;
+	const bool submitted = scene.director->submit_world_submission(submission);
+	Rows opted;
+	scene.rows(opted, keys);
+	// Unregister before any returning precondition so the fixture never leaves a scene effector behind.
+	scene.director->unregister_sphere_effector(effector->get_instance_id());
+	GS_NEED(submitted);
+	GS_NEED(defaults.count() == 2u && opted.count() == 2u);
+	auto mask = [](const InstanceDataGPU &p_row) {
+		uint32_t bits = 0;
+		std::memcpy(&bits, &p_row.effect_params[2], sizeof(bits));
+		return bits;
+	};
+	CHECK(mask(defaults.instances[0]) == 0u);
+	CHECK(defaults.instances[0].effect_params[0] == 0.0f); // Also blocks the project-effector fallback without scene masks.
+	CHECK(defaults.instances[0].effect_params[1] == 0.0f);
+	CHECK(mask(defaults.instances[1]) == 1u);
+	CHECK(mask(opted.instances[0]) == 1u);
+	CHECK(opted.instances[0].effect_params[0] == 1.0f);
+	CHECK(opted.instances[0].effect_params[1] == 1.0f);
+	CHECK(mask(opted.instances[1]) == 1u);
+	CHECK(opted.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
+}
+
+// New API compile-red before W-S. The shared bound feeds the outer RenderingServer instance as well as the HLOD cut;
+// an outside rest AABB must stay eligible for collection before the renderer gets a chance to select its nodes.
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] outer visibility inflation follows world opt-in and the maximum enabled instance intensity") {
+	DirectorScene scene;
+	GS_NEED(scene.init());
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 2.0f;
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == 0.0);
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
+	submission.wind_mode = GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT;
+	submission.wind_intensity = 0.4f;
+	GS_NEED(scene.director->submit_world_submission(submission));
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == doctest::Approx(0.8));
+	Node3D *node = scene.add_node();
+	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u, false,
+			1.5f, GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_ENABLED, Vector3(), 1.0f, /*visible=*/false);
+	// A software-culled rest row must retain its envelope so wind can bring it back into the view next frame.
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == doctest::Approx(3.0));
+	wind.enabled = false;
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == doctest::Approx(3.0));
+	scene.director->unregister_instance(node->get_instance_id());
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == 0.0);
+	wind.enabled = true;
+	wind.strength = 0.5f;
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == doctest::Approx(0.2));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] outer visibility margin conservatively maps scene displacement through instance scale and shear") {
+	CHECK(gs_wind::local_visibility_margin(0.0, Basis()) == 0.0f);
+	CHECK(gs_wind::local_visibility_margin(0.5, Basis()) == 0.5f);
+	Basis scaled;
+	scaled.scale(Vector3(0.25f, 2.0f, 0.5f));
+	CHECK(gs_wind::local_visibility_margin(0.5, scaled) >= 2.0f);
+	Basis shear;
+	shear[0] = Vector3(0.125f, -0.125f, 0.0f);
+	shear[1] = Vector3(1.0f, 2.0f, 0.0f);
+	shear[2] = Vector3(0.0f, 0.0f, 0.5f);
+	const real_t margin = gs_wind::local_visibility_margin(0.3, shear);
+	const AABB original(Vector3(-0.5f, -0.5f, -0.5f), Vector3(1.0f, 1.0f, 1.0f));
+	const AABB expected = Transform3D(shear).xform(original).grow(0.3f);
+	const AABB inflated = Transform3D(shear).xform(original.grow(margin));
+	for (int axis = 0; axis < 3; ++axis) {
+		CHECK(inflated.position[axis] <= expected.position[axis]);
+		CHECK(inflated.get_end()[axis] >= expected.get_end()[axis]);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] the next pre-draw refreshes cached bounds after an effector scope disappears") {
+	DirectorScene scene;
+	GS_NEED(scene.init());
+	RenderingServer *rs = RenderingServer::get_singleton();
+	GS_NEED(rs != nullptr);
+	Node3D *scope = memnew(Node3D);
+	scene.root->add_child(scope);
+	Node3D *node = scene.add_node();
+	node->reparent(scope);
+	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u, false,
+			0.0f, GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+	// Registering through the director does not run the node's effector-filter setter. Cache the ancestor chain the
+	// node setter would cache, so the explicit-root scope can contain this row (else its effector mask is 0).
+	LocalVector<ObjectID> ancestors;
+	ancestors.push_back(scope->get_instance_id());
+	ancestors.push_back(scene.root->get_instance_id());
+	scene.director->update_instance_scene_effector_filter(node->get_instance_id(), true, 1u, false, true, ObjectID(), ancestors);
+	Node3D *effector = scene.add_node();
+	scene.director->register_sphere_effector(effector->get_instance_id(), Transform3D(), 10.0f, 0.5f, 1.0f, 1.0f,
+			true, true, false, 1.0f, 0.0f, 1u, GaussianSplatSceneDirector::SPHERE_EFFECTOR_SCOPE_EXPLICIT_ROOT,
+			scope->get_instance_id());
+	gs::settings::GSWindSettings no_wind;
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, no_wind) > 0.0);
+	// No director row/effector setter runs: the next frame must notice the live scope no longer exists. Merely
+	// emitting pre-draw does not advance Engine's render counters, so a performance-counter-keyed cache stays stale.
+	node->reparent(scene.root);
+	scene.root->remove_child(scope);
+	memdelete(scope);
+	rs->emit_signal(SNAME("frame_pre_draw"));
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, no_wind) == 0.0);
+	scene.director->unregister_sphere_effector(effector->get_instance_id());
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] moving world-scene nodes re-uploads the rows in place; a hidden or added node rebuilds") {

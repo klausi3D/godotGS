@@ -1571,6 +1571,9 @@ struct RenderPipelineStages::CullStage {
 		const auto &buffers = renderer->get_instance_pipeline_buffers();
 		const bool instance_cull_path_requested = renderer->has_instance_pipeline_buffers() &&
 				GaussianSplatting::InstancePipelineContract::has_cull_buffers(buffers);
+		GaussianSplatting::GpuPassTiming::begin_frame_dispatch_record(state_view.get_rendering_device(),
+				buffers.hlod_relative ? GaussianSplatting::GpuPassTiming::ROUTE_HLOD_FUSED
+									  : GaussianSplatting::GpuPassTiming::ROUTE_STANDALONE_CULL);
 		const char *cull_route = buffers.hlod_relative ? RenderRouteUID::INSTANCE_CULL_HLOD_CPU : RenderRouteUID::INSTANCE_CULL_GPU;
 		if (instance_cull_path_requested) {
 			_record_pipeline_event(renderer, "cull",

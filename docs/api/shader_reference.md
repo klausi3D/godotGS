@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `195` documented functions, `28` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `199` documented functions, `30` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -180,6 +180,27 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 
 `modules/gaussian_splatting/shaders/gs_shadow_caster.glsl`
 
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_caster_perspective_gradient(vec3 row, vec3 w_row, float ndc, float clip_w)</code></pre></td>
+      <td>Quotient rule for one row of clip.xyz / clip.w. Kept scalar/vector-only so the host shader evaluator tests the actual GPU expression against finite differences; directional views never enter this branch.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_caster_camera_offset(uint row, vec3 drawn_offset, vec3 translation, vec3 frame_camera)</code></pre></td>
+      <td>World payloads are node-relative, with node centres in the retained draw offsets. Object payloads are asset-local: their translation must come from this frame's row, expressed against the PREVIOUS list's camera (frame_anchor).</td>
+    </tr>
+  </tbody>
+</table>
+
 ### Uniform Blocks
 
 #### Params (params)
@@ -196,7 +217,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>light_from_frame</code></pre></td>
       <td><pre><code>mat4</code></pre></td>
-      <td>Godot directional shadow clip transform of a camera-relative position</td>
+      <td>Godot shadow clip transform of a camera-relative position</td>
     </tr>
     <tr>
       <td><pre><code>viewport</code></pre></td>
@@ -206,7 +227,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>counts</code></pre></td>
       <td><pre><code>uvec4</code></pre></td>
-      <td>x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = opacity multiplier (float bits)</td>
+      <td>x = draw records, y = slot stride, z = ortho (0), pancake (1), perspective (2), w = opacity float bits</td>
     </tr>
   </tbody>
 </table>
@@ -435,7 +456,15 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
   <tbody>
     <tr>
       <td><pre><code>gs_wind_hash_u32(uint v)</code></pre></td>
-      <td>Hash an instance identifier for wind phase variation.</td>
+      <td>Hash ONLY coarse lattice coordinates, never splat/row/atlas identities.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_wind_phase_noise(vec3 scene_rest_position)</code></pre></td>
+      <td>W-S world field: 32 m XZ lattice with smooth interpolation. Both world and instance rows sample scene-space REST positions after rigid placement. Thus a parent and its children, or different objects at the same point, see one coherent gust field; atlas repacking and LOD replacement add no flutter.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_wind_distance_level_fade(vec3 rest_from_camera, uint level)</code></pre></td>
+      <td>Explicit W-S constants: full wind through 64 m, zero at 128 m; node height 0 (leaf) has full weight, height >=4 has zero. Object rows have no HLOD height and pass 0. This fade changes amplitude only, never the rest field.</td>
     </tr>
     <tr>
       <td><pre><code>gs_decode_instance_wind_mode(float encoded_mode)</code></pre></td>

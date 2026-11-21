@@ -888,6 +888,11 @@ struct TileRenderParams {
  *        binning/raster pass and the depth/sort pass must deform a splat to the
  *        same place in the same frame.
  */
+// Shared with the shadow caster: slot order, validation and masks must match colour.
+void pack_deformation_effectors(const TileRenderParams &p_params, float (&r_meta)[4],
+		float (&r_spheres)[GS_MAX_SPHERE_EFFECTORS][4], float (&r_configs)[GS_MAX_SPHERE_EFFECTORS][4],
+		float (&r_opacity_configs)[GS_MAX_SPHERE_EFFECTORS][4]);
+
 inline void apply_wind_to_render_params(TileRenderParams &r_params,
 		const gs::settings::GSWindSettings &p_settings, double p_animation_time_seconds) {
 	r_params.wind_enabled = p_settings.enabled;

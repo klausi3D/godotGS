@@ -1225,6 +1225,8 @@ void TileRenderer::TileResolveStage::dispatch_tile_resolve(const Vector2i &p_vie
     }
 
     submission_device->compute_list_set_push_constant(compute_list, &push_constants, sizeof(ResolvePushConstants));
+    GaussianSplatting::GpuPassTiming::record_dispatch(submission_device, GaussianSplatting::GpuPassTiming::PASS_RESOLVE,
+            owner.frame_state.current_frame_serial);
     submission_device->compute_list_dispatch(compute_list, dispatch_x, dispatch_y, 1);
     submission_device->compute_list_end();
     submission_device->capture_timestamp(resolve_label + String("_End"));

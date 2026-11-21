@@ -5,6 +5,7 @@
 #include "../core/quality_tier_config.h"
 #include "../lod/hlod_auto_route.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "../renderer/gs_wind_bounds.h"
 #include "../renderer/quantization_config.h"
 #include "../logger/gs_logger.h"
 
@@ -42,6 +43,12 @@ void GaussianSplatWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_auto_apply_on_ready"), &GaussianSplatWorld3D::is_auto_apply_on_ready);
     ClassDB::bind_method(D_METHOD("set_cast_shadow", "enabled"), &GaussianSplatWorld3D::set_cast_shadow);
     ClassDB::bind_method(D_METHOD("is_cast_shadow"), &GaussianSplatWorld3D::is_cast_shadow);
+    ClassDB::bind_method(D_METHOD("set_wind_enabled", "enabled"), &GaussianSplatWorld3D::set_wind_enabled);
+    ClassDB::bind_method(D_METHOD("is_wind_enabled"), &GaussianSplatWorld3D::is_wind_enabled);
+    ClassDB::bind_method(D_METHOD("set_wind_intensity", "intensity"), &GaussianSplatWorld3D::set_wind_intensity);
+    ClassDB::bind_method(D_METHOD("get_wind_intensity"), &GaussianSplatWorld3D::get_wind_intensity);
+    ClassDB::bind_method(D_METHOD("set_effectors_enabled", "enabled"), &GaussianSplatWorld3D::set_effectors_enabled);
+    ClassDB::bind_method(D_METHOD("is_effectors_enabled"), &GaussianSplatWorld3D::is_effectors_enabled);
     ClassDB::bind_method(D_METHOD("set_lod_enabled", "enabled"), &GaussianSplatWorld3D::set_lod_enabled);
     ClassDB::bind_method(D_METHOD("is_lod_enabled"), &GaussianSplatWorld3D::is_lod_enabled);
     ClassDB::bind_method(D_METHOD("set_hlod_tau_px", "tau"), &GaussianSplatWorld3D::set_hlod_tau_px);
@@ -66,6 +73,10 @@ void GaussianSplatWorld3D::_bind_methods() {
             "set_world", "get_world");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_apply_on_ready"), "set_auto_apply_on_ready", "is_auto_apply_on_ready");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cast_shadow"), "set_cast_shadow", "is_cast_shadow");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, gs::settings::WORLD_WIND_ENABLED_PROPERTY), "set_wind_enabled", "is_wind_enabled");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, gs::settings::WORLD_WIND_INTENSITY_PROPERTY, PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"),
+            "set_wind_intensity", "get_wind_intensity");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "effectors_enabled"), "set_effectors_enabled", "is_effectors_enabled");
 
     ADD_GROUP("Quality", "quality/");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/hlod_tau_px", PROPERTY_HINT_RANGE, "0,100,0.01,or_greater"),
@@ -94,6 +105,10 @@ void GaussianSplatWorld3D::_notification(int p_what) {
     }
     switch (p_what) {
         case NOTIFICATION_ENTER_TREE: {
+            if (RenderingServer *rs = RS::get_singleton()) {
+                const Callable callback = callable_mp(this, &GaussianSplatWorld3D::_update_deformation_visibility_margin);
+                if (!rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->connect(SNAME("frame_pre_draw"), callback); }
+            }
             // NOTIFICATION_READY only fires once per node lifetime, so a node
             // that is removed and re-added (reparenting is exit+enter) never
             // sees READY again. NOTIFICATION_EXIT_TREE below unregisters the
@@ -140,6 +155,10 @@ void GaussianSplatWorld3D::_notification(int p_what) {
             }
         } break;
         case NOTIFICATION_EXIT_TREE: {
+            if (RenderingServer *rs = RS::get_singleton()) {
+                const Callable callback = callable_mp(this, &GaussianSplatWorld3D::_update_deformation_visibility_margin);
+                if (rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->disconnect(SNAME("frame_pre_draw"), callback); }
+            }
             _unregister_shared_renderer();
             _release_gaussian_base();
             if (render_instance.is_valid()) {
@@ -422,6 +441,25 @@ void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {
     _resubmit_world_submission_if_registered();
 }
 
+void GaussianSplatWorld3D::set_wind_enabled(bool p_enabled) {
+    if (wind_enabled == p_enabled) { return; }
+    wind_enabled = p_enabled;
+    _resubmit_world_submission_if_registered();
+}
+
+void GaussianSplatWorld3D::set_wind_intensity(float p_intensity) {
+    const float intensity = MAX(0.0f, p_intensity);
+    if (Math::is_equal_approx(wind_intensity, intensity)) { return; }
+    wind_intensity = intensity;
+    _resubmit_world_submission_if_registered();
+}
+
+void GaussianSplatWorld3D::set_effectors_enabled(bool p_enabled) {
+    if (effectors_enabled == p_enabled) { return; }
+    effectors_enabled = p_enabled;
+    _resubmit_world_submission_if_registered();
+}
+
 void GaussianSplatWorld3D::set_lod_bias(float p_bias) {
     lod_bias = CLAMP(p_bias, gs::GS_LOD_BIAS_MIN, gs::GS_LOD_BIAS_MAX);
     _resubmit_world_submission_if_registered();
@@ -639,12 +677,8 @@ void GaussianSplatWorld3D::_apply_world_internal() {
 const char *GaussianSplatWorld3D::_hlod_auto_route_refusal() const {
     // The same domains as GaussianSplatRenderer::hlod_streaming_unsupported_reason() and the paged fallback below. The
     // renderer-held ones are only known once this node has its renderer; later changes are the publisher's (per frame).
-    ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!lod_enabled) {
         return "lod_disabled";
-    }
-    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps).enabled) {
-        return "deformation_or_instance_domain";
     }
     if (renderer.is_valid()) {
         if (renderer->get_painterly_config().enabled) {
@@ -652,10 +686,6 @@ const char *GaussianSplatWorld3D::_hlod_auto_route_refusal() const {
         }
         if (renderer->is_shadow_instance_filter_enabled()) {
             return "shadow_instance_filter";
-        }
-        const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
-        if (director && director->get_sphere_effector_count_for_renderer(renderer.ptr()) != 0) {
-            return "deformation_or_instance_domain";
         }
     }
     return nullptr;
@@ -697,6 +727,10 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     GaussianSplatSceneDirector::WorldSubmission submission;
     submission.owner_id = get_instance_id();
     submission.casts_shadow = cast_shadow; // Row 0 of the HLOD shadow casters (#1095); see set_cast_shadow().
+    submission.wind_intensity = wind_intensity;
+    submission.wind_mode = wind_enabled ? GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT :
+            GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED;
+    submission.scene_effectors_enabled = effectors_enabled;
     submission.scenario = get_world_3d().is_valid() ? get_world_3d()->get_scenario() : RID();
     // Refresh the cached scenario so PREDELETE can teardown even after the
     // node has left its world ancestor. See last_known_scenario in the header.
@@ -719,14 +753,10 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
             fallback_reason = "hlod_paged_lod_disabled";
         } else if (get_global_transform() != Transform3D()) {
             fallback_reason = "hlod_paged_non_identity_world_transform";
-        } else if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) {
-            fallback_reason = "hlod_paged_deformation_or_instance_domain";
         } else if (renderer.is_valid() && renderer->get_painterly_config().enabled) {
             fallback_reason = "hlod_paged_painterly_enabled";
         } else if (renderer.is_valid() && renderer->is_shadow_instance_filter_enabled()) {
             fallback_reason = "hlod_paged_shadow_instance_filter";
-        } else if (renderer.is_valid() && director->get_sphere_effector_count_for_renderer(renderer.ptr()) != 0) {
-            fallback_reason = "hlod_paged_deformation_or_instance_domain";
         }
         if (!fallback_reason.is_empty()) {
             if (!demoted) { // A demotion printed its own warning.
@@ -875,6 +905,7 @@ void GaussianSplatWorld3D::_update_render_instance() {
 
     if (!render_instance.is_valid()) {
         render_instance = rs->instance_create();
+        deformation_visibility_margin = -1.0;
         rs->instance_attach_object_instance_id(render_instance, get_instance_id());
     }
 
@@ -896,6 +927,25 @@ void GaussianSplatWorld3D::_update_render_instance() {
     _ensure_gaussian_base();
     _set_instance_base(gaussian_base);
     _sync_gaussian_storage();
+    _update_deformation_visibility_margin();
+}
+
+void GaussianSplatWorld3D::_update_deformation_visibility_margin() {
+    // RenderingServerDefault::draw emits frame_pre_draw on the main thread BEFORE queueing its cull/draw. A direct
+    // callback sees this frame's settings and row/effector edits, even when the static rest AABB is wholly off-screen.
+    RenderingServer *rs = RS::get_singleton();
+    if (!rs || !is_inside_tree() || !render_instance.is_valid()) { return; }
+    InstanceDataGPU row = {};
+    row.params[2] = wind_intensity;
+    row.params[3] = float(wind_enabled ? GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT :
+            GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+    row.effect_params[0] = effectors_enabled ? 1.0f : 0.0f;
+    const double scene_margin = GaussianSplatSceneDirector::deformation_visibility_margin_for_renderer(renderer.ptr(), row);
+    const real_t local_margin = gs_wind::local_visibility_margin(scene_margin, get_global_transform().basis);
+    if (deformation_visibility_margin != local_margin) {
+        rs->instance_set_extra_visibility_margin(render_instance, local_margin);
+        deformation_visibility_margin = local_margin;
+    }
 }
 
 void GaussianSplatWorld3D::_ensure_gaussian_base() {

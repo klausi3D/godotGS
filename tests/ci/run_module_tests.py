@@ -37,6 +37,7 @@ GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layou
 # Shader numerical contracts evaluated from the .glsl source on the host (#1157, #1153, #1168).
 SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
 HLOD_OFFLINE_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_hlod_offline_job.py"
+HLOD_WIND_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_hlod_wind_contract.py"
 HLOD_S1B_QUALITY_TEST_SCRIPT = ROOT / "tests" / "runtime" / "hlod_s1b_quality" / "test_s1b_quality.py"
 WORLD_MANIFEST_VERIFIER_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_verify_world_manifest.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
@@ -1002,6 +1003,20 @@ def _run_shader_host_numerics_guard() -> tuple[bool, list[str]]:
             output_lines = [f"Shader host-numerics tests failed with exit code {code}."]
         return False, output_lines
     return True, output_lines
+
+
+def _run_hlod_wind_contract_tests() -> tuple[bool, list[str]]:
+    """W-S structural wiring only; GPU execution remains in the native runtime lane."""
+    script = HLOD_WIND_CONTRACT_TEST_SCRIPT
+    if not script.is_file():
+        return False, ["Missing HLOD wind contract suite"]
+    code, out, err = _run_command([sys.executable, str(script)])
+    lines = [line for line in (out + err).splitlines() if line.strip()]
+    complete = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    return code == 0 and complete is not None, lines
 
 
 def _run_hlod_offline_contract_tests() -> tuple[bool, list[str]]:
@@ -4062,6 +4077,7 @@ def _run_required_message_guards() -> int | None:
     required_guards: tuple[tuple[GuardRunner, str, str], ...] = (
         (_run_tracked_backup_guard, "Tracked backup-file guard failed.", "Tracked backup-file guard passed."),
         (_run_tracked_artifact_guard, "Tracked artifact hygiene guard failed.", "Tracked artifact hygiene guard passed."),
+        (_run_hlod_wind_contract_tests, "HLOD wind contract tests failed.", "HLOD wind contract tests passed (source/wiring only)."),
         (
             _run_hlod_offline_contract_tests,
             "HLOD offline portable contract tests failed.",

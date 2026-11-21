@@ -20,6 +20,7 @@ private:
     Ref<GaussianSplatRenderer> renderer;
 
     RID render_instance;
+    real_t deformation_visibility_margin = -1.0;
     RID gaussian_base;
 
     // Scenario RID cached at the moment we first resolve a valid World3D
@@ -33,6 +34,10 @@ private:
 
     bool auto_apply_on_ready = true;
     bool cast_shadow = false;
+    // No baked wind semantics exist in W-S. Legacy worlds opt in independently of project wind and instance rows.
+    bool wind_enabled = false;
+    float wind_intensity = 1.0f;
+    bool effectors_enabled = false;
     bool bounds_dirty = true;
     bool warned_non_identity_transform = false;
 
@@ -138,6 +143,7 @@ private:
     void _unregister_shared_renderer();
     void _update_bounds();
     void _update_render_instance();
+    void _update_deformation_visibility_margin();
     void _ensure_gaussian_base();
     void _release_gaussian_base();
     void _sync_gaussian_storage();
@@ -161,6 +167,13 @@ public:
 
     void set_cast_shadow(bool p_enabled);
     bool is_cast_shadow() const { return cast_shadow; }
+
+    void set_wind_enabled(bool p_enabled);
+    bool is_wind_enabled() const { return wind_enabled; }
+    void set_wind_intensity(float p_intensity);
+    float get_wind_intensity() const { return wind_intensity; }
+    void set_effectors_enabled(bool p_enabled);
+    bool is_effectors_enabled() const { return effectors_enabled; }
 
     void set_lod_enabled(bool p_enabled);
     bool is_lod_enabled() const { return lod_enabled; }

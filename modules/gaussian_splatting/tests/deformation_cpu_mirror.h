@@ -26,6 +26,47 @@ enum WindMode : uint32_t {
 	WIND_MODE_FORCE_ENABLED = 2u,
 };
 
+inline uint32_t wind_hash_u32(uint32_t v) {
+	v ^= v >> 16u;
+	v *= 0x7feb352du;
+	v ^= v >> 15u;
+	v *= 0x846ca68bu;
+	v ^= v >> 16u;
+	return v;
+}
+
+inline float wind_lattice_value(int32_t x, int32_t z) {
+	const uint32_t value = wind_hash_u32(uint32_t(x) ^ (wind_hash_u32(uint32_t(z)) * 0x9e3779b9u));
+	return float(value & 0x00FFFFFFu) / 16777215.0f;
+}
+
+inline float wind_phase_noise(const Vector3 &scene_rest_position) {
+	const float lattice_x = float(scene_rest_position.x) / 32.0f;
+	const float lattice_z = float(scene_rest_position.z) / 32.0f;
+	const int32_t x = int32_t(Math::floor(lattice_x));
+	const int32_t z = int32_t(Math::floor(lattice_z));
+	float fx = lattice_x - float(x);
+	float fz = lattice_z - float(z);
+	fx = fx * fx * (3.0f - 2.0f * fx);
+	fz = fz * fz * (3.0f - 2.0f * fz);
+	const float lower = wind_lattice_value(x, z) * (1.0f - fx) + wind_lattice_value(x + 1, z) * fx;
+	const float upper = wind_lattice_value(x, z + 1) * (1.0f - fx) + wind_lattice_value(x + 1, z + 1) * fx;
+	return (lower * (1.0f - fz) + upper * fz) * 6.28318530718f;
+}
+
+inline float wind_distance_level_fade(const Vector3 &rest_from_camera, uint32_t level) {
+	return CLAMP((128.0f - float(rest_from_camera.length())) / 64.0f, 0.0f, 1.0f) *
+			CLAMP(1.0f - float(level) / 4.0f, 0.0f, 1.0f);
+}
+
+inline float wind_displacement(const Vector3 &scene_rest_position, float time_seconds, float temporal_frequency,
+		float spatial_frequency, float strength, float opacity, float row_intensity, float deformation_fade) {
+	const float resistance = 0.2f + 0.8f * CLAMP(1.0f - opacity, 0.0f, 1.0f);
+	const float phase = float(scene_rest_position.x + scene_rest_position.z) * spatial_frequency +
+			time_seconds * temporal_frequency + wind_phase_noise(scene_rest_position);
+	return Math::sin(phase) * strength * resistance * MAX(row_intensity, 0.0f) * CLAMP(deformation_fade, 0.0f, 1.0f);
+}
+
 // Mirror of the per-instance wind-strength fallback path in
 // gs_apply_wind_deformation() after the #3 fix (wind fallback). When the
 // project-level wind_strength is zero but an instance forces wind on via
@@ -80,7 +121,7 @@ inline SphereAnimSample sphere_effector_anim_sample(
 	const float freq_safe = frequency > 0.0f ? frequency : 2.0f;
 	const float spatial_coeff = 1.0f / MAX(radius, 1e-3f);
 	const float spatial_phase = delta.dot(Vector3(spatial_coeff, spatial_coeff, spatial_coeff));
-	const float anim_phase = time_seconds * freq_safe * 6.28318530718f + spatial_phase;
+	const float anim_phase = time_seconds * freq_safe * 6.28318530718f + spatial_phase + wind_phase_noise(world_position);
 	out.anim_factor = Math::sin(anim_phase);
 	return out;
 }

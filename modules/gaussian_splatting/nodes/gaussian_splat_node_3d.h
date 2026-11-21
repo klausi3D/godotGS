@@ -238,6 +238,8 @@ private:
 
     // Rendering resources
     RID render_instance;
+    real_t deformation_visibility_margin = -1.0;
+    real_t deformation_scene_visibility_margin = 0.0;
     RID gaussian_base;
     // Cached on every register so NOTIFICATION_PREDELETE can call
     // GaussianSplatSceneDirector::try_prune_world_if_unused() without depending on
@@ -378,6 +380,7 @@ private:
     void _ensure_renderer();
     void _apply_renderer_settings();
     void _update_render_instance();
+    void _update_deformation_visibility_margin();
     void _upload_asset_to_renderer();
     void _mark_render_state_dirty();
     void _register_shared_renderer();

@@ -5,6 +5,8 @@
 #include "../renderer/render_frame_context_manager.h"
 
 #include "core/os/os.h"
+#include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering_server.h"
 
 // Tests for the CPU mirror of sphere-effector / wind deformation math in
 // gs_deformation.glsl. The mirror lives in deformation_cpu_mirror.h and must
@@ -12,7 +14,7 @@
 // (or vice-versa) will make these tests misleading — review both files
 // together.
 
-TEST_CASE("[GaussianSplatting][Deformation] wind strength fallback activates only under FORCE_ENABLED override") {
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] wind strength fallback activates only under FORCE_ENABLED override") {
 	using namespace GaussianSplatting::DeformationCPUMirror;
 
 	// Project-level wind_strength unset (0.0) is the common case when a
@@ -38,7 +40,7 @@ TEST_CASE("[GaussianSplatting][Deformation] wind strength fallback activates onl
 	CHECK(Math::is_equal_approx(effective_wind_strength(-1.0f, WIND_MODE_INHERIT), 0.0f));
 }
 
-TEST_CASE("[GaussianSplatting][Deformation] wind temporal frequency fallback mirrors strength fallback") {
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] wind temporal frequency fallback mirrors strength fallback") {
 	using namespace GaussianSplatting::DeformationCPUMirror;
 
 	// Same policy as strength: zero-global + FORCE_ENABLED substitutes 1.0,
@@ -50,7 +52,37 @@ TEST_CASE("[GaussianSplatting][Deformation] wind temporal frequency fallback mir
 	CHECK(Math::is_equal_approx(effective_wind_temporal_frequency(0.0f, WIND_MODE_INHERIT), 0.0f));
 }
 
-TEST_CASE("[GaussianSplatting][Deformation] sphere effector anim factor is signed and integrates to zero") {
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] phase depends only on scene rest position across relocated rows") {
+	using namespace GaussianSplatting::DeformationCPUMirror;
+	const Vector3 rest(31.999f, 2.0f, -64.001f);
+	const float reference = wind_phase_noise(rest);
+	// Neither physical atlas address nor row identity is an input to the phase API.
+	const uint32_t atlas_indices[] = { 0u, 19u, 900001u };
+	const uint32_t instance_ids[] = { 0u, 17u, 63u };
+	for (uint32_t atlas_index : atlas_indices) {
+		for (uint32_t instance_id : instance_ids) {
+			(void)atlas_index;
+			(void)instance_id;
+			CHECK(wind_phase_noise(rest) == reference);
+		}
+	}
+	CHECK(Math::abs(wind_phase_noise(rest + Vector3(0.001f, 0.0f, 0.0f)) - reference) < 0.001f);
+	CHECK(wind_distance_level_fade(Vector3(128.0f, 0.0f, 0.0f), 0) == 0.0f);
+	CHECK(wind_distance_level_fade(Vector3(), 4) == 0.0f);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] caster and colour use the same current frame wind sample") {
+	using namespace GaussianSplatting::DeformationCPUMirror;
+	const Vector3 rest(1.25f, 0.5f, -4.0f);
+	const float previous = wind_displacement(rest, 0.1f, 1.0f, 0.1f, 2.0f, 0.75f, 1.0f, 1.0f);
+	const float colour = wind_displacement(rest, 1.1f, 1.0f, 0.1f, 2.0f, 0.75f, 1.0f, 1.0f);
+	const float caster = wind_displacement(rest, 1.1f, 1.0f, 0.1f, 2.0f, 0.75f, 1.0f, 1.0f);
+	CHECK(caster == colour);
+	CHECK(Math::abs(caster - previous) > 0.01f);
+	CHECK(wind_displacement(rest, 1.1f, 1.0f, 0.1f, 2.0f, 0.75f, 1.0f, 0.0f) == 0.0f);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] sphere effector anim factor is signed and integrates to zero") {
 	using namespace GaussianSplatting::DeformationCPUMirror;
 
 	// The #1 fix replaces the always-positive (0.5 + 0.5·sin) envelope with a
@@ -80,7 +112,7 @@ TEST_CASE("[GaussianSplatting][Deformation] sphere effector anim factor is signe
 	CHECK(max_factor > 0.9f); // and the positive half
 }
 
-TEST_CASE("[GaussianSplatting][Deformation] sphere effector phase is spatially coherent across neighbours") {
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] sphere effector phase is spatially coherent across neighbours") {
 	using namespace GaussianSplatting::DeformationCPUMirror;
 
 	// The #1 fix ties anim phase to a low-frequency spatial term (scaled by
@@ -114,7 +146,7 @@ TEST_CASE("[GaussianSplatting][Deformation] sphere effector phase is spatially c
 	CHECK(Math::abs(fa - fc_inside) > 0.1f);
 }
 
-TEST_CASE("[GaussianSplatting][Deformation] sphere effector spatial influence matches falloff envelope") {
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] sphere effector spatial influence matches falloff envelope") {
 	using namespace GaussianSplatting::DeformationCPUMirror;
 
 	// Influence envelope is unaffected by the #1 sway fix (the edit only
@@ -145,17 +177,10 @@ TEST_CASE("[GaussianSplatting][Deformation] sphere effector spatial influence ma
 	CHECK(near_edge > 0.0f);
 }
 
-TEST_CASE("[GaussianSplatting][Deformation] animation time sampler advances with wall clock, not frame count") {
-	// The #2 fix moves animation phase off a `frame_counter / 60` synthetic
-	// clock (which beat against script-side real-time animations on non-60Hz
-	// displays) onto a monotonic wall-clock source sampled once per frame.
-	// This test asserts three properties that shader animation depends on:
-	// (1) first call returns exactly 0 (the epoch latches here);
-	// (2) subsequent calls return non-negative, monotonically non-decreasing
-	//     values;
-	// (3) the rate of advance tracks real wall-clock microseconds, not an
-	//     artificial 60Hz increment — so a sub-millisecond sleep reports a
-	//     sub-millisecond delta, not a stepped 1/60 s jump.
+TEST_CASE("[GaussianSplatting][HLOD][Deformation] animation sampler latches one wall clock sample per server frame") {
+	// Shadows and colour are separate calls in the same server frame. Wall
+	// clock elapsed between them must not alter that frame's wind phase.
+	const bool has_compositor = RenderingServer::get_singleton() != nullptr && RSG::rasterizer != nullptr;
 	const double first = RenderFrameContextManager::sample_render_animation_time_seconds();
 	// First call in the process latches epoch → 0. In a test binary this
 	// is a one-shot because the epoch is a function-static; if a prior test
@@ -170,11 +195,11 @@ TEST_CASE("[GaussianSplatting][Deformation] animation time sampler advances with
 	CHECK(second >= first);
 
 	const double delta = second - first;
-	// Real-time delta should be close to the 2ms sleep. A synthetic 60 Hz
-	// clock would stay flat until a frame bumped it; this assertion is the
-	// primary regression guard — if someone reverts the sampler to
-	// frame-count-based time, this check fails because no frame occurred
-	// between the two sample calls in this test.
-	CHECK(delta > 0.0005); // at least 0.5ms — well below the 2ms sleep, tolerates noisy CI
-	CHECK(delta < 1.0); // sanity: not reporting absurd elapsed time
+	if (has_compositor) {
+		CHECK(second == first); // No server frame was advanced by this test.
+	} else {
+		// Device-free fallback retains the monotonic wall-clock contract.
+		CHECK(delta > 0.0005);
+		CHECK(delta < 1.0);
+	}
 }

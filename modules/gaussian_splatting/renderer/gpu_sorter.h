@@ -34,6 +34,7 @@
 #include "core/variant/dictionary.h"
 #include "core/templates/local_vector.h"
 #include "servers/rendering/rendering_device.h"
+#include "gpu_pass_timing.h"
 #include "gpu_sorting_constants.h"
 #include <atomic>
 #include <chrono>
@@ -168,6 +169,7 @@ protected:
     // keeps "TileOverlapSort_"; the depth pre-sort sorter of GPUSortingPipeline uses "GSPreSort_"
     // (BV-04b), so the two sorts never land in the same timing slot.
     String timestamp_label_prefix = "TileOverlapSort_";
+    GaussianSplatting::GpuPassTiming::Pass dispatch_timing_pass = GaussianSplatting::GpuPassTiming::PASS_OVERLAP_SORT;
 
     // CPU-side timing utilities for measuring command recording/submission time.
     // WARNING: These measure wall-clock time on the CPU, NOT actual GPU execution time.
@@ -217,6 +219,7 @@ public:
         pending_frame_label_serial = p_frame_serial;
     }
     void set_timestamp_label_prefix(const String &p_prefix) { timestamp_label_prefix = p_prefix; }
+    void set_dispatch_timing_pass(GaussianSplatting::GpuPassTiming::Pass p_pass) { dispatch_timing_pass = p_pass; }
     const String &get_timestamp_label_prefix() const { return timestamp_label_prefix; }
 
     // Last completed sort dispatch's GPU-timestamp range. Default-invalid for

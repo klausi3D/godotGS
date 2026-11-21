@@ -20,6 +20,7 @@
 #include "core/os/os.h"
 #include "../resources/color_grading_resource.h"
 #include "gs_shadow_caster.h"
+#include "gs_wind_bounds.h"
 #include "resident_atlas_budget.h"
 #include "../core/gs_project_settings.h"
 #include "core/config/project_settings.h"
@@ -254,6 +255,21 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
     String hlod_reason;
     bool omit_edited_world = false;
     const int hlod_result = p_renderer->try_publish_hlod_resident_contract(hlod_reason);
+    if (hlod_result < 0 || p_renderer->hlod_shadow_colour_refused() ||
+            (hlod_result == 0 && p_renderer->hlod_shadow_rows_latched())) {
+        // A latched frame cannot replace its shadow rows through the ordinary resident fallback either.
+        auto &state = p_renderer->get_resource_state();
+        if (!p_renderer->hlod_shadow_colour_refused()) {
+            state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;
+        }
+        state.hlod_reason = "hlod_shadow_rows_contract_changed_within_frame";
+        state.hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::BUNDLE_CHANGED;
+        state.hlod_active = state.hlod_frame_active = false;
+        p_renderer->clear_instance_pipeline_buffers();
+        p_renderer->publish_hlod_shadow_rows_snapshot();
+        if (r_reason) { *r_reason = "hlod_shadow_rows_contract_changed_within_frame"; }
+        return false;
+    }
     {
         // Package F1 (ADR 14.5): decided AFTER the publish attempt, in the same frame. The attempt is what rebuilds a
         // released streamer from the committed snapshot, so it must run; but a frame whose route does not serve the
@@ -294,6 +310,21 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
     if (hlod_result != 0 && !omit_edited_world) {
         if (r_reason) { *r_reason = hlod_reason; }
         return hlod_result > 0;
+    }
+    if (p_renderer->hlod_shadow_rows_latched() || p_renderer->hlod_shadow_colour_refused()) {
+        // The edited-world branch above can release a bundle too. No canonical asset/row collection is legal after
+        // any successful shadow snapshot in this frame, including an object-only edited-world fallback.
+        auto &state = p_renderer->get_resource_state();
+        if (!p_renderer->hlod_shadow_colour_refused()) {
+            state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;
+        }
+        state.hlod_reason = "hlod_shadow_rows_contract_changed_within_frame";
+        state.hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::BUNDLE_CHANGED;
+        state.hlod_active = state.hlod_frame_active = false;
+        p_renderer->clear_instance_pipeline_buffers();
+        p_renderer->publish_hlod_shadow_rows_snapshot();
+        if (r_reason) { *r_reason = state.hlod_reason; }
+        return false;
     }
     {
         // Package E1: a V4 paged world has no canonical payload to publish instead; the frame is skipped, with the
@@ -1534,8 +1565,22 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     asset.bounds_radius_local = p_data.nodes[0].topology.radius;
     // PR1b: the instance region, after the world. Its chunk tables sit at [node_count, table_count) and its records after
     // the world's `records`, so the world's tables and atlas are exactly what they were without instances.
+    r_bundle.shadow_instance_geometry.resize(region.chunk_count);
     for (uint32_t k = 0; k < region.chunk_count; ++k) {
         ChunkMetaGPU meta = p_instances.chunk_meta[k];
+        auto &geometry = r_bundle.shadow_instance_geometry[k];
+        geometry.chunk_key = k - region.assets[meta.asset_id - 1u].first_chunk;
+        const real_t radius = meta.bounds_radius_local;
+        geometry.bounds = AABB(Vector3(meta.bounds_center_local[0], meta.bounds_center_local[1], meta.bounds_center_local[2]) -
+                Vector3(radius, radius, radius), Vector3(2 * radius, 2 * radius, 2 * radius));
+        // Hash the immutable chunk once at bundle creation. Atlas placement and other chunks never enter its key.
+        const uint64_t metadata_hash = gs_shadow_refresh::hash_value(gs_shadow_refresh::HASH_SEED, meta.splat_count);
+        geometry.payload = p_quantized
+                ? gs_shadow_refresh::hash_bytes(metadata_hash, p_instances.quantized.ptr() + meta.atlas_base,
+                        size_t(meta.splat_count) * sizeof(PackedGaussianQuantized))
+                : gs_shadow_refresh::hash_bytes(metadata_hash, p_instances.raw.ptr() + meta.atlas_base,
+                        size_t(meta.splat_count) * sizeof(PackedGaussian));
+        geometry.payload = gs_shadow_refresh::hash_value(geometry.payload, meta.flags);
         meta.atlas_base += records;
         metadata.write[node_count + k] = meta;
         indices.write[node_count + k].chunk_id = node_count + k;
@@ -1650,8 +1695,11 @@ void GaussianSplatRenderer::release_hlod_bundle(GaussianRenderFacadeState::HlodB
     r_bundle = GaussianRenderFacadeState::HlodBundle();
 }
 
-void GaussianSplatRenderer::release_hlod_resources() {
+void GaussianSplatRenderer::release_hlod_resources(bool p_renderer_teardown) {
     auto &state = get_resource_state();
+    const uint64_t refused_frame = p_renderer_teardown ? UINT64_MAX :
+            gs_shadow_caster::retained_refusal_frame(hlod_shadow_rows_latched(), hlod_shadow_colour_refused(),
+                    state.hlod_shadow_rows_server_frame, state.hlod_shadow_rows_contract_refused_frame);
 #ifdef TESTS_ENABLED
     state.hlod_test_sort_count_buffer = RID();
 #endif
@@ -1686,6 +1734,15 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_instance_refresh_failed_asset_generation = 0;
     state.hlod_instance_rows = 0;
     state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord(); // The buffers it names are gone.
+    state.hlod_shadow_content = gs_shadow_refresh::PublishedContent();
+    state.hlod_shadow_index = gs_shadow_refresh::ContentIndex();
+    state.hlod_shadow_rows_server_frame = UINT64_MAX;
+    state.hlod_shadow_rows_bundle_builds = 0;
+    state.hlod_shadow_rows_contract_refused_frame = refused_frame;
+    state.hlod_shadow_rows_generation = 0;
+    state.hlod_shadow_rows_refusal = refused_frame != UINT64_MAX ?
+            gs_shadow_caster::Refusal::BUNDLE_CHANGED : gs_shadow_caster::Refusal::ROWS_NOT_CURRENT;
+    state.hlod_shadow_rows_entered_this_frame_not_cast = 0;
     state.hlod_instance_region = gs_hlod_bundle::InstanceRegion();
     state.hlod_instance_row_data = gs_hlod_bundle::Rows();
     state.hlod_instance_row_keys.clear();
@@ -1695,6 +1752,9 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.clear_hlod_level_drawn();
     state.hlod_instance_draws.clear();
     frame_context_manager.clear_hlod_views();
+    if (!p_renderer_teardown) {
+        publish_hlod_shadow_rows_snapshot();
+    }
 }
 
 bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
@@ -1729,7 +1789,7 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     change.asset_generation = director->get_instance_asset_generation_for_renderer(this);
     change.instance_refresh_failed_asset_generation = state.hlod_instance_refresh_failed_asset_generation;
     change.prepared_row_generation = state.hlod_instance_generation;
-    change.row_generation = director->get_instance_generation_for_renderer(this);
+    change.row_generation = hlod_row_generation(director);
     const bool quantized = g_quantization_config.per_chunk_quantization;
     if (quantized && (!input->quantized_eligible ||
             state.hlod_position_bits != MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX) ||
@@ -1811,6 +1871,17 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
 bool GaussianSplatRenderer::idle_hlod_streaming_bundle(bool p_with_instances, uint64_t p_origin_revision) {
     auto &state = get_resource_state();
     const auto change = hlod_prepared_contract_change();
+    if (hlod_shadow_colour_refused() || (hlod_shadow_rows_latched() && change.action != gs_hlod_bundle::ContractChangeAction::ROWS_ONLY)) {
+        state.hlod_reason = "hlod_shadow_rows_contract_changed_within_frame";
+        if (!hlod_shadow_colour_refused()) {
+            state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;
+        }
+        state.hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::BUNDLE_CHANGED;
+        state.hlod_active = state.hlod_frame_active = false;
+        clear_instance_pipeline_buffers();
+        publish_hlod_shadow_rows_snapshot();
+        return false;
+    }
     if (change.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) { return publish_hlod_bundle(true); }
     if (change.action == gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY && !refresh_hlod_instance_region()) { return false; }
     auto &bundle = state.hlod_relative;
@@ -1861,6 +1932,17 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     // This is also the only restore entry. Never bind retained A after current B
     // has fallen back, even if the caller captured its restore intent before B.
     const auto change = hlod_prepared_contract_change();
+    if (hlod_shadow_colour_refused() || (hlod_shadow_rows_latched() && change.action != gs_hlod_bundle::ContractChangeAction::ROWS_ONLY)) {
+        state.hlod_reason = "hlod_shadow_rows_contract_changed_within_frame";
+        if (!hlod_shadow_colour_refused()) {
+            state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;
+        }
+        state.hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::BUNDLE_CHANGED;
+        state.hlod_active = state.hlod_frame_active = false;
+        clear_instance_pipeline_buffers();
+        publish_hlod_shadow_rows_snapshot();
+        return false;
+    }
     if (change.action == gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY) {
         if (!refresh_hlod_instance_region()) { return false; }
         // A cut uploaded before a concurrent asset edit names the old rows/tables.
@@ -1882,8 +1964,7 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     if (state.hlod_streaming && !p_relative) { return idle_hlod_streaming_bundle(); }
     auto &bundle = p_relative ? state.hlod_relative : state.hlod_canonical;
     // Row content moved without the asset set (a transform, parameter or grading edit): re-upload the rows in place.
-    // A single-row world never gets here with a moved row generation (every bump it can see also moves the asset or the
-    // grading-default generation, which the contract check above refuses).
+    // World wind/effector row edits can move the row generation without moving the asset. Refresh them here too.
     if (!refresh_hlod_instance_rows()) {
         release_hlod_resources();
         state.hlod_reason = "hlod_instance_rows_refresh_failed";
@@ -1935,7 +2016,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
         return false;
     };
     if (!rd || !director || input.is_null() || !state.hlod_streaming || state.hlod_instance_region.reserved_records == 0) { return refresh_failed(); }
-    const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t row_generation = hlod_row_generation(director);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     gs_hlod_bundle::Rows rows;
     LocalVector<uint64_t> keys;
@@ -1987,7 +2068,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
             !get_hlod_owned_byte_upper_bound(after_bytes) || after_bytes > ledger.limit() ||
             input != state.hlod_snapshot || !input->is_current() || input->source_data != get_scene_state().gaussian_data ||
             rd != get_device_state().rd || sorter->get_sort_resource_device() != rd ||
-            row_generation != director->get_instance_generation_for_renderer(this) ||
+            row_generation != hlod_row_generation(director) ||
             asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
             grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
             hlod_prepared_contract_change().action != gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY) {
@@ -2036,24 +2117,52 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
     });
 }
 
-bool GaussianSplatRenderer::refresh_hlod_instance_rows() {
+// HLOD rows pack per-row sphere-effector masks (slot indices into the sorted effector payload), so a row is
+// current only for BOTH the instance-store generation and the sphere-effector generation. Adding, removing,
+// reordering or rescoping effectors must refresh the rows, as the resident publisher's instance generation does.
+uint64_t GaussianSplatRenderer::hlod_row_generation(const GaussianSplatSceneDirector *p_director) const {
+    return _mix_generation(p_director->get_instance_generation_for_renderer(this),
+            p_director->get_sphere_effector_generation_for_renderer(this));
+}
+
+bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal) {
     auto &state = get_resource_state();
+    if (hlod_shadow_rows_latched()) { return true; } // Colour and idle restores reuse the pre-shadow snapshot.
+    auto refuse = [&](gs_shadow_caster::Refusal p_reason) {
+        if (r_shadow_refusal) { *r_shadow_refusal = p_reason; }
+        return false;
+    };
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     RenderingDevice *rd = get_device_state().rd;
-    if (!director || !rd) { return false; }
-    const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
+    if (!director || !rd) { return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT); }
+    const uint64_t asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    if (asset_generation != state.hlod_instance_asset_generation) { return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED); }
+    const uint64_t row_generation = hlod_row_generation(director);
     if (row_generation == state.hlod_instance_generation) { return true; }
     gs_hlod_bundle::Rows rows;
     LocalVector<uint64_t> keys;
     director->build_hlod_instance_rows_for_renderer(this, rows.instances, rows.grading, rows.asset_ids, keys);
-    const uint64_t asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    // A same-size visibility swap can change the meaning of a row index. Never write those rows under an old list.
+    if (keys.size() != rows.count() || rows.asset_ids.size() != keys.size() ||
+            keys.size() != state.hlod_instance_row_keys.size() || rows.asset_ids.size() != state.hlod_instance_row_data.asset_ids.size()) {
+        return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH);
+    }
+    for (uint32_t row = 0; row < keys.size(); ++row) {
+        if (keys[row] != state.hlod_instance_row_keys[row] || rows.asset_ids[row] != state.hlod_instance_row_data.asset_ids[row]) {
+            return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH);
+        }
+    }
+    if (r_shadow_refusal) {
+        const auto refusal = gs_shadow_caster::current_rows_refusal(state.hlod_shadow_caster_record, rows, keys);
+        if (refusal != gs_shadow_caster::Refusal::NONE) { return refuse(refusal); }
+    }
     // A moving node lands here (PR1b): same asset set, same row count, rows naming the same assets (rows_refusal checks the
     // row tallies against the packed region), so only the rows are re-uploaded; its draw offsets are formed per view.
     if (gs_hlod_bundle::prepared_rows_action(state.hlod_instance_asset_generation, asset_generation, state.hlod_instance_generation,
                 row_generation, state.hlod_instance_rows, rows.count()) != gs_hlod_bundle::PreparedRows::REUPLOAD ||
             state.hlod_prepared_snapshot.is_null() ||
             gs_hlod_bundle::rows_refusal(rows, uint64_t(state.hlod_prepared_snapshot->nodes.size()), state.hlod_instance_region) != nullptr) {
-        return false;
+        return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH);
     }
     LocalVector<InstanceDataGPU> packed;
     gs_hlod_bundle::pack_instance_rows(rows, state.hlod_instance_region, packed);
@@ -2063,7 +2172,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_rows() {
         if (b.instance_count != rows.count() ||
                 rd->buffer_update(b.instance_buffer, 0, rows.count() * sizeof(InstanceDataGPU), packed.ptr()) != OK ||
                 rd->buffer_update(b.instance_grading_buffer, 0, rows.count() * sizeof(InstanceGradingGPU), rows.grading.ptr()) != OK) {
-            return false;
+            return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT);
         }
     }
     // The generation read BEFORE the rows were built: a bump in between is re-uploaded next time, never skipped.
@@ -2111,13 +2220,9 @@ bool GaussianSplatRenderer::request_hlod_auto_route_demotion(const gs_hlod_auto_
 const char *GaussianSplatRenderer::hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const {
     // Conditions under which the HLOD cut can never become active; a streamed bundle would then draw nothing for
     // ever, so these setups keep the whole-tree / legacy resident route (reason keys as in prepare_hlod_frame).
-    ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!get_lod_enabled()) { return "lod_disabled_canonical_leaves"; }
     if (is_shadow_instance_filter_enabled()) { return "shadow_instance_filter"; }
     if (get_painterly_config().enabled) { return "unsupported_view_or_material"; } // Persistent renderer setting, known at publish.
-    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) { return "deformation_or_instance_domain"; }
-    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
-    if (!director || director->get_sphere_effector_count_for_renderer(this) != 0) { return "deformation_or_instance_domain"; }
     if (p_instance) {
         const bool identity = (p_instance->ids[1] & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0 && p_instance->translation_scale[0] == 0.0f &&
                 p_instance->translation_scale[1] == 0.0f && p_instance->translation_scale[2] == 0.0f && p_instance->translation_scale[3] == 1.0f;
@@ -2144,12 +2249,12 @@ static const char *hlod_paged_reason_key(const char *p_base, bool p_publish) {
 // What `p_views` ViewSet views of the HLOD route charge against the route's headroom (snapshot budget physical_bytes):
 // each holds one world instance's history (ViewSet::slot_bytes) and its draw records for node_budget = the world's nodes
 // (ViewSet::view_cost; the route's ResidencyBudget prices nothing per splat, record or node). UINT64_MAX when unprovable.
-static uint64_t hlod_view_reservation_bytes(uint32_t p_world_nodes, uint32_t p_views) {
+static uint64_t hlod_view_reservation_bytes(uint32_t p_world_nodes, uint32_t p_views, bool p_displaced) {
     using gs_hlod_runtime::ViewSet;
     gs_hlod_runtime::Caps caps;
     caps.splat_budget = 1;
     caps.node_budget = MAX<uint32_t>(p_world_nodes, 1u);
-    const uint64_t history = ViewSet::slot_bytes(caps.node_budget);
+    const uint64_t history = ViewSet::slot_bytes(caps.node_budget, p_displaced);
     uint64_t one = 0;
     if (history == 0 || !ViewSet::view_cost(gs_hlod_runtime::ResidencyBudget(), caps, history, caps.node_budget, one)) { return UINT64_MAX; }
     return one != 0 && p_views > UINT64_MAX / one ? UINT64_MAX : one * p_views;
@@ -2267,6 +2372,12 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
 
 int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) {
     auto &state = get_resource_state();
+    if (hlod_shadow_colour_refused()) {
+        state.hlod_reason = "hlod_shadow_rows_contract_changed_within_frame";
+        r_reason = state.hlod_reason;
+        clear_instance_pipeline_buffers();
+        return -1;
+    }
     // A world with committed edits states the CURRENT cause on every blank frame: start from a generic one, so a return that
     // sets no reason of its own never keeps last frame's cause (or last frame's "active").
     if (hlod_edit_committed_here()) { state.hlod_reason = "hlod_publish_failed"; }
@@ -2274,6 +2385,18 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
     if (state.hlod_prepared_snapshot.is_valid()) {
         const auto change = hlod_prepared_contract_change();
+        if (hlod_shadow_colour_refused() || (hlod_shadow_rows_latched() && change.action != gs_hlod_bundle::ContractChangeAction::ROWS_ONLY)) {
+            state.hlod_reason = "hlod_shadow_rows_contract_changed_within_frame";
+            if (!hlod_shadow_colour_refused()) {
+                state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;
+            }
+            state.hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::BUNDLE_CHANGED;
+            state.hlod_active = state.hlod_frame_active = false;
+            clear_instance_pipeline_buffers();
+            publish_hlod_shadow_rows_snapshot();
+            r_reason = state.hlod_reason;
+            return -1;
+        }
         if (change.action == gs_hlod_bundle::ContractChangeAction::FULL_REBUILD) {
             if (change.reason == gs_hlod_bundle::ContractChangeReason::OBJECT_TAIL_OVERFLOW) {
                 hlod_warn_tail_overflow(state, director->get_instance_asset_generation_for_renderer(this));
@@ -2317,7 +2440,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         release_hlod_resources();
         return 0;
     }
-    const uint64_t instance_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t instance_generation = hlod_row_generation(director);
     const uint64_t instance_asset_generation = director->get_instance_asset_generation_for_renderer(this);
     // PR1b: the bundle's rows (row 0 is the world, rows 1..N the visible node instances) and their packed node assets.
     // A current prepared bundle keeps its own (a moving node only re-uploads rows); anything else builds them here,
@@ -2655,7 +2778,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 !handles.valid || handles.capacity < sort_capacity || !input->is_current() ||
                 input != state.hlod_snapshot || input->source_data != get_scene_state().gaussian_data ||
                 rd != get_device_state().rd || subsystem_state.sorting_pipeline->get_sort_resource_device() != rd ||
-                instance_generation != director->get_instance_generation_for_renderer(this) ||
+                instance_generation != hlod_row_generation(director) ||
                 instance_asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
                 grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
                 quantized != g_quantization_config.per_chunk_quantization || owner_key != state.hlod_owner_key ||
@@ -2704,6 +2827,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 
 bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_context) {
     auto &state = get_resource_state();
+    publish_hlod_shadow_rows_snapshot(); // A new view without a row sync must not retain a stale "current" diagnostic.
     state.hlod_cut_telemetry.valid = false;
     if (state.hlod_streamer.is_valid()) {
         state.hlod_streamer->capture_placement_reserve(gs_hlod_runtime::CutHistory::Result());
@@ -2723,7 +2847,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // The objects' part of this main view's shadow caster record (renderer/hlod_shadow_caster_plan.h), formed with the
     // instance records; published with the list that draws them, the world's cut or (idle streamed world) the objects alone.
     gs_shadow_caster::FrameRecord instance_casters;
+    const gs_shadow_caster::FrameRecord previous_casters = state.hlod_shadow_caster_record;
+    state.hlod_shadow_rows_entered_this_frame_not_cast = 0;
     bool instance_casters_ready = false;
+    LocalVector<uint64_t> world_shadow_versions; // Versions already resolved by the selector; O(1) per drawn node.
     auto publish_shadow_casters = [&](uint32_t p_world_records, uint64_t p_world_record_splats) {
         gs_shadow_caster::FrameRecord &caster = state.hlod_shadow_caster_record;
         caster = instance_casters;
@@ -2732,6 +2859,46 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         caster.bundle_builds = state.hlod_bundle_builds;
         caster.draw_list_upload = state.hlod_draw_list_uploads;
         gs_shadow_caster::complete_record(caster, p_world_records, p_world_record_splats);
+        // An idle world's list was uploaded from instance_draws, not relative.draw_entries. Publish identities and
+        // anchor-independent geometry for the list the next shadow pass draws, with the current bundle's row keys.
+        const DrawnNodeGPU *draws = p_world_records ? state.hlod_relative.draw_entries.ptr() : state.hlod_instance_draws.ptr();
+        caster.row_keys = state.hlod_instance_row_keys;
+        caster.row_asset_ids = state.hlod_instance_row_data.asset_ids;
+        caster.row_in_list.resize(caster.row_keys.size());
+        for (uint32_t row = 0; row < caster.row_in_list.size(); ++row) { caster.row_in_list[row] = 0; }
+        for (uint32_t draw = 0; draw < caster.draw_count; ++draw) {
+            if (draws[draw].instance_id < caster.row_in_list.size()) { caster.row_in_list[draws[draw].instance_id] = 1; }
+        }
+        state.hlod_shadow_rows_entered_this_frame_not_cast = gs_shadow_caster::entered_rows(previous_casters, caster);
+        publish_hlod_shadow_rows_snapshot();
+        // Use the immutable source actually served by the streamed cut, including per-leaf edits.
+        const Ref<GaussianSplatHlodRuntimeData> source = state.hlod_streaming && state.hlod_streamer.is_valid()
+                ? state.hlod_streamer->get_data() : state.hlod_prepared_snapshot;
+        LocalVector<gs_shadow_refresh::Geometry> geometry;
+        geometry.resize(caster.draw_count);
+        for (uint32_t i = 0; i < caster.draw_count; ++i) {
+            const uint32_t chunk = draws[i].chunk_id;
+            if (draws[i].instance_id == 0) {
+                const auto &node = source->nodes[chunk];
+                auto &g = geometry[i];
+                Vector3 lo, hi;
+                for (int axis = 0; axis < 3; ++axis) {
+                    const double lower = node.exact_cell_center[axis] + double(node.topology.aabb_min[axis]);
+                    const double upper = node.exact_cell_center[axis] + double(node.topology.aabb_max[axis]);
+                    lo[axis] = real_t(lower);
+                    hi[axis] = real_t(upper);
+                    if (double(lo[axis]) > lower) { lo[axis] = std::nextafter(lo[axis], -std::numeric_limits<real_t>::infinity()); }
+                    if (double(hi[axis]) < upper) { hi[axis] = std::nextafter(hi[axis], std::numeric_limits<real_t>::infinity()); }
+                }
+                g.bounds = gs_shadow_refresh::enclosing_bounds(lo, hi);
+                // Node slot + stable source epoch + per-node revision survive camera motion and unrelated leaf edits.
+                g.payload = gs_shadow_refresh::hash_value(world_shadow_versions[i], source->source_epoch);
+                g.chunk_key = chunk;
+            } else {
+                geometry[i] = state.hlod_relative.shadow_instance_geometry[chunk - uint32_t(source->nodes.size())];
+            }
+        }
+        state.hlod_shadow_content.publish(caster, draws, geometry);
     };
     if (p_context.pass_kind == RenderPassKind::MAIN_VIEW) {
         // The per-view budget outcome describes THIS main view only: a view that never reaches the budget rule refuses
@@ -2804,13 +2971,34 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     }
     ProjectSettings *ps = ProjectSettings::get_singleton();
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
-    // DESIGN E5: a lost world submission used to be reported as deformation_or_instance_domain. It names itself now;
-    // wind and sphere effectors keep their own (unchanged) key.
+    // Wind and effectors are per-row domains. Only a missing world submission refuses here.
     if (!director || !director->has_hlod_world_submission(this, state.hlod_owner_key)) {
         return fallback(input->is_paged() ? "hlod_paged_world_submission_lost" : "hlod_world_submission_lost");
     }
-    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled ||
-            director->get_sphere_effector_count_for_renderer(this) != 0) { return fallback(input->is_paged() ? hlod_paged_reason_key("deformation_or_instance_domain", false) : "deformation_or_instance_domain"); }
+    const gs::settings::GSWindSettings wind_settings = gs::settings::get_wind_settings(ps);
+    LocalVector<GaussianSplatSceneDirector::SphereEffectorSelection> wind_effectors;
+    uint32_t scene_effector_count = 0;
+    director->build_sphere_effector_payload_for_renderer(this, wind_effectors, &scene_effector_count);
+    double effector_push = 0.0;
+    for (const auto &effector : wind_effectors) {
+        if (effector.enabled && effector.affect_position && effector.radius > 0.0f && std::isfinite(effector.strength)) {
+            effector_push += std::abs(double(effector.strength));
+        }
+    }
+    const auto project_effector = gs::settings::get_sphere_effector_settings(ps);
+    const bool legacy_effector = wind_effectors.is_empty() && project_effector.enabled && project_effector.max_effectors > 0;
+    if (legacy_effector && project_effector.affect_position && project_effector.radius > 0.0f && std::isfinite(project_effector.strength)) {
+        effector_push = std::abs(double(project_effector.strength));
+    }
+    const gs_hlod_bundle::Rows &wind_rows = state.hlod_instance_row_data;
+    const uint64_t wind_row_generation = state.hlod_instance_generation;
+    const double wind_d_max = gs_wind::frame_displacement_bound(wind_settings,
+            wind_rows.instances.ptr(), wind_rows.count(), effector_push, legacy_effector);
+    if (!std::isfinite(wind_d_max)) { return fallback("hlod_wind_bound_invalid"); }
+    auto row_displaced = [&](const InstanceDataGPU &row) {
+        return (gs_wind::row_wind_enabled(wind_settings, row) && row.params[2] > 0.0f) ||
+                (effector_push > 0.0 && (gs_wind::row_has_effectors(row) || (legacy_effector && row.effect_params[0] > 0.0f)));
+    };
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
     const uint64_t route_limit = hlod_route_limit_bytes(state, get_device_state().rd);
@@ -2856,7 +3044,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // Each admitted view (and this one, if it is new) is charged its history and draw records against the same
         // headroom every frame (ViewSet::admit_view / select): node_budget = the world's nodes, one world instance.
         const uint32_t views = MIN<uint32_t>(frame_context_manager.get_hlod_view_set().view_count() + 1u, RenderFrameContextManager::HLOD_MAX_VIEWS);
-        const uint64_t histories = hlod_view_reservation_bytes(input->nodes.size(), views);
+        const bool displaced_world = wind_rows.count() > 0 && row_displaced(wind_rows.instances[0]) && wind_d_max > 0.0;
+        const uint64_t histories = hlod_view_reservation_bytes(input->nodes.size(), views, displaced_world);
         const uint64_t transitions = state.hlod_streaming ? state.hlod_streamer->transition_workspace_bytes() : 0;
         const uint64_t cpu_reservation = transitions > UINT64_MAX - histories ? UINT64_MAX : histories + transitions;
         mandatory_bytes = ResidentAtlasBudget::hlod_mandatory_outstanding_bytes(grid_bytes, tile->get_hlod_scratch_outstanding_bytes(scratch_params),
@@ -2919,7 +3108,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             const Vector3 center = rotation.xform(asset.bounds_center * scale) + translation;
             gs_hlod_bundle::ObjectDemand demand;
             if (!gs_hlod_bundle::object_view_demand(asset, center, scale, view_frustum, get_frustum_culling(), view_to_world.origin,
-                        view_focal, view_tile_area, demand.importance, demand.records)) {
+                        view_focal, view_tile_area, demand.importance, demand.records, row_displaced(r) ? wind_d_max : 0.0)) {
                 continue; // Outside this view: it reserves nothing and is not refused.
             }
             demand.instance_key = state.hlod_instance_row_keys[row];
@@ -3132,8 +3321,12 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     {
         // Shadow casters: which rows cast (row 0 = the world's own cast_shadow), and the admitted objects' splats among them.
         LocalVector<uint64_t> caster_keys;
-        const bool world_casts = director->collect_hlod_shadow_caster_keys_for_renderer(this, caster_keys);
-        gs_shadow_caster::build_row_casts(state.hlod_instance_row_keys, world_casts, caster_keys, instance_casters.row_casts);
+        if (hlod_shadow_rows_latched() && previous_casters.row_casts.size() == state.hlod_instance_row_keys.size()) {
+            instance_casters.row_casts = previous_casters.row_casts;
+        } else {
+            const bool world_casts = director->collect_hlod_shadow_caster_keys_for_renderer(this, caster_keys);
+            gs_shadow_caster::build_row_casts(state.hlod_instance_row_keys, world_casts, caster_keys, instance_casters.row_casts);
+        }
         instance_casters.instance_records = state.hlod_instance_draws.size();
         instance_casters.instance_splats = gs_shadow_caster::admitted_instance_splats(state.hlod_instance_region, demands.ptr(),
                 demands.size(), admission, instance_casters.row_casts);
@@ -3182,6 +3375,13 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     instance.asset_index = 0;
     instance.placement = gs_world_frame::PrecisePlacement(); // World == asset frame (the tree origin is double).
     instance.caps = spec.caps;
+    instance.displacement_margin = wind_rows.count() > 0 && row_displaced(wind_rows.instances[0]) ? wind_d_max : 0.0;
+#ifdef TESTS_ENABLED
+    // FORCING control: leaves the runtime scenario's visible-image assertion intact.
+    if (OS::get_singleton()->get_environment("GODOTGS_TEST_DISABLE_WIND_BOUND_INFLATION") == "1") {
+        instance.displacement_margin = 0.0;
+    }
+#endif
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
     const HlodViewOutcome outcome = frame_context_manager.select_hlod_view(identity, input->get_instance_id(), snapshot, spec);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
@@ -3285,7 +3485,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
     }
     state.clear_hlod_level_drawn();
+    world_shadow_versions.resize(selected_count);
     for (uint32_t i = 0; i < selected_count; ++i) {
+        world_shadow_versions[i] = gs_shadow_refresh::hash_value(outcome.records[i].version.content_revision,
+                outcome.records[i].version.bake_rule_revision);
         const uint32_t node = outcome.records[i].node;
         // The ViewSet formed camera_offset in double for snapshot.origin_revision; every world record names the
         // world's row (row 0, identity-placed). BV-04b: the record carries the node's HLOD level (height) so the
@@ -3325,6 +3528,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_visited_nodes = uint32_t(std::min<uint64_t>(outcome.view.visited_nodes, UINT32_MAX));
     state.hlod_budget_bound_frames += outcome.view.budget_bound ? 1u : 0u;
     if (!publish_hlod_bundle(true)) { return false; }
+    if (state.hlod_instance_generation != wind_row_generation) {
+        // A main-thread row edit raced selection. Its new amplitude was not bounded by this cut.
+        return fallback("hlod_wind_rows_changed_during_selection");
+    }
     // Streamed world nodes passed fail-closed page-table publication; instance tails remain contiguous.
     state.hlod_drawn_nodes_paged = state.hlod_streaming ? selected_count : 0u;
     state.hlod_drawn_nodes_contiguous = instance_records + (state.hlod_streaming ? 0u : selected_count);

@@ -85,6 +85,9 @@ struct SnapshotInstance {
 	// World placement (precise): rigid plus uniform scale; anything else is refused. The selection frame
 	// transform is derived from it and the snapshot origin in double.
 	gs_world_frame::PrecisePlacement placement;
+	// W-S: frame-global maximum displacement in WORLD units, applied only to wind-enabled rows. Zero
+	// preserves the original selector input. Uniform instance scale is removed before inflating local bounds.
+	double displacement_margin = 0.0;
 	// This instance's share of every view's caps. Admission requires the sum over instances to fit
 	// the view's caps, so a view never exceeds what was reserved for it. A shared cut across
 	// instances needs the top-level tree (ADR 6.9, slice S2b) and is deferred.
@@ -222,7 +225,8 @@ public:
 	// Runs one selection per admitted view that appears in the snapshot, in ascending view key, and stores
 	// the per-view results (see results()). In steady state (same instance and view sets, same node counts)
 	// it performs no heap allocation: every buffer was sized by admit_view(), and the only growth is the
-	// scratch used to order/validate a larger snapshot.
+	// scratch used to order/validate a larger snapshot. Enabling displacement can require re-admission;
+	// changing a positive displacement bound reuses the slot's reserved selection-only node table.
 	// A view that cannot be complete reports its state and publishes nothing new; drawn() then returns no
 	// records. Other views are unaffected.
 	SnapshotStatus select(const SelectionSnapshot &p_snapshot);
@@ -253,8 +257,9 @@ public:
 	// Report-only diagnostic scratch is counted in allocated_bytes(), outside admission policy.
 	static bool view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uint64_t p_history_bytes,
 			uint64_t p_draw_capacity, uint64_t &r_bytes);
-	// Bytes one instance slot allocates for an asset with `p_nodes` nodes.
-	static uint64_t slot_bytes(uint32_t p_nodes);
+	// Bytes one instance slot allocates for an asset with `p_nodes` nodes. A displaced slot also owns
+	// one selection-only runtime object and node table; no Gaussian payload is copied or materialised.
+	static uint64_t slot_bytes(uint32_t p_nodes, bool p_displaced = false);
 	// Capacity (bytes) of everything this set owns: slots, draw storage, results and scratch.
 	uint64_t allocated_bytes() const;
 	// Number of node-key rank tables computed so far (O(n log n) each); admissions of unchanged content reuse one.
@@ -269,6 +274,13 @@ private:
 		CutHistory history;
 		CutHistory::Result last_cut;
 		Vector<uint32_t> tie_rank; // Rank of each node's NodeKey: array-order independent tie-break.
+		// Slot-owned selection derivative, never published as content or used for payload addressing. Its
+		// nodes are exclusive; edit_state is shared read-only with the immutable source. Freed with the slot.
+		Ref<GaussianSplatHlodRuntimeData> displacement_source;
+		Ref<GaussianSplatHlodRuntimeData> displacement_data;
+		uint64_t displacement_source_revision = 0;
+		uint64_t displacement_edit_revision = 0;
+		double displacement_local_margin = -1.0;
 	};
 	struct View {
 		uint64_t view_key = 0;
@@ -314,6 +326,7 @@ private:
 	void build_order(const SelectionSnapshot &p_snapshot) const;
 	static bool required_storage(const SelectionSnapshot &p_snapshot, uint64_t &r_history_bytes, uint64_t &r_nodes);
 	bool prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) const;
+	static bool prepare_displacement_bounds(InstanceSlot &r_slot, const SnapshotInstance &p_instance, const SnapshotAsset &p_asset);
 };
 
 } // namespace gs_hlod_runtime

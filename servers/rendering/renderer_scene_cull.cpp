@@ -631,6 +631,9 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 					scenario->directional_lights.erase(light->D);
 					light->D = nullptr;
 				}
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+				GaussianSplatRenderer::forget_hlod_shadow_light(light->instance);
+#endif
 				RSG::light_storage->light_instance_free(light->instance);
 			} break;
 			case RS::INSTANCE_PARTICLES_COLLISION: {
@@ -3423,6 +3426,10 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		}
 
 		// Positional Shadows
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+		LocalVector<gs_shadow_refresh::Owner> gs_shadow_owners;
+		GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(scene_cull_result.gaussian_splats, gs_shadow_owners);
+#endif
 		for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++) {
 			Instance *ins = scene_cull_result.lights[i];
 
@@ -3533,14 +3540,31 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				}
 			}
 
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+			const auto gs_shadow_update = GaussianSplatRenderer::prepare_hlod_shadow_light(light->instance, gs_shadow_owners,
+					ins->transform.origin, RSG::light_storage->light_get_param(ins->base, RS::LIGHT_PARAM_RANGE),
+					RSG::light_storage->light_get_type(ins->base) == RS::LIGHT_SPOT ? RSG::light_storage->light_get_param(ins->base, RS::LIGHT_PARAM_SPOT_ANGLE) : -1.0f);
+			if (gs_shadow_update.refresh) {
+				// Advance only the atlas version: leave mesh dirty counts and tight/full caster culling unchanged.
+				light->last_version++;
+			}
+#endif
 			bool redraw = RSG::light_storage->shadow_atlas_update_light(p_shadow_atlas, light->instance, coverage, light->last_version);
 
 			if (redraw && max_shadows_used < MAX_UPDATE_SHADOWS) {
 				//must redraw!
 				RENDER_TIMESTAMP("> Render Light3D " + itos(i));
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+				const uint32_t gs_shadow_passes_before = max_shadows_used;
+#endif
 				if (_light_instance_update_shadow(ins, p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect, p_shadow_atlas, scenario, p_screen_mesh_lod_threshold, p_visible_layers)) {
 					light->make_shadow_dirty();
 				}
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+				if (max_shadows_used > gs_shadow_passes_before) {
+					GaussianSplatRenderer::commit_hlod_shadow_light(light->instance, gs_shadow_update);
+				}
+#endif
 				RENDER_TIMESTAMP("< Render Light3D " + itos(i));
 			} else {
 				if (redraw) {

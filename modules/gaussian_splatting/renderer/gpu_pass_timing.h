@@ -1,6 +1,7 @@
 #ifndef GS_GPU_PASS_TIMING_H
 #define GS_GPU_PASS_TIMING_H
 
+#include "core/os/mutex.h"
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
 #include "core/variant/array.h"
@@ -59,6 +60,11 @@ static constexpr uint32_t ALL_PIPELINE_PASSES_MASK = (1u << PIPELINE_PASS_COUNT)
 // The four passes BV-04b adds.
 static constexpr uint32_t BV04B_PASSES_MASK = (1u << PASS_CULL) | (1u << PASS_PROJECTION) | (1u << PASS_PRESORT) |
 		(1u << PASS_COMPOSITE);
+// Fixed minimum for a drawn HLOD frame (TileRenderer's global count/emit/sort/raster
+// route). Prefix may use the CPU emergency fallback; resolve may use raw-input debug
+// output. Those two still require timestamps whenever dispatched. Mirrored by the probe.
+static constexpr uint32_t HLOD_REQUIRED_PASSES_MASK = (1u << PASS_PROJECTION) | (1u << PASS_PRESORT) |
+		(1u << PASS_OVERLAP_COUNT) | (1u << PASS_BINNING) | (1u << PASS_OVERLAP_SORT) | (1u << PASS_RASTER) | (1u << PASS_COMPOSITE);
 
 inline const char *label_prefix(Pass p_pass) {
 	switch (p_pass) {
@@ -151,6 +157,115 @@ inline void note_external_frame_serial(uint64_t p_serial) {
 	while (seen < p_serial && !_frame_serial_counter().compare_exchange_weak(seen, p_serial, std::memory_order_relaxed)) {
 	}
 	_current_frame_serial().store(p_serial, std::memory_order_relaxed);
+}
+
+enum FrameRoute : uint32_t {
+	ROUTE_UNKNOWN = 0,
+	ROUTE_STANDALONE_CULL = 1,
+	ROUTE_HLOD_FUSED = 2,
+};
+
+inline uint32_t required_pass_mask(FrameRoute p_route) {
+	switch (p_route) {
+		case ROUTE_STANDALONE_CULL:
+			return BV04B_PASSES_MASK;
+		case ROUTE_HLOD_FUSED:
+			return HLOD_REQUIRED_PASSES_MASK;
+		default:
+			return 0;
+	}
+}
+
+struct FrameDispatchRecord {
+	uint64_t serial = 0;
+	FrameRoute route = ROUTE_UNKNOWN;
+	uint32_t dispatched_pass_mask = 0;
+
+	bool is_coherent(uint64_t p_serial, uint32_t p_measured_mask) const {
+		const uint32_t required = required_pass_mask(route);
+		return p_serial != 0 && serial == p_serial && required != 0 &&
+				(dispatched_pass_mask & ~ALL_PIPELINE_PASSES_MASK) == 0 &&
+				(route != ROUTE_HLOD_FUSED || (dispatched_pass_mask & (1u << PASS_CULL)) == 0) &&
+				(dispatched_pass_mask & required) == required && p_measured_mask == dispatched_pass_mask;
+	}
+};
+
+// CPU submission receipts, independent of timestamp capture/validity. Old receipts
+// are evicted rather than guessed. Device instance IDs distinguish device lifetimes.
+class FrameDispatchRecords {
+public:
+	static constexpr uint32_t CAPACITY = 256;
+
+private:
+	struct Entry {
+		uint64_t device_id = 0;
+		FrameDispatchRecord record;
+	};
+	Entry entries[CAPACITY];
+
+public:
+	void begin_frame(uint64_t p_serial, FrameRoute p_route, uint64_t p_device_id = 0) {
+		if (p_serial == 0) {
+			return;
+		}
+		Entry &entry = entries[p_serial % CAPACITY];
+		if (entry.record.serial == p_serial && entry.device_id == p_device_id) {
+			if (entry.record.route != p_route) {
+				entry.record.route = ROUTE_UNKNOWN; // Conflicting declarations fail closed.
+			}
+			return;
+		}
+		entry.device_id = p_device_id;
+		entry.record = FrameDispatchRecord();
+		entry.record.serial = p_serial;
+		entry.record.route = p_route;
+	}
+	void record_dispatch(uint64_t p_serial, Pass p_pass, uint64_t p_device_id = 0) {
+		if (p_serial == 0 || p_pass >= PASS_TOTAL) {
+			return;
+		}
+		Entry &entry = entries[p_serial % CAPACITY];
+		if (entry.record.serial == p_serial && entry.device_id == p_device_id) {
+			entry.record.dispatched_pass_mask |= 1u << p_pass;
+		}
+	}
+	FrameDispatchRecord get(uint64_t p_serial, uint64_t p_device_id = 0) const {
+		const Entry &entry = entries[p_serial % CAPACITY];
+		return p_serial != 0 && entry.record.serial == p_serial && entry.device_id == p_device_id
+				? entry.record : FrameDispatchRecord();
+	}
+};
+
+// One lock protects only this new shared receipt store; no GPU resource is retained.
+struct SubmissionRecords {
+	Mutex mutex;
+	FrameDispatchRecords frames;
+};
+inline SubmissionRecords &submission_records() {
+	static SubmissionRecords records;
+	return records;
+}
+inline void begin_frame_dispatch_record(RenderingDevice *p_device, FrameRoute p_route, uint64_t p_serial = current_frame_serial()) {
+	if (p_device) {
+		SubmissionRecords &records = submission_records();
+		MutexLock lock(records.mutex);
+		records.frames.begin_frame(p_serial, p_route, p_device->get_device_instance_id());
+	}
+}
+inline void record_dispatch(RenderingDevice *p_device, Pass p_pass, uint64_t p_serial = current_frame_serial()) {
+	if (p_device) {
+		SubmissionRecords &records = submission_records();
+		MutexLock lock(records.mutex);
+		records.frames.record_dispatch(p_serial, p_pass, p_device->get_device_instance_id());
+	}
+}
+inline FrameDispatchRecord frame_dispatch_record(RenderingDevice *p_device, uint64_t p_serial) {
+	if (!p_device) {
+		return FrameDispatchRecord();
+	}
+	SubmissionRecords &records = submission_records();
+	MutexLock lock(records.mutex);
+	return records.frames.get(p_serial, p_device->get_device_instance_id());
 }
 
 inline String make_label(Pass p_pass, uint64_t p_serial) {
@@ -336,6 +451,7 @@ struct PassTimingSnapshot {
 	uint64_t coherent_frame_serial = 0;
 	// Bit i set = pass i was measured in coherent_frame_serial.
 	uint32_t coherent_pass_mask = 0;
+	FrameDispatchRecord coherent_dispatch;
 	// Sum of the passes in coherent_pass_mask, all from coherent_frame_serial.
 	float coherent_total_ms = 0.0f;
 	// Resolves since the coherent frame was last refreshed (0 = refreshed by the latest resolve).
@@ -350,6 +466,7 @@ struct PassTimingSnapshot {
 	uint64_t coherent_resolve_usec = 0;
 
 	bool all_bv04b_passes_coherent() const { return (coherent_pass_mask & BV04B_PASSES_MASK) == BV04B_PASSES_MASK; }
+	bool all_route_passes_coherent() const { return coherent_dispatch.is_coherent(coherent_frame_serial, coherent_pass_mask); }
 };
 
 class PassTimingAccumulator {
@@ -371,7 +488,8 @@ public:
 	}
 
 	// Called once per resolve, with or without fresh data, so stale values age out on an empty view.
-	void ingest(const FrameDurations &p_durations, uint64_t p_now_usec = 0) {
+	void ingest(const FrameDurations &p_durations, uint64_t p_now_usec = 0,
+			const FrameDispatchRecord &p_dispatch = FrameDispatchRecord()) {
 		const uint64_t now = ++snapshot.resolve_count;
 		snapshot.last_resolve_usec = p_now_usec;
 		for (uint32_t i = 0; i < PIPELINE_PASS_COUNT; i++) {
@@ -389,12 +507,14 @@ public:
 		if (p_durations.has_data && p_durations.pipeline_mask() != 0u) {
 			snapshot.coherent_frame_serial = p_durations.serial;
 			snapshot.coherent_pass_mask = p_durations.pipeline_mask();
+			snapshot.coherent_dispatch = p_dispatch.serial == p_durations.serial ? p_dispatch : FrameDispatchRecord();
 			snapshot.coherent_total_ms = float(p_durations.pipeline_sum_ms());
 			snapshot.coherent_resolve_usec = p_now_usec;
 			coherent_resolved_at = now;
 		} else if (snapshot.coherent_pass_mask != 0u && now - coherent_resolved_at > STALE_RESOLVES) {
 			snapshot.coherent_frame_serial = 0;
 			snapshot.coherent_pass_mask = 0;
+			snapshot.coherent_dispatch = FrameDispatchRecord();
 			snapshot.coherent_total_ms = 0.0f;
 			snapshot.coherent_resolve_usec = 0;
 		}
@@ -436,6 +556,10 @@ inline void append_to_dictionary(Dictionary &r_metrics, const PassTimingSnapshot
 	timing["coherent_frame_serial"] = static_cast<int64_t>(p_snapshot.coherent_frame_serial);
 	timing["coherent_passes"] = coherent_passes;
 	timing["coherent_pass_mask"] = static_cast<int64_t>(p_snapshot.coherent_pass_mask);
+	timing["coherent_route"] = static_cast<int64_t>(p_snapshot.coherent_dispatch.route);
+	timing["coherent_dispatch_frame_serial"] = static_cast<int64_t>(p_snapshot.coherent_dispatch.serial);
+	timing["coherent_dispatched_pass_mask"] = static_cast<int64_t>(p_snapshot.coherent_dispatch.dispatched_pass_mask);
+	timing["coherent_has_all_route_passes"] = p_snapshot.all_route_passes_coherent();
 	timing["coherent_total_ms"] = p_snapshot.coherent_total_ms;
 	timing["coherent_age_resolves"] = static_cast<int64_t>(p_snapshot.coherent_age_resolves);
 	timing["coherent_has_all_bv04b_passes"] = p_snapshot.all_bv04b_passes_coherent();

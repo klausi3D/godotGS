@@ -226,9 +226,13 @@ void main() {
 #endif
     float instance_intensity = max(instance.params.z, 0.0);
     float instance_wind_mode = instance.params.w;
-    uint stable_seed = atlas_index ^ (visible_chunk.instance_id * 0x9e3779b9u);
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint wind_level = visible_chunk.level == GS_DRAWN_NODE_LEVEL_NONE ? 0u : visible_chunk.level;
+#else
+    uint wind_level = 0u;
+#endif
+    float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
-            stable_seed,
             gaussian.opacity,
             instance_intensity,
             instance_wind_mode,
@@ -240,7 +244,8 @@ void main() {
             params.effector_spheres,
             params.effector_configs,
             params.effector_opacity_configs,
-            frame_anchor);
+            frame_anchor,
+            deformation_fade);
     world_position = deformation.position;
 
     float local_radius = max(max(abs(local_scale.x), abs(local_scale.y)), abs(local_scale.z));
@@ -253,7 +258,10 @@ void main() {
         splat_radius *= uniform_scale;
     }
 
-    if (!gs_sphere_frustum_visible(world_position, splat_radius)) {
+    float deformation_margin = gs_row_deformation_bound(instance_wind_mode, instance_intensity, instance.effect_params,
+            params.wind_dir_strength, params.wind_time_config, params.effector_meta,
+            params.effector_configs, params.effector_opacity_configs);
+    if (!gs_sphere_frustum_visible(world_position, splat_radius + deformation_margin)) {
         return;
     }
 

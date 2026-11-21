@@ -10,6 +10,7 @@
 #include "../core/quality_tier_config.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "../renderer/gs_wind_bounds.h"
 #include "../logger/gs_debug_trace.h"
 #include "../renderer/gpu_debug_utils.h"
 #include "../resources/color_grading_resource.h"
@@ -378,6 +379,10 @@ GaussianSplatNode3D::~GaussianSplatNode3D() {
 }
 
 void GaussianSplatNode3D::_notification_enter_tree() {
+    if (RenderingServer *rs = RS::get_singleton()) {
+        const Callable callback = callable_mp(this, &GaussianSplatNode3D::_update_deformation_visibility_margin);
+        if (!rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->connect(SNAME("frame_pre_draw"), callback); }
+    }
     // When GaussianSplatManager exists, it drives updates via frame_pre_draw.
     // Only enable NOTIFICATION_PROCESS as fallback when manager is unavailable.
     GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
@@ -416,6 +421,10 @@ void GaussianSplatNode3D::_notification_enter_world() {
 }
 
 void GaussianSplatNode3D::_notification_exit_tree() {
+    if (RenderingServer *rs = RS::get_singleton()) {
+        const Callable callback = callable_mp(this, &GaussianSplatNode3D::_update_deformation_visibility_margin);
+        if (rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->disconnect(SNAME("frame_pre_draw"), callback); }
+    }
     _destroy_debug_hud_control();
     visible_in_viewport = false;
     _update_visibility();
@@ -2165,6 +2174,10 @@ void GaussianSplatNode3D::_update_visibility() {
             _update_bounds();
         }
 
+        // Match RenderingServer's outer envelope. Otherwise this node's earlier software cull would mark an
+        // off-screen rest row invisible before the wind-inflated RenderingServer AABB could admit it.
+        const AABB visibility_bounds = world_aabb.grow(deformation_scene_visibility_margin);
+
         // Use the same viewport as rendering for consistent culling.
         // In editor, use _find_editor_scene_viewport() to match update_splats() behavior.
         Viewport *viewport = Engine::get_singleton()->is_editor_hint() ? _find_editor_scene_viewport() : get_viewport();
@@ -2187,8 +2200,8 @@ void GaussianSplatNode3D::_update_visibility() {
                 if (!is_editor && max_render_distance > 0.0f) {
                     const Transform3D camera_to_world_transform = camera->get_camera_transform();
                     const Vector3 camera_position = camera_to_world_transform.origin;
-                    const Vector3 center = world_aabb.get_center();
-                    const float radius = world_aabb.get_longest_axis_size() * 0.5f;
+                    const Vector3 center = visibility_bounds.get_center();
+                    const float radius = visibility_bounds.get_longest_axis_size() * 0.5f;
                     const float distance_to_center = camera_position.distance_to(center);
 
                     if (distance_to_center - radius > max_render_distance) {
@@ -2198,7 +2211,7 @@ void GaussianSplatNode3D::_update_visibility() {
 
                 if (new_visibility && use_frustum_culling && !is_editor) {
                     RendererSceneCull::Frustum frustum(camera->get_frustum());
-                    RendererSceneCull::InstanceBounds bounds(world_aabb);
+                    RendererSceneCull::InstanceBounds bounds(visibility_bounds);
                     if (!bounds.in_frustum(frustum)) {
                         new_visibility = false;
                     }
@@ -2430,6 +2443,7 @@ void GaussianSplatNode3D::_update_render_instance() {
 
     if (!render_instance.is_valid()) {
         render_instance = rs->instance_create();
+        deformation_visibility_margin = -1.0;
         rs->instance_attach_object_instance_id(render_instance, get_instance_id());
     }
 
@@ -2451,6 +2465,28 @@ void GaussianSplatNode3D::_update_render_instance() {
     _ensure_gaussian_base();
     _set_instance_base(gaussian_base);
     _sync_gaussian_storage();
+    _update_deformation_visibility_margin();
+}
+
+void GaussianSplatNode3D::_update_deformation_visibility_margin() {
+    // Independent of the render update mode: manual and currently culled instances still need this frame's envelope.
+    // frame_pre_draw is emitted synchronously on the main thread before RenderingServer queues its scene cull.
+    RenderingServer *rs = RS::get_singleton();
+    if (!rs || !is_inside_tree() || !render_instance.is_valid()) { return; }
+    InstanceDataGPU row = {};
+    row.params[2] = _get_instance_wind_intensity();
+    row.params[3] = float(_get_instance_wind_mode());
+    // Existing instance semantics: scene_effectors_enabled filters scene masks; the project fallback still uses scale.
+    row.effect_params[0] = effect_position_scale;
+    const double scene_margin = GaussianSplatSceneDirector::deformation_visibility_margin_for_renderer(renderer.ptr(), row);
+    // Identity converts the scene scalar with outward rounding, without instance-scale conversion.
+    deformation_scene_visibility_margin = gs_wind::local_visibility_margin(scene_margin, Basis());
+    const real_t local_margin = gs_wind::local_visibility_margin(scene_margin, get_global_transform().basis);
+    if (deformation_visibility_margin != local_margin) {
+        rs->instance_set_extra_visibility_margin(render_instance, local_margin);
+        deformation_visibility_margin = local_margin;
+    }
+    _update_visibility();
 }
 
 void GaussianSplatNode3D::_ensure_gaussian_base() {

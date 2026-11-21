@@ -17,6 +17,7 @@
 #include "gaussian_splat_asset.h"
 #include "gaussian_splat_hlod_runtime_data.h"
 #include "gaussian_splat_world_frame.h"
+#include "gs_project_settings.h"
 #include "streaming_chunk_payload_source.h"
 #include "thread_owned_mutex.h"
 #include "../lod/lod_config.h"
@@ -88,6 +89,11 @@ public:
         // The world's own cast_shadow (GaussianSplatWorld3D). Godot gives the shared renderer a shadow pass when ANY of its
         // Gaussian instances casts, so the HLOD shadow casters read the world's flag here (row 0) instead of assuming it.
         bool casts_shadow = true;
+        // W-S / O4: no baked semantics exist yet, so legacy worlds explicitly opt in. These fields are copied into
+        // the submission record under world_mutex; row 0 never inherits a node instance's wind or effector policy.
+        float wind_intensity = 1.0f;
+        uint32_t wind_mode = INSTANCE_WIND_FORCE_DISABLED;
+        bool scene_effectors_enabled = false;
         // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
         // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted. The
         // node binds its submission generation to it and drops a call that arrives for an older submission.
@@ -278,6 +284,10 @@ public:
     Dictionary get_scene_effector_debug_state_for_instance(ObjectID p_node_id) const;
     uint32_t get_sphere_effector_count_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     uint64_t get_sphere_effector_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const;
+    // Main-thread frame_pre_draw: the shared row-global envelope must reach RenderingServer before its outer AABB cull.
+    // A renderer outside the director uses its caller's own row, preserving standalone opt-in/override semantics.
+    static double deformation_visibility_margin_for_renderer(const GaussianSplatRenderer *p_renderer,
+            const InstanceDataGPU &p_fallback_row);
     void register_instance_submission(ObjectID p_node_id, const Ref<GaussianSplatAsset> &p_asset,
             const Transform3D &p_transform, float p_opacity, float p_lod_bias, uint32_t p_flags,
             bool p_casts_shadow = false, float p_wind_intensity = 1.0f,
@@ -428,6 +438,8 @@ public:
             const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
     void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+    double test_deformation_visibility_margin_for_scenario(const RID &p_scenario,
+            const gs::settings::GSWindSettings &p_wind) const;
     // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
     // max_splats is `p_renderer_max_splats` (the clamp to the data count and the pre-clamp view cap, PR1b).
     static GaussianSplatWorldSubmissionContract test_build_world_contract(const WorldSubmission &p_submission,
@@ -505,6 +517,13 @@ private:
     // `MutexLock` (which binds the underlying std::mutex directly and would
     // bypass the ownership record).
     mutable GaussianSplatting::ThreadOwnedMutex world_mutex;
+    // Cache invalidation sequence, advanced by the main-thread pre-draw signal; protected by world_mutex.
+    uint64_t deformation_pre_draw_epoch = 1;
+    void _on_deformation_frame_pre_draw();
+    // Main thread. Connects the pre-draw invalidation to the CURRENT RenderingServer. The constructor alone is not
+    // enough: the director can be created before a RenderingServer exists, or outlive one and see a new one (test
+    // fixtures create one per [SceneTree] case). Without the connection the margin cache would never invalidate.
+    void _ensure_deformation_pre_draw_connected();
     // #611 PR B2: serializes submit_world_submission's three-phase
     // arbitrate-under-lock -> apply-unlocked -> commit-under-lock sequence.
     //
@@ -629,7 +648,11 @@ private:
     static void _build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
             LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
             LocalVector<uint64_t> &r_instance_keys);
-    static void _fill_world_identity_row(const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry);
+    static void _fill_world_identity_row(const WorldSubmissionRecord &p_record,
+            const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry);
+    static double _deformation_visibility_margin_locked(const SharedWorld *p_world,
+            const InstanceDataGPU &p_fallback_row, const gs::settings::GSWindSettings &p_wind,
+            uint64_t p_pre_draw_epoch);
     static void _fill_instance_row(const InstanceRecord &p_record, const LocalVector<SphereEffectorSelection> &p_payload,
             InstanceDataGPU &r_entry);
 

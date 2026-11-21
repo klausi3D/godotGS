@@ -2,6 +2,10 @@
 
 #include "core/object/object.h"
 #include "core/os/os.h"
+#include "core/os/mutex.h"
+#include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering/renderer_compositor.h"
+#include "servers/rendering_server.h"
 
 #include <atomic>
 
@@ -19,6 +23,19 @@ void RenderFrameContextManager::reset_frame_state() {
 }
 
 double RenderFrameContextManager::sample_render_animation_time_seconds() {
+	// Shadows precede the main view. Both must see the current server-frame sample,
+	// even when the caster's draw list and rows came from the previous main view.
+	static Mutex sample_mutex;
+	MutexLock sample_lock(sample_mutex);
+	static const RendererCompositor *sampled_compositor = nullptr;
+	static uint64_t sampled_frame = UINT64_MAX;
+	static double sampled_seconds = 0.0;
+	// RSG::rasterizer is not nulled when a RenderingServer finishes; the singleton is, so it gates the read.
+	const RendererCompositor *compositor = RenderingServer::get_singleton() ? RSG::rasterizer : nullptr;
+	const uint64_t server_frame = compositor ? compositor->get_frame_number() : 0;
+	if (compositor && compositor == sampled_compositor && server_frame == sampled_frame) {
+		return sampled_seconds;
+	}
 	// Lazy epoch: first call latches "now" as zero, later calls report
 	// elapsed wall-clock seconds. std::atomic gives us thread-safe
 	// initialization without a mutex; callers from the render thread and
@@ -26,17 +43,12 @@ double RenderFrameContextManager::sample_render_animation_time_seconds() {
 	static std::atomic<uint64_t> epoch_usec{0};
 	uint64_t now_usec = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
 	uint64_t expected = 0;
-	if (epoch_usec.compare_exchange_strong(expected, now_usec, std::memory_order_acq_rel)) {
-		return 0.0;
-	}
+	epoch_usec.compare_exchange_strong(expected, now_usec, std::memory_order_acq_rel);
 	const uint64_t epoch = epoch_usec.load(std::memory_order_acquire);
-	if (now_usec < epoch) {
-		// Clock went backwards (can happen under manipulated or virtualized
-		// clocks). Treat as "no time elapsed" rather than negative time so
-		// shader phases don't regress.
-		return 0.0;
-	}
-	return double(now_usec - epoch) * 1e-6;
+	sampled_seconds = now_usec >= epoch ? double(now_usec - epoch) * 1e-6 : 0.0;
+	sampled_compositor = compositor;
+	sampled_frame = server_frame;
+	return sampled_seconds;
 }
 
 void RenderFrameContextManager::reset_view_state_defaults() {

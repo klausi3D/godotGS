@@ -1,4 +1,4 @@
-// gs_shadow_caster.glsl -- depth-only splat shadow caster for directional cascades on the HLOD route (#1095, #1163).
+// gs_shadow_caster.glsl -- depth-only HLOD splat casters: directional, spot and omni cube (#1095, #1163, #1424).
 //
 // One instanced quad per splat slot of the main view's HLOD draw list (DrawnNodeGPU[]): slot = record * max_chunk_splats
 // + splat, the depth pass's 2D dispatch flattened (compute/depth_compute.glsl). Slots past a record's payload emit a
@@ -13,6 +13,7 @@
 
 #include "includes/gs_instance_layout.glsl"
 #include "includes/gs_camera_relative.glsl"
+#include "includes/gs_deformation.glsl"
 
 // Raw relative payload; same layout as PackedGaussian in compute/depth_compute.glsl and Gaussian in tile_binning.glsl.
 struct CasterGaussian {
@@ -51,11 +52,23 @@ layout(set = 0, binding = 5, std430) readonly buffer HlodPageTableBuffer {
     uint pages[];
 } hlod_page_table;
 
+// Host mirror: GsSplatShadowCaster::DeformationUniform (256 bytes, std430).
+// This frame's wind time, with the previous view's rest-frame camera origin.
+layout(set = 0, binding = 6, std430) readonly buffer DeformationBuffer {
+    vec4 wind_dir_strength;
+    vec4 wind_time_config;
+    vec4 effector_meta;
+    vec4 effector_spheres[GS_MAX_SPHERE_EFFECTORS];
+    vec4 effector_configs[GS_MAX_SPHERE_EFFECTORS];
+    vec4 effector_opacity_configs[GS_MAX_SPHERE_EFFECTORS];
+    vec4 frame_anchor;
+} deformation_params;
+
 // Host mirror: ShadowCasterPushConstant in renderer/gs_shadow_caster.cpp (96 bytes).
 layout(push_constant, std430) uniform Params {
-    mat4 light_from_frame;  // Godot directional shadow clip transform of a camera-relative position
+    mat4 light_from_frame;  // Godot shadow clip transform of a camera-relative position
     vec4 viewport;          // xy = atlas rect size in texels, z = alpha threshold, w = low-pass dilation (texels^2)
-    uvec4 counts;           // x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = opacity multiplier (float bits)
+    uvec4 counts;           // x = draw records, y = slot stride, z = ortho (0), pancake (1), perspective (2), w = opacity float bits
 } params;
 
 layout(location = 0) out vec2 v_sigma_uv; // Fragment position in units of sigma along the ellipse's eigen axes.
@@ -78,6 +91,12 @@ vec4 gs_caster_quat_mul(vec4 a, vec4 b) {
     return vec4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
 }
 
+// Quotient rule for one row of clip.xyz / clip.w. Kept scalar/vector-only so the host shader evaluator tests the
+// actual GPU expression against finite differences; directional views never enter this branch.
+vec3 gs_caster_perspective_gradient(vec3 row, vec3 w_row, float ndc, float clip_w) {
+    return (row - ndc * w_row) / clip_w;
+}
+
 mat3 gs_caster_quat_to_matrix(vec4 q) {
     float x = q.x, y = q.y, z = q.z, w = q.w;
     return mat3(
@@ -93,6 +112,15 @@ void gs_caster_reject() {
     v_opacity = 0.0;
     v_depth_dz = 0.0;
     v_depth_center_cap = vec2(0.0);
+}
+
+// World payloads are node-relative, with node centres in the retained draw offsets. Object payloads are asset-local:
+// their translation must come from this frame's row, expressed against the PREVIOUS list's camera (frame_anchor).
+vec3 gs_caster_camera_offset(uint row, vec3 drawn_offset, vec3 translation, vec3 frame_camera) {
+    if (row == 0u) {
+        return drawn_offset;
+    }
+    return translation - frame_camera;
 }
 
 void main() {
@@ -153,14 +181,6 @@ void main() {
     // support radius: a faded node or world casts what it shows.
     InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
     float opacity_multiplier = uintBitsToFloat(params.counts.w);
-    float opacity = clamp(atlas_gaussian_buffer.gaussians[atlas_index].opacity * instance.params.x * opacity_multiplier,
-            0.0, 1.0);
-    float threshold = params.viewport.z;
-    // A splat whose peak alpha is below the threshold occludes nowhere.
-    if (!(opacity >= threshold) || threshold <= 0.0) {
-        gs_caster_reject();
-        return;
-    }
     vec3 local_position = atlas_gaussian_buffer.gaussians[atlas_index].position;
     vec3 local_scale = atlas_gaussian_buffer.gaussians[atlas_index].scale;
     vec4 local_rotation = atlas_gaussian_buffer.gaussians[atlas_index].rotation;
@@ -174,20 +194,39 @@ void main() {
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
     vec3 frame_position = gs_hlod_camera_relative_position(local_position, instance_flags, instance.rotation,
-            uniform_scale, drawn.camera_offset.xyz);
+            uniform_scale, gs_caster_camera_offset(drawn.instance_id, drawn.camera_offset.xyz,
+                    instance.translation_scale.xyz, deformation_params.frame_anchor.xyz));
+    uint wind_level = drawn.level == GS_DRAWN_NODE_LEVEL_NONE ? 0u : drawn.level;
+    float deformation_fade = gs_wind_distance_level_fade(frame_position, wind_level);
+    GSDeformationResult deformation = gs_apply_wind_deformation(frame_position,
+            atlas_gaussian_buffer.gaussians[atlas_index].opacity,
+            max(instance.params.z, 0.0), instance.params.w, instance.wind_params, instance.effect_params,
+            deformation_params.wind_dir_strength, deformation_params.wind_time_config, deformation_params.effector_meta,
+            deformation_params.effector_spheres, deformation_params.effector_configs, deformation_params.effector_opacity_configs,
+            deformation_params.frame_anchor.xyz, deformation_fade);
+    frame_position = deformation.position;
+    float opacity = clamp(deformation.opacity * instance.params.x * opacity_multiplier, 0.0, 1.0);
+    float threshold = params.viewport.z;
+    // A splat whose peak alpha is below the threshold occludes nowhere.
+    if (!(opacity >= threshold) || threshold <= 0.0) {
+        gs_caster_reject();
+        return;
+    }
     vec3 scale = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u ? local_scale : local_scale * uniform_scale;
     vec4 rotation = (instance_flags & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0u
             ? local_rotation
             : gs_caster_quat_mul(instance.rotation, local_rotation);
 
     vec4 clip = params.light_from_frame * vec4(frame_position, 1.0);
-    if (!(abs(clip.w) > 1e-6)) {
+    bool perspective = params.counts.z == 2u;
+    if (!(abs(clip.w) > 1e-6) || (perspective && clip.w <= 1e-6)) {
         gs_caster_reject();
         return;
     }
     vec3 ndc = clip.xyz / clip.w;
 
-    // Orthographic (directional) projection: the screen Jacobian is the constant linear part of light_from_frame.
+    // Directional views keep the original constant Jacobian. Perspective views differentiate clip.xyz / clip.w;
+    // merely dividing the centre while retaining the orthographic footprint gives the wrong size and depth slope.
     mat3 r = gs_caster_quat_to_matrix(rotation * inversesqrt(quat_length_sq));
     mat3 rs = mat3(r[0] * scale.x, r[1] * scale.y, r[2] * scale.z);
     mat3 cov3 = rs * transpose(rs);
@@ -195,6 +234,11 @@ void main() {
     // Rows 0 and 1 of the linear part, in texels per unit.
     vec3 jx = vec3(params.light_from_frame[0][0], params.light_from_frame[1][0], params.light_from_frame[2][0]) * half_size.x;
     vec3 jy = vec3(params.light_from_frame[0][1], params.light_from_frame[1][1], params.light_from_frame[2][1]) * half_size.y;
+    if (perspective) {
+        vec3 jw = vec3(params.light_from_frame[0][3], params.light_from_frame[1][3], params.light_from_frame[2][3]);
+        jx = gs_caster_perspective_gradient(jx, half_size.x * jw, ndc.x, clip.w);
+        jy = gs_caster_perspective_gradient(jy, half_size.y * jw, ndc.y, clip.w);
+    }
     vec3 cjx = cov3 * jx;
     vec3 cjy = cov3 * jy;
     // Mirrors gs_shadow_caster::footprint_eigenvalues (renderer/hlod_shadow_caster_plan.h): the minor eigenvalue is
@@ -231,7 +275,7 @@ void main() {
         return;
     }
     float depth = ndc.z;
-    bool pancaked = params.counts.z != 0u && depth >= 0.9999;
+    bool pancaked = params.counts.z == 1u && depth >= 0.9999;
     if (pancaked) {
         depth = 0.9999; // Pancake: kPancakeDepth in renderer/hlod_shadow_caster_plan.h.
     } else if (depth > 1.0) {
@@ -254,6 +298,10 @@ void main() {
     float plane_cap = 0.0;
     if (!pancaked) {
         vec3 jz = vec3(params.light_from_frame[0][2], params.light_from_frame[1][2], params.light_from_frame[2][2]);
+        if (perspective) {
+            vec3 jw = vec3(params.light_from_frame[0][3], params.light_from_frame[1][3], params.light_from_frame[2][3]);
+            jz = gs_caster_perspective_gradient(jz, jw, ndc.z, clip.w);
+        }
         vec3 cjz = cov3 * jz;
         // g = S'^-1 c through the footprint's own eigenbasis (S' = the dilated covariance the quad already uses, so
         // lambda1 >= the low-pass and g is the conditional mean depth slope of the blurred Gaussian). Mirrors
@@ -294,7 +342,7 @@ void main() {
     // Mirrors gs_shadow_caster::caster_fragment_depth (renderer/hlod_shadow_caster_plan.h). A pancaked caster has
     // cap 0 and its clamped centre depth; a pancake pass keeps every fragment at or in front of kPancakeDepth.
     float depth = v_depth_center_cap.x + clamp(v_depth_dz, -v_depth_center_cap.y, v_depth_center_cap.y);
-    if (params.counts.z != 0u) {
+    if (params.counts.z == 1u) {
         depth = min(depth, 0.9999);
     }
     gl_FragDepth = clamp(depth, 0.0, 1.0);

@@ -12,8 +12,9 @@ and a reason. A metric that could not be computed is MISSING with the reason, ne
 
 Freshness (BV-04b). The pass-timing snapshot is held while nothing resolves, so a
 row's GPU numbers count only when the coherent frame was refreshed for that row:
-``coherent_resolve_usec`` advanced since the previous row, all four BV-04b passes
-are in the coherent mask, and the coherent serial is non-zero. A held sample is
+``coherent_resolve_usec`` advanced since the previous row, the route's required
+and dispatched passes are timed (legacy traces require all four BV-04b passes),
+and the coherent serial is non-zero. A held sample is
 counted as stale, never as a measurement.
 
 Standard library only.
@@ -29,8 +30,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 TRACE_MAGIC = b"GSBV7TR1"
-TRACE_SCHEMA = "godotgs-bv07-probe-trace/2"
-TRACE_SCHEMAS = frozenset(("godotgs-bv07-probe-trace/1", TRACE_SCHEMA))
+TRACE_SCHEMA = "godotgs-bv07-probe-trace/3"
+TRACE_SCHEMAS = frozenset(("godotgs-bv07-probe-trace/1", "godotgs-bv07-probe-trace/2", TRACE_SCHEMA))
 RESULT_SCHEMA = "godotgs-bv07-probe-result/1"
 SUMMARY_SCHEMA = "godotgs-bv07-probe-summary/1"
 
@@ -40,6 +41,13 @@ PASS_NAMES = (
 )
 #: renderer/gpu_pass_timing.h BV04B_PASSES_MASK: cull | projection | presort | composite.
 BV04B_PASSES_MASK = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 9)
+DISPATCH_RECORD_COLUMNS = ("coherent_route", "coherent_dispatch_frame_serial", "coherent_dispatched_pass_mask")
+#: renderer/gpu_pass_timing.h HLOD_REQUIRED_PASSES_MASK: projection | presort |
+#: overlap_count | binning | overlap_sort | raster | composite (0x2ee). Prefix's
+#: CPU fallback and resolve's raw-input debug bypass are legitimate; dispatched
+#: prefix/resolve still need measurements in addition to this fixed minimum.
+HLOD_REQUIRED_PASSES_MASK = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 9)
+ROUTE_REQUIRED_PASSES = {1: BV04B_PASSES_MASK, 2: HLOD_REQUIRED_PASSES_MASK}
 
 STATE_MOVING = 0
 STATE_SETTLING = 1
@@ -50,6 +58,7 @@ STATE_WARMUP = 4
 OK = "OK"
 MISSING = "MISSING"
 INVALID = "INVALID"
+NOT_APPLICABLE = "NOT_APPLICABLE"
 
 #: ADR G15 / G14 frame-interval bounds, used here only to count frames (report-only).
 SLOW_FRAME_MS = 50.0
@@ -161,12 +170,17 @@ def checkpoint_evidence_summary(records: Sequence[dict]) -> Dict[str, object]:
 
 
 class Trace:
-    def __init__(self, fields: List[str], types: str, rows: List[tuple], trailing_bytes: int) -> None:
+    def __init__(self, fields: List[str], types: str, rows: List[tuple], trailing_bytes: int,
+                 schema: Optional[str] = None) -> None:
         self.fields = fields
         self.types = types
         self.rows = rows
         self.trailing_bytes = trailing_bytes
         self.index = {name: i for i, name in enumerate(fields)}
+        self.schema = schema
+
+    def requires_dispatch_record(self) -> bool:
+        return self.schema == TRACE_SCHEMA or any(name in self.index for name in DISPATCH_RECORD_COLUMNS)
 
     def col(self, name: str) -> List:
         i = self.index[name]
@@ -198,7 +212,7 @@ def read_trace(path: Path) -> Trace:
     body = data[12 + hlen:]
     n = len(body) // size
     rows = [struct.unpack_from(fmt, body, i * size) for i in range(n)]
-    trace = Trace(fields, types, rows, len(body) - n * size)
+    trace = Trace(fields, types, rows, len(body) - n * size, schema=header["schema"])
     for i, r in enumerate(rows):
         if trace.get(r, "row") != i:
             raise TraceError(f"{path}: row {i} carries index {trace.get(r, 'row')}")
@@ -381,10 +395,25 @@ def frame_intervals(trace: Trace, rows: Sequence[int]) -> List[float]:
     return out
 
 
+def _gpu_frame_coherent(trace: Trace, row: tuple) -> bool:
+    mask = trace.get(row, "coherent_pass_mask")
+    if not trace.requires_dispatch_record():
+        return (mask & BV04B_PASSES_MASK) == BV04B_PASSES_MASK
+    if not all(name in trace.index for name in DISPATCH_RECORD_COLUMNS):
+        return False
+    route, serial, dispatched = (trace.get(row, name) for name in DISPATCH_RECORD_COLUMNS)
+    if not all(isinstance(value, int) for value in (route, serial, dispatched, mask)):
+        return False
+    required = ROUTE_REQUIRED_PASSES.get(route)
+    return (required is not None and serial > 0 and serial == trace.get(row, "coherent_frame_serial")
+            and dispatched > 0 and dispatched & ~((1 << len(PASS_NAMES)) - 1) == 0
+            and (route != 2 or dispatched & 1 == 0)
+            and dispatched & required == required and mask == dispatched)
+
+
 def fresh_gpu_rows(trace: Trace, rows: Sequence[int]) -> Tuple[List[int], Dict[str, int]]:
     """Rows whose coherent GPU breakdown was refreshed for that row (BV-04b freshness)."""
     res = trace.col("coherent_resolve_usec")
-    mask = trace.col("coherent_pass_mask")
     serial = trace.col("coherent_frame_serial")
     fresh: List[int] = []
     counts = {"rows": 0, "fresh": 0, "held": 0, "incomplete_mask": 0, "no_serial": 0}
@@ -393,7 +422,7 @@ def fresh_gpu_rows(trace: Trace, rows: Sequence[int]) -> Tuple[List[int], Dict[s
         if serial[i] == 0:
             counts["no_serial"] += 1
             continue
-        if (mask[i] & BV04B_PASSES_MASK) != BV04B_PASSES_MASK:
+        if not _gpu_frame_coherent(trace, trace.rows[i]):
             counts["incomplete_mask"] += 1
             continue
         if i == 0 or res[i] <= res[i - 1] or serial[i] == serial[i - 1]:
@@ -408,7 +437,8 @@ def gpu_breakdown(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     fresh, counts = fresh_gpu_rows(trace, rows)
     out: Dict[str, object] = {"freshness": counts}
     if not fresh:
-        out["coherent_total_ms"] = missing("no row with a fresh coherent GPU breakdown carrying all BV-04b passes", "ms")
+        requirement = "all required and dispatched route passes" if trace.requires_dispatch_record() else "all BV-04b passes"
+        out["coherent_total_ms"] = missing(f"no row with a fresh coherent GPU breakdown carrying {requirement}", "ms")
         out["passes"] = {p: missing("no fresh coherent frame", "ms") for p in PASS_NAMES}
         return out
     tot = [trace.get(trace.rows[i], "coherent_total_ms") for i in fresh]
@@ -420,6 +450,10 @@ def gpu_breakdown(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     }
     passes = {}
     for bit, name in enumerate(PASS_NAMES):
+        if name == "cull" and trace.requires_dispatch_record() and all(trace.get(trace.rows[i], "coherent_route") == 2 for i in fresh):
+            passes[name] = {"status": NOT_APPLICABLE, "value": None, "unit": "ms",
+                            "reason": "no standalone GPU cull on HLOD; fine rejection is included in projection"}
+            continue
         vals = [
             trace.get(trace.rows[i], f"{name}_ms")
             for i in fresh

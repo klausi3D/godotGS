@@ -82,7 +82,9 @@ static bool _pack_effector_slot(const GaussianSplatting::SphereEffectorRenderDat
 	return true;
 }
 
-static void _build_effector_payload(const TileRenderer::RenderParams &p_params, float (&r_meta)[4],
+} // namespace
+
+void GaussianSplatting::pack_deformation_effectors(const TileRenderParams &p_params, float (&r_meta)[4],
 		float (&r_spheres)[GS_MAX_SPHERE_EFFECTORS][4], float (&r_configs)[GS_MAX_SPHERE_EFFECTORS][4],
 		float (&r_opacity_configs)[GS_MAX_SPHERE_EFFECTORS][4]) {
 	for (uint32_t i = 0; i < GS_MAX_SPHERE_EFFECTORS; i++) {
@@ -147,8 +149,6 @@ static void _build_effector_payload(const TileRenderer::RenderParams &p_params, 
 	r_meta[3] = has_explicit_scene_bindings ? 1.0f : 0.0f;
 	(void)active_count;
 }
-
-} // namespace
 
 Vector2i TileRenderer::TileRenderParamsBuilder::_resolve_param_view(const RenderParams &p_params,
 		RenderingDevice *p_resource_device, const RID &p_viewport_texture) const {
@@ -466,7 +466,7 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.wind_time_config[1] = MAX(0.0f, p_params.wind_frequency);
 	params.wind_time_config[2] = p_params.wind_spatial_frequency;
 	params.wind_time_config[3] = p_params.wind_enabled ? 1.0f : 0.0f;
-	_build_effector_payload(p_params, params.effector_meta, params.effector_spheres, params.effector_configs,
+	pack_deformation_effectors(p_params, params.effector_meta, params.effector_spheres, params.effector_configs,
 			params.effector_opacity_configs);
 	params.hotspot_cull_config[0] = float(p_params.hotspot_pressure_threshold);
 	params.hotspot_cull_config[1] = MAX(0.0f, p_params.hotspot_min_radius_px);

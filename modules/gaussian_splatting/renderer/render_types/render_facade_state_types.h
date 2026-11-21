@@ -13,6 +13,7 @@
 #include "../hlod_cut_telemetry.h"
 #include "../hlod_world_instances.h"
 #include "../hlod_shadow_caster_plan.h"
+#include "../hlod_shadow_refresh.h"
 #include "../../lod/hlod_auto_route.h"
 #include "core/os/mutex.h"
 #include "core/math/color.h"
@@ -67,6 +68,8 @@ struct HlodBundle {
     uint64_t generation = 0;
     bool quantized = false;
     Vector<DrawnNodeGPU> draw_entries;
+    // CPU-only per-chunk geometry/content retained with this bundle and released by hlod_free_bundle.
+    LocalVector<gs_shadow_refresh::Geometry> shadow_instance_geometry;
 };
 
 struct ResourceState {
@@ -205,14 +208,24 @@ struct ResourceState {
     // invalidated at the start of every main-view preparation and on release; the shadow passes of the next frame draw
     // it. hlod_draw_list_uploads counts writes of the relative bundle's draw list (the record keys on it). Render thread only.
     gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
+    gs_shadow_refresh::PublishedContent hlod_shadow_content; // Render thread; one bounded CPU snapshot, no GPU ownership.
+    gs_shadow_refresh::ContentIndex hlod_shadow_index; // Rebuilt once per owner/view before all light queries.
     uint64_t hlod_draw_list_uploads = 0;
     gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
+    // Render-thread diagnostics: successful pre-shadow row sync in the RS frame, independently of main-view count.
+    uint64_t hlod_shadow_rows_server_frame = UINT64_MAX;
+    uint64_t hlod_shadow_rows_bundle_builds = 0;
+    uint64_t hlod_shadow_rows_contract_refused_frame = UINT64_MAX; // Terminal colour refusal, including nested publishers.
+    uint64_t hlod_shadow_rows_generation = 0;
+    gs_shadow_caster::Refusal hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::ROWS_NOT_CURRENT;
+    uint32_t hlod_shadow_rows_entered_this_frame_not_cast = 0; // Newly admitted rows absent from the retained list.
     // All shadow routes and early exits, recorded on the render thread like hlod_shadow_caster_stats above.
     gs_shadow_caster::LightFrameStats shadow_light_stats;
     // Published after every shadow pass. Both publication and main-thread diagnostic copies hold this mutex;
     // the recorder above remains render-thread-only. No GPU work or Dictionary construction under this lock.
     Mutex shadow_light_snapshot_mutex;
     gs_shadow_caster::LightFrameStats::Snapshot shadow_light_snapshot;
+    gs_shadow_caster::RowSyncSnapshot hlod_shadow_rows_snapshot; // Same mutex as shadow_light_snapshot, including entry count.
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
     Mutex hlod_instance_refusal_mutex;

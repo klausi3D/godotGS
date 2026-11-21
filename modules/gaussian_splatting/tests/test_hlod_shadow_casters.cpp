@@ -1,6 +1,8 @@
 extern "C" int test_hlod_shadow_casters_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../renderer/hlod_shadow_caster_plan.h"
+#include "../renderer/hlod_shadow_refresh.h"
+#include "../renderer/gs_wind_bounds.h"
 #include "../renderer/hlod_world_instances.h"
 #include "servers/rendering_server.h"
 
@@ -8,7 +10,7 @@ extern "C" int test_hlod_shadow_casters_cpp_force_link() { return 0; }
 
 // Splat shadow casters on the HLOD route (#1095, #1163; renderer/hlod_shadow_caster_plan.h). CPU only: the caster list a
 // light pass draws (the last active main view's draw list), its refusals, the caster budget (exactly the view's admitted
-// set), the per-frame accounting, and the clip transform (Godot's directional shadow convention, camera-relative input).
+// set), the per-frame accounting, and Godot's directional/spot/cube shadow conventions with camera-relative input.
 namespace TestHlodShadowCasters {
 using namespace gs_shadow_caster;
 
@@ -23,6 +25,112 @@ static FrameRecord active_record() {
 	r.instance_splats = 3000;
 	r.camera = Vector3(1.0f, 2.0f, 3.0f);
 	return r;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] current rows keep previous list identity and refuse count key or asset changes") {
+	// P3: compile-error RED before current_rows_refusal/FrameRecord identity fields exist.
+	gs_hlod_bundle::Rows rows;
+	rows.instances.resize(3);
+	rows.grading.resize(3);
+	rows.asset_ids.push_back(0);
+	rows.asset_ids.push_back(41);
+	rows.asset_ids.push_back(42);
+	LocalVector<uint64_t> keys;
+	keys.push_back(0);
+	keys.push_back(101);
+	keys.push_back(102);
+	FrameRecord record = active_record();
+	record.row_keys = keys;
+	record.row_asset_ids = rows.asset_ids;
+	record.row_casts.resize(3);
+	LightPassInfo light;
+	light.kind = LightKind::DIRECTIONAL;
+	light.orthographic = true;
+	CHECK(current_rows_refusal(record, rows, keys) == Refusal::NONE);
+	CHECK(plan_pass(record, light, true, current_rows_refusal(record, rows, keys)).draws());
+	// A moving/graded/windy row retains its identity: current payload changes are the legal route.
+	rows.instances[1].translation_scale[0] = 17.0f;
+	rows.instances[1].rotation[3] = 1.0f;
+	rows.instances[1].params[2] = 0.7f;
+	CHECK(current_rows_refusal(record, rows, keys) == Refusal::NONE);
+	for (uint32_t mutation = 0; mutation < 7; ++mutation) {
+		gs_hlod_bundle::Rows changed = rows;
+		LocalVector<uint64_t> changed_keys = keys;
+		FrameRecord previous = record;
+		switch (mutation) {
+			case 0: changed.instances.resize(2); break;
+			case 1: changed.grading.resize(2); break;
+			case 2: changed.asset_ids.resize(2); break;
+			case 3: changed_keys.resize(2); break;
+			case 4: changed_keys[1] = 999; break; // Equal-size replacement must not alias the old list.
+			case 5: changed.asset_ids[2] = 99; break;
+			case 6: previous.row_casts.resize(2); break;
+		}
+		const Refusal refusal = current_rows_refusal(previous, changed, changed_keys);
+		CHECK(refusal == Refusal::ROWS_MISMATCH);
+		CHECK(String(refusal_reason(refusal)) == "shadow_caster_rows_mismatch");
+		const PassPlan plan = plan_pass(previous, light, true, refusal);
+		CHECK(plan.refusal == Refusal::ROWS_MISMATCH);
+		CHECK(!plan.draws());
+		CHECK(plan.casters == 0);
+		CHECK(plan.instance_slots == 0);
+	}
+	CHECK(plan_pass(record, light, false, Refusal::NONE).refusal == Refusal::BUNDLE_CHANGED);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] row snapshot latches only for its exact server frame and bundle") {
+	// Compile-error RED before the P3 once-per-RS-frame helper exists. A late director
+	// edit keeps this frame's rows; the next frame or a replacement bundle must refresh.
+	CHECK(rows_frame_latched(41, 7, 41, 7));
+	CHECK_FALSE(rows_frame_latched(42, 7, 41, 7));
+	CHECK_FALSE(rows_frame_latched(41, 8, 41, 7));
+	CHECK_FALSE(rows_frame_latched(42, 8, 41, 7));
+	CHECK_FALSE(rows_frame_latched(41, 7, 0, 0));
+	CHECK(rows_frame_latched(42, 8, 42, 8));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] releasing a latched or refused contract retains terminal refusal for that frame") {
+	// Compile-error RED before retained_refusal_frame exists. Its booleans are the
+	// current-frame predicates, so an unrelated release cannot revive an older refusal.
+	CHECK(retained_refusal_frame(true, false, 41, UINT64_MAX) == 41u);
+	CHECK(retained_refusal_frame(false, true, 41, 41) == 41u);
+	CHECK(retained_refusal_frame(false, true, UINT64_MAX, 41) == 41u); // Repeated teardown after sync fields were reset.
+	CHECK(retained_refusal_frame(false, false, UINT64_MAX, 41) == UINT64_MAX); // Next frame: neither predicate matches.
+	CHECK(retained_refusal_frame(false, false, 40, 39) == UINT64_MAX); // Unrelated release clears stale history.
+	CHECK(retained_refusal_frame(true, true, 42, 41) == 42u); // The newer successful latch owns the refusal frame.
+	CHECK(retained_refusal_frame(true, false, 43, 41) == 43u);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] newly admitted rows are counted by stable key independently of world and record count") {
+	// P3 compile-error RED before row_in_list/entered_rows exist. Rows are unique director keys;
+	// many DrawnNodeGPU records for one object collapse to its single row_in_list bit.
+	FrameRecord previous;
+	previous.valid = true;
+	previous.row_keys.push_back(0);
+	previous.row_keys.push_back(101);
+	previous.row_keys.push_back(102);
+	previous.row_keys.push_back(103);
+	previous.row_in_list.push_back(1);
+	previous.row_in_list.push_back(1);
+	previous.row_in_list.push_back(0);
+	previous.row_in_list.push_back(0);
+	FrameRecord current = previous;
+	current.row_keys[1] = 102;
+	current.row_keys[2] = 101; // Reordering an existing object does not make it newly entered.
+	current.row_in_list[2] = 1;
+	current.instance_records = 19; // Number of node records cannot multiply the per-object counter.
+	CHECK(entered_rows(previous, current) == 1u);
+	CHECK(entered_rows(current, current) == 0u);
+	previous.row_in_list[0] = 0; // World entering the list is never counted as an entering object.
+	CHECK(entered_rows(previous, current) == 1u);
+	current.row_keys[3] = 999; // Visible but refused/unadmitted rows do not enter the previous-list caster set.
+	CHECK(entered_rows(previous, current) == 1u);
+	current.row_in_list[3] = 1;
+	CHECK(entered_rows(previous, current) == 2u);
+	const FrameRecord no_previous;
+	CHECK(entered_rows(no_previous, current) == 3u);
+	current.row_in_list[1] = current.row_in_list[2] = current.row_in_list[3] = 0;
+	CHECK(entered_rows(previous, current) == 0u);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a directional pass casts exactly the main view's draw list") {
@@ -474,6 +582,104 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] explicit positional types re
 	CHECK(plan_pass(record, pass.supports_hlod_casters(), true).refusal == Refusal::NOT_DIRECTIONAL);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] perspective spot and all six omni cube passes cast the admitted list") {
+	const FrameRecord record = active_record();
+	for (LightKind kind : { LightKind::SPOT, LightKind::OMNI_CUBE }) {
+		LightPassInfo pass;
+		pass.kind = kind;
+		pass.light_type = kind == LightKind::SPOT ? RS::LIGHT_SPOT : RS::LIGHT_OMNI;
+		pass.omni_shadow_mode = kind == LightKind::OMNI_CUBE ? RS::LIGHT_OMNI_SHADOW_CUBE : -1;
+		pass.orthographic = false;
+		const int pass_count = kind == LightKind::OMNI_CUBE ? 6 : 1;
+		for (int index = 0; index < pass_count; ++index) {
+			pass.pass_index = index;
+			CHECK_MESSAGE(pass.supports_hlod_casters(), light_kind_name(kind), " pass ", index);
+			// Deliberately use the existing bool API: before the fix this compiles and fails with NOT_DIRECTIONAL.
+			const PassPlan plan = plan_pass(record, pass.supports_hlod_casters(), true);
+			CHECK(plan.draws());
+			CHECK(plan.refusal == Refusal::NONE);
+			CHECK(plan.casters == record.casters());
+			CHECK(plan.instance_slots == record.draw_count * record.max_chunk_splats);
+		}
+		FrameRecord quantized = record;
+		quantized.quantized = true;
+		CHECK(plan_pass(quantized, pass.supports_hlod_casters(), true).refusal == Refusal::QUANTIZED_PAYLOAD);
+		FrameRecord empty = record;
+		empty.draw_count = 0;
+		CHECK(plan_pass(empty, pass.supports_hlod_casters(), true).refusal == Refusal::EMPTY_DRAW_LIST);
+		CHECK(plan_pass(FrameRecord(), pass.supports_hlod_casters(), true).refusal == Refusal::NO_ACTIVE_HLOD_VIEW);
+		CHECK(plan_pass(record, pass.supports_hlod_casters(), false).refusal == Refusal::BUNDLE_CHANGED);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] omni paraboloid passes name their unsupported projection") {
+	LightPassInfo pass;
+	pass.kind = LightKind::OMNI_PARABOLOID;
+	pass.light_type = RS::LIGHT_OMNI;
+	pass.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID;
+	pass.orthographic = true; // Godot supplies an identity projection for both hemispheres.
+	for (int hemisphere = 0; hemisphere < 2; ++hemisphere) {
+		pass.pass_index = hemisphere;
+		const PassPlan plan = plan_pass(active_record(), pass, true);
+		CHECK_FALSE(plan.draws());
+		CHECK(plan.refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+		CHECK(String(refusal_reason(plan.refusal)) == "shadow_caster_omni_paraboloid_unsupported");
+		CHECK(plan.casters == 0);
+		CHECK(plan.instance_slots == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-light named refusal survives other lights and snapshot but resets next frame") {
+	LightFrameStats stats;
+	LightPassInfo paraboloid;
+	paraboloid.kind = LightKind::OMNI_PARABOLOID;
+	paraboloid.light_type = RS::LIGHT_OMNI;
+	paraboloid.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID;
+	paraboloid.orthographic = true;
+	paraboloid.pass_index = 0;
+	stats.record(1041, 41, 11, false, 0, paraboloid, Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	LightPassInfo spot;
+	spot.kind = LightKind::SPOT;
+	spot.light_type = RS::LIGHT_SPOT;
+	spot.pass_index = 0;
+	stats.record(1041, 41, 22, true, 123, spot);
+	paraboloid.pass_index = 1;
+	stats.record(1041, 41, 11, false, 0, paraboloid, Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	const LightFrameStats::Snapshot refused = stats.snapshot();
+	if (refused.lights.size() != 2) {
+		FAIL("expected the refused omni and casting spot in the snapshot, got ", refused.lights.size());
+		return;
+	}
+	CHECK(refused.lights[0].id == 11);
+	CHECK(refused.lights[0].last_refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	CHECK(String(refusal_reason(refused.lights[0].last_refusal)) == "shadow_caster_omni_paraboloid_unsupported");
+	CHECK(refused.lights[0].passes == 2);
+	CHECK(refused.lights[0].no_caster_passes == 2);
+	CHECK(refused.lights[0].casters == 0);
+	CHECK(refused.no_caster_count == 1); // Naming the refusal does not turn a no-caster observation into a cast.
+	CHECK(refused.lights[1].casters == 123);
+	CHECK(refused.lights[1].last_refusal == Refusal::NONE);
+	// No new refusal on an unrelated light can clear the omni's named diagnostic in this RS frame.
+	stats.record(1041, 42, 22, true, 456, spot);
+	CHECK(stats.lights[0].last_refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED);
+	CHECK(stats.no_caster_lights() == 1);
+	// The same RID with a supported projection next frame must not retain the old mode's refusal.
+	LightPassInfo cube = paraboloid;
+	cube.kind = LightKind::OMNI_CUBE;
+	cube.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_CUBE;
+	cube.orthographic = false;
+	stats.record(1042, 42, 11, true, 789, cube);
+	if (stats.lights.size() != 1) {
+		FAIL("new frame must contain only the current light, got ", stats.lights.size());
+		return;
+	}
+	CHECK(stats.lights[0].last_refusal == Refusal::NONE);
+	CHECK(stats.lights[0].casters == 789);
+	CHECK(stats.no_caster_lights() == 0);
+	CHECK(refused.lights[0].last_refusal == Refusal::OMNI_PARABOLOID_UNSUPPORTED); // Snapshot owns the diagnostic too.
+	CHECK(refused.no_caster_count == 1);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] snapshot owns its values across later records and frame resets") {
 	LightFrameStats stats;
 	LightPassInfo pass;
@@ -591,6 +797,163 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster writes every casc
 			CHECK(std::fabs(a.x - b.x) <= tolerance);
 			CHECK(std::fabs(a.y - b.y) <= tolerance);
 			CHECK(std::fabs(a.z - b.z) <= tolerance);
+		}
+	}
+}
+
+// Receiver references stay in this test file and do not call the caster's transform helpers. Spot receivers use
+// light_storage.cpp's bias * correction(false, true, false) * projection * inverse-light, with the atlas rect
+// applied after perspective division by scene_forward_lights_inc.glsl. Projection::xform(Vector3) divides by w.
+static Vector3 spot_receiver_sample(const Projection &p_projection, const Transform3D &p_light,
+		const Rect2 &p_rect, const Vector3 &p_world) {
+	Projection receiver_correction;
+	receiver_correction.set_depth_correction(false, true, false);
+	Projection receiver_bias;
+	receiver_bias.set_light_bias();
+	const Projection receiver_matrix = receiver_bias * receiver_correction * p_projection * Projection(p_light.affine_inverse());
+	const Vector3 sample = receiver_matrix.xform(p_world);
+	return Vector3(p_rect.position.x + sample.x * p_rect.size.x,
+			p_rect.position.y + sample.y * p_rect.size.y, sample.z);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] spot perspective casters match Godot receiver uv and reverse depth") {
+	const float near_plane = 0.025f;
+	const float range = 32.0f;
+	Projection perspective;
+	perspective.set_perspective(80.0f, 1.0f, near_plane, range); // Godot's twice-spot-angle projection.
+	Transform3D light;
+	light.basis = Basis::from_euler(Vector3(-0.55f, 0.32f, 0.11f));
+	light.origin = Vector3(3.0f, 12.0f, -4.0f);
+	const Rect2 rect(0.5f, 0.25f, 0.25f, 0.25f);
+	const Vector3 local_points[] = { Vector3(1.5f, 2.0f, -6.0f), Vector3(-3.0f, -1.5f, -12.0f), Vector3(2.0f, -4.0f, -20.0f) };
+	const Vector3 cameras[] = { Vector3(), Vector3(128.0f, -32.0f, 80.0f) };
+	const float uv_tolerance = 0.5f / 4096.0f; // Half an atlas texel, not an arbitrary world-space epsilon.
+	const float depth_tolerance = 1.0f / 65536.0f;
+	Projection orthographic;
+	orthographic.set_orthogonal(-8.0f, 8.0f, -8.0f, 8.0f, near_plane, range);
+	const Projection wrong_ortho = godot_shadow_clip(orthographic, light, true);
+	const Projection wrong_flip = godot_shadow_clip(perspective, light, false);
+	const Projection wrong_depth = perspective * Projection(light.affine_inverse()); // Raw OpenGL forward [-1,1] depth.
+	for (const Vector3 &local : local_points) {
+		const Vector3 world = light.xform(local);
+		const Vector3 receiver = spot_receiver_sample(perspective, light, rect, world);
+		for (const Vector3 &camera : cameras) {
+			const Projection clip = frame_relative_shadow_clip(perspective, light, true, camera);
+			const Vector3 caster = caster_atlas_sample(clip, rect, world - camera);
+			CHECK(std::fabs(caster.x - receiver.x) <= uv_tolerance);
+			CHECK(std::fabs(caster.y - receiver.y) <= uv_tolerance);
+			CHECK(std::fabs(caster.z - receiver.z) <= depth_tolerance);
+		}
+		// Each forcing case must miss this independent receiver reference for every off-axis point.
+		const Vector3 ortho_sample = caster_atlas_sample(wrong_ortho, rect, world);
+		const bool ortho_misses_uv = std::fabs(ortho_sample.x - receiver.x) > uv_tolerance || std::fabs(ortho_sample.y - receiver.y) > uv_tolerance;
+		CHECK(ortho_misses_uv);
+		CHECK(std::fabs(ortho_sample.z - receiver.z) > depth_tolerance);
+		CHECK(std::fabs(caster_atlas_sample(wrong_flip, rect, world).y - receiver.y) > uv_tolerance);
+		CHECK(std::fabs(caster_atlas_sample(wrong_depth, rect, world).z - receiver.z) > depth_tolerance);
+	}
+	const Projection clip = godot_shadow_clip(perspective, light, true);
+	CHECK(clip.xform(light.xform(Vector3(0, 0, -near_plane))).z == doctest::Approx(1.0f).epsilon(1e-3));
+	CHECK(std::fabs(clip.xform(light.xform(Vector3(0, 0, -range))).z) <= depth_tolerance);
+}
+
+// The unchanged omni receiver first transforms world to BASE light space, then uses radial reverse depth and
+// stereographic xy/(1+abs(z)), with one atlas texel inset (scene_forward_lights_inc.glsl). Positive Z selects the
+// second atlas cell; neither hemisphere flips X. Bias and PCF are zero here so the sampled point is unambiguous.
+static Vector3 omni_receiver_sample(const Transform3D &p_base_light, const Rect2 &p_first_cell,
+		const Vector2 &p_second_cell_offset, float p_atlas_size, float p_range, const Vector3 &p_world) {
+	const Vector3 q = p_base_light.affine_inverse().xform(p_world);
+	const float distance = q.length();
+	const Vector3 direction = q / distance;
+	const Vector2 chart(direction.x / (1.0f + std::fabs(direction.z)), direction.y / (1.0f + std::fabs(direction.z)));
+	Rect2 cell = p_first_cell;
+	if (direction.z >= 0.0f) {
+		cell.position += p_second_cell_offset;
+	}
+	const float texel = 1.0f / p_atlas_size;
+	return Vector3(cell.position.x + texel + (chart.x * 0.5f + 0.5f) * (cell.size.x - 2.0f * texel),
+			cell.position.y + texel + (chart.y * 0.5f + 0.5f) * (cell.size.y - 2.0f * texel), 1.0f - distance / p_range);
+}
+
+// Follow a splat's cube-face write through Godot's existing cube_to_dp.glsl copy. Recover the face ray from its
+// written UV (undo correction(true)'s Y flip), rotate to base-light space, reconstruct perspective axis distance,
+// then apply the copy shader's 1/max(abs(direction)) radial-depth correction and its inverse one-texel UV expansion.
+// This consumes the caster's output, never the receiver's world point or receiver shadow matrix.
+static Vector3 cube_caster_sample_after_copy(const Projection &p_clip, const Vector3 &p_relative_point,
+		const Transform3D &p_base_light, const Transform3D &p_face_light, const Rect2 &p_first_cell,
+		const Vector2 &p_second_cell_offset, float p_atlas_size, float p_near, float p_range) {
+	const Vector3 face_sample = caster_atlas_sample(p_clip, Rect2(0, 0, 1, 1), p_relative_point);
+	const Vector3 face_ray(2.0f * face_sample.x - 1.0f, 1.0f - 2.0f * face_sample.y, -1.0f);
+	const Vector3 direction = p_base_light.basis.inverse().xform(p_face_light.basis.xform(face_ray)).normalized();
+	const float major = std::fmax(std::fabs(direction.x), std::fmax(std::fabs(direction.y), std::fabs(direction.z)));
+	const double forward_depth = 2.0 * face_sample.z - 1.0;
+	const double near_plane = p_near;
+	const double far_plane = p_range;
+	const double axis_distance = 2.0 * near_plane * far_plane / (far_plane + near_plane + forward_depth * (far_plane - near_plane));
+	const float radial_depth = 1.0f - float(axis_distance / major) / p_range;
+	const Vector2 chart(direction.x / (1.0f + std::fabs(direction.z)), direction.y / (1.0f + std::fabs(direction.z)));
+	Rect2 cell = p_first_cell;
+	if (direction.z >= 0.0f) {
+		cell.position += p_second_cell_offset;
+	}
+	const float texel_x = 1.0f / (cell.size.x * p_atlas_size);
+	const float texel_y = 1.0f / (cell.size.y * p_atlas_size);
+	const Vector2 copy_uv(((chart.x * 0.5f + 0.5f) + texel_x) / (1.0f + 2.0f * texel_x),
+			((chart.y * 0.5f + 0.5f) + texel_y) / (1.0f + 2.0f * texel_y));
+	return Vector3(cell.position.x + copy_uv.x * cell.size.x, cell.position.y + copy_uv.y * cell.size.y, radial_depth);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] every omni cube face reaches Godot receiver atlas uv and radial depth") {
+	const float near_plane = 0.025f;
+	const float range = 32.0f;
+	const float atlas_size = 4096.0f;
+	const float uv_tolerance = 0.5f / atlas_size;
+	// Decoding the float32 perspective depth magnifies its rounding near the far plane; four 16-bit depth units
+	// still distinguish the wrong orthographic/forward-depth conventions by several orders of magnitude.
+	const float depth_tolerance = 4.0f / 65536.0f;
+	Projection perspective;
+	perspective.set_perspective(90.0f, 1.0f, near_plane, range);
+	Projection orthographic;
+	orthographic.set_orthogonal(-8.0f, 8.0f, -8.0f, 8.0f, near_plane, range);
+	Transform3D base_light;
+	base_light.basis = Basis::from_euler(Vector3(-0.45f, 0.23f, 0.17f));
+	base_light.origin = Vector3(3.0f, 12.0f, -4.0f);
+	// Exactly renderer_scene_cull.cpp's face order and bases, independently of the caster implementation.
+	const Vector3 normals[] = { Vector3(+1, 0, 0), Vector3(-1, 0, 0), Vector3(0, -1, 0), Vector3(0, +1, 0), Vector3(0, 0, +1), Vector3(0, 0, -1) };
+	const Vector3 ups[] = { Vector3(0, -1, 0), Vector3(0, -1, 0), Vector3(0, 0, -1), Vector3(0, 0, +1), Vector3(0, -1, 0), Vector3(0, -1, 0) };
+	// Horizontal and vertical atlas allocations both occur; neither may assume a hard-coded second-cell axis.
+	const Rect2 first_cell(0.25f, 0.25f, 0.25f, 0.25f);
+	const Vector2 second_offsets[] = { Vector2(0.25f, 0.0f), Vector2(0.0f, 0.25f) };
+	const Vector3 cameras[] = { Vector3(), Vector3(128.0f, -32.0f, 80.0f) };
+	for (int face = 0; face < 6; ++face) {
+		const Transform3D face_light = base_light * Transform3D().looking_at(normals[face], ups[face]);
+		const Transform3D wrong_face = base_light * Transform3D().looking_at(normals[(face + 1) % 6], ups[(face + 1) % 6]);
+		// Nonaxial rays exercise the perspective divide, both UV axes, and the cube-to-radial depth correction.
+		for (float distance : { 6.0f, 12.0f, 20.0f }) {
+			const Vector3 world = face_light.xform(Vector3(0.25f * distance, -0.35f * distance, -distance));
+			for (const Vector2 &offset : second_offsets) {
+				const Vector3 receiver = omni_receiver_sample(base_light, first_cell, offset, atlas_size, range, world);
+				for (const Vector3 &camera : cameras) {
+					const Projection clip = frame_relative_shadow_clip(perspective, face_light, false, camera);
+					const Vector3 caster = cube_caster_sample_after_copy(clip, world - camera, base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+					CHECK_MESSAGE(std::fabs(caster.x - receiver.x) <= uv_tolerance, "face ", face);
+					CHECK_MESSAGE(std::fabs(caster.y - receiver.y) <= uv_tolerance, "face ", face);
+					CHECK_MESSAGE(std::fabs(caster.z - receiver.z) <= depth_tolerance, "face ", face);
+				}
+				const Vector3 wrong_ortho = cube_caster_sample_after_copy(godot_shadow_clip(orthographic, face_light, false), world,
+						base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+				CHECK((std::fabs(wrong_ortho.x - receiver.x) > uv_tolerance || std::fabs(wrong_ortho.y - receiver.y) > uv_tolerance));
+				CHECK(std::fabs(wrong_ortho.z - receiver.z) > depth_tolerance);
+				const Vector3 wrong_flip = cube_caster_sample_after_copy(godot_shadow_clip(perspective, face_light, true), world,
+						base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+				CHECK((std::fabs(wrong_flip.x - receiver.x) > uv_tolerance || std::fabs(wrong_flip.y - receiver.y) > uv_tolerance));
+				const Vector3 wrong_face_sample = cube_caster_sample_after_copy(godot_shadow_clip(perspective, face_light, false), world,
+						base_light, wrong_face, first_cell, offset, atlas_size, near_plane, range);
+				CHECK((std::fabs(wrong_face_sample.x - receiver.x) > uv_tolerance || std::fabs(wrong_face_sample.y - receiver.y) > uv_tolerance));
+				const Projection raw_depth = perspective * Projection(face_light.affine_inverse());
+				const Vector3 wrong_depth = cube_caster_sample_after_copy(raw_depth, world, base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
+				CHECK(std::fabs(wrong_depth.z - receiver.z) > depth_tolerance);
+			}
 		}
 	}
 }
@@ -740,6 +1103,399 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a needle tilted across both 
 	const DepthGradient ay = caster_depth_gradient(1.0f, 0.0f, 9.0f, 0.0f, 3.0f, 2.0f);
 	CHECK(ay.x == doctest::Approx(3.0f / 1.0f));
 	CHECK(ay.y == doctest::Approx(2.0f / 9.0f));
+}
+
+// Existing [HLOD] is a strict host lane. These cases exercise production helpers without a device or scene tree.
+// Synthetic world with world-sized owner bounds and two independently casting rows/records.
+struct RefreshFixture {
+	gs_shadow_refresh::PublishedContent content;
+	gs_shadow_refresh::ContentIndex index;
+	FrameRecord record;
+	DrawnNodeGPU draws[2]{};
+	LocalVector<gs_shadow_refresh::Geometry> geometry;
+	LocalVector<InstanceDataGPU> rows;
+	LocalVector<real_t> margins;
+	LocalVector<uint32_t> animated;
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	RefreshFixture() {
+		record.valid = true;
+		record.draw_count = 2;
+		for (uint32_t i = 0; i < 2; ++i) {
+			record.row_casts.push_back(1);
+			record.row_keys.push_back(42 + i);
+			record.row_asset_ids.push_back(i);
+			InstanceDataGPU row{};
+			row.rotation[3] = row.inv_rotation[3] = row.translation_scale[3] = 1;
+			rows.push_back(row);
+			margins.push_back(0);
+			animated.push_back(0);
+			gs_shadow_refresh::Geometry g;
+			g.bounds = AABB(Vector3(i == 0 ? -1 : 99, -1, -1), Vector3(2, 2, 2));
+			g.payload = 1;
+			g.chunk_key = i;
+			geometry.push_back(g);
+			draws[i].instance_id = i;
+			draws[i].chunk_id = i;
+			draws[i].fade = 1;
+		}
+		gs_shadow_refresh::Owner owner;
+		owner.owner = 42;
+		owner.bounds = AABB(Vector3(-1000, -1000, -1000), Vector3(2000, 2000, 2000));
+		owner.content = &index;
+		owners.push_back(owner);
+		publish();
+	}
+	void publish() { content.publish(record, draws, geometry); rebuild(); }
+	void rebuild() { index.rebuild(content, record, rows, margins, animated); }
+	gs_shadow_refresh::LightUpdate query(const gs_shadow_refresh::LightState &p_light) const {
+		return gs_shadow_refresh::prepare_light(owners, Vector3(), 2, p_light);
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] static omni ignores moving anchor and far cut but refreshes near cut") {
+	RefreshFixture f;
+	f.draws[1].instance_id = 0; // Far and near cuts belong to the SAME world row and world-sized owner.
+	f.publish();
+	gs_shadow_refresh::LightState light, never_observed;
+	const auto first = f.query(light);
+	CHECK(first.refresh);
+	light.commit(first);
+	CHECK_FALSE(f.query(light).refresh);
+	CHECK(f.query(never_observed).refresh);
+	CHECK(f.query(never_observed).refresh); // No scheduled pass: no observation consumed.
+	++f.record.draw_list_upload;
+	++f.record.renderer_frame;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	f.record.camera = Vector3(11, -7, 23);
+	for (auto &draw : f.draws) { draw.camera_offset[0] = -11; draw.camera_offset[1] = 7; draw.camera_offset[2] = -23; }
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh); // Same world geometry at another anchor.
+	++f.draws[1].chunk_id; // Far cut changes while camera moves again.
+	++f.geometry[1].chunk_key;
+	f.record.camera.x += 3;
+	f.draws[0].camera_offset[0] -= 3;
+	f.draws[1].camera_offset[0] -= 3;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	++f.draws[0].chunk_id;
+	++f.geometry[0].chunk_key;
+	f.publish();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+	++f.geometry[1].payload; // Unrelated leaf edit, not a global source revision.
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	++f.geometry[0].payload;
+	f.publish();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	f.rows[1].translation_scale[0] = 1; // Current far row changes during idle restore.
+	f.rebuild();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows[0].params[0] = 0.75f;
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] dense chunk row and legacy camera LOD remaps preserve light content") {
+	RefreshFixture f;
+	f.draws[0].instance_id = 1; // The near record is an object; its stable row/asset keys stay fixed.
+	f.draws[1].instance_id = 0;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	f.draws[0].chunk_id += 123; // A far lower-ID asset grew the preceding chunk table.
+	f.rows[1].ids[0] += 10;
+	f.rows[1].lod[0] = 3;
+	f.rows[1].params[1] = 2;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows.push_back(f.rows[1]); // The same object moves to another dense row.
+	f.record.row_keys.push_back(f.record.row_keys[1]);
+	f.record.row_asset_ids.push_back(f.record.row_asset_ids[1]);
+	f.record.row_casts.push_back(1);
+	f.record.row_casts[1] = 0;
+	f.margins.push_back(0);
+	f.animated.push_back(0);
+	f.draws[0].instance_id = 2;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	++f.geometry[0].chunk_key; // A different chunk of this asset is a real content change.
+	f.publish();
+	CHECK(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] large-coordinate record and aggregate bounds retain their positive edge") {
+	const AABB world = gs_shadow_refresh::enclosing_bounds(Vector3(-200000000, -1, -1), Vector3(1, 1, 1));
+	CHECK(world.position.x + world.size.x >= real_t(1));
+	gs_shadow_refresh::ContentIndex index;
+	gs_shadow_refresh::SpatialRecord far, near;
+	far.bounds = AABB(Vector3(-200000000, 0, 0), Vector3());
+	far.digest = 10;
+	near.bounds = AABB(Vector3(1, 0, 0), Vector3());
+	near.digest = 20;
+	index.records.push_back(far);
+	index.records.push_back(near);
+	index.build();
+	if (index.cells.is_empty()) { FAIL("index must contain both records"); return; }
+	CHECK(index.cells[0].bounds.position.x + index.cells[0].bounds.size.x >= real_t(1));
+	uint64_t digest = 0;
+	uint32_t count = 0;
+	bool animated = false;
+	index.query(0, Vector3(1, 0, 0), 0, digest, count, animated);
+	CHECK(count == 1);
+	CHECK(digest == 20);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] noncasting records cannot animate or dirty per-light content") {
+	RefreshFixture f;
+	f.record.row_casts[1] = 0;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	f.geometry[1].bounds = f.geometry[0].bounds;
+	f.animated[1] = 1;
+	f.rows[1].translation_scale[0] = 1;
+	++f.draws[1].chunk_id;
+	f.publish();
+	CHECK_FALSE(f.query(light).refresh);
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 1;
+	f.rows[1].params[2] = 1;
+	CHECK_FALSE(gs_wind::wind_active_on_casting_row(wind, f.rows[1], false));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] swapping cast flags between byte-identical rows still refreshes positional shadows") {
+	// WP6 (P3) case, rewritten for the per-light key of P1c: the same row payload and bounds, only the cast flags swap.
+	RefreshFixture f;
+	f.rows[1] = f.rows[0];
+	f.geometry[1].bounds = f.geometry[0].bounds;
+	f.record.row_casts[0] = 1;
+	f.record.row_casts[1] = 0;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+	f.record.row_casts[0] = 0;
+	f.record.row_casts[1] = 1;
+	f.publish();
+	const auto swapped = f.query(light);
+	CHECK(swapped.refresh);
+	light.commit(swapped);
+	CHECK_FALSE(f.query(light).refresh);
+	// Returning to the original flags is another change even though the row payload remains identical.
+	f.record.row_casts[0] = 1;
+	f.record.row_casts[1] = 0;
+	f.publish();
+	CHECK(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] wind and effectors refresh only casting records near the light") {
+	RefreshFixture f;
+	gs_shadow_refresh::LightState light;
+	light.commit(f.query(light));
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 1;
+	wind.direction = Vector3(1, 0, 0);
+	f.rows[1].params[2] = 1;
+	f.animated[1] = gs_wind::wind_active_on_casting_row(wind, f.rows[1], true);
+	CHECK(f.animated[1] == 1);
+	f.rebuild();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows[0].params[2] = 1;
+	f.animated[0] = gs_wind::wind_active_on_casting_row(wind, f.rows[0], true);
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK(f.query(light).refresh);
+	f.animated[0] = 0; // Turn off: one final static map.
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+	// Selected opacity effectors use the same per-record animation path.
+	f.rows[1].effect_params[1] = 1;
+	float meta[4] = { 1, 0, 0, 0 };
+	float spheres[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float configs[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float opacity[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	spheres[0][3] = 2; configs[0][0] = 1; opacity[0][1] = 1; opacity[0][2] = 0.5f;
+	f.animated[1] = gs_shadow_refresh::effectors_active_on_casting_row(f.rows[1], true, meta, spheres, configs, opacity);
+	f.rebuild();
+	CHECK_FALSE(f.query(light).refresh);
+	f.rows[0].effect_params[1] = 1;
+	f.animated[0] = gs_shadow_refresh::effectors_active_on_casting_row(f.rows[0], true, meta, spheres, configs, opacity);
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] inflated records enter light and final departure clears once") {
+	RefreshFixture f;
+	f.geometry[0].bounds.position.x = 4;
+	f.publish();
+	gs_shadow_refresh::LightState light;
+	CHECK_FALSE(f.query(light).refresh); // Coarse world bounds alone must not observe this lamp.
+	f.margins[0] = 2;
+	f.rebuild();
+	CHECK(f.query(light).refresh); // Inflated bound touches sphere.
+	light.commit(f.query(light));
+	f.margins[0] = 0;
+	f.rebuild();
+	CHECK(f.query(light).refresh);
+	light.commit(f.query(light));
+	CHECK_FALSE(f.query(light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] wind forces intersecting casters while never-observing lights stay untouched") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 1;
+	InstanceDataGPU row{};
+	row.params[2] = 1;
+	owners[0].animated = gs_wind::wind_active_on_casting_row(wind, row, true);
+	CHECK(owners[0].animated);
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	const gs_shadow_refresh::LightState never_observed;
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(20, 0, 0), 2, never_observed).refresh);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(2, 2, 2), 1, never_observed).refresh);
+	CHECK(gs_shadow_refresh::sphere_intersects_bounds(Vector3(3, 0, 0), 2, owner.bounds));
+	CHECK(gs_shadow_refresh::positional_sphere_radius(10, -1) == 10);
+	CHECK(gs_shadow_refresh::positional_sphere_radius(10, 60) >= real_t(19.99)); // Cone rim lies outside range sphere.
+	owners[0].animated = false; // Turning deformation off needs one final static map.
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	owners.clear(); // The collector supplies no entries on a non-HLOD route.
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, never_observed).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a hidden previous owner clears once then reuses the empty map") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	owners.clear(); // Same collector outcome for hidden, freed, noncasting, non-HLOD, or released-renderer owners.
+	const auto clear = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(clear.refresh);
+	CHECK(clear.owners.is_empty());
+	// A refused scheduling attempt must retry; only the scheduled clearing pass consumes the departure.
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	light.commit(clear);
+	CHECK(light.last_pass.is_empty());
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a previous owner leaving light range clears exactly once") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	owners[0].bounds.position = Vector3(20, -1, -1);
+	const auto clear = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(clear.refresh);
+	CHECK(clear.owners.is_empty());
+	light.commit(clear);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a light that never observed HLOD owners never requests a clearing pass") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::LightState light;
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.animated = true;
+	owner.bounds = AABB(Vector3(20, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	owners.clear();
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] removing or replacing one of several observed owners clears once") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	owner.owner = 43;
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	owners.resize(1);
+	const auto removed = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(removed.refresh);
+	light.commit(removed);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	owners[0].owner = 44; // Replacement has the same set size but is unseen by this light.
+	const auto replaced = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(replaced.refresh);
+	light.commit(replaced);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] static depth at two anchors has the same light clip coordinates") {
+	Projection light;
+	light.set_perspective(70, 1, 0.1, 100);
+	const Vector3 world(2, 3, -10);
+	const Vector3 anchors[2] = { Vector3(), Vector3(11, -7, 23) };
+	const Vector4 expected = godot_shadow_clip(light, Transform3D(), false).xform(Vector4(world.x, world.y, world.z, 1));
+	for (const Vector3 &anchor : anchors) {
+		const Vector3 relative = world - anchor;
+		const Vector4 clip = frame_relative_shadow_clip(light, Transform3D(), false, anchor).xform(Vector4(relative.x, relative.y, relative.z, 1));
+		for (int axis = 0; axis < 4; ++axis) { CHECK(clip[axis] == doctest::Approx(expected[axis]).epsilon(1e-5)); }
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] selected sphere effectors refresh only responsive casting rows") {
+	InstanceDataGPU row{};
+	row.effect_params[0] = 1;
+	float meta[4] = { 1, 0, 0, 1 };
+	float spheres[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float configs[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float opacity[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	spheres[0][3] = 3;
+	configs[0][0] = 1;
+	configs[0][1] = 2;
+	opacity[0][0] = 1;
+	const uint32_t mask = 1;
+	std::memcpy(&row.effect_params[2], &mask, sizeof(mask));
+	CHECK(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, false, meta, spheres, configs, opacity));
+	row.effect_params[2] = 0;
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	meta[3] = 0; // Project fallback has no scene mask.
+	CHECK(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	row.effect_params[0] = 0;
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	row.effect_params[1] = 1;
+	opacity[0][1] = 1;
+	opacity[0][2] = 0.5f;
+	CHECK(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	configs[0][0] = 0;
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
 }
 
 } // namespace TestHlodShadowCasters

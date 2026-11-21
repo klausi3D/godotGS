@@ -8,11 +8,12 @@
 // admitted node instances' records, one DrawnNodeGPU per node or chunk). Every caster the shadow map receives is a splat
 // the color view drew; objects the budget rule refused cast nothing, and nothing outside the view's cut casts (the
 // light-view cut is a later slice). Forward+ renders the shadow passes of a frame BEFORE that frame's GS main view, so a
-// shadow pass consumes the record of the previous main view: the draw list, rows and atlas the GPU still holds, with
-// camera offsets formed against that view's camera position (recorded here).
+// shadow pass consumes the previous main view's draw list and atlas, but CURRENT rows (ADR dynamics §6.6.1, O9).
+// World offsets retain that view's camera; instance offsets use current translation minus that same camera.
 //
-// Representation: depth only, written straight into Godot's directional shadow atlas rect with Godot's own projection
-// and depth convention (reverse-Z, depth correction, pancake clamp), so every mesh receiver samples it unchanged. A
+// Representation: depth only, written into Godot's directional/spot atlas rect or omni cube face with Godot's projection
+// and depth convention (reverse-Z, depth correction, directional pancake clamp). Godot converts the combined mesh/splat
+// cube into its radial-depth dual-paraboloid atlas, so every mesh receiver samples it unchanged. A
 // fragment of a splat is an occluder when its Gaussian alpha reaches kAlphaThreshold.
 
 #include "hlod_world_instances.h"
@@ -22,6 +23,7 @@
 #include "core/math/transform_3d.h"
 #include "core/math/vector3.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/hash_set.h"
 
 #include <cmath>
 #include <cstdint>
@@ -39,7 +41,7 @@ static constexpr uint64_t kMaxInstanceSlots = uint64_t(1) << 31;
 
 enum class Refusal : uint8_t {
 	NONE = 0,
-	NOT_DIRECTIONAL, // Spot / omni passes: perspective light projections are not cast yet.
+	NOT_DIRECTIONAL, // Legacy refusal name: unknown light or a projection inconsistent with the explicit light type.
 	NO_ACTIVE_HLOD_VIEW, // No main view published an active HLOD draw list since the bundle was (re)built.
 	QUANTIZED_PAYLOAD, // The caster shader reads the raw relative payload only.
 	EMPTY_DRAW_LIST,
@@ -47,6 +49,9 @@ enum class Refusal : uint8_t {
 	BUNDLE_CHANGED, // The relative bundle's buffers are not the ones the record names (rebuilt or released).
 	PIPELINE_UNAVAILABLE,
 	INVALID_ATLAS_RECT,
+	OMNI_PARABOLOID_UNSUPPORTED, // Direct nonlinear hemisphere rasterization is not implemented by these quads.
+	ROWS_MISMATCH, // The previous list's ordered row identities/assets no longer name the current rows.
+	ROWS_NOT_CURRENT, // Current rows could not be uploaded or changed during the sync.
 };
 
 inline const char *refusal_reason(Refusal p_refusal) {
@@ -69,6 +74,12 @@ inline const char *refusal_reason(Refusal p_refusal) {
 			return "shadow_caster_pipeline_unavailable";
 		case Refusal::INVALID_ATLAS_RECT:
 			return "shadow_caster_invalid_atlas_rect";
+		case Refusal::OMNI_PARABOLOID_UNSUPPORTED:
+			return "shadow_caster_omni_paraboloid_unsupported";
+		case Refusal::ROWS_MISMATCH:
+			return "shadow_caster_rows_mismatch";
+		case Refusal::ROWS_NOT_CURRENT:
+			return "shadow_caster_rows_not_current";
 	}
 	return "shadow_caster_unknown";
 }
@@ -94,8 +105,62 @@ struct FrameRecord {
 	// shared renderer a shadow pass when ANY of its Gaussian instances casts, so that alone says nothing about the
 	// world); rows 1..N follow their node's cast_shadow.
 	LocalVector<uint32_t> row_casts;
+	LocalVector<uint64_t> row_keys; // Exact ordered identity of every row the retained list indexes.
+	LocalVector<uint64_t> row_asset_ids;
+	LocalVector<uint32_t> row_in_list; // One bit per row, for admission/entry accounting (not a new cut).
+	uint64_t world_list_splats = 0; // World payload before applying this frame's cast flag.
 
 	uint64_t casters() const { return world_splats + instance_splats; }
+};
+
+// Equal cardinality alone is insufficient: replacing a visible instance can reassign a row without growing it.
+inline Refusal current_rows_refusal(const FrameRecord &p_record, const gs_hlod_bundle::Rows &p_rows,
+		const LocalVector<uint64_t> &p_keys) {
+	const uint32_t count = p_rows.count();
+	if (count == 0 || p_rows.grading.size() != count || p_rows.asset_ids.size() != count || p_keys.size() != count ||
+			p_record.row_keys.size() != count || p_record.row_asset_ids.size() != count || p_record.row_casts.size() != count) {
+		return Refusal::ROWS_MISMATCH;
+	}
+	for (uint32_t row = 0; row < count; ++row) {
+		if (p_record.row_keys[row] != p_keys[row] || p_record.row_asset_ids[row] != p_rows.asset_ids[row]) {
+			return Refusal::ROWS_MISMATCH;
+		}
+	}
+	return Refusal::NONE;
+}
+
+inline uint32_t entered_rows(const FrameRecord &p_previous, const FrameRecord &p_current) {
+	HashSet<uint64_t> previous_keys;
+	for (uint32_t old = 1; p_previous.valid && old < p_previous.row_keys.size() && old < p_previous.row_in_list.size(); ++old) {
+		if (p_previous.row_in_list[old]) { previous_keys.insert(p_previous.row_keys[old]); }
+	}
+	uint32_t entered = 0;
+	for (uint32_t row = 1; row < p_current.row_keys.size() && row < p_current.row_in_list.size(); ++row) {
+		if (!p_current.row_in_list[row]) { continue; }
+		entered += previous_keys.has(p_current.row_keys[row]) ? 0u : 1u;
+	}
+	return entered;
+}
+
+inline bool rows_frame_latched(uint64_t p_frame, uint64_t p_bundle, uint64_t p_synced_frame, uint64_t p_synced_bundle) {
+	return p_synced_frame != UINT64_MAX && p_frame == p_synced_frame && p_bundle == p_synced_bundle;
+}
+
+// Teardown cannot make same-frame canonical fallback legal after shadows consumed this snapshot. Repeated teardown
+// must preserve an already retained refusal even after the successful-sync fields have been cleared.
+inline uint64_t retained_refusal_frame(bool p_latched, bool p_refused, uint64_t p_synced_frame, uint64_t p_refused_frame) {
+	return p_latched ? p_synced_frame : (p_refused ? p_refused_frame : UINT64_MAX);
+}
+
+// Published under the renderer's existing shadow_light_snapshot_mutex. Frames name observations, never GPU timing.
+struct RowSyncSnapshot {
+	uint64_t observed_server_frame = UINT64_MAX;
+	uint64_t synced_server_frame = UINT64_MAX;
+	uint64_t generation = 0;
+	uint64_t entry_renderer_frame = UINT64_MAX;
+	uint32_t entered = 0;
+	bool current = false;
+	Refusal refusal = Refusal::ROWS_NOT_CURRENT;
 };
 
 // Per-row cast flags for the rows as uploaded (row 0 = the world). Row 0 casts iff the world casts; a node row casts iff
@@ -138,6 +203,7 @@ inline uint64_t admitted_instance_splats(const gs_hlod_bundle::InstanceRegion &p
 inline void complete_record(FrameRecord &r_record, uint32_t p_world_records, uint64_t p_world_record_splats) {
 	const bool world_casts = !r_record.row_casts.is_empty() && r_record.row_casts[0] != 0;
 	r_record.world_records = p_world_records;
+	r_record.world_list_splats = p_world_record_splats;
 	r_record.world_splats = world_casts ? p_world_record_splats : 0;
 	r_record.draw_count = p_world_records + r_record.instance_records;
 	r_record.valid = true;
@@ -171,16 +237,19 @@ struct LightPassInfo {
 	bool orthographic = false;
 
 	bool supports_hlod_casters() const {
-		// Identity projections also occur for omni paraboloids and after mesh cube finalization. They are not
-		// directional lights. Only legacy calls without an explicit RS type retain projection-only inference.
-		return orthographic && (kind == LightKind::DIRECTIONAL || light_type == -1);
+		// Cube faces must arrive BEFORE mesh cube finalization replaces face 0's camera with identity. Direct
+		// paraboloids are nonlinear, not orthographic light views. Legacy callers retain orthographic inference.
+		if (kind == LightKind::SPOT || kind == LightKind::OMNI_CUBE) {
+			return !orthographic;
+		}
+		return orthographic && (kind == LightKind::DIRECTIONAL || (kind == LightKind::UNKNOWN && light_type == -1));
 	}
 };
 
-// One light pass. The caller must check both the explicit light type and the projection for directional eligibility.
-inline PassPlan plan_pass(const FrameRecord &p_record, bool p_orthographic_light, bool p_bundle_current) {
+// One supported light view. The bool overload retains legacy callers; typed callers also get mode-specific refusals.
+inline PassPlan plan_pass(const FrameRecord &p_record, bool p_supported_light, bool p_bundle_current) {
 	PassPlan plan;
-	if (!p_orthographic_light) {
+	if (!p_supported_light) {
 		plan.refusal = Refusal::NOT_DIRECTIONAL;
 	} else if (!p_record.valid) {
 		plan.refusal = Refusal::NO_ACTIVE_HLOD_VIEW;
@@ -198,6 +267,21 @@ inline PassPlan plan_pass(const FrameRecord &p_record, bool p_orthographic_light
 			plan.instance_slots = uint32_t(slots);
 			plan.casters = p_record.casters();
 		}
+	}
+	return plan;
+}
+
+inline PassPlan plan_pass(const FrameRecord &p_record, const LightPassInfo &p_light, bool p_bundle_current,
+		Refusal p_rows_refusal = Refusal::NONE) {
+	if (p_light.kind == LightKind::OMNI_PARABOLOID) {
+		PassPlan plan;
+		plan.refusal = Refusal::OMNI_PARABOLOID_UNSUPPORTED;
+		return plan;
+	}
+	PassPlan plan = plan_pass(p_record, p_light.supports_hlod_casters(), p_bundle_current);
+	if (plan.draws() && p_rows_refusal != Refusal::NONE) {
+		plan = PassPlan();
+		plan.refusal = p_rows_refusal;
 	}
 	return plan;
 }
@@ -371,6 +455,7 @@ struct LightFrameStats {
 		uint64_t ortho_passes = 0;
 		LightKind kind = LightKind::UNKNOWN;
 		LightPassInfo last_pass;
+		Refusal last_refusal = Refusal::NONE; // Last HLOD refusal this RS frame; successful passes still count normally.
 	};
 	// Plain values only: LocalVector copies own their storage. No shared Dictionary/Variant or recorder references.
 	struct Snapshot {
@@ -384,7 +469,7 @@ struct LightFrameStats {
 	LocalVector<Light> lights;
 	uint64_t overflow_passes = 0;
 
-	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count, const LightPassInfo &p_pass = LightPassInfo()) {
+	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count, const LightPassInfo &p_pass = LightPassInfo(), Refusal p_refusal = Refusal::NONE) {
 		if (p_light_id == 0) {
 			return;
 		}
@@ -415,6 +500,9 @@ struct LightFrameStats {
 			light.kind = LightKind::UNKNOWN; // A mixed-type ID remains visibly inconsistent for the rest of the frame.
 		}
 		light.last_pass = p_pass;
+		if (p_refusal != Refusal::NONE) {
+			light.last_refusal = p_refusal;
+		}
 		light.cast_passes += p_success ? 1 : 0;
 		light.ortho_passes += p_pass.orthographic ? 1 : 0;
 		++light.passes;

@@ -1163,6 +1163,7 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
                 GS_LOG_WARN_DEFAULT(vformat("[OutputCompositor] texture_copy destination->scratch failed (err=%d); skipping composite frame", int(copy_err)));
                 return false;
             }
+            GaussianSplatting::GpuPassTiming::record_dispatch(p_device, GaussianSplatting::GpuPassTiming::PASS_COMPOSITE);
         } else {
             // Sampled fill: destination -> scratch framebuffer via a full-rect blit. The
             // destination is only SAMPLED here and written by the separate compute
@@ -1177,6 +1178,7 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
             const Rect2i full_rect(Vector2i(0, 0), Size2i(dest_w, dest_h));
             const Rect2 full_src(Vector2(0.0f, 0.0f), Vector2(1.0f, 1.0f));
             copy_effects->copy_to_fb_rect(p_destination, scratch_fb, full_rect, false, false, false, false, RID(), false, false, false, false, full_src, false, false);
+            GaussianSplatting::GpuPassTiming::record_dispatch(p_device, GaussianSplatting::GpuPassTiming::PASS_COMPOSITE);
         }
         scratch_for_binding = scratch_rid;
         last_composite_stats.scratch_used = true;
@@ -1330,6 +1332,7 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
     groups_x = MAX(groups_x, 1u);
     groups_y = MAX(groups_y, 1u);
 
+    GaussianSplatting::GpuPassTiming::record_dispatch(p_device, GaussianSplatting::GpuPassTiming::PASS_COMPOSITE);
     p_device->compute_list_dispatch(compute_list, groups_x, groups_y, 1);
     p_device->compute_list_end();
     composite_timestamp.finish();

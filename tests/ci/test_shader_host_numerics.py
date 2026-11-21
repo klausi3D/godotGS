@@ -18,6 +18,7 @@ import struct
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 SHADERS_DIR = ROOT / "modules" / "gaussian_splatting" / "shaders"
@@ -439,8 +440,617 @@ class HlodCameraRelativeFrame(unittest.TestCase):
         # Wind phase and effector spheres take the anchor (the deformation functions are outside the evaluator's
         # subset: ternaries, continue, pow/sin, so this part is a source check).
         deformation = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
-        self.assertIn("(world_position + frame_anchor).xz", deformation)
+        self.assertIn("gs_wind_displacement(world_position + frame_anchor", deformation)
         self.assertIn("effector_sphere.xyz -= frame_anchor", deformation)
+
+
+class ShadowCasterCurrentRowsTests(unittest.TestCase):
+    """P3: run the offset expression wired into the real caster main, including its old-order control."""
+
+    def _offset_program(self):
+        source = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        main = source[source.index("void main() {"):]
+        match = re.search(r"vec3 frame_position\s*=\s*gs_hlod_camera_relative_position\(\s*local_position,\s*"
+                          r"instance_flags,\s*instance\.rotation,\s*uniform_scale,\s*(.*?)\);", main, re.S)
+        self.assertIsNotNone(match, "caster position consumer disappeared")
+        expression = match.group(1)
+        for original, parameter in (("drawn.instance_id", "row"), ("drawn.camera_offset.xyz", "drawn_offset"),
+                                    ("instance.translation_scale.xyz", "translation"),
+                                    ("deformation_params.frame_anchor.xyz", "frame_camera")):
+            expression = expression.replace(original, parameter)
+        helper = re.search(r"vec3 gs_caster_camera_offset\([^{}]+\)\s*\{.*?\n\}", source, re.S)
+        # Before P3 the actual expression is simply drawn.camera_offset.xyz. Evaluate it too:
+        # the moving-row assertion below must go RED numerically, not error on a missing new helper.
+        return glsl.GlslProgram((helper.group(0) if helper else "") +
+                               "\nvec3 wired_offset(uint row, vec3 drawn_offset, vec3 translation, vec3 frame_camera) {"
+                               "return " + expression + "; }")
+
+    def _positions(self, previous_camera, current_camera, current_row, previous_row, *, rows_before_shadow=True):
+        offset_program = self._offset_program()
+        vec3 = offset_program.namespace["vec3"]
+        current_q, current_scale, current_translation = current_row
+        q, scale, translation = current_row if rows_before_shadow else previous_row
+        previous_translation = previous_row[2]
+        drawn_offset = tuple(previous_translation[i] - previous_camera[i] for i in range(3))
+        offset = offset_program.fn("wired_offset")(glsl.U32(1), vec3(*drawn_offset),
+                                                   vec3(*translation), vec3(*previous_camera))
+        camera_program = _camera_relative_program()
+        v3, v4 = camera_program.namespace["vec3"], camera_program.namespace["vec4"]
+        local = (0.25, -0.5, 0.125)
+        position = camera_program.fn("gs_hlod_camera_relative_position")(
+            v3(*local), glsl.U32(0), v4(*q), scale, v3(*offset.c)).c
+        caster_world = tuple(position[i] + previous_camera[i] for i in range(3))
+        # The colour view forms this frame's offset against its own camera.
+        colour_offset = tuple(current_translation[i] - current_camera[i] for i in range(3))
+        colour = camera_program.fn("gs_hlod_camera_relative_position")(
+            v3(*local), glsl.U32(0), v4(*current_q), current_scale, v3(*colour_offset)).c
+        colour_world = tuple(colour[i] + current_camera[i] for i in range(3))
+        return caster_world, colour_world
+
+    def _assert_same_frame(self, caster, colour):
+        for actual, expected in zip(caster, colour):
+            self.assertAlmostEqual(actual, expected, places=6, msg="caster must use colour frame N, not frame N-1")
+
+    def test_moving_rigid_row_matches_same_colour_frame_with_previous_list_camera(self):
+        previous_row = (_quat_axis_angle((0.3, 1.0, -0.2), -0.2), 0.75, (-1.0, 2.0, -7.0))
+        current_row = (_quat_axis_angle((0.3, 1.0, -0.2), 0.7), 1.5, (1.0, 3.0, -6.0))
+        for cameras in (((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), ((17.0, 2.0, -4.0), (18.0, 3.0, -2.0))):
+            with self.subTest(cameras=cameras):
+                self._assert_same_frame(*self._positions(*cameras, current_row, previous_row))
+
+    def test_forcing_rows_after_shadow_fails_the_same_frame_assertion(self):
+        previous_row = (_quat_axis_angle((0.3, 1.0, -0.2), -0.2), 0.75, (-1.0, 2.0, -7.0))
+        current_row = (_quat_axis_angle((0.3, 1.0, -0.2), 0.7), 1.5, (1.0, 3.0, -6.0))
+        with self.assertRaises(AssertionError):
+            self._assert_same_frame(*self._positions((17.0, 2.0, -4.0), (18.0, 3.0, -2.0),
+                                                    current_row, previous_row, rows_before_shadow=False))
+
+    def test_world_keeps_previous_draw_offset_instead_of_instance_translation(self):
+        program = self._offset_program()
+        vec3 = program.namespace["vec3"]
+        drawn = (-2.25, 1.5, -8.0)
+        got = program.fn("wired_offset")(glsl.U32(0), vec3(*drawn), vec3(123.0), vec3(19.0))
+        self.assertEqual(got.c, list(drawn), "world centres are encoded only in the previous draw list")
+
+    def test_current_rows_refresh_is_wired_before_light_cache_decisions_and_shadow_plan(self):
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        collect = host[host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners("):
+                       host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")]
+        cast = host[host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters("):
+                    host.index("bool GaussianSplatRenderer::render_shadow_depth_map(")]
+        self.assertIn("refresh_hlod_shadow_rows()", collect, "positional cache must observe current rows before deciding reuse")
+        self.assertIn("refresh_hlod_shadow_rows()", cast, "directional/first shadow pass must upload current rows")
+        self.assertLess(collect.index("refresh_hlod_shadow_rows()"), collect.index("index.rebuild("))
+        self.assertLess(cast.index("refresh_hlod_shadow_rows()"), cast.index("plan_pass("))
+        self.assertIn("current_rows_refusal(", host, "row-key/asset mismatches must gate the real shadow submission")
+        self.assertIn("Refusal::ROWS_MISMATCH", host)
+
+    def test_shadow_and_colour_reuse_one_row_snapshot_per_server_frame(self):
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        host = (renderer / "gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        publisher = (renderer / "resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        shadow = host[host.index("gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows()"):
+                      host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(")]
+        colour = publisher[publisher.index("bool GaussianSplatRenderer::refresh_hlod_instance_rows("):
+                           publisher.index("uint32_t GaussianSplatRenderer::get_hlod_view_splat_cap()")]
+        for name, body in (("shadow", shadow), ("colour", colour)):
+            self.assertRegex(body, r"if\s*\(\s*hlod_shadow_rows_latched\(\)\s*\)\s*\{[^{}]*\breturn\b",
+                             name + ": a late director edit must not change this frame's already shadowed rows")
+            self.assertLess(body.index("hlod_shadow_rows_latched()"), body.index("GaussianSplatSceneDirector::get_singleton()"))
+        self.assertLess(colour.index("hlod_shadow_rows_latched()"), colour.index("build_hlod_instance_rows_for_renderer("))
+        self.assertLess(colour.index("hlod_shadow_rows_latched()"), colour.index("rd->buffer_update("))
+        self.assertIn("bool GaussianSplatRenderer::hlod_shadow_rows_latched() const", host)
+        self.assertIn("rows_frame_latched(", host, "real latch must use the tested frame/bundle predicate")
+
+    def test_changed_latched_contract_clears_bindings_and_cannot_fall_through_to_fresh_canonical_rows(self):
+        publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+
+        def block_after(pattern, source):
+            match = re.search(pattern + r"\s*\{", source)
+            self.assertIsNotNone(match, "missing terminal refusal block: " + pattern)
+            start = match.end() - 1
+            depth = 1
+            cursor = start + 1
+            while cursor < len(source) and depth:
+                depth += (source[cursor] == "{") - (source[cursor] == "}")
+                cursor += 1
+            self.assertEqual(depth, 0, "unterminated refusal block")
+            return source[start + 1:cursor - 1], start
+
+        attempt = publisher.index("try_publish_hlod_resident_contract(hlod_reason);")
+        outer = publisher[attempt:]
+        refusal, position = block_after(r"if\s*\(\s*hlod_result\s*<\s*0\s*\|\|\s*"
+                                        r"p_renderer->hlod_shadow_colour_refused\(\)\s*\|\|\s*"
+                                        r"\(hlod_result\s*==\s*0\s*&&\s*p_renderer->hlod_shadow_rows_latched\(\)\)\s*\)", outer)
+        self.assertIn("clear_instance_pipeline_buffers();", refusal, "terminal refusal must discard a previously bound contract")
+        self.assertRegex(refusal, r"return\s+false\s*;")
+        self.assertLess(refusal.index("clear_instance_pipeline_buffers();"), refusal.index("return false;"))
+        self.assertLess(position, outer.index("hlod_edit_committed_here()"), "edited-world fallback must not bypass terminal refusal")
+        self.assertLess(position, outer.index("resident_atlas_override_mb"), "canonical fallback must not pack fresh rows after refusal")
+
+        for method, result in (("idle_hlod_streaming_bundle", "false"), ("publish_hlod_bundle", "false"),
+                               ("try_publish_hlod_resident_contract", "-1")):
+            body, _ = block_after(r"(?:bool|int)\s+GaussianSplatRenderer::" + method + r"\([^{}]*\)", publisher)
+            guard, _ = block_after(r"if\s*\(\s*hlod_shadow_colour_refused\(\)\s*\|\|\s*"
+                                   r"\(hlod_shadow_rows_latched\(\)\s*&&\s*change\.action\s*!=\s*"
+                                   r"gs_hlod_bundle::ContractChangeAction::ROWS_ONLY\)\s*\)", body)
+            self.assertIn('"hlod_shadow_rows_contract_changed_within_frame"', guard)
+            marker = "state.hlod_shadow_rows_contract_refused_frame = state.hlod_shadow_rows_server_frame;"
+            self.assertIn(marker, guard, method + ": nested return-zero paths need a terminal signal lasting this RS frame")
+            stamp, _ = block_after(r"if\s*\(\s*!hlod_shadow_colour_refused\(\)\s*\)", guard)
+            self.assertIn(marker, stamp, method + ": repeated refusal must preserve a frame retained across resource release")
+            self.assertIn("clear_instance_pipeline_buffers();", guard,
+                          method + ": ignored prepare failure must not leave a stale contract bound")
+            self.assertRegex(guard, r"return\s+" + re.escape(result) + r"\s*;")
+            self.assertLess(guard.index(marker), guard.index("clear_instance_pipeline_buffers();"))
+            self.assertLess(guard.index("clear_instance_pipeline_buffers();"), guard.index("return " + result + ";"))
+
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        getter, _ = block_after(r"bool\s+GaussianSplatRenderer::hlod_shadow_colour_refused\(\)\s+const", host)
+        # The server frame is read through gs_live_rasterizer(), which returns null when no RenderingServer is live.
+        self.assertRegex(getter, r"(?:gs_live_rasterizer\(\)->get_frame_number\(\)\s*==\s*state\.hlod_shadow_rows_contract_refused_frame|"
+                                r"state\.hlod_shadow_rows_contract_refused_frame\s*==\s*gs_live_rasterizer\(\)->get_frame_number\(\))")
+        self.assertIn("return RenderingServer::get_singleton() ? RSG::rasterizer : nullptr;", host)
+
+    def test_release_retains_same_frame_refusal_before_destroying_the_latched_bundle(self):
+        publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        match = re.search(r"void GaussianSplatRenderer::release_hlod_resources\(bool p_renderer_teardown\)\s*\{(.*?)\n\}", publisher, re.S)
+        self.assertIsNotNone(match)
+        release = match.group(1)
+        # Renderer teardown may outlive RSG::rasterizer (freed without nulling): it neither retains a refusal nor
+        # publishes a snapshot that reads the server frame. Every other release keeps the retention below.
+        self.assertIn("p_renderer_teardown ? UINT64_MAX :", release)
+        self.assertIn("if (!p_renderer_teardown) {\n        publish_hlod_shadow_rows_snapshot();", release)
+        retained = re.search(r"retained_refusal_frame\(\s*hlod_shadow_rows_latched\(\),\s*hlod_shadow_colour_refused\(\),\s*"
+                             r"state\.hlod_shadow_rows_server_frame,\s*state\.hlod_shadow_rows_contract_refused_frame\)", release)
+        self.assertIsNotNone(retained, "resource teardown must capture this frame's terminal refusal before clearing its latch")
+        self.assertLess(retained.start(), release.index("release_hlod_bundle("))
+        self.assertLess(retained.start(), release.index("state.hlod_shadow_rows_server_frame = UINT64_MAX;"))
+        self.assertIn("state.hlod_shadow_rows_contract_refused_frame = refused_frame;", release)
+
+    def test_edited_world_release_cannot_escape_through_final_canonical_fallback(self):
+        publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        outer = publisher[publisher.index("try_publish_hlod_resident_contract(hlod_reason);"):]
+        match = re.search(r"if\s*\(\s*p_renderer->hlod_shadow_rows_latched\(\)\s*\|\|\s*"
+                          r"p_renderer->hlod_shadow_colour_refused\(\)\s*\)\s*\{", outer)
+        self.assertIsNotNone(match, "an edited-world release after the first refusal check must still block canonical fallback")
+        self.assertGreater(match.start(), outer.index("if (hlod_result != 0 && !omit_edited_world)"))
+        self.assertLess(match.start(), outer.index("resident_atlas_override_mb"))
+        self.assertLess(match.start(), outer.index("LocalVector<ResidentAssetDescriptor> assets;"))
+        start = match.end() - 1
+        depth, cursor = 1, start + 1
+        while cursor < len(outer) and depth:
+            depth += (outer[cursor] == "{") - (outer[cursor] == "}")
+            cursor += 1
+        self.assertEqual(depth, 0)
+        guard = outer[start + 1:cursor - 1]
+        self.assertIn("clear_instance_pipeline_buffers();", guard)
+        self.assertRegex(guard, r"return\s+false\s*;")
+        self.assertLess(guard.index("clear_instance_pipeline_buffers();"), guard.index("return false;"))
+
+    def test_rows_oracles_remain_linked_and_selected_by_required_lanes(self):
+        renderer_module = ROOT / "modules/gaussian_splatting"
+        compiled = (renderer_module / "SCsub").read_text(encoding="utf-8")
+        anchors = (renderer_module / "tests/test_gaussian_splatting.h").read_text(encoding="utf-8")
+        self.assertIn('add_source_files(module_sources, "tests/*.cpp")', compiled)
+        for stem in ("test_hlod_shadow_casters", "test_hlod_runtime_gpu_identity"):
+            self.assertIn(stem + "_cpp_force_link_anchor = " + stem + "_cpp_force_link();", anchors)
+        gpu_source = (renderer_module / "tests/test_hlod_runtime_gpu_identity.cpp").read_text(encoding="utf-8")
+        names = re.findall(r'TEST_CASE\("([^"\n]+)"\)', gpu_source)
+        moving = [name for name in names if "noncontiguous page placement preserves drawn pixels and corrupted mapping changes them (#1514)" in name]
+        self.assertEqual(len(moving), 1, "required moving-caster oracle disappeared")
+        spec = importlib.util.spec_from_file_location("_p3_gpu_harness", ROOT / "tests/ci/run_gpu_harness.py")
+        self.assertIsNotNone(spec)
+        harness = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = harness
+        spec.loader.exec_module(harness)
+        batches = [batch for batch in harness.BATCHES if batch.name == "GpuSorting"]
+        self.assertEqual(len(batches), 1)
+        self.assertIn("GpuSorting", harness.REQUIRED_BATCHES, "moving-caster GPU oracle must fail a REQUIRED lane")
+        def matches(pattern):
+            # doctest wildcards treat brackets literally (fnmatch does not).
+            return re.fullmatch(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), moving[0], re.I) is not None
+        self.assertTrue(any(matches(pattern) for pattern in batches[0].filters))
+        self.assertFalse(any(matches(pattern) for pattern in batches[0].excludes))
+        runner = (ROOT / "tests/ci/run_module_tests.py").read_text(encoding="utf-8")
+        self.assertRegex(runner, r"\(\s*True,\s*_run_shader_host_numerics_guard,")
+        self.assertRegex(runner, r'"GaussianSplatting \[HLOD\]",\s*\("\*GaussianSplatting\*\]\[HLOD\]\*",\),\s*\([^()]*\),\s*True,')
+
+
+class ShadowCasterPerspectiveTests(unittest.TestCase):
+    """Evaluate the caster's real quotient rule; also check that its three consumers are wired in."""
+
+    def test_perspective_jacobian_matches_projected_finite_differences(self) -> None:
+        text = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        match = re.search(r"vec3 gs_caster_perspective_gradient\([^{}]+\)\s*\{[^{}]+\}", text)
+        self.assertIsNotNone(match, "the caster still uses an orthographic Jacobian for positional lights")
+        program = glsl.GlslProgram(match.group(0))
+        gradient = program.fn("gs_caster_perspective_gradient")
+        vec3 = program.namespace["vec3"]
+        # Rows of a rotated, translated perspective clip transform. Include both UV and reverse-Z depth rows,
+        # at unequal distances and off-axis points so dropping either /w or the quotient's w derivative fails.
+        rows = ((1.1, 0.2, -0.3), (-0.1, -0.8, 0.25), (0.002, -0.003, 0.006))
+        offsets = (0.7, -0.2, 0.08)
+        w_row, w_offset = (0.2, -0.3, -0.9), 2.0
+        failures_without_divide = failures_without_w_derivative = 0
+        for point in ((0.4, 0.7, -2.0), (-1.2, 0.3, -7.0), (2.1, -1.7, -13.0)):
+            clip_w = sum(a * b for a, b in zip(w_row, point)) + w_offset
+            for row, offset in zip(rows, offsets):
+                ndc = (sum(a * b for a, b in zip(row, point)) + offset) / clip_w
+                actual = gradient(vec3(*row), vec3(*w_row), ndc, clip_w).c
+                for axis in range(3):
+                    step = 1.0e-4
+                    def sample(delta: float) -> float:
+                        shifted = tuple(value + (delta if i == axis else 0.0) for i, value in enumerate(point))
+                        return ((sum(a * b for a, b in zip(row, shifted)) + offset)
+                                / (sum(a * b for a, b in zip(w_row, shifted)) + w_offset))
+                    expected = (sample(step) - sample(-step)) / (2.0 * step)
+                    self.assertAlmostEqual(actual[axis], expected, delta=1.0e-7)
+                    failures_without_divide += abs(row[axis] - expected) > 1.0e-5
+                    failures_without_w_derivative += abs(row[axis] / clip_w - expected) > 1.0e-5
+        self.assertGreater(failures_without_divide, 0)
+        self.assertGreater(failures_without_w_derivative, 0)
+
+    def test_perspective_shader_and_host_mode_are_wired(self) -> None:
+        shader = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        renderer = ROOT / "modules" / "gaussian_splatting" / "renderer"
+        host = (renderer / "gs_shadow_caster.cpp").read_text(encoding="utf-8")
+        hook = (renderer / "gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        for axis in ("x", "y", "z"):
+            self.assertIsNotNone(re.search(rf"j{axis}\s*=\s*gs_caster_perspective_gradient\([^;]+ndc\.{axis}, clip\.w\)", shader),
+                                 f"perspective {axis} gradient consumer is disconnected")
+        self.assertTrue("bool perspective = params.counts.z == 2u;" in shader, "shader perspective mode missing")
+        self.assertTrue("perspective && clip.w <= 1e-6" in shader, "perspective behind-light rejection missing")
+        self.assertTrue("p_inputs.perspective ? 2u : (p_inputs.pancake ? 1u : 0u)" in host, "host mode encoding changed")
+        self.assertTrue("inputs.perspective = !r_result.light_pass.orthographic;" in hook, "hook perspective selection missing")
+        self.assertTrue("inputs.pancake = !inputs.perspective;" in hook, "positional pancake disabling missing")
+        self.assertTrue("sizeof(ShadowCasterPushConstant) == 96" in host, "host packet size changed")
+        # Both stages must agree on the unchanged 96-byte layout; no new bindings or include inputs are needed.
+        blocks = re.findall(r"layout\(push_constant, std430\) uniform Params\s*\{([^}]+)\}", shader)
+        self.assertEqual(len(blocks), 2)
+        layouts = [re.findall(r"\b(mat4|vec4|uvec4)\s+(\w+)\s*;", block) for block in blocks]
+        self.assertEqual(layouts, [[("mat4", "light_from_frame"), ("vec4", "viewport"), ("uvec4", "counts")]] * 2)
+
+    def test_hlod_cube_shader_consumer_runs_before_shared_cube_copy(self) -> None:
+        forward = (ROOT / "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp").read_text(encoding="utf-8")
+        start = forward.index("void RenderForwardClustered::_render_shadow_pass(")
+        body = forward[start:forward.index("void RenderForwardClustered::_render_shadow_begin()", start)]
+        self.assertTrue("GaussianShadowRoute::HLOD" in body, "cube-only lights still cannot reach the HLOD shader")
+        mesh_end = body.index("_render_shadow_end();")
+        submit = body.index("_gaussian_shadow_dispatch(")
+        copy = body.index("copy_effects->copy_cubemap_to_dp(")
+        camera_reset = body.index("light_instance_set_shadow_transform(p_light, Projection()")
+        self.assertLess(mesh_end, submit)
+        self.assertLess(submit, copy)
+        self.assertLess(copy, camera_reset)
+        self.assertTrue("p_render_data->render_shadows[index].light == p_light" in body, "cube faces mix light IDs")
+        self.assertTrue("}, GaussianShadowRoute::CANONICAL);" in forward[:start], "late replay still includes HLOD")
+        cull = (ROOT / "servers/rendering/renderer_scene_cull.cpp").read_text(encoding="utf-8")
+        self.assertNotIn("has_hlod_shadow_owner", cull, "a visible owner must not dirty every positional light")
+        self.assertRegex(cull, r"if \(gs_shadow_update.refresh\)\s*\{[^{}]*light->last_version\+\+;\s*\}\s*#endif\s*bool redraw = .*shadow_atlas_update_light")
+
+
+class HlodPositionalRefreshTests(unittest.TestCase):
+    """P1c: execute host geometry/decision and pin spatial, anchor-free key wiring; strict native cases exercise state."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.renderer = ROOT / "modules/gaussian_splatting/renderer"
+        cls.source = (cls.renderer / "hlod_shadow_refresh.h").read_text(encoding="utf-8")
+        decision = re.search(r"inline bool needs_refresh\([^{}]+\)\s*\{[^{}]+\}", cls.source)
+        if decision is None:
+            raise AssertionError("missing production refresh predicate")
+        cls.decision = staticmethod(glsl.GlslProgram(decision.group(0).replace("inline ", "")).fn("needs_refresh"))
+        geometry = re.search(r"inline bool sphere_intersects_bounds\([^{}]+\)\s*\{([^{}]+)\}", cls.source)
+        if geometry is None:
+            raise AssertionError("missing production sphere/AABB test")
+        # Flatten AABB's two vectors and substitute only host type/builtin names. Every arithmetic operation is real.
+        body = geometry.group(1).replace("p_bounds.position", "p_min").replace("p_bounds.size", "p_size")
+        body = body.replace("Vector3", "vec3").replace("real_t", "float").replace("MAX", "max")
+        cls.geometry = glsl.GlslProgram("bool intersects(vec3 p_center, float p_radius, vec3 p_min, vec3 p_size) {" + body + "}")
+        contained = re.search(r"inline bool sphere_contains_bounds\([^{}]+\)\s*\{([^{}]+)\}", cls.source)
+        if contained is None:
+            raise AssertionError("missing production cell-enclosure fast path")
+        body = contained.group(1).replace("p_bounds.position", "p_min").replace("p_bounds.size", "p_size")
+        body = body.replace("Vector3", "vec3").replace("real_t", "float").replace("MAX", "max").replace("Math::abs", "abs")
+        cls.containment = glsl.GlslProgram("bool contains(vec3 p_center, float p_radius, vec3 p_min, vec3 p_size) {" + body + "}")
+        prepare = cls.source[cls.source.index("inline LightUpdate prepare_light("):]
+        removal = re.search(r"if \(([^\n]+)\) \{ update.refresh = true; \}", prepare)
+        if removal is None:
+            raise AssertionError("missing production observation-set change check")
+        # Execute the production set-size condition, including its old empty-set exclusion in the RED control.
+        condition = removal.group(1).replace("update.owners.is_empty()", "(current_count == 0u)")
+        condition = condition.replace("update.owners.size()", "current_count").replace("p_state.last_pass.size()", "previous_count")
+        cls.removal = staticmethod(glsl.GlslProgram(
+            "bool removal_refresh(uint previous_count, uint current_count) { return " + condition + "; }").fn("removal_refresh"))
+
+    def test_static_then_changed_or_animated_content(self) -> None:
+        decide = self.decision
+        self.assertTrue(decide(True, False, False, False), "first static pass")
+        self.assertFalse(decide(True, True, False, False), "static next frame must reuse")
+        self.assertTrue(decide(True, True, True, False), "published cut or transform changed")
+        self.assertTrue(decide(True, True, False, True), "active casting-row deformation")
+        for seen in (False, True):
+            for changed in (False, True):
+                for animated in (False, True):
+                    self.assertFalse(decide(False, seen, changed, animated), "no owner intersection/non-HLOD")
+
+    def test_omni_sphere_rejects_outside_range_and_includes_tangency(self) -> None:
+        vec3 = self.geometry.namespace["vec3"]
+        intersects = self.geometry.fn("intersects")
+        bounds = (vec3(-1, -1, -1), vec3(2, 2, 2))
+        for center, radius, expected in (((0, 0, 0), 0, True), ((3, 0, 0), 2, True),
+                                          ((3.01, 0, 0), 2, False), ((2, 2, 2), 1, False),
+                                          ((20, 0, 0), 2, False)):
+            self.assertEqual(intersects(vec3(*center), radius, *bounds), expected)
+
+    def test_hidden_owner_clears_once_after_a_committed_pass(self) -> None:
+        self.assertTrue(self.removal(glsl.U32(1), glsl.U32(0)), "hidden/freed/noncasting/non-HLOD owner must clear its old map")
+        self.assertFalse(self.removal(glsl.U32(0), glsl.U32(0)), "committing the empty observation set ends the refresh")
+
+    def test_owner_moved_out_of_range_clears_once(self) -> None:
+        vec3 = self.geometry.namespace["vec3"]
+        intersects = self.geometry.fn("intersects")
+        self.assertTrue(intersects(vec3(0, 0, 0), 2, vec3(-1, -1, -1), vec3(2, 2, 2)))
+        self.assertFalse(intersects(vec3(0, 0, 0), 2, vec3(20, -1, -1), vec3(2, 2, 2)))
+        self.assertTrue(self.removal(glsl.U32(1), glsl.U32(0)))
+        self.assertFalse(self.removal(glsl.U32(0), glsl.U32(0)))
+
+    def test_light_without_previous_observations_never_clears(self) -> None:
+        self.assertFalse(self.removal(glsl.U32(0), glsl.U32(0)))
+        self.assertFalse(self.decision(False, False, False, False))
+
+    def test_refresh_pipeline_wiring_and_lifetime_are_connected(self) -> None:
+        cull = (ROOT / "servers/rendering/renderer_scene_cull.cpp").read_text(encoding="utf-8")
+        host = (self.renderer / "gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        publisher = (self.renderer / "resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        self.assertNotIn("has_hlod_shadow_owner", cull)
+        self.assertIn("collect_hlod_shadow_refresh_owners(scene_cull_result.gaussian_splats, gs_shadow_owners)", cull)
+        self.assertIn("prepare_hlod_shadow_light(light->instance, gs_shadow_owners,", cull)
+        self.assertIn("ins->transform.origin, RSG::light_storage->light_get_param(ins->base, RS::LIGHT_PARAM_RANGE)", cull)
+        self.assertIn("RS::LIGHT_PARAM_SPOT_ANGLE) : -1.0f", cull)
+        self.assertRegex(cull, r"if \(gs_shadow_update.refresh\)\s*\{[^{}]*light->last_version\+\+;")
+        self.assertRegex(cull, r"if \(max_shadows_used > gs_shadow_passes_before\)\s*\{\s*GaussianSplatRenderer::commit_hlod_shadow_light")
+        self.assertLess(cull.index("forget_hlod_shadow_light(light->instance)"), cull.index("light_instance_free(light->instance)"))
+        collect = host[host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners("):host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")]
+        for required in ("gaussian_get_casts_shadow(owner_rid)", "!renderer->uses_hlod_shadow_casters()",
+                         "record.bundle_builds != state.hlod_bundle_builds", "record.draw_list_upload != state.hlod_draw_list_uploads",
+                         "record.row_casts.size() != state.hlod_instance_row_data.instances.size()",
+                         "owner.bounds = storage->gaussian_get_aabb(owner_rid)",
+                         "gs_wind::wind_active_on_casting_row(wind, rows[row], casts)",
+                         "effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,",
+                         "pack_deformation_effectors", "owner.bounds.grow_by",
+                         "frame_displacement_bound(wind, &rows[row], 1, effector_push",
+                         "index.rebuild(state.hlod_shadow_content, record, rows, row_margins, row_animated)",
+                         "owner.content = &index", "indexed_renderers.has(renderer_key)", "indexed_renderers.insert(renderer_key)",
+                         "owner.owner = renderer_key", "gs_shadow_refresh::enclosing_merge(owner.bounds, index.cells[0].bounds)"):
+            self.assertIn(required, collect)
+        self.assertNotRegex(collect, r"owner\.revision\s*[+^|*/-]?=", "collector must not supply a global list key")
+        self.assertIn("(p_meta[3] > 0.5f && (mask & (1u << slot)) == 0)", self.source)
+        self.assertIn("if (!p_casts) { return false; }", self.source)
+        self.assertIn("hlod_shadow_lights.erase(p_light.get_id())", host)
+        self.assertIn("if (p_update.owners.is_empty()) { hlod_shadow_lights.erase(p_light.get_id()); return; }", host)
+        self.assertIn("state.hlod_shadow_content.publish(caster, draws, geometry)", publisher)
+        self.assertIn("outcome.records[i].version.content_revision", publisher)
+        self.assertIn("outcome.records[i].version.bake_rule_revision", publisher)
+        self.assertIn("g.payload = gs_shadow_refresh::hash_value(world_shadow_versions[i], source->source_epoch)", publisher)
+        self.assertIn("geometry.chunk_key = k - region.assets[meta.asset_id - 1u].first_chunk", publisher)
+        self.assertIn("g.bounds = gs_shadow_refresh::enclosing_bounds(lo, hi)", publisher)
+        self.assertIn("state.hlod_relative.shadow_instance_geometry[chunk - uint32_t(source->nodes.size())]", publisher)
+        self.assertIn("p_world_records ? state.hlod_relative.draw_entries.ptr() : state.hlod_instance_draws.ptr()", publisher)
+        self.assertNotIn("previous.camera ==", self.source)
+        self.assertNotIn("equal_bytes(draws, casting_draws.ptr(), casting_draws.size())", self.source)
+        self.assertNotIn("previous.draw_list_upload ==", self.source)
+        runner = (ROOT / "tests/ci/run_module_tests.py").read_text(encoding="utf-8")
+        self.assertRegex(runner, r"\(\s*True,\s*_run_shader_host_numerics_guard,")
+        self.assertTrue(re.search(r'"GaussianSplatting \[HLOD\]",\s*\("\*GaussianSplatting\*\]\[HLOD\]\*",\),\s*\([^()]*\),\s*True,', runner),
+                        "native HLOD regressions must remain in the strict host lane")
+
+    def test_camera_and_whole_list_cannot_enter_per_light_key(self) -> None:
+        self.assertIn("inline AABB record_bounds(", self.source, "P1c requires world-space per-record content")
+        publish = self.source[self.source.index("struct PublishedContent {"):self.source.index("inline AABB record_bounds(")]
+        self.assertIn("for (float &offset : draws[i].camera_offset) { offset = 0; }", publish)
+        digest = self.source[self.source.index("inline uint64_t record_digest("):self.source.index("inline uint64_t row_digest(")]
+        for forbidden in ("camera", "bundle_builds", "source_revision", "draw_list_upload", "instance_id", "content_revision", "p_draw.chunk_id"):
+            self.assertNotIn(forbidden, digest)
+        for required in ("p_geometry.chunk_key", "p_geometry.payload", "p_row_digest", "p_geometry.bounds"):
+            self.assertIn(required, digest)
+        prepare = self.source[self.source.index("inline LightUpdate prepare_light("):]
+        self.assertIn("owner.revision = 0;", prepare)
+        self.assertEqual(re.findall(r"owner\.revision\s*[+^|*/-]?=", prepare), ["owner.revision ="])
+        self.assertNotIn("source.revision", prepare, "light-local digest must not mix in a whole-owner/list revision")
+        self.assertIn("owner.animated = false;", prepare)
+        self.assertIn("source.content->query(0, p_center, p_radius, owner.revision, owner.record_count, owner.animated)", prepare)
+        self.assertIn("if (owner.record_count == 0) { continue; }", prepare)
+        query = self.source[self.source.index("inline void ContentIndex::query("):self.source.index("inline uint64_t record_digest(")]
+        self.assertIn("if (!sphere_intersects_bounds(p_center, p_radius, cell.bounds)) { return; }", query)
+        self.assertIn("if (!sphere_intersects_bounds(p_center, p_radius, record.bounds)) { continue; }", query)
+        self.assertIn("r_digest += record.digest;", query)
+        self.assertIn("r_animated |= record.animated;", query)
+        self.assertIn("if (sphere_contains_bounds(p_center, p_radius, cell.bounds))", query)
+        for field in ("digest", "count", "animated"):
+            self.assertIn("cell." + field, query)
+        self.assertIn("root.add(record)", self.source)
+        self.assertIn("cells[child].add(records[i])", self.source)
+        self.assertIn("bounds = enclosing_merge(bounds, p_record.bounds)", self.source)
+        self.assertIn("row.ids[0] = 0;", self.source)
+        self.assertIn("row.lod[0] = row.lod[1] = 0;", self.source)
+        self.assertNotIn("p_content", query) # No whole-list fallback in the per-light query.
+        rebuild = self.source[self.source.index("inline void ContentIndex::rebuild("):self.source.index("inline bool needs_refresh(")]
+        self.assertIn("if (row >= p_rows.size() || !p_record.row_casts[row]) { continue; }", rebuild)
+        self.assertIn("p_margins[row]", rebuild)
+        self.assertIn("spatial.animated = p_animated[row] != 0;", rebuild)
+        self.assertIn("spatial.digest = record_digest(draw, p_content.geometry[i], row_digests[row]);", rebuild)
+        # Structural RED on P1b and on removal of native assertion wiring, not a helper that nobody calls.
+        native = (ROOT / "modules/gaussian_splatting/tests/test_hlod_shadow_casters.cpp").read_text(encoding="utf-8")
+        for case in ("static omni ignores moving anchor and far cut but refreshes near cut",
+                     "wind and effectors refresh only casting records near the light",
+                     "inflated records enter light and final departure clears once",
+                     "static depth at two anchors has the same light clip coordinates",
+                     "dense chunk row and legacy camera LOD remaps preserve light content",
+                     "large-coordinate record and aggregate bounds retain their positive edge"):
+            self.assertIn('TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] ' + case + '")', native)
+
+    def test_aggregate_cell_requires_complete_sphere_enclosure(self) -> None:
+        vec3 = self.containment.namespace["vec3"]
+        contains = self.containment.fn("contains")
+        self.assertTrue(contains(vec3(0), 2, vec3(-1), vec3(2)))
+        self.assertFalse(contains(vec3(0), 1, vec3(-1), vec3(2)), "intersecting does not mean fully contained")
+        self.assertFalse(contains(vec3(0), 2, vec3(99, -1, -1), vec3(2)))
+        self.assertTrue(contains(vec3(0), 3, vec3(0), vec3(3, 0, 0)))
+        self.assertFalse(contains(vec3(0), -1, vec3(0), vec3(0)))
+
+    def test_light_volume_filter_excludes_far_cut_and_animation_with_inflation(self) -> None:
+        # Execute production sphere/AABB arithmetic and production refresh predicate, varying light-local inputs.
+        vec3 = self.geometry.namespace["vec3"]
+        intersects = self.geometry.fn("intersects")
+        def hits(x: float, margin: float = 0.0) -> bool:
+            return intersects(vec3(0, 0, 0), 2, vec3(x - margin, -1 - margin, -1 - margin),
+                              vec3(2 + 2 * margin))
+        self.assertTrue(hits(-1))
+        self.assertFalse(hits(99))
+        for far_changed, far_animated in ((True, False), (False, True), (True, True)):
+            self.assertFalse(self.decision(True, True, far_changed and hits(99), far_animated and hits(99)))
+        self.assertTrue(self.decision(True, True, hits(-1), False))
+        self.assertTrue(self.decision(True, True, False, hits(-1)))
+        self.assertFalse(hits(4))
+        self.assertTrue(hits(4, 2), "wind/effector bound can reach the light even when rest bounds cannot")
+
+
+class HlodWindFieldTests(unittest.TestCase):
+    """W-S: execute the production position field; reject identity/address inputs."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.source = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
+        cls.program = glsl.GlslProgram(cls.source, defines={
+            "GS_INSTANCE_WIND_MODE_FORCE_ENABLED": "2u",
+            "GS_INSTANCE_WIND_MODE_FORCE_DISABLED": "1u",
+        })
+        # Standard GLSL scalar sin, evaluated in double as the rest of this harness.
+        cls.program.namespace["sin"] = math.sin
+
+    def test_phase_is_smooth_scene_rest_field_without_identity_inputs(self) -> None:
+        noise = self.program.fn("gs_wind_phase_noise")
+        vec3 = self.program.namespace["vec3"]
+        for position in ((1.2, 7.1, -3.4), (31.999, 0.0, -64.001), (-0.001, 1.0, 32.0)):
+            # Relocating this rest point to any atlas slot or row cannot enter the field's API.
+            reference = noise(vec3(*position))
+            for atlas_index, instance_id in ((0, 0), (413, 21), (900001, 63)):
+                self.assertEqual(noise(vec3(*position)), reference, (atlas_index, instance_id))
+            nearby = noise(vec3(position[0] + 0.001, position[1], position[2]))
+            self.assertLess(abs(reference - nearby), 0.001)
+        for boundary in (-64.0, -32.0, 0.0, 32.0, 64.0):
+            left = noise(vec3(boundary - 1.0e-4, 0.0, 11.0))
+            right = noise(vec3(boundary + 1.0e-4, 0.0, 11.0))
+            self.assertAlmostEqual(left, right, delta=1.0e-5)
+        self.assertNotIn("stable_seed", self.source)
+        self.assertNotIn("phase_jitter", self.source)
+        for path in (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl", SHADERS_DIR / "tile_binning.glsl"):
+            self.assertNotIn("uint stable_seed", path.read_text(encoding="utf-8"))
+
+    def test_fade_reaches_zero_at_distance_and_coarse_level(self) -> None:
+        fade = self.program.fn("gs_wind_distance_level_fade")
+        vec3 = self.program.namespace["vec3"]
+        self.assertEqual(fade(vec3(0.0), glsl.U32(0)), 1.0)
+        self.assertEqual(fade(vec3(64.0, 0.0, 0.0), glsl.U32(0)), 1.0)
+        self.assertEqual(fade(vec3(128.0, 0.0, 0.0), glsl.U32(0)), 0.0)
+        self.assertEqual(fade(vec3(0.0), glsl.U32(4)), 0.0)
+        self.assertGreater(fade(vec3(96.0, 0.0, 0.0), glsl.U32(2)), 0.0)
+        self.assertLess(fade(vec3(96.0, 0.0, 0.0), glsl.U32(2)), 1.0)
+
+    def test_displacement_bound_dominates_signed_wind_and_effector_push(self) -> None:
+        bound = self.program.fn("gs_wind_displacement_bound")
+        self.assertEqual(bound(2.0, 3.0, 4.0), 30.0)
+        self.assertEqual(bound(0.0, 3.0, 4.0), 0.0)
+        self.assertEqual(bound(2.0, 0.0, 4.0), 0.0)
+        self.assertEqual(bound(-1.0, 3.0, 4.0), 0.0)
+        for strength in (1.0, 2.0, 10.0):
+            for intensity in (0.0, 0.3, 2.0):
+                for push in (0.0, 0.2, 4.0):
+                    for phase in (-1.0, 0.0, 1.0):
+                        displacement = phase * strength * intensity + phase * push * intensity
+                        self.assertLessEqual(abs(displacement), bound(strength, intensity, push))
+
+    def test_caster_and_colour_math_follow_current_frame_time(self) -> None:
+        displacement = self.program.fn("gs_wind_displacement")
+        vec3 = self.program.namespace["vec3"]
+        rest = vec3(1.25, 0.5, -4.0)
+        previous = displacement(rest, 0.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        colour = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        caster = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        self.assertEqual(caster, colour)
+        self.assertGreater(abs(caster - previous), 0.01)
+        self.assertEqual(displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 0.0), 0.0)
+
+    def test_depth_inflation_retains_wind_reachable_edge_splat(self) -> None:
+        # Execute the actual GPU frustum helper and actual displacement bound,
+        # with one right plane at x=1. A resting splat centred at x=1.4 can
+        # sway into the view; culling its uninflated sphere would pop it out.
+        source = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text(encoding="utf-8")
+        helper = re.search(r"bool gs_sphere_frustum_visible\([^\n]+\).*?\n\}", source, re.S)
+        self.assertIsNotNone(helper)
+        program = glsl.GlslProgram(helper.group(0))
+        vec3, vec4 = program.namespace["vec3"], program.namespace["vec4"]
+        program.namespace["dot"] = lambda a, b: sum(x * y for x, y in zip(a.c, b.c))
+        program.namespace["params"] = SimpleNamespace(
+            cull_frustum_radius=vec4(1.0, 1.0, 1.0, 0.0),
+            frustum_planes=[vec4(1.0, 0.0, 0.0, 1.0)] + [vec4(0.0, 0.0, 0.0, 10.0)] * 5)
+        visible = program.fn("gs_sphere_frustum_visible")
+        margin = self.program.fn("gs_wind_displacement_bound")(0.5, 1.0, 0.0)
+        rest, radius = vec3(1.4, 0.0, 0.0), 0.1
+        self.assertFalse(visible(rest, radius), "forcing control must actually cull the rest sphere")
+        self.assertTrue(visible(rest, radius + margin), "inflation must preserve the wind-reachable splat")
+
+    def test_colour_depth_and_caster_use_same_rest_field_and_caster_current_time(self) -> None:
+        paths = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl",
+                 SHADERS_DIR / "tile_binning.glsl", SHADERS_DIR / "gs_shadow_caster.glsl")
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            self.assertIn('gs_deformation.glsl"', source, path)
+            self.assertIn("gs_apply_wind_deformation(", source, path)
+            self.assertIn("gs_wind_distance_level_fade(", source, path)
+            for field in ("instance.params.z", "instance.params.w", "instance.wind_params", "instance.effect_params"):
+                self.assertIn(field, source, path)
+        caster = paths[2].read_text(encoding="utf-8")
+        self.assertLess(caster.index("GSDeformationResult deformation"), caster.index("params.light_from_frame * vec4(frame_position"))
+        self.assertIn("deformation.opacity * instance.params.x", caster)
+        self.assertIn("frame_position = deformation.position", caster)
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        start = host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")
+        body = host[start:host.index("bool GaussianSplatRenderer::render_shadow_depth_map(", start)]
+        self.assertIn("compute_wind_time_seconds(", body)
+        self.assertIn("inputs.deformation.wind_time_config[0]", body)
+        # The previous view supplies rows/list, never a cached animation timestamp.
+        self.assertNotRegex(body, r"record\.(?:wind_time|animation_time)")
+        depth = paths[0].read_text(encoding="utf-8")
+        self.assertIn("gs_row_deformation_bound(", depth)
+        self.assertIn("splat_radius + deformation_margin", depth)
+
+    def test_caster_deformation_buffer_matches_host_without_growing_push_constants(self) -> None:
+        shader = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        header = (renderer / "gs_shadow_caster.h").read_text(encoding="utf-8")
+        host = (renderer / "gs_shadow_caster.cpp").read_text(encoding="utf-8")
+        shader_block = re.search(r"binding = 6, std430\) readonly buffer DeformationBuffer\s*\{([^}]+)\}", shader)
+        host_block = re.search(r"struct DeformationUniform\s*\{(.*?)\n\s*\};", header, re.S)
+        self.assertIsNotNone(shader_block)
+        self.assertIsNotNone(host_block)
+        # Derive field order and array extents from both definitions, including
+        # the actual shared effector capacity, rather than checking a spare size.
+        layout = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text(encoding="utf-8")
+        count = int(re.search(r"#define GS_MAX_SPHERE_EFFECTORS\s+(\d+)", layout).group(1))
+        shader_fields = [(name, count if array else 1) for name, array in
+                         re.findall(r"vec4\s+(\w+)\s*(\[GS_MAX_SPHERE_EFFECTORS\])?\s*;", shader_block.group(1))]
+        # Each host field ends in four floats; nested arrays describe N vec4s.
+        host_fields = []
+        for name, rows, columns in re.findall(r"float\s+(\w+)\[(\d+)\](?:\[(\d+)\])?", host_block.group(1)):
+            self.assertEqual(int(columns or rows), 4)
+            host_fields.append((name, int(rows) if columns else 1))
+        self.assertEqual(shader_fields, host_fields)
+        self.assertEqual(sum(extent * 16 for _, extent in shader_fields), 256)
+        self.assertIn("storage_uniform(6, deformation_buffer)", host)
+        self.assertIn("_free_deformation_buffer();", host)
 
 
 if __name__ == "__main__":

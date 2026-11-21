@@ -1275,6 +1275,7 @@ CullResult GPUCuller::cull(const CullParams &p_params, const CullInputBuffers &p
 
     dispatch_device->compute_list_bind_compute_pipeline(compute_list, pipeline);
     dispatch_device->compute_list_bind_uniform_set(compute_list, cull_uniform_set, 0);
+    GaussianSplatting::GpuPassTiming::record_dispatch(dispatch_device, GaussianSplatting::GpuPassTiming::PASS_CULL);
     dispatch_device->compute_list_dispatch(compute_list, group_count, 1, 1);
     dispatch_device->compute_list_add_barrier(compute_list);
     dispatch_device->compute_list_end();
@@ -1529,6 +1530,7 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     p_inputs.device->compute_list_bind_compute_pipeline(compute_list, pipeline);
     p_inputs.device->compute_list_bind_uniform_set(compute_list, cull_uniform_set, 0);
 
+    GaussianSplatting::GpuPassTiming::record_dispatch(p_inputs.device, GaussianSplatting::GpuPassTiming::PASS_CULL);
     p_inputs.device->compute_list_dispatch(compute_list, group_x, instance_count, 1);
     p_inputs.device->compute_list_add_barrier(compute_list);
     p_inputs.device->compute_list_end();

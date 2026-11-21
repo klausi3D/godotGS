@@ -354,9 +354,10 @@ inline void world_view_caps(uint32_t p_leaf_count, int p_max_splats, uint64_t p_
 // kCostInsideDistanceFraction of the radius.
 inline bool object_view_demand(const InstanceAsset &p_asset, const Vector3 &p_world_center, float p_uniform_scale,
 		const Plane *p_frustum, bool p_frustum_enabled, const Vector3 &p_camera, double p_focal_pixels, double p_tile_area,
-		double &r_importance, double &r_records) {
+		double &r_importance, double &r_records, double p_displacement_margin = 0.0) {
 	const double scale = std::fabs(double(p_uniform_scale));
-	const double radius = double(p_asset.bounds_radius) * scale;
+	const double rest_radius = double(p_asset.bounds_radius) * scale;
+	const double radius = rest_radius + std::sqrt(3.0) * MAX(0.0, p_displacement_margin);
 	if (p_frustum_enabled && p_frustum) {
 		for (int i = 0; i < 6; ++i) {
 			if (double(p_frustum[i].distance_to(p_world_center)) > radius) { return false; }
@@ -369,8 +370,11 @@ inline bool object_view_demand(const InstanceAsset &p_asset, const Vector3 &p_wo
 	r_importance = radius * p_focal_pixels / MAX(dist, 1.0e-6);
 	const double d = MAX(MAX(dist - radius, 1.0e-6), gs_hlod_runtime::kCostInsideDistanceFraction * radius);
 	const double tile_area = p_tile_area > 0.0 ? p_tile_area : 1.0;
+	// Enlarging the cost-floor radius must not reduce an inside-sphere record estimate.
+	const double ratio = MAX(1.0, gs_hlod_runtime::kCostInsideDistanceFraction * radius / MAX(1.0e-6,
+			gs_hlod_runtime::kCostInsideDistanceFraction * rest_radius));
 	r_records = double(p_asset.splat_count) +
-			p_asset.footprint * scale * scale * p_focal_pixels * p_focal_pixels / (MAX(d * d, 1.0e-12) * tile_area);
+			p_asset.footprint * ratio * ratio * scale * scale * p_focal_pixels * p_focal_pixels / (MAX(d * d, 1.0e-12) * tile_area);
 	return true;
 }
 

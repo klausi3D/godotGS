@@ -589,6 +589,8 @@ func _run() -> void:
 		var world_instances_proved := await _run_world_plus_instances_proof()
 		if not world_instances_proved:
 			return
+		if not await _run_streamed_wind_proof():
+			return
 		# Splat shadow casters (#1095, #1163): the same route casts into Godot's directional shadow map (own wall-clock bound).
 		# Both world kinds: a streamed (paged) world idles its bundle at the end of every frame and draws its objects alone
 		# while its cut loads, and must cast all the same.
@@ -609,6 +611,153 @@ func _run() -> void:
 		quit(0)
 		return
 	_fail("No two consecutive admitted main-view frames within deadline; last reason: %s" % _metrics.get("last_hlod_reason", "renderer unavailable"))
+
+
+# W-S: runs in the existing streaming-gpu-ci main-view scenario. Exact raw viewport bytes,
+# fixed pose, TAA/MSAA disabled. Readiness is a condition with a wall-clock deadline.
+func _wind_capture(node: GaussianSplatWorld3D, deadline: int) -> Image:
+	var previous_frame := -1
+	while Time.get_ticks_msec() < deadline:
+		await RenderingServer.frame_post_draw
+		if Time.get_ticks_msec() >= deadline:
+			break
+		var renderer := node.get_renderer()
+		if renderer == null:
+			previous_frame = -1
+			continue
+		var stats := renderer.get_render_stats()
+		if str(stats.get("hlod_reason", "")) != "active" or not renderer.has_rendered_content():
+			previous_frame = -1
+			continue
+		if not _check(stats.has("hlod_streaming") and bool(stats["hlod_streaming"]), "W-S capture did not use the streamed HLOD route"):
+			return null
+		var frame := int(stats.get("frame_count", -1))
+		if previous_frame >= 0 and frame == previous_frame + 1:
+			return get_root().get_texture().get_image()
+		previous_frame = frame
+	_fail("W-S: streamed wind capture never became ready before deadline")
+	return null
+
+
+func _run_streamed_wind_proof() -> bool:
+	# The proof renders at 128x128. Restore the root size so later sections (shadow casters, WI_SIZE) capture
+	# at the size they expect, on every exit path.
+	var previous_size := get_root().size
+	var ok: bool = await _run_streamed_wind_proof_body()
+	get_root().size = previous_size
+	await process_frame
+	return ok
+
+
+func _run_streamed_wind_proof_body() -> bool:
+	_cleanup()
+	await process_frame
+	get_root().size = Vector2i(128, 128)
+	var data := GaussianData.new()
+	data.resize(2)
+	data.set_positions(PackedVector3Array([Vector3(-0.35, 0.0, -4.0), Vector3(0.35, 0.0, -4.0)]))
+	data.set_scales(PackedVector3Array([Vector3(0.12, 0.12, 0.12), Vector3(0.12, 0.12, 0.12)]))
+	var rotations: Array[Quaternion] = [Quaternion(), Quaternion()]
+	data.set_rotations(rotations)
+	data.set_opacities(PackedFloat32Array([0.6, 0.6]))
+	var colour := _wi_dc(Color(0.1, 0.9, 0.2))
+	var sh := PackedFloat32Array()
+	sh.append_array(colour)
+	sh.append_array(colour)
+	data.set_spherical_harmonics(sh)
+	var world := GaussianSplatWorld.new()
+	world.gaussian_data = data
+	if not _check(world.bake_hlod() == OK, "W-S bake failed"):
+		return false
+	var path := "user://hlod_wind_%d.gsplatworld" % OS.get_process_id()
+	if not _check(world.save_hlod_paged(path) == OK, "W-S paged save failed"):
+		return false
+	world = ResourceLoader.load(path, "GaussianSplatWorld", ResourceLoader.CACHE_MODE_IGNORE)
+	if not _check(world != null and world.has_hlod_paged_source(), "W-S paged source missing"):
+		return false
+	_scene = Node3D.new()
+	get_root().add_child(_scene)
+	var camera := Camera3D.new()
+	camera.fov = 70.0
+	_scene.add_child(camera)
+	camera.make_current()
+	_node = GaussianSplatWorld3D.new()
+	_node.set_auto_apply_on_ready(false)
+	_node.world = world
+	_scene.add_child(_node)
+	_node.apply_world()
+	var deadline := Time.get_ticks_msec() + TIMEOUT_MSEC
+	var prefix := "rendering/gaussian_splatting/animation/"
+	var settings := {"wind_strength": 0.8, "wind_frequency": 5.0, "wind_enabled": false,
+		"wind_direction_x": 1.0, "wind_direction_y": 0.0, "wind_direction_z": 0.0,
+		"wind_spatial_frequency": 0.1, "wind_time_scale": 1.0}
+	var previous_settings: Dictionary = {}
+	for key in settings:
+		previous_settings[key] = ProjectSettings.get_setting(prefix + key)
+		ProjectSettings.set_setting(prefix + key, settings[key])
+	ProjectSettings.emit_signal("settings_changed")
+	var off := await _wind_capture(_node, deadline)
+	if off == null:
+		return false
+	var off_signal := false
+	for y in range(off.get_height()):
+		for x in range(off.get_width()):
+			var pixel := off.get_pixel(x, y)
+			off_signal = off_signal or pixel.r > 0.0 or pixel.g > 0.0 or pixel.b > 0.0
+	if not _check(off_signal, "W-S OFF comparison has no rendered scene signal"):
+		return false
+	_node.wind_enabled = true
+	var opted_off := await _wind_capture(_node, deadline)
+	if opted_off == null or not _check(off.get_data() == opted_off.get_data(), "W-S wind_off_identical: opted-in/OFF differs from undeformed pose"):
+		return false
+	ProjectSettings.set_setting(prefix + "wind_enabled", true)
+	_node.wind_enabled = false
+	ProjectSettings.emit_signal("settings_changed")
+	var legacy := await _wind_capture(_node, deadline)
+	if legacy == null or not _check(off.get_data() == legacy.get_data(), "W-S legacy_static: O4 world swayed without opt-in"):
+		return false
+	_node.wind_enabled = true
+	var first := await _wind_capture(_node, deadline)
+	if first == null:
+		return false
+	var wind_on_moved := false
+	while Time.get_ticks_msec() < deadline:
+		var current := await _wind_capture(_node, deadline)
+		if current == null:
+			return false
+		if current.get_data() != first.get_data():
+			wind_on_moved = true
+			break
+	if not _check(wind_on_moved and Time.get_ticks_msec() < deadline, "W-S opted-in streamed wind produced no moving image"):
+		return false
+	if not _check(world.has_hlod_paged_source(), "W-S wind materialised the paged source"):
+		return false
+	# The rest bound is wholly outside the right plane. Wind can pull it into view.
+	# FORCING: a TESTS_ENABLED run with GODOTGS_TEST_DISABLE_WIND_BOUND_INFLATION=1
+	# retains this assertion and must fail: the CPU cut never admits the outside rest node.
+	camera.position.x = -4.3
+	deadline = Time.get_ticks_msec() + TIMEOUT_MSEC
+	ProjectSettings.set_setting(prefix + "wind_strength", 4.0)
+	ProjectSettings.emit_signal("settings_changed")
+	var edge_visible := false
+	while Time.get_ticks_msec() < deadline and not edge_visible:
+		var edge := await _wind_capture(_node, deadline)
+		if edge == null:
+			return false
+		for y in range(edge.get_height()):
+			for x in range(edge.get_width()):
+				var pixel := edge.get_pixel(x, y)
+				if pixel.r > 0.0 or pixel.g > 0.0 or pixel.b > 0.0:
+					edge_visible = true
+	if not _check(edge_visible and Time.get_ticks_msec() < deadline, "W-S bound inflation lost the wind-displaced edge splats"):
+		return false
+	_metrics["streamed_wind"] = {"wind_off_identical": true, "legacy_static": true, "wind_on_moved": true, "inflated_edge_visible": true}
+	for key in previous_settings:
+		ProjectSettings.set_setting(prefix + key, previous_settings[key])
+	ProjectSettings.emit_signal("settings_changed")
+	_cleanup()
+	await process_frame
+	return true
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1423,8 +1572,8 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 
 # Own wall-clock bound, reached by both whole/paged shadow proofs in Resident HLOD Main View.
 # A has four cascade passes, B one; require different positive totals without assuming a per-cascade draw list.
-# C exercises the refused NOT_DIRECTIONAL route: a submitted light with zero casters must be present, while a
-# light with no submitted passes must be absent. Moving C forces fresh atlas updates instead of cached omni shadows.
+# C is an omni light (cube mode). Since #1424 it casts its own positive count on every cube face; a light with no
+# submitted passes must still be absent. Moving C forces fresh atlas updates instead of cached omni shadows.
 func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplatWorld3D, ball: GaussianSplatNode3D, light_a: DirectionalLight3D, mode: String) -> bool:
 	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
 	world_node.set_opacity(1.0)
@@ -1517,7 +1666,13 @@ func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplat
 			if with_omni:
 				var c: int = per_light[light_ids["C"]]
 				summed += c
-				if not _check(c == 0 and int(st["shadow_no_caster_rastered"]) >= 1, "%s: refused C must report zero casters and shadow_no_caster_rastered >= 1 (C=%d no_caster=%s)" % [what, c, st["shadow_no_caster_rastered"]]):
+				# Before #1424 the omni light C was refused (0 casters, shadow_no_caster_rastered >= 1). #1424 makes the
+				# HLOD caster draw omni cube faces, so C must now cast its own positive count on every cube face.
+				if not _check(c > 0 and c != a and c != b and int(st["shadow_no_caster_rastered"]) == 0, "%s: omni C must report its own positive caster count and shadow_no_caster_rastered == 0 (#1424) (C=%d A=%d B=%d no_caster=%s)" % [what, c, a, b, st["shadow_no_caster_rastered"]]):
+					return false
+				var kinds: Dictionary = st.get("shadow_light_pass_kinds", {})
+				var c_kind: Dictionary = kinds.get(light_ids["C"], {})
+				if not _check(String(c_kind.get("type", "")) == "omni_cube" and int(c_kind.get("passes", 0)) > 0 and int(c_kind.get("cast_passes", -1)) == int(c_kind.get("passes", 0)), "%s: omni C must cast on every cube-face pass (#1424) (kind=%s)" % [what, c_kind]):
 					return false
 			else:
 				if not _check(not per_light.has(light_ids["C"]), "%s: shadow_casters_rastered_per_light[%s] (disabled C) must be absent" % [what, light_ids["C"]]):
