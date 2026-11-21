@@ -43,6 +43,7 @@ public:
 	struct Inputs {
 		RID atlas_gaussian_buffer;
 		RID instance_buffer;
+        RID region_override_buffer;
 		RID chunk_meta_buffer;
 		RID page_table_buffer;
 		RID draw_list_buffer; // DrawnNodeGPU[] of the relative bundle (visible_chunk_buffer).

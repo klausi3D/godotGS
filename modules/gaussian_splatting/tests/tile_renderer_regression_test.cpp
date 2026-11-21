@@ -4329,3 +4329,257 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A per-tile raster cap 
 
     ds.free_buffers(rd);
 }
+
+// C's observations use the production TileRenderer (including its SH cache,
+// binning COUNT/EMIT and raster), never a color-composition mirror.
+#ifdef TESTS_ENABLED
+#include "../resources/gaussian_splat_region_override.h"
+#include "../renderer/gs_region_override_buffer.h"
+
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R1 every region pixel and no foreign pixel at two LOD levels") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("C R1 requires GpuSorting device"); return; }
+    ScopedTileCaptureManagerDevice manager_device(rd);
+    struct Owned {
+        RenderingDevice *rd; LocalVector<RID> rids;
+        ~Owned() { for (uint32_t i = rids.size(); i-- > 0;) { rd->free(rids[i]); } }
+        RID upload(const void *data, uint32_t size) {
+            Vector<uint8_t> bytes; if (bytes.resize(size) != OK) { return RID(); }
+            memcpy(bytes.ptrw(), data, size); RID value = rd->storage_buffer_create(size, bytes);
+            if (value.is_valid()) { rids.push_back(value); } return value;
+        }
+    } owned{rd, {}};
+    Ref<TileRenderer> tile; tile.instantiate();
+    if (tile->initialize(rd, Vector2i(64, 32), 16) != OK) { FAIL("C R1 tile init"); return; }
+    struct InstanceOwner {
+        RenderingDevice *rd; InstancePipelineTestInputs data;
+        ~InstanceOwner() { data.free(rd); }
+    } instances{rd, create_instance_pipeline_test_inputs(rd, 2)};
+    if (!instances.data.is_valid()) { FAIL("C R1 instance buffers"); return; }
+    PackedGaussian gaussians[2] = {};
+    for (int i = 0; i < 2; ++i) {
+        Gaussian g = {}; g.position = Vector3(i == 0 ? -1.0 : 1.0, 0, -5);
+        g.scale = Vector3(.16, .16, .16); g.rotation = Quaternion(); g.opacity = .9;
+        g.sh_dc = Color(.5, .5, .5); g.normal = Vector3(0,0,1); g.brush_axes = Vector2(1,1);
+        g.semantic = gaussian_pack_semantic(i + 1, 0);
+        SHCompressionMetrics metrics;
+        pack_gaussian(g, gaussians[i], metrics, nullptr, 0, 0, 0);
+    }
+    const uint32_t order[2] = {0,1}, sidecar[2] = {0,0}, no_owner = UINT32_MAX;
+    const RID atlas = owned.upload(gaussians, sizeof(gaussians));
+    const RID indices = owned.upload(order, sizeof(order));
+    ChunkMetaGPU chunk = {}; chunk.splat_count = 2;
+    const RID chunks = owned.upload(&chunk, sizeof(chunk));
+    DrawnNodeGPU draw = {0,0,1,0,{0,0,0,0}};
+    const RID draws = owned.upload(&draw, sizeof(draw));
+    const RID sidecars = owned.upload(sidecar, sizeof(sidecar));
+    const RID owners = owned.upload(&no_owner, sizeof(no_owner));
+    if (!atlas.is_valid() || !indices.is_valid() || !chunks.is_valid() || !draws.is_valid() || !sidecars.is_valid() || !owners.is_valid()) { FAIL("C R1 fixture buffers"); return; }
+    SplatRefGPU refs[2] = {{0,0}, {0,1}};
+    if (rd->buffer_update(instances.data.splat_ref_buffer,0,sizeof(refs),refs) != OK) { FAIL("C R1 references"); return; }
+    auto params = make_render_params(atlas, indices, 2, 64,32,16);
+    bind_instance_pipeline_inputs(params, instances.data, 2);
+    params.debug_show_performance_hud = false; params.enable_direct_lighting = false;
+    params.distance_cull_enabled = false; params.request_sh_amortization = true; params.wind_enabled = false;
+    params.compute_raster_policy = GaussianSplatting::ComputeRasterPolicy::ForceOff;
+    InstanceDataGPU row = {};
+    row.rotation[3] = row.inv_rotation[3] = row.translation_scale[3] = 1;
+    row.params[0] = 1; row.lod[1] = 0; row.placement_pad[0] = 3;
+    GSRegionOverrideBuffer overrides;
+    LocalVector<RegionOverrideGPU> entries; entries.resize(3);
+    for (auto &entry : entries) { entry = GSRegionOverrideBuffer::neutral(); }
+    auto render = [&](Vector<uint8_t> &pixels) {
+        if (!overrides.update(rd, entries) || rd->buffer_update(instances.data.instance_buffer,0,sizeof(row),&row) != OK) { return false; }
+        params.region_override_buffer = overrides.get(); ++params.frame_serial;
+        const RID texture = tile->render(rd, params);
+        return read_texture_pixels(rd,texture,pixels) && pixels.size() == 64*32*4;
+    };
+    // Warm the canonical resources before HLOD scratch admission.
+    Vector<uint8_t> warm;
+    if (!render(warm)) { FAIL("C R1 canonical warmup"); return; }
+    params.hlod_relative = true; params.hlod_draw_entry_buffer = sidecars;
+    params.hlod_draw_list_buffer = draws; params.hlod_page_owner_buffer = owners; params.chunk_meta_buffer = chunks;
+    params.hlod_source_generation = 1; params.hlod_content_generation = 1;
+    if (!tile->prepare_hlod_scratch(params,64u*1024u)) { FAIL("C R1 HLOD admission"); return; }
+    for (uint32_t level : {0u,2u}) {
+        draw.level = level; row.lod[0] = level;
+        // Distinct payload footprints as well as distinct draw levels.
+        for (auto &gaussian : gaussians) { for (float &scale : gaussian.scale) { scale = level == 0 ? .16f : .24f; } }
+        if (rd->buffer_update(atlas,0,sizeof(gaussians),gaussians) != OK) { FAIL("C R1 LOD payload upload"); return; }
+        if (rd->buffer_update(draws,0,sizeof(draw),&draw) != OK) { FAIL("C R1 draw level"); return; }
+        ++params.hlod_content_generation;
+        for (bool address_control : {false,true}) {
+            row.ids[1] = address_control ? 1u<<30 : 0;
+            for (auto &entry : entries) { entry = GSRegionOverrideBuffer::neutral(); }
+            Vector<uint8_t> before, after;
+            if (!render(before)) { FAIL("C R1 baseline pixels"); return; }
+            entries[1].tint[0] = 0; entries[1].tint[1] = 1; entries[1].tint[2] = 0; entries[1].tint[3] = 1;
+            if (!render(after)) { FAIL("C R1 tinted pixels"); return; }
+            int region_pixels = 0, tinted = 0, foreign_changes = 0;
+            for (int pixel = 0; pixel < 64*32; ++pixel) {
+                const int x = pixel % 64, at = pixel*4;
+                const bool covered = before[at] != 0 || before[at+1] != 0 || before[at+2] != 0;
+                const bool changed = before[at] != after[at] || before[at+1] != after[at+1] || before[at+2] != after[at+2];
+                if (x < 32 && covered) { ++region_pixels; if (changed && after[at+1] > after[at] && after[at+1] > after[at+2]) { ++tinted; } }
+                if (x >= 32 && changed) { ++foreign_changes; }
+            }
+            CHECK(region_pixels > 0);
+            if (!address_control) { CHECK(tinted == region_pixels); CHECK(foreign_changes == 0); }
+            else { CHECK(tinted != region_pixels); CHECK(foreign_changes > 0); }
+        }
+    }
+}
+#endif
+
+
+#ifdef TESTS_ENABLED
+#include "gs_hlod_page_store_test_fixture.h"
+#include "../core/gaussian_splat_scene_director.h"
+#include "../nodes/gaussian_splat_world_3d.h"
+#include "../renderer/gaussian_splat_renderer.h"
+#include "gs_test_pump.h"
+#include "../renderer/hlod_node_streamer.h"
+
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C][SceneTree] R2 same-frame tint survives far eviction near with deferred-upload control") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd || !WorkerThreadPool::get_singleton()) { FAIL("C R2 needs GpuSorting device and workers"); return; }
+    ScopedTileCaptureManagerDevice manager_device(rd);
+    TestHlodPageStore::Fixture source;
+    if (!source.build(false,2,1,0) || source.snapshot.is_null()) { FAIL("C R2 production V4 fixture"); return; }
+    struct Runtime {
+        RenderingDevice *rd; HlodNodeStreamer streamer; HlodNodeStreamer::Buffers buffers; LocalVector<RID> owned;
+        ~Runtime() { streamer.shutdown(); for (uint32_t i=owned.size();i-- > 0;) { rd->free(owned[i]); } }
+        RID upload(uint32_t size, const void *data=nullptr, uint8_t fill=0) {
+            Vector<uint8_t> bytes; if (bytes.resize(size) != OK) { return RID(); }
+            if (data) { memcpy(bytes.ptrw(),data,size); } else { memset(bytes.ptrw(),fill,size); }
+            RID rid=rd->storage_buffer_create(size,bytes); if (rid.is_valid()) { owned.push_back(rid); } return rid;
+        }
+    } runtime{rd,{}, {},{}};
+    HlodNodeStreamer::Config config; config.atlas_pages=source.node_count;
+    if (!runtime.streamer.init(source.snapshot,config,uint64_t(source.snapshot->get_instance_id()),rd->get_device_instance_id())) { FAIL("C R2 streamer init"); return; }
+    runtime.buffers.atlas=runtime.upload(uint32_t(runtime.streamer.atlas_bytes_capacity()));
+    runtime.buffers.chunk_meta=runtime.upload(source.node_count*sizeof(ChunkMetaGPU));
+    runtime.buffers.page_table=runtime.upload(source.node_count*runtime.streamer.get_residency().max_pages_per_node()*sizeof(uint32_t),nullptr,255);
+    runtime.buffers.page_owner=runtime.upload(config.atlas_pages*sizeof(uint32_t),nullptr,255);
+    if (!runtime.buffers.atlas.is_valid() || !runtime.buffers.chunk_meta.is_valid() || !runtime.buffers.page_table.is_valid() || !runtime.buffers.page_owner.is_valid()) { FAIL("C R2 streamer buffers"); return; }
+    uint32_t leaf=UINT32_MAX;
+    for (uint32_t node=1;node<source.node_count;++node) { if (source.snapshot->nodes[node].topology.child_count==0) { leaf=node; break; } }
+    if (leaf==UINT32_MAX) { FAIL("C R2 nonroot leaf required"); return; }
+    auto demand = [&](uint32_t node) {
+        runtime.streamer.begin_frame(rd,&runtime.buffers);
+        gs_hlod_runtime::DesiredRecord desired; desired.node=node;
+        runtime.streamer.update(rd,runtime.buffers,&desired,1,nullptr,0);
+        return runtime.streamer.resident_mask()[node] != 0;
+    };
+    const auto near_ready=TestGaussianSplatting::gs_pump_until([&]() { return demand(leaf); });
+    if (!near_ready.ready()) { FAIL("C R2 near leaf did not become resident before deadline"); return; }
+    ChunkMetaGPU chunk;
+    auto read_chunk = [&]() {
+        const auto bytes=rd->buffer_get_data(runtime.buffers.chunk_meta,leaf*sizeof(chunk),sizeof(chunk));
+        if (bytes.size()!=sizeof(chunk)) { return false; } memcpy(&chunk,bytes.ptr(),sizeof(chunk)); return chunk.splat_count==1;
+    };
+    if (!read_chunk()) { FAIL("C R2 real resident metadata"); return; }
+    Ref<TileRenderer> tile; tile.instantiate();
+    if (tile->initialize(rd,Vector2i(32,32),16)!=OK) { FAIL("C R2 tile init"); return; }
+    struct Instances { RenderingDevice *rd; InstancePipelineTestInputs inputs; ~Instances() { inputs.free(rd); } } instances{rd,create_instance_pipeline_test_inputs(rd,1)};
+    if (!instances.inputs.is_valid()) { FAIL("C R2 instance inputs"); return; }
+    const uint32_t order=0, sidecar=0;
+    DrawnNodeGPU draw={0,leaf,1,0,{0,0,-5,0}};
+    const RID indices=runtime.upload(sizeof(order),&order), draws=runtime.upload(sizeof(draw),&draw), sidecars=runtime.upload(sizeof(sidecar),&sidecar);
+    if (!indices.is_valid() || !draws.is_valid() || !sidecars.is_valid()) { FAIL("C R2 draw inputs"); return; }
+    InstanceDataGPU row={}; row.rotation[3]=row.inv_rotation[3]=row.translation_scale[3]=row.params[0]=1;
+    row.lod[1]=0; row.placement_pad[0]=1;
+    if (rd->buffer_update(instances.inputs.instance_buffer,0,sizeof(row),&row)!=OK) { FAIL("C R2 row"); return; }
+    auto params=make_render_params(runtime.buffers.atlas,indices,1,32,32,16);
+    params.total_gaussians=uint32_t(runtime.streamer.atlas_bytes_capacity()/sizeof(PackedGaussian));
+    bind_instance_pipeline_inputs(params,instances.inputs,1);
+    params.debug_show_performance_hud=false; params.enable_direct_lighting=false; params.distance_cull_enabled=false;
+    params.wind_enabled=false; params.request_sh_amortization=true;
+    params.compute_raster_policy=GaussianSplatting::ComputeRasterPolicy::ForceOff;
+    // Use the real node setter -> director record -> renderer upload path. The
+    // synthetic streamer supplies residency; no authored state is uploaded here.
+    struct SubmissionScope {
+        GaussianSplatSceneDirector *director = nullptr;
+        bool owns_director = false;
+        Ref<World3D> space;
+        GaussianSplatWorld3D *node = nullptr;
+        Ref<GaussianSplatRenderer> renderer;
+        ~SubmissionScope() {
+            if (node && director) { director->release_world_submission(node->get_instance_id()); }
+            renderer.unref();
+            if (node) { memdelete(node); }
+            if (director && space.is_valid()) { director->teardown_world_for_scenario(space->get_scenario()); }
+            if (owns_director) { memdelete(director); }
+        }
+    } submission_scope;
+    submission_scope.node=memnew(GaussianSplatWorld3D);
+    // Parent red must stop at the missing API before World3D's constructor,
+    // which requires RenderingServer. REQUIRE would not abort this build.
+    if (!submission_scope.node->has_method("set_tint") || !submission_scope.node->has_method("clear_all_region_overrides")) { FAIL("C R2 requires the bound region API"); return; }
+    if (!RenderingServer::get_singleton()) { FAIL("C R2 requires SceneTree RenderingServer before creating World3D"); return; }
+    submission_scope.director=GaussianSplatSceneDirector::get_singleton();
+    if (!submission_scope.director) { submission_scope.director=memnew(GaussianSplatSceneDirector); submission_scope.owns_director=true; }
+    submission_scope.space.instantiate();
+    submission_scope.node->set_world(source.world);
+    GaussianSplatSceneDirector::WorldSubmission submission;
+    submission.owner_id=submission_scope.node->get_instance_id(); submission.scenario=submission_scope.space->get_scenario();
+    source.world->capture_render_input(submission.gaussian_data,submission.payload_source,submission.static_chunks,submission.bounds,submission.metadata);
+    submission.hlod_snapshot=source.snapshot; submission.hlod_world_key=uint64_t(source.world->get_instance_id());
+    if (!submission_scope.director->submit_world_submission(submission)) { FAIL("C R2 real director submission"); return; }
+    submission_scope.renderer=submission_scope.director->get_shared_renderer(submission_scope.space.ptr());
+    if (submission_scope.renderer.is_null() || submission_scope.renderer->get_device_state().rd!=rd) { FAIL("C R2 real renderer must use harness device"); return; }
+    submission_scope.node->call("clear_all_region_overrides");
+    auto render = [&](Vector<uint8_t> &pixels) {
+        SplatRefGPU ref={0,chunk.atlas_base};
+        if (rd->buffer_update(instances.inputs.splat_ref_buffer,0,sizeof(ref),&ref)!=OK) { return false; }
+        submission_scope.renderer->test_begin_region_override_frame();
+        if (!submission_scope.renderer->sync_region_overrides()) { return false; }
+        params.region_override_buffer=submission_scope.renderer->get_region_override_buffer(); ++params.frame_serial;
+        return read_texture_pixels(rd,tile->render(rd,params),pixels) && pixels.size()==32*32*4;
+    };
+    Vector<uint8_t> warm;
+    // The canonical warm-up uses the same streamed Gaussian in front of the camera.
+    row.translation_scale[2]=-5;
+    if (rd->buffer_update(instances.inputs.instance_buffer,0,sizeof(row),&row)!=OK || !render(warm)) { FAIL("C R2 canonical warmup"); return; }
+    row.translation_scale[2]=0;
+    if (rd->buffer_update(instances.inputs.instance_buffer,0,sizeof(row),&row)!=OK) { FAIL("C R2 relative row"); return; }
+    params.hlod_relative=true; params.hlod_draw_entry_buffer=sidecars; params.hlod_draw_list_buffer=draws;
+    params.hlod_page_owner_buffer=runtime.buffers.page_owner; params.chunk_meta_buffer=runtime.buffers.chunk_meta;
+    params.hlod_source_generation=1; params.hlod_content_generation=1;
+    if (!tile->prepare_hlod_scratch(params,64u*1024u)) { FAIL("C R2 HLOD admission"); return; }
+    auto green = [](const Vector<uint8_t> &pixels) {
+        int visible=0;
+        for (int i=0;i<pixels.size();i+=4) {
+            if (pixels[i] || pixels[i+1] || pixels[i+2]) { ++visible; if (!(pixels[i+1]>pixels[i] && pixels[i+1]>pixels[i+2])) { return false; } }
+        }
+        return visible>0;
+    };
+    for (bool deferred : {false,true}) {
+        submission_scope.renderer->test_defer_region_override_upload(false);
+        submission_scope.node->call("set_tint",Color(0,1,0),0.0f);
+        Vector<uint8_t> before, first, second;
+        if (!render(before)) { FAIL("C R2 baseline"); return; }
+        CHECK(!green(before));
+        submission_scope.renderer->test_defer_region_override_upload(deferred);
+        CHECK(submission_scope.renderer->test_region_override_upload_is_deferred()==deferred);
+        submission_scope.node->call("set_tint",Color(0,1,0),1.0f);
+        if (!render(first)) { FAIL("C R2 setter frame"); return; }
+        if (!deferred) { CHECK(green(first)); } else { CHECK(first==before); CHECK(!green(first)); }
+        if (!render(second)) { FAIL("C R2 next frame"); return; }
+        CHECK(green(second));
+    }
+    submission_scope.renderer->test_defer_region_override_upload(false);
+    // Far uses the real coarser node, then evicts the actual nonroot page run.
+    const auto far_ready=TestGaussianSplatting::gs_pump_until([&]() { return demand(0); });
+    if (!far_ready.ready()) { FAIL("C R2 far root residency deadline"); return; }
+    const auto evicted=TestGaussianSplatting::gs_pump_until([&]() { demand(0); return runtime.streamer._test_evict_node(leaf)==OK; });
+    if (!evicted.ready()) { FAIL("C R2 leaf never became evictable"); return; }
+    CHECK(runtime.streamer.resident_mask()[leaf]==0);
+    const auto readmitted=TestGaussianSplatting::gs_pump_until([&]() { return demand(leaf); });
+    if (!readmitted.ready() || !read_chunk()) { FAIL("C R2 readmission deadline or metadata"); return; }
+    ++params.hlod_content_generation;
+    Vector<uint8_t> after_eviction;
+    if (!render(after_eviction)) { FAIL("C R2 pixels after eviction"); return; }
+    CHECK(green(after_eviction));
+}
+#endif

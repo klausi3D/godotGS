@@ -521,7 +521,7 @@ TEST_CASE("[GaussianSplatting][Streaming] Dense-id remap rejects stale mappings 
 	CHECK(system->remap_instance_asset_ids(mapped_a, false));
 
 	const uint32_t dense_a = mapped_a[0].ids[0];
-	const uint32_t dense_a_generation = mapped_a[0].lod[1];
+	const uint32_t dense_a_generation = mapped_a[0].placement_pad[1];
 	CHECK(dense_a != 0u);
 	CHECK(dense_a_generation != 0u);
 
@@ -535,7 +535,7 @@ TEST_CASE("[GaussianSplatting][Streaming] Dense-id remap rejects stale mappings 
 	CHECK(system->remap_instance_asset_ids(mapped_c, false));
 
 	const uint32_t dense_c = mapped_c[0].ids[0];
-	const uint32_t dense_c_generation = mapped_c[0].lod[1];
+	const uint32_t dense_c_generation = mapped_c[0].placement_pad[1];
 	CHECK(dense_c == dense_a);
 	CHECK(dense_c_generation != dense_a_generation);
 
@@ -543,11 +543,11 @@ TEST_CASE("[GaussianSplatting][Streaming] Dense-id remap rejects stale mappings 
 	stale_dense_mapping.resize(1);
 	stale_dense_mapping[0] = {};
 	stale_dense_mapping[0].ids[0] = dense_a;
-	stale_dense_mapping[0].lod[1] = dense_a_generation;
+	stale_dense_mapping[0].placement_pad[1] = dense_a_generation;
 
 	CHECK_FALSE(system->remap_instance_asset_ids(stale_dense_mapping, false));
 	CHECK(stale_dense_mapping[0].ids[0] == dense_a);
-	CHECK(stale_dense_mapping[0].lod[1] == dense_a_generation);
+	CHECK(stale_dense_mapping[0].placement_pad[1] == dense_a_generation);
 }
 
 TEST_CASE("[GaussianSplatting][Streaming] Dense-id remap rejects unknown asset ids without aliasing to primary") {
@@ -563,11 +563,11 @@ TEST_CASE("[GaussianSplatting][Streaming] Dense-id remap rejects unknown asset i
 	missing_mapping.resize(1);
 	missing_mapping[0] = {};
 	missing_mapping[0].ids[0] = missing_asset;
-	missing_mapping[0].lod[1] = 77u;
+	missing_mapping[0].placement_pad[1] = 77u;
 
 	CHECK_FALSE(system->remap_instance_asset_ids(missing_mapping, false));
 	CHECK(missing_mapping[0].ids[0] == missing_asset);
-	CHECK(missing_mapping[0].lod[1] == 77u);
+	CHECK(missing_mapping[0].placement_pad[1] == 77u);
 }
 
 TEST_CASE("[GaussianSplatting] Atlas byte stride tracks the EFFECTIVE quantization state (Q80A/Q80B)") {

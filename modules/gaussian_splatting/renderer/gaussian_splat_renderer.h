@@ -1056,6 +1056,13 @@ public:
             const LocalVector<uint64_t> *p_submission_asset_ids = nullptr);
     // Upload the per-instance color grading SSBO. Called alongside update_instance_buffer
     // from both the resident and streaming contract-publish paths.
+    bool sync_region_overrides() { return true; }
+    RID get_region_override_buffer() const { return RID(); }
+#ifdef TESTS_ENABLED
+    void test_begin_region_override_frame() {}
+    void test_defer_region_override_upload(bool) {}
+    bool test_region_override_upload_is_deferred() const { return false; }
+#endif
     bool update_instance_grading_buffer(const LocalVector<InstanceGradingGPU> &p_gradings);
 
     bool ensure_rendering_device(const char *p_context) { return _ensure_rendering_device(p_context); }

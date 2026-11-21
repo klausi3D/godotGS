@@ -53,6 +53,7 @@ TARGET_STRUCT_NAMES = ("PackedGaussian", "Gaussian", "GaussianQuantized")
 EXTRA_MIRROR_STRUCTS = (
     (HOST_LAYOUT, "InstanceDataGPU", "InstanceDataGPU"),
     (HOST_LAYOUT, "InstanceGradingGPU", "InstanceGradingGPU"),
+    (HOST_LAYOUT, "RegionOverrideGPU", "RegionOverrideGPU"),
     (HOST_LAYOUT, "AssetLodRangeGPU", "AssetLodRangeGPU"),
     (HOST_LAYOUT, "ChunkMetaGPU", "ChunkMetaGPU"),
     (HOST_LAYOUT, "AssetChunkIndexGPU", "AssetChunkIndexGPU"),

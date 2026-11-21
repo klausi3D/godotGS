@@ -170,6 +170,24 @@ static_assert(offsetof(SphereEffectorGPU, sphere) == 0, "SphereEffectorGPU.spher
 static_assert(offsetof(SphereEffectorGPU, config) == 16, "SphereEffectorGPU.config offset mismatch");
 static_assert(offsetof(SphereEffectorGPU, opacity_config) == 32, "SphereEffectorGPU.opacity_config offset mismatch");
 
+// Runtime semantic override, std430. Float API values are packed on upload.
+struct alignas(16) RegionOverrideGPU {
+    float tint[4];
+    uint32_t emissive_opacity[2];
+    uint32_t flags;
+    uint32_t padding;
+};
+static_assert(sizeof(RegionOverrideGPU) == 32, "RegionOverrideGPU must be 32 bytes");
+static_assert(alignof(RegionOverrideGPU) == 16, "RegionOverrideGPU alignment mismatch");
+static_assert(offsetof(RegionOverrideGPU, tint) == 0, "RegionOverrideGPU.tint offset mismatch");
+static_assert(offsetof(RegionOverrideGPU, emissive_opacity) == 16, "RegionOverrideGPU.emissive_opacity offset mismatch");
+static_assert(offsetof(RegionOverrideGPU, flags) == 24, "RegionOverrideGPU.flags offset mismatch");
+static_assert(offsetof(RegionOverrideGPU, padding) == 28, "RegionOverrideGPU.padding offset mismatch");
+static constexpr uint32_t GS_REGION_HIDE = 1u;
+static constexpr uint32_t GS_REGION_NO_WIND = 2u;
+static constexpr uint32_t GS_REGION_HIGHLIGHT = 4u;
+static constexpr uint32_t GS_REGION_NO_SHADOW = 8u;
+
 // Per-instance color grading (std430). Indexed by SplatRefGPU.instance_id, parallel to
 // InstanceDataGPU. Populated by GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer.
 //

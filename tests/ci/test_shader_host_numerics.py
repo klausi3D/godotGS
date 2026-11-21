@@ -36,6 +36,80 @@ _spec.loader.exec_module(glsl)
 # ---------------------------------------------------------------------------
 
 
+class CRegionOverrideNumerics(unittest.TestCase):
+    def test_row_abi_and_segment_lookup(self):
+        module = SHADERS_DIR.parent
+        host = (module / "renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        streaming = (module / "core/gaussian_streaming.cpp").read_text(encoding="utf-8")
+        lookup = (INCLUDES_DIR / "gs_region_override.glsl").read_text(encoding="utf-8")
+        self.assertIn("p_instances[i].placement_pad[1] = published_generation;", host)
+        self.assertIn("row.lod[1] = segment ? uint32_t(*segment) : UINT32_MAX;", host)
+        self.assertIn("row.placement_pad[0] = segment ? uint32_t(*segment >> 32) : 0;", host)
+        self.assertIn(".placement_pad[1]", streaming)
+        self.assertNotIn(".lod[1]", streaming)
+        self.assertIn("uint base = instance.lod.y;", lookup)
+        self.assertIn("uint segment_len = instance.placement_pad.x;", lookup)
+        self.assertIn("segment_len > count - base", lookup)
+        self.assertIn("base + min(region, segment_len - 1u)", lookup)
+
+    def test_application_and_upload_wiring(self):
+        module = SHADERS_DIR.parent
+        depth = (module / "compute/depth_compute.glsl").read_text(encoding="utf-8")
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text(encoding="utf-8")
+        caster = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        host = (module / "renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        for source in (depth, binning, caster):
+            self.assertIn("gs_region_resolve(instance,", source)
+            self.assertIn("gs_region_wind_semantic(", source)
+            self.assertIn("GS_REGION_HIDE", source)
+        self.assertLess(depth.index("if (reject_region) { return; }"), depth.index("atomicAdd(counters.visible_splat_count"))
+        tint = "sh_color = gs_region_tint(sh_color, region_override.tint, region_override.flags);"
+        self.assertIn(tint, binning)
+        self.assertGreater(binning.index(tint), binning.rindex("apply_color_grading_binning(sh_color, splat_ref.instance_id)"))
+        self.assertLess(binning.index(tint), binning.index("vec3 sh_albedo"))
+        self.assertGreater(binning.index("final_color += region_emissive_opacity.rgb"), binning.index("final_color += ambient"))
+        self.assertLess(binning.index("final_color += region_emissive_opacity.rgb"), binning.index("if (!gs_color_is_finite(final_color))"))
+        self.assertIn("GS_REGION_NO_SHADOW", caster)
+        self.assertNotIn("USE_QUANTIZED_GAUSSIANS", caster)
+        plan = (module / "renderer/hlod_shadow_caster_plan.h").read_text(encoding="utf-8")
+        self.assertIn("} else if (p_record.quantized) {\n\t\tplan.refusal = Refusal::QUANTIZED_PAYLOAD;", plan)
+        refresh = host[host.index("gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows()"):
+                       host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(")]
+        self.assertLess(refresh.index("sync_region_overrides()"), refresh.index("hlod_shadow_rows_latched()"))
+        upload = (module / "renderer/gs_region_override_buffer.h").read_text(encoding="utf-8")
+        self.assertIn("p_rd->buffer_update(buffer, first * sizeof(RegionOverrideGPU), (end - first) * sizeof(RegionOverrideGPU)", upload)
+
+    def test_packed_emissive_opacity_round_trip(self):
+        program = glsl.GlslProgram((INCLUDES_DIR / "gs_semantic.glsl").read_text() + (INCLUDES_DIR / "gs_region_override.glsl").read_text().replace('#include "gs_semantic.glsl"', ""))
+        uvec2 = program.namespace["uvec2"]
+        for emission in (0., 1., 1000., 65504., 70000.):
+            for opacity in (0., .5, 1.):
+                expected = min(emission, 65504.)
+                half = struct.unpack("<H", struct.pack("<e", expected))[0]
+                alpha = struct.unpack("<H", struct.pack("<e", opacity))[0]
+                got = program.fn("gs_region_emissive_opacity")(uvec2(half | half << 16, half | alpha << 16))
+                for component in (got.x, got.y, got.z):
+                    self.assertAlmostEqual(component, expected, delta=max(expected / 1024., 1.e-6))
+                self.assertAlmostEqual(got.w, opacity, delta=.0005)
+
+    def test_tint_coverage_has_exact_neutral_and_full_strength_endpoints(self):
+        program = glsl.GlslProgram((INCLUDES_DIR / "gs_semantic.glsl").read_text() + (INCLUDES_DIR / "gs_region_override.glsl").read_text().replace('#include "gs_semantic.glsl"', ""))
+        vec3, vec4 = program.namespace["vec3"], program.namespace["vec4"]
+        for color in (vec3(.2, .4, .6), vec3(1., 0., 0.)):
+            got = program.fn("gs_region_tint")(color, vec4(0., 1., 0., 1.), glsl.U32(0))
+            self.assertEqual(tuple(got), (0., 1., 0.))
+            neutral = program.fn("gs_region_tint")(color, vec4(0., 1., 0., 0.), glsl.U32(0))
+            self.assertEqual(tuple(neutral), tuple(color))
+
+    def test_no_wind_preserves_region_and_forces_a_valid_zero_weight(self):
+        program = glsl.GlslProgram((INCLUDES_DIR / "gs_semantic.glsl").read_text() + (INCLUDES_DIR / "gs_region_override.glsl").read_text().replace('#include "gs_semantic.glsl"', ""))
+        for semantic in (0, 0x80ff0007, 0x8f8000ff):
+            got = int(program.fn("gs_region_wind_semantic")(glsl.U32(semantic), glsl.U32(2)))
+            self.assertEqual(got & 0xffff, semantic & 0xffff)
+            self.assertEqual(got & 0xff0000, 0)
+            self.assertEqual(got & 0x80000000, 0x80000000)
+
+
 class GlslHostEvalSelfTests(unittest.TestCase):
     def test_half_conversion_matches_ieee_round_to_nearest_even(self) -> None:
         values = [0.0, -0.0, 1.0, 0.1, 1.0 / 3.0, 65504.0, 65519.0, 6.1e-5, 5.96e-8, 2.98e-8,
@@ -821,7 +895,7 @@ class HlodPositionalRefreshTests(unittest.TestCase):
                          "effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,",
                          "pack_deformation_effectors", "owner.bounds.grow_by",
                          "frame_displacement_bound(wind, &rows[row], 1, effector_push",
-                         "index.rebuild(state.hlod_shadow_content, record, rows, row_margins, row_animated)",
+                         "index.rebuild(region_content, record, rows, row_margins, row_animated)",
                          "owner.content = &index", "indexed_renderers.has(renderer_key)", "indexed_renderers.insert(renderer_key)",
                          "owner.owner = renderer_key", "gs_shadow_refresh::enclosing_merge(owner.bounds, index.cells[0].bounds)"):
             self.assertIn(required, collect)
@@ -874,7 +948,8 @@ class HlodPositionalRefreshTests(unittest.TestCase):
         self.assertIn("cells[child].add(records[i])", self.source)
         self.assertIn("bounds = enclosing_merge(bounds, p_record.bounds)", self.source)
         self.assertIn("row.ids[0] = 0;", self.source)
-        self.assertIn("row.lod[0] = row.lod[1] = 0;", self.source)
+        self.assertIn("row.lod[0] = 0;", self.source)
+        self.assertNotIn("row.lod[1] = 0;", self.source)
         self.assertNotIn("p_content", query) # No whole-list fallback in the per-light query.
         rebuild = self.source[self.source.index("inline void ContentIndex::rebuild("):self.source.index("inline bool needs_refresh(")]
         self.assertIn("if (row >= p_rows.size() || !p_record.row_casts[row]) { continue; }", rebuild)
@@ -1017,7 +1092,7 @@ class HlodWindFieldTests(unittest.TestCase):
                 self.assertIn(field, source, path)
         caster = paths[2].read_text(encoding="utf-8")
         self.assertLess(caster.index("GSDeformationResult deformation"), caster.index("params.light_from_frame * vec4(frame_position"))
-        self.assertIn("deformation.opacity * instance.params.x", caster)
+        self.assertIn("deformation.opacity * region_emissive_opacity.w * instance.params.x", caster)
         self.assertIn("frame_position = deformation.position", caster)
         host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
         start = host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")
