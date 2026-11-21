@@ -82,6 +82,7 @@ var namespaces_dup =
       [ "GS_MAX_TILE_KEY_TILE_MASK", "namespacegs__overlap__drop.html#af56ee38e198d2d479b3058395255d592", null ]
     ] ],
     [ "gs_shadow_caster", "namespacegs__shadow__caster.html", "namespacegs__shadow__caster" ],
+    [ "gs_shadow_refresh", "namespacegs__shadow__refresh.html", "namespacegs__shadow__refresh" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
     [ "gs_splat_ref", "namespacegs__splat__ref.html", [
       [ "uint", "namespacegs__splat__ref.html#a191aa2dfe0e99af442cea7247344bf42", null ],
@@ -96,6 +97,15 @@ var namespaces_dup =
     ] ],
     [ "gs_streaming_pool_growth", "namespacegs__streaming__pool__growth.html", "namespacegs__streaming__pool__growth" ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", "namespacegs__tier__cap" ],
+    [ "gs_wind", "namespacegs__wind.html", [
+      [ "displacement_bound", "namespacegs__wind.html#a9ec15cd459c242292de195beaf8a5dba", null ],
+      [ "fill_frame_params", "namespacegs__wind.html#ae9c841a3c7d0ec3b0e1a63dc20f37d04", null ],
+      [ "frame_displacement_bound", "namespacegs__wind.html#a0c9569e5a7585a08e8c240377e3dccde", null ],
+      [ "local_visibility_margin", "namespacegs__wind.html#a5ac3c318763c31e7ebfedfafaf28eea7", null ],
+      [ "row_has_effectors", "namespacegs__wind.html#a230a5f9b342c00debb0584c97ea65054", null ],
+      [ "row_wind_enabled", "namespacegs__wind.html#a99de649db1a03e75903c32bd66e6f1f1", null ],
+      [ "wind_active_on_casting_row", "namespacegs__wind.html#a7e6a5b670116c2422b70fb087e0c5ba8", null ]
+    ] ],
     [ "gs_world_format", "namespacegs__world__format.html", "namespacegs__world__format" ],
     [ "gs_world_frame", "namespacegs__world__frame.html", "namespacegs__world__frame" ],
     [ "gs_world_generator", "namespacegs__world__generator.html", "namespacegs__world__generator" ],

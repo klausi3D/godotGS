@@ -20,5 +20,6 @@ var searchData=
   ['overlapmeasurementdecision_17',['OverlapMeasurementDecision',['../structGaussianSplatting_1_1OverlapMeasurementDecision.html',1,'GaussianSplatting']]],
   ['overlapoverflowrecoveryplan_18',['OverlapOverflowRecoveryPlan',['../structGaussianSplatting_1_1OverlapOverflowRecoveryPlan.html',1,'GaussianSplatting']]],
   ['overlapworldneed_19',['OverlapWorldNeed',['../structgs__hlod__bundle_1_1OverlapWorldNeed.html',1,'gs_hlod_bundle']]],
-  ['ownermismatchremediationresult_20',['OwnerMismatchRemediationResult',['../structOwnerMismatchRemediationResult.html',1,'']]]
+  ['owner_20',['Owner',['../structgs__shadow__refresh_1_1Owner.html',1,'gs_shadow_refresh']]],
+  ['ownermismatchremediationresult_21',['OwnerMismatchRemediationResult',['../structOwnerMismatchRemediationResult.html',1,'']]]
 ];

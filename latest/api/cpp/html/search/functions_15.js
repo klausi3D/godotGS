@@ -87,7 +87,8 @@ var searchData=
   ['update_5fvisible_5frange_84',['update_visible_range',['../classGaussianMemoryStream.html#abc6cf5b9fe8f5b5eb4a7ba0775d271e5',1,'GaussianMemoryStream::update_visible_range()'],['../classStreamingPipeline.html#ad17fa8a58f4e3b8690352a9555b7affb',1,'StreamingPipeline::update_visible_range()']]],
   ['upload_5fasset_5fto_5frenderer_85',['upload_asset_to_renderer',['../classGaussianSplatNodeRendererHelper.html#a8a100d7de31490269bc79670474c45b1',1,'GaussianSplatNodeRendererHelper']]],
   ['upload_5fgaussian_5fdata_86',['upload_gaussian_data',['../classGPUBufferManager.html#a3f3a5e4901c94f1c9d390bb9f4bf3916',1,'GPUBufferManager']]],
-  ['uses_5fpage_5fstore_87',['uses_page_store',['../classHlodNodeStreamer.html#a79b528c60c63ad599f12e28cadcb46f4',1,'HlodNodeStreamer']]],
-  ['uses_5fretained_5fadmission_88',['uses_retained_admission',['../classPayloadPageStore.html#ae72bb77ac26cfd21b7561be8b8f13932',1,'PayloadPageStore']]],
-  ['usesfloat16_89',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]]
+  ['uses_5fhlod_5fshadow_5fcasters_87',['uses_hlod_shadow_casters',['../classGaussianSplatRenderer.html#af91a86b2b04f7cd1565f64e12821c607',1,'GaussianSplatRenderer']]],
+  ['uses_5fpage_5fstore_88',['uses_page_store',['../classHlodNodeStreamer.html#a79b528c60c63ad599f12e28cadcb46f4',1,'HlodNodeStreamer']]],
+  ['uses_5fretained_5fadmission_89',['uses_retained_admission',['../classPayloadPageStore.html#ae72bb77ac26cfd21b7561be8b8f13932',1,'PayloadPageStore']]],
+  ['usesfloat16_90',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]]
 ];

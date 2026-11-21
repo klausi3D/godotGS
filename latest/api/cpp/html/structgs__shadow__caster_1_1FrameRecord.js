@@ -11,8 +11,12 @@ var structgs__shadow__caster_1_1FrameRecord =
     [ "origin_revision", "structgs__shadow__caster_1_1FrameRecord.html#a728331273a49efdd95221ec1ced50e8a", null ],
     [ "quantized", "structgs__shadow__caster_1_1FrameRecord.html#ae1f3a0c9f2dbaa771fbd12d0b492f14c", null ],
     [ "renderer_frame", "structgs__shadow__caster_1_1FrameRecord.html#ad3fd155f6d9b814900004204ab587884", null ],
+    [ "row_asset_ids", "structgs__shadow__caster_1_1FrameRecord.html#a57863f3ef073c747a5faf3ab04759467", null ],
     [ "row_casts", "structgs__shadow__caster_1_1FrameRecord.html#a15d59ce16c3a600e8502117da8c24b41", null ],
+    [ "row_in_list", "structgs__shadow__caster_1_1FrameRecord.html#aec177a6662bfa2317f3c4ebaf0e2c2c4", null ],
+    [ "row_keys", "structgs__shadow__caster_1_1FrameRecord.html#a39d4e3475c5083a9fe6c29fd808f0af6", null ],
     [ "valid", "structgs__shadow__caster_1_1FrameRecord.html#ab33c75284ac56c7b0b3b6e6df4dba5ce", null ],
+    [ "world_list_splats", "structgs__shadow__caster_1_1FrameRecord.html#a0a3ab5ebb411351c26f3d6f2090f32d5", null ],
     [ "world_records", "structgs__shadow__caster_1_1FrameRecord.html#ae9c1eb29e527073fa94e3bb5c0c24456", null ],
     [ "world_splats", "structgs__shadow__caster_1_1FrameRecord.html#a79bd16626d854488c02060a394787980", null ]
 ];

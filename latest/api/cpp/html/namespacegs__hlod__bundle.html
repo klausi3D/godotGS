@@ -164,7 +164,7 @@ Functions</h2></td></tr>
 <tr class="memitem:ad92628d7c9d827f39f255edf27f3328b" id="r_ad92628d7c9d827f39f255edf27f3328b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad92628d7c9d827f39f255edf27f3328b">admits_before</a> (const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;p_a, const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;p_b)</td></tr>
 <tr class="memitem:a050885f762c72dc642f28e6d3e032984" id="r_a050885f762c72dc642f28e6d3e032984"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a050885f762c72dc642f28e6d3e032984">admit_objects</a> (const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> *p_demands, uint32_t p_count, const <a class="el" href="structgs__hlod__bundle_1_1ObjectShare.html">ObjectShare</a> &amp;p_share, <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;r_admission)</td></tr>
 <tr class="memitem:ae72f22de6f4e32708849f9e6f4aa7879" id="r_ae72f22de6f4e32708849f9e6f4aa7879"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae72f22de6f4e32708849f9e6f4aa7879">world_view_caps</a> (uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, bool p_streaming, uint64_t p_stream_records, double p_records, const <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;p_admission, uint64_t &amp;r_splat_budget, double &amp;r_record_budget)</td></tr>
-<tr class="memitem:ad8eb870d00a05a79395ff7456515b8e0" id="r_ad8eb870d00a05a79395ff7456515b8e0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad8eb870d00a05a79395ff7456515b8e0">object_view_demand</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceAsset.html">InstanceAsset</a> &amp;p_asset, const Vector3 &amp;p_world_center, float p_uniform_scale, const Plane *p_frustum, bool p_frustum_enabled, const Vector3 &amp;p_camera, double p_focal_pixels, double p_tile_area, double &amp;r_importance, double &amp;r_records)</td></tr>
+<tr class="memitem:a02b99a3a366167639187bf018e0c30c2" id="r_a02b99a3a366167639187bf018e0c30c2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a02b99a3a366167639187bf018e0c30c2">object_view_demand</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceAsset.html">InstanceAsset</a> &amp;p_asset, const Vector3 &amp;p_world_center, float p_uniform_scale, const Plane *p_frustum, bool p_frustum_enabled, const Vector3 &amp;p_camera, double p_focal_pixels, double p_tile_area, double &amp;r_importance, double &amp;r_records, double p_displacement_margin=0.0)</td></tr>
 <tr class="memitem:ad739b0403060b68c090f07981bdd0b2c" id="r_ad739b0403060b68c090f07981bdd0b2c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad739b0403060b68c090f07981bdd0b2c">append_instance_draws</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region, uint32_t p_world_nodes, uint32_t p_row, uint32_t p_asset_index, const Vector3 &amp;p_camera_offset, LocalVector&lt; <a class="el" href="structDrawnNodeGPU.html">DrawnNodeGPU</a> &gt; &amp;r_draws)</td></tr>
 <tr class="memitem:a16414fbf154011e40982799ac0ee909e" id="r_a16414fbf154011e40982799ac0ee909e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a16414fbf154011e40982799ac0ee909e">instance_camera_offset</a> (const Vector3 &amp;p_translation, const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;p_origin, const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;p_camera, Vector3 &amp;r_offset)</td></tr>
 </table><table class="memberdecls">
@@ -775,8 +775,8 @@ Variables</h2></td></tr>
 
 </div>
 </div>
-<a id="ad8eb870d00a05a79395ff7456515b8e0" name="ad8eb870d00a05a79395ff7456515b8e0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad8eb870d00a05a79395ff7456515b8e0">&#9670;&#160;</a></span>object_view_demand()</h2>
+<a id="a02b99a3a366167639187bf018e0c30c2" name="a02b99a3a366167639187bf018e0c30c2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a02b99a3a366167639187bf018e0c30c2">&#9670;&#160;</a></span>object_view_demand()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -832,7 +832,12 @@ Variables</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">double &amp;</td>          <td class="paramname"><span class="paramname"><em>r_records</em></span>&#160;)</td>
+          <td class="paramtype">double &amp;</td>          <td class="paramname"><span class="paramname"><em>r_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_displacement_margin</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0.0</span>&#160;)</td>
         </tr>
       </table>
   </td>

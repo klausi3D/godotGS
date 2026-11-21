@@ -44,7 +44,7 @@ var namespacegs__hlod__bundle =
     [ "object_share_records", "namespacegs__hlod__bundle.html#ac324b1e2985b776fa4f570d51fdc7ecf", null ],
     [ "object_share_splats", "namespacegs__hlod__bundle.html#aa075be9e358bd778e8257cea779900a9", null ],
     [ "object_tail_pages", "namespacegs__hlod__bundle.html#ad66ec887a0ee65c17dd3418121fc4a2d", null ],
-    [ "object_view_demand", "namespacegs__hlod__bundle.html#ad8eb870d00a05a79395ff7456515b8e0", null ],
+    [ "object_view_demand", "namespacegs__hlod__bundle.html#a02b99a3a366167639187bf018e0c30c2", null ],
     [ "pack_instance_rows", "namespacegs__hlod__bundle.html#a516dfc9247839f48e871303ca79883ad", null ],
     [ "pack_instance_rows", "namespacegs__hlod__bundle.html#a4e841ec1dae151d4e89b6a8394f18635", null ],
     [ "place_object_tail", "namespacegs__hlod__bundle.html#a8c54fd38cbbaba9b9ce02489c4160d19", null ],

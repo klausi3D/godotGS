@@ -18,7 +18,14 @@ digraph "GaussianSplatSceneDirector::SharedWorld"
   Node5 -> Node1 [id="edge4_Node000001_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">submission_store</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node5 [id="Node000005",label="GaussianSplatSceneDirector\l::SubmissionStore",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGaussianSplatSceneDirector_1_1SubmissionStore.html",tooltip=" "];
-  Node6 -> Node1 [id="edge5_Node000001_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">lod_cache_owner</TD></TR>
+  Node6 -> Node1 [id="edge5_Node000001_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deformation_visibility</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_cache</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node6 [id="Node000006",label="GaussianSplatSceneDirector\l::LODCacheOwner",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGaussianSplatSceneDirector_1_1LODCacheOwner.html",tooltip=" "];
+  Node6 [id="Node000006",label="GaussianSplatSceneDirector\l::SharedWorld::DeformationVisibilityCache",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatSceneDirector_1_1SharedWorld_1_1DeformationVisibilityCache.html",tooltip=" "];
+  Node7 -> Node6 [id="edge6_Node000006_Node000007",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">project_effector</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node7 [id="Node000007",label="gs::settings::GSSphereEffector\lSettings",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs_1_1settings_1_1GSSphereEffectorSettings.html",tooltip=" "];
+  Node8 -> Node1 [id="edge7_Node000001_Node000008",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">lod_cache_owner</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node8 [id="Node000008",label="GaussianSplatSceneDirector\l::LODCacheOwner",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGaussianSplatSceneDirector_1_1LODCacheOwner.html",tooltip=" "];
 }

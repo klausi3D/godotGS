@@ -11,10 +11,12 @@ var searchData=
   ['light_8',['Light',['../structgs__shadow__caster_1_1LightFrameStats_1_1Light.html',1,'gs_shadow_caster::LightFrameStats']]],
   ['lightframestats_9',['LightFrameStats',['../structgs__shadow__caster_1_1LightFrameStats.html',1,'gs_shadow_caster']]],
   ['lightpassinfo_10',['LightPassInfo',['../structgs__shadow__caster_1_1LightPassInfo.html',1,'gs_shadow_caster']]],
-  ['limits_11',['Limits',['../structgs__world__writer_1_1Limits.html',1,'gs_world_writer']]],
-  ['lodblendconfig_12',['LODBlendConfig',['../structLODBlendConfig.html',1,'']]],
-  ['lodcacheowner_13',['LODCacheOwner',['../classGaussianSplatSceneDirector_1_1LODCacheOwner.html',1,'GaussianSplatSceneDirector']]],
-  ['lodconfig_14',['LODConfig',['../structLODConfig.html',1,'']]],
-  ['loddebugstats_15',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
-  ['lodstats_16',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]]
+  ['lightstate_11',['LightState',['../structgs__shadow__refresh_1_1LightState.html',1,'gs_shadow_refresh']]],
+  ['lightupdate_12',['LightUpdate',['../structgs__shadow__refresh_1_1LightUpdate.html',1,'gs_shadow_refresh']]],
+  ['limits_13',['Limits',['../structgs__world__writer_1_1Limits.html',1,'gs_world_writer']]],
+  ['lodblendconfig_14',['LODBlendConfig',['../structLODBlendConfig.html',1,'']]],
+  ['lodcacheowner_15',['LODCacheOwner',['../classGaussianSplatSceneDirector_1_1LODCacheOwner.html',1,'GaussianSplatSceneDirector']]],
+  ['lodconfig_16',['LODConfig',['../structLODConfig.html',1,'']]],
+  ['loddebugstats_17',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
+  ['lodstats_18',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]]
 ];

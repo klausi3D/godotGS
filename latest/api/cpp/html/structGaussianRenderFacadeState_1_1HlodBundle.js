@@ -8,5 +8,6 @@ var structGaussianRenderFacadeState_1_1HlodBundle =
     [ "host_staged_bytes", "structGaussianRenderFacadeState_1_1HlodBundle.html#ac7c4ca1aa19def21d7a63ba757c93b95", null ],
     [ "owned", "structGaussianRenderFacadeState_1_1HlodBundle.html#af6d26daaf526e4b2d1d80782395c7189", null ],
     [ "owned_count", "structGaussianRenderFacadeState_1_1HlodBundle.html#aa4e87536433629fb1dba22506121fd13", null ],
-    [ "quantized", "structGaussianRenderFacadeState_1_1HlodBundle.html#a546baf1685e43ac3b04b279dc5793413", null ]
+    [ "quantized", "structGaussianRenderFacadeState_1_1HlodBundle.html#a546baf1685e43ac3b04b279dc5793413", null ],
+    [ "shadow_instance_geometry", "structGaussianRenderFacadeState_1_1HlodBundle.html#ade20692f5b52b78529d9fad357df4f73", null ]
 ];

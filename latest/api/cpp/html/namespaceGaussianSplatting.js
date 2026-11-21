@@ -214,6 +214,7 @@ var namespaceGaussianSplatting =
     [ "overlap_overflow_recovery_plan", "namespaceGaussianSplatting.html#a9a2e41ad5d6b47c7ed10fb9d7d3954c1", null ],
     [ "overlap_records_per_splat_q8", "namespaceGaussianSplatting.html#af6ee745c57b6fe48f753f607c2f12d17", null ],
     [ "overlap_resize_preflight", "namespaceGaussianSplatting.html#abd0ef330a2a4296acc9406ce89e50852", null ],
+    [ "pack_deformation_effectors", "namespaceGaussianSplatting.html#a3bcdd8f5c7f63ca89a4b47587447194c", null ],
     [ "pack_sort_key_64", "namespaceGaussianSplatting.html#a7c9c2c2393b5cf1251727801a859605a", null ],
     [ "report_lock_held_at_boundary", "namespaceGaussianSplatting.html#adb2e893bbbfc9444061967b7a793945c", null ],
     [ "select_chunk_lods", "namespaceGaussianSplatting.html#af7cfdfa1fa1c00bd2d8b6b385e10165d", null ],

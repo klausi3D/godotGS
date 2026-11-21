@@ -35,5 +35,6 @@ var tile__render__types_8h =
     ] ],
     [ "GaussianSplatting::apply_lighting_to_render_params", "namespaceGaussianSplatting.html#a789b61c4b44603fb4f884658121156fd", null ],
     [ "GaussianSplatting::apply_wind_to_render_params", "namespaceGaussianSplatting.html#a40753859926ba19a389b042915f84ff1", null ],
+    [ "GaussianSplatting::pack_deformation_effectors", "namespaceGaussianSplatting.html#a3bcdd8f5c7f63ca89a4b47587447194c", null ],
     [ "GaussianSplatting::tile_cluster_grid_viewport", "namespaceGaussianSplatting.html#a4f7929ed7f1a020f06a5fde510ccd73c", null ]
 ];

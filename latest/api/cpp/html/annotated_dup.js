@@ -78,6 +78,9 @@ var annotated_dup =
         [ "StageValidationHarness", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness" ]
       ] ],
       [ "GpuPassTiming", "namespaceGaussianSplatting_1_1GpuPassTiming.html", [
+        [ "FrameDispatchRecord", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord" ],
+        [ "FrameDispatchRecords", "classGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecords.html", "classGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecords" ],
+        [ "SubmissionRecords", "structGaussianSplatting_1_1GpuPassTiming_1_1SubmissionRecords.html", "structGaussianSplatting_1_1GpuPassTiming_1_1SubmissionRecords" ],
         [ "ScopedPassTimestamp", "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html", "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp" ],
         [ "StageTimes", "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html", "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes" ],
         [ "FrameStages", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages" ],
@@ -298,12 +301,22 @@ var annotated_dup =
     ] ],
     [ "gs_shadow_caster", "namespacegs__shadow__caster.html", [
       [ "FrameRecord", "structgs__shadow__caster_1_1FrameRecord.html", "structgs__shadow__caster_1_1FrameRecord" ],
+      [ "RowSyncSnapshot", "structgs__shadow__caster_1_1RowSyncSnapshot.html", "structgs__shadow__caster_1_1RowSyncSnapshot" ],
       [ "PassPlan", "structgs__shadow__caster_1_1PassPlan.html", "structgs__shadow__caster_1_1PassPlan" ],
       [ "LightPassInfo", "structgs__shadow__caster_1_1LightPassInfo.html", "structgs__shadow__caster_1_1LightPassInfo" ],
       [ "FootprintEigen", "structgs__shadow__caster_1_1FootprintEigen.html", "structgs__shadow__caster_1_1FootprintEigen" ],
       [ "DepthGradient", "structgs__shadow__caster_1_1DepthGradient.html", "structgs__shadow__caster_1_1DepthGradient" ],
       [ "FrameStats", "structgs__shadow__caster_1_1FrameStats.html", "structgs__shadow__caster_1_1FrameStats" ],
       [ "LightFrameStats", "structgs__shadow__caster_1_1LightFrameStats.html", "structgs__shadow__caster_1_1LightFrameStats" ]
+    ] ],
+    [ "gs_shadow_refresh", "namespacegs__shadow__refresh.html", [
+      [ "Geometry", "structgs__shadow__refresh_1_1Geometry.html", "structgs__shadow__refresh_1_1Geometry" ],
+      [ "PublishedContent", "structgs__shadow__refresh_1_1PublishedContent.html", "structgs__shadow__refresh_1_1PublishedContent" ],
+      [ "SpatialRecord", "structgs__shadow__refresh_1_1SpatialRecord.html", "structgs__shadow__refresh_1_1SpatialRecord" ],
+      [ "ContentIndex", "structgs__shadow__refresh_1_1ContentIndex.html", "structgs__shadow__refresh_1_1ContentIndex" ],
+      [ "Owner", "structgs__shadow__refresh_1_1Owner.html", "structgs__shadow__refresh_1_1Owner" ],
+      [ "LightUpdate", "structgs__shadow__refresh_1_1LightUpdate.html", "structgs__shadow__refresh_1_1LightUpdate" ],
+      [ "LightState", "structgs__shadow__refresh_1_1LightState.html", "structgs__shadow__refresh_1_1LightState" ]
     ] ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", [
       [ "ReadbackPolicy", "structgs__sort__policy_1_1ReadbackPolicy.html", "structgs__sort__policy_1_1ReadbackPolicy" ]

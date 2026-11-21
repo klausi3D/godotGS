@@ -93,10 +93,16 @@ $(function(){initNavTree('structGaussianSplatting_1_1GpuPassTiming_1_1PassTiming
 <div class="contents">
 
 <p><code>#include &lt;<a class="el" href="gpu__pass__timing_8h_source.html">gpu_pass_timing.h</a>&gt;</code></p>
+<div class="dynheader">
+Collaboration diagram for GaussianSplatting::GpuPassTiming::PassTimingSnapshot:</div>
+<div class="dyncontent">
+<div class="center"><img src="structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot__coll__graph.png" border="0" usemap="#aGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot_coll__map" loading="lazy" alt="Collaboration graph"/></div>
+<center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a01dff86caa219adffd40643618df1353" id="r_a01dff86caa219adffd40643618df1353"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a01dff86caa219adffd40643618df1353">all_bv04b_passes_coherent</a> () const</td></tr>
+<tr class="memitem:af7fa79b5f9c753dfa654fc81f75e1386" id="r_af7fa79b5f9c753dfa654fc81f75e1386"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af7fa79b5f9c753dfa654fc81f75e1386">all_route_passes_coherent</a> () const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
@@ -105,6 +111,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ab19bdff8432c0eda1c6d66efa30d486c" id="r_ab19bdff8432c0eda1c6d66efa30d486c"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab19bdff8432c0eda1c6d66efa30d486c">frame_serial</a> [PIPELINE_PASS_COUNT] = {}</td></tr>
 <tr class="memitem:ac8a45e5edd7716033b5da6ff0f70e08a" id="r_ac8a45e5edd7716033b5da6ff0f70e08a"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac8a45e5edd7716033b5da6ff0f70e08a">coherent_frame_serial</a> = 0</td></tr>
 <tr class="memitem:acdcde538dc55fba8bda86a2f3f57fd7e" id="r_acdcde538dc55fba8bda86a2f3f57fd7e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acdcde538dc55fba8bda86a2f3f57fd7e">coherent_pass_mask</a> = 0</td></tr>
+<tr class="memitem:a55192caef768d3b86f4ad5f13cf9d799" id="r_a55192caef768d3b86f4ad5f13cf9d799"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a55192caef768d3b86f4ad5f13cf9d799">coherent_dispatch</a></td></tr>
 <tr class="memitem:a51f28d7c6869d1cd959f286eb2b101d6" id="r_a51f28d7c6869d1cd959f286eb2b101d6"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a51f28d7c6869d1cd959f286eb2b101d6">coherent_total_ms</a> = 0.0f</td></tr>
 <tr class="memitem:a74a9efe75e7346ff8f331bc775741833" id="r_a74a9efe75e7346ff8f331bc775741833"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a74a9efe75e7346ff8f331bc775741833">coherent_age_resolves</a> = 0</td></tr>
 <tr class="memitem:a65cc7dbf1579db301060eda32d79f282" id="r_a65cc7dbf1579db301060eda32d79f282"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a65cc7dbf1579db301060eda32d79f282">resolve_count</a> = 0</td></tr>
@@ -137,6 +144,31 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="af7fa79b5f9c753dfa654fc81f75e1386" name="af7fa79b5f9c753dfa654fc81f75e1386"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af7fa79b5f9c753dfa654fc81f75e1386">&#9670;&#160;</a></span>all_route_passes_coherent()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatting::GpuPassTiming::PassTimingSnapshot::all_route_passes_coherent </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="a74a9efe75e7346ff8f331bc775741833" name="a74a9efe75e7346ff8f331bc775741833"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a74a9efe75e7346ff8f331bc775741833">&#9670;&#160;</a></span>coherent_age_resolves</h2>
@@ -146,6 +178,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t GaussianSplatting::GpuPassTiming::PassTimingSnapshot::coherent_age_resolves = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a55192caef768d3b86f4ad5f13cf9d799" name="a55192caef768d3b86f4ad5f13cf9d799"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a55192caef768d3b86f4ad5f13cf9d799">&#9670;&#160;</a></span>coherent_dispatch</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a> GaussianSplatting::GpuPassTiming::PassTimingSnapshot::coherent_dispatch</td>
         </tr>
       </table>
 </div><div class="memdoc">

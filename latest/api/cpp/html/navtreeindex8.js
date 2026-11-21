@@ -1,5 +1,17 @@
 var NAVTREEINDEX8 =
 {
+"classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html#aa1232b0c852610551307cfb4d37977bb":[1,0,9,0,6,1],
+"classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html#ace8728e4042e8c38325672e80f141dec":[0,0,12,0,6,2],
+"classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html#ace8728e4042e8c38325672e80f141dec":[1,0,9,0,6,2],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html":[0,0,12,6],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html":[1,0,9,5],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a030d2b472f9b9be7206cb51fccc87129":[0,0,12,6,3],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a030d2b472f9b9be7206cb51fccc87129":[1,0,9,5,3],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0490847cc87604677bf65a94c2f3e51e":[0,0,12,6,1],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0490847cc87604677bf65a94c2f3e51e":[1,0,9,5,1],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0b06919bb2c0a770be6472a2e5f7b497":[0,0,12,6,24],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0b06919bb2c0a770be6472a2e5f7b497":[1,0,9,5,24],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1607b898fab77ff459ceb5a5b74f3a7e":[0,0,12,6,48],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1607b898fab77ff459ceb5a5b74f3a7e":[1,0,9,5,48],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a174d2540a67dee9c29346b40d04fec08":[0,0,12,6,31],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a174d2540a67dee9c29346b40d04fec08":[1,0,9,5,31],
@@ -237,17 +249,5 @@ var NAVTREEINDEX8 =
 "classGaussianSplatting_1_1GaussianSceneSerializer.html#aca0446b3723e311a230fa0bfa85d356d":[1,0,9,22,7],
 "classGaussianSplatting_1_1GaussianSceneSerializer.html#ad8a2e05d1d1ad0160dc0e2c5c70c53f6":[0,0,12,23,12],
 "classGaussianSplatting_1_1GaussianSceneSerializer.html#ad8a2e05d1d1ad0160dc0e2c5c70c53f6":[1,0,9,22,12],
-"classGaussianSplatting_1_1GaussianSceneSerializer.html#af6affd681ff6bc26a581081ea7059f72":[0,0,12,23,21],
-"classGaussianSplatting_1_1GaussianSceneSerializer.html#af6affd681ff6bc26a581081ea7059f72":[1,0,9,22,21],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html":[0,0,12,2,5],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html":[1,0,9,1,5],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html#a1a00e132a4934d37871c4c16a7149451":[0,0,12,2,5,2],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html#a1a00e132a4934d37871c4c16a7149451":[1,0,9,1,5,2],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html#ac4e839f3ac213d71b35d8eaa98d7a6bf":[0,0,12,2,5,0],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html#ac4e839f3ac213d71b35d8eaa98d7a6bf":[1,0,9,1,5,0],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html#aec0d56af293f2937f41af70f9d14dd78":[0,0,12,2,5,1],
-"classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html#aec0d56af293f2937f41af70f9d14dd78":[1,0,9,1,5,1],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html":[0,0,12,2,0],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html":[1,0,9,1,0],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#a77155608cb87c518a5dfab49dec49272":[0,0,12,2,0,2]
+"classGaussianSplatting_1_1GaussianSceneSerializer.html#af6affd681ff6bc26a581081ea7059f72":[0,0,12,23,21]
 };

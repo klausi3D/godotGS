@@ -1,7 +1,9 @@
 var structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot =
 [
     [ "all_bv04b_passes_coherent", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a01dff86caa219adffd40643618df1353", null ],
+    [ "all_route_passes_coherent", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#af7fa79b5f9c753dfa654fc81f75e1386", null ],
     [ "coherent_age_resolves", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a74a9efe75e7346ff8f331bc775741833", null ],
+    [ "coherent_dispatch", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a55192caef768d3b86f4ad5f13cf9d799", null ],
     [ "coherent_frame_serial", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ac8a45e5edd7716033b5da6ff0f70e08a", null ],
     [ "coherent_pass_mask", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#acdcde538dc55fba8bda86a2f3f57fd7e", null ],
     [ "coherent_resolve_usec", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a861385e2beb0c6b81c8c7ed95e8fee96", null ],

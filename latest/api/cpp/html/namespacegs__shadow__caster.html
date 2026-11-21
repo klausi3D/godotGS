@@ -95,6 +95,7 @@ $(function(){initNavTree('namespacegs__shadow__caster.html','',''); });
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
 <tr class="memitem:FrameRecord" id="r_FrameRecord"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a></td></tr>
+<tr class="memitem:RowSyncSnapshot" id="r_RowSyncSnapshot"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1RowSyncSnapshot.html">RowSyncSnapshot</a></td></tr>
 <tr class="memitem:PassPlan" id="r_PassPlan"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a></td></tr>
 <tr class="memitem:LightPassInfo" id="r_LightPassInfo"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1LightPassInfo.html">LightPassInfo</a></td></tr>
 <tr class="memitem:FootprintEigen" id="r_FootprintEigen"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1FootprintEigen.html">FootprintEigen</a></td></tr>
@@ -116,6 +117,9 @@ Enumerations</h2></td></tr>
 , <a class="el" href="#a3d82421984d4cb0270b1196113a64d39aa5e68c5033ce2551442fa7d32facb920">PIPELINE_UNAVAILABLE</a>
 , <br />
 &#160;&#160;<a class="el" href="#a3d82421984d4cb0270b1196113a64d39a633f928923d512534d4527792a79b61c">INVALID_ATLAS_RECT</a>
+, <a class="el" href="#a3d82421984d4cb0270b1196113a64d39a8afeeaa19a179234e8735e553ffacdf0">OMNI_PARABOLOID_UNSUPPORTED</a>
+, <a class="el" href="#a3d82421984d4cb0270b1196113a64d39a6e401d9a781549f2a0640512643edf8d">ROWS_MISMATCH</a>
+, <a class="el" href="#a3d82421984d4cb0270b1196113a64d39a07e5e06d2e07b6979e880c85b87610a2">ROWS_NOT_CURRENT</a>
 <br />
  }</td></tr>
 <tr class="memitem:a9562ea175d6832e74a9349c2e4778b5b" id="r_a9562ea175d6832e74a9349c2e4778b5b"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9562ea175d6832e74a9349c2e4778b5b">LightKind</a> { <br />
@@ -131,11 +135,16 @@ Enumerations</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
 <tr class="memitem:a4d6ba6859aae020258df49fee09a6ca7" id="r_a4d6ba6859aae020258df49fee09a6ca7"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d6ba6859aae020258df49fee09a6ca7">refusal_reason</a> (<a class="el" href="#a3d82421984d4cb0270b1196113a64d39">Refusal</a> p_refusal)</td></tr>
+<tr class="memitem:aace4081ef16c2eb94e4798ec4b295020" id="r_aace4081ef16c2eb94e4798ec4b295020"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a3d82421984d4cb0270b1196113a64d39">Refusal</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aace4081ef16c2eb94e4798ec4b295020">current_rows_refusal</a> (const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_record, const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">gs_hlod_bundle::Rows</a> &amp;p_rows, const LocalVector&lt; uint64_t &gt; &amp;p_keys)</td></tr>
+<tr class="memitem:acbe9c384f888f2616c6e8a99b4419e82" id="r_acbe9c384f888f2616c6e8a99b4419e82"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acbe9c384f888f2616c6e8a99b4419e82">entered_rows</a> (const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_previous, const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_current)</td></tr>
+<tr class="memitem:a12f7968aa175b3cf0a31ef97cae6a2c5" id="r_a12f7968aa175b3cf0a31ef97cae6a2c5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a12f7968aa175b3cf0a31ef97cae6a2c5">rows_frame_latched</a> (uint64_t p_frame, uint64_t p_bundle, uint64_t p_synced_frame, uint64_t p_synced_bundle)</td></tr>
+<tr class="memitem:ae1c38d414d99962c624a53134d31d611" id="r_ae1c38d414d99962c624a53134d31d611"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae1c38d414d99962c624a53134d31d611">retained_refusal_frame</a> (bool p_latched, bool p_refused, uint64_t p_synced_frame, uint64_t p_refused_frame)</td></tr>
 <tr class="memitem:aa288b7c9de63f8f24266a4ad98605bcf" id="r_aa288b7c9de63f8f24266a4ad98605bcf"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa288b7c9de63f8f24266a4ad98605bcf">build_row_casts</a> (const LocalVector&lt; uint64_t &gt; &amp;p_row_keys, bool p_world_casts, const LocalVector&lt; uint64_t &gt; &amp;p_caster_keys, LocalVector&lt; uint32_t &gt; &amp;r_row_casts)</td></tr>
 <tr class="memitem:a1743fed0e72a00512985a671ccb97160" id="r_a1743fed0e72a00512985a671ccb97160"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1743fed0e72a00512985a671ccb97160">admitted_instance_splats</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">gs_hlod_bundle::InstanceRegion</a> &amp;p_region, const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">gs_hlod_bundle::ObjectDemand</a> *p_demands, uint32_t p_demand_count, const <a class="el" href="structgs__hlod__bundle_1_1Admission.html">gs_hlod_bundle::Admission</a> &amp;p_admission, const LocalVector&lt; uint32_t &gt; &amp;p_row_casts)</td></tr>
 <tr class="memitem:ab074dbdded9cab471cfe99f80bffa99e" id="r_ab074dbdded9cab471cfe99f80bffa99e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab074dbdded9cab471cfe99f80bffa99e">complete_record</a> (<a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;r_record, uint32_t p_world_records, uint64_t p_world_record_splats)</td></tr>
 <tr class="memitem:aef6ee597d1c8d6e467838f82756eb1fc" id="r_aef6ee597d1c8d6e467838f82756eb1fc"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aef6ee597d1c8d6e467838f82756eb1fc">light_kind_name</a> (<a class="el" href="#a9562ea175d6832e74a9349c2e4778b5b">LightKind</a> p_kind)</td></tr>
-<tr class="memitem:ad5e44387896df904a3ea1118eec7b84c" id="r_ad5e44387896df904a3ea1118eec7b84c"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad5e44387896df904a3ea1118eec7b84c">plan_pass</a> (const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_record, bool p_orthographic_light, bool p_bundle_current)</td></tr>
+<tr class="memitem:aff003a55db76b71fb54c713e5d2cc050" id="r_aff003a55db76b71fb54c713e5d2cc050"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aff003a55db76b71fb54c713e5d2cc050">plan_pass</a> (const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_record, bool p_supported_light, bool p_bundle_current)</td></tr>
+<tr class="memitem:a9b34abe03680e5107bcbfa9fcd0446e0" id="r_a9b34abe03680e5107bcbfa9fcd0446e0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9b34abe03680e5107bcbfa9fcd0446e0">plan_pass</a> (const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_record, const <a class="el" href="structgs__shadow__caster_1_1LightPassInfo.html">LightPassInfo</a> &amp;p_light, bool p_bundle_current, <a class="el" href="#a3d82421984d4cb0270b1196113a64d39">Refusal</a> p_rows_refusal=<a class="el" href="#a3d82421984d4cb0270b1196113a64d39ab50339a10e1de285ac99d4c3990b8693">Refusal::NONE</a>)</td></tr>
 <tr class="memitem:a44e15650d12733e02d2e5a380d1ca5c1" id="r_a44e15650d12733e02d2e5a380d1ca5c1"><td class="memItemLeft" align="right" valign="top">Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a44e15650d12733e02d2e5a380d1ca5c1">godot_shadow_clip</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, bool p_flip_y)</td></tr>
 <tr class="memitem:a02074877ccf6387f5fc504c1c3562ef8" id="r_a02074877ccf6387f5fc504c1c3562ef8"><td class="memItemLeft" align="right" valign="top">Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a02074877ccf6387f5fc504c1c3562ef8">frame_relative_shadow_clip</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, bool p_flip_y, const Vector3 &amp;p_frame_camera)</td></tr>
 <tr class="memitem:aeeab84752eb77e8258694a46d1c5b3a9" id="r_aeeab84752eb77e8258694a46d1c5b3a9"><td class="memItemLeft" align="right" valign="top">Vector3&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeeab84752eb77e8258694a46d1c5b3a9">godot_directional_receiver_sample</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, const Rect2 &amp;p_atlas_rect_normalized, const Vector3 &amp;p_world)</td></tr>
@@ -204,6 +213,9 @@ Functions</h2></td></tr>
 <tr><td class="fieldname"><a id="a3d82421984d4cb0270b1196113a64d39a66ed569ab071ac98e5d4491a39188981" name="a3d82421984d4cb0270b1196113a64d39a66ed569ab071ac98e5d4491a39188981"></a>BUNDLE_CHANGED&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a3d82421984d4cb0270b1196113a64d39aa5e68c5033ce2551442fa7d32facb920" name="a3d82421984d4cb0270b1196113a64d39aa5e68c5033ce2551442fa7d32facb920"></a>PIPELINE_UNAVAILABLE&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a3d82421984d4cb0270b1196113a64d39a633f928923d512534d4527792a79b61c" name="a3d82421984d4cb0270b1196113a64d39a633f928923d512534d4527792a79b61c"></a>INVALID_ATLAS_RECT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a3d82421984d4cb0270b1196113a64d39a8afeeaa19a179234e8735e553ffacdf0" name="a3d82421984d4cb0270b1196113a64d39a8afeeaa19a179234e8735e553ffacdf0"></a>OMNI_PARABOLOID_UNSUPPORTED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a3d82421984d4cb0270b1196113a64d39a6e401d9a781549f2a0640512643edf8d" name="a3d82421984d4cb0270b1196113a64d39a6e401d9a781549f2a0640512643edf8d"></a>ROWS_MISMATCH&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a3d82421984d4cb0270b1196113a64d39a07e5e06d2e07b6979e880c85b87610a2" name="a3d82421984d4cb0270b1196113a64d39a07e5e06d2e07b6979e880c85b87610a2"></a>ROWS_NOT_CURRENT&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -448,6 +460,69 @@ Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="aace4081ef16c2eb94e4798ec4b295020" name="aace4081ef16c2eb94e4798ec4b295020"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aace4081ef16c2eb94e4798ec4b295020">&#9670;&#160;</a></span>current_rows_refusal()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="#a3d82421984d4cb0270b1196113a64d39">Refusal</a> gs_shadow_caster::current_rows_refusal </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_record</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">gs_hlod_bundle::Rows</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const LocalVector&lt; uint64_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_keys</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acbe9c384f888f2616c6e8a99b4419e82" name="acbe9c384f888f2616c6e8a99b4419e82"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acbe9c384f888f2616c6e8a99b4419e82">&#9670;&#160;</a></span>entered_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_shadow_caster::entered_rows </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_previous</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_current</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a7259611851086d3fed95e68f968aa9d6" name="a7259611851086d3fed95e68f968aa9d6"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a7259611851086d3fed95e68f968aa9d6">&#9670;&#160;</a></span>footprint_eigenvalues()</h2>
 
@@ -649,8 +724,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ad5e44387896df904a3ea1118eec7b84c" name="ad5e44387896df904a3ea1118eec7b84c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad5e44387896df904a3ea1118eec7b84c">&#9670;&#160;</a></span>plan_pass()</h2>
+<a id="aff003a55db76b71fb54c713e5d2cc050" name="aff003a55db76b71fb54c713e5d2cc050"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aff003a55db76b71fb54c713e5d2cc050">&#9670;&#160;</a></span>plan_pass() <span class="overload">[1/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -666,12 +741,51 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_orthographic_light</em></span>, </td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_supported_light</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_bundle_current</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9b34abe03680e5107bcbfa9fcd0446e0" name="a9b34abe03680e5107bcbfa9fcd0446e0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9b34abe03680e5107bcbfa9fcd0446e0">&#9670;&#160;</a></span>plan_pass() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a> gs_shadow_caster::plan_pass </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_record</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__shadow__caster_1_1LightPassInfo.html">LightPassInfo</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_light</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_bundle_current</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="#a3d82421984d4cb0270b1196113a64d39">Refusal</a></td>          <td class="paramname"><span class="paramname"><em>p_rows_refusal</em></span><span class="paramdefsep"> = </span><span class="paramdefval"><a class="el" href="#a3d82421984d4cb0270b1196113a64d39ab50339a10e1de285ac99d4c3990b8693">Refusal::NONE</a></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -697,6 +811,84 @@ Functions</h2></td></tr>
           <td>(</td>
           <td class="paramtype"><a class="el" href="#a3d82421984d4cb0270b1196113a64d39">Refusal</a></td>          <td class="paramname"><span class="paramname"><em>p_refusal</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae1c38d414d99962c624a53134d31d611" name="ae1c38d414d99962c624a53134d31d611"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae1c38d414d99962c624a53134d31d611">&#9670;&#160;</a></span>retained_refusal_frame()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_shadow_caster::retained_refusal_frame </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_latched</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_refused</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_synced_frame</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_refused_frame</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a12f7968aa175b3cf0a31ef97cae6a2c5" name="a12f7968aa175b3cf0a31ef97cae6a2c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a12f7968aa175b3cf0a31ef97cae6a2c5">&#9670;&#160;</a></span>rows_frame_latched()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_shadow_caster::rows_frame_latched </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_frame</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bundle</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_synced_frame</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_synced_bundle</em></span>&#160;)</td>
         </tr>
       </table>
   </td>

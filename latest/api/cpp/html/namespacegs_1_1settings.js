@@ -8,5 +8,8 @@ var namespacegs_1_1settings =
       [ "GS_ROUTE_STREAMING", "namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303ea47f0b30e8efe0c1a29c1ece5abd0f07f", null ]
     ] ],
     [ "get_hlod_runtime_cut_enabled", "namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2", null ],
-    [ "get_hlod_tau_px", "namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0", null ]
+    [ "get_hlod_tau_px", "namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0", null ],
+    [ "WIND_ENABLED_PATH", "namespacegs_1_1settings.html#aa88dc1e7b4b78333bebd3786020f8f7f", null ],
+    [ "WORLD_WIND_ENABLED_PROPERTY", "namespacegs_1_1settings.html#a7534176ea5847b02f5a8ba411d3333b5", null ],
+    [ "WORLD_WIND_INTENSITY_PROPERTY", "namespacegs_1_1settings.html#abb5e26ec48228190914e0edb88c6af6e", null ]
 ];

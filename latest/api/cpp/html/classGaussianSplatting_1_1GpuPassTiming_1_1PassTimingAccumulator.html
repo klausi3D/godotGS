@@ -97,7 +97,7 @@ $(function(){initNavTree('classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingA
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a1a00e132a4934d37871c4c16a7149451" id="r_a1a00e132a4934d37871c4c16a7149451"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1a00e132a4934d37871c4c16a7149451">reset</a> ()</td></tr>
-<tr class="memitem:aec0d56af293f2937f41af70f9d14dd78" id="r_aec0d56af293f2937f41af70f9d14dd78"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec0d56af293f2937f41af70f9d14dd78">ingest</a> (const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html">FrameDurations</a> &amp;p_durations, uint64_t p_now_usec=0)</td></tr>
+<tr class="memitem:a21c2e2c7ee48094b3a9893c29b23a2ff" id="r_a21c2e2c7ee48094b3a9893c29b23a2ff"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a21c2e2c7ee48094b3a9893c29b23a2ff">ingest</a> (const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html">FrameDurations</a> &amp;p_durations, uint64_t p_now_usec=0, const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a> &amp;p_dispatch=<a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a>())</td></tr>
 <tr class="memitem:ac4e839f3ac213d71b35d8eaa98d7a6bf" id="r_ac4e839f3ac213d71b35d8eaa98d7a6bf"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html">PassTimingSnapshot</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac4e839f3ac213d71b35d8eaa98d7a6bf">get_snapshot</a> () const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
@@ -130,8 +130,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="aec0d56af293f2937f41af70f9d14dd78" name="aec0d56af293f2937f41af70f9d14dd78"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aec0d56af293f2937f41af70f9d14dd78">&#9670;&#160;</a></span>ingest()</h2>
+<a id="a21c2e2c7ee48094b3a9893c29b23a2ff" name="a21c2e2c7ee48094b3a9893c29b23a2ff"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a21c2e2c7ee48094b3a9893c29b23a2ff">&#9670;&#160;</a></span>ingest()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -147,7 +147,12 @@ Static Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_now_usec</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_now_usec</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_dispatch</em></span><span class="paramdefsep"> = </span><span class="paramdefval"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a>()</span>&#160;)</td>
         </tr>
       </table>
   </td>

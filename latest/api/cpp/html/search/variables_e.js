@@ -20,7 +20,7 @@ var searchData=
   ['new_5fimportance_5fthreshold_17',['new_importance_threshold',['../structAutoTuneResult.html#a740bf391b3dd4ac10eafefd2cb7b1768',1,'AutoTuneResult']]],
   ['new_5ftiny_5fsplat_5fradius_18',['new_tiny_splat_radius',['../structAutoTuneResult.html#adc46344f3e1b36d1966ccfbe18f0511e',1,'AutoTuneResult']]],
   ['newest_19',['newest',['../structgs__world__writer_1_1WriterV4_1_1Impl.html#a29920f92b54a65ac68e4591b2db2a306',1,'gs_world_writer::WriterV4::Impl']]],
-  ['next_20',['next',['../structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#aad19f2ec74e980cfef26130fe9aaba2f',1,'gs_world_writer::WriterV4::Impl::Segment::next'],['../structSpzExtensionNode.html#a3dbf671fd423e11969015ad45c65212b',1,'SpzExtensionNode::next']]],
+  ['next_20',['next',['../structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#aad19f2ec74e980cfef26130fe9aaba2f',1,'gs_world_writer::WriterV4::Impl::Segment::next'],['../structgs__shadow__refresh_1_1SpatialRecord.html#a45b31ff8871e105bd437c79621ca50c2',1,'gs_shadow_refresh::SpatialRecord::next'],['../structSpzExtensionNode.html#a3dbf671fd423e11969015ad45c65212b',1,'SpzExtensionNode::next']]],
   ['next_5frequest_5fid_21',['next_request_id',['../classRenderThreadDispatcher.html#aca8bcdc7f88ecf929d42e9577495097d',1,'RenderThreadDispatcher']]],
   ['next_5fshrink_5fcandidate_5fframes_22',['next_shrink_candidate_frames',['../structGaussianSplatting_1_1TileBufferResizePlan.html#a6f20c83bf7e89b5adddbea2b993d587b',1,'GaussianSplatting::TileBufferResizePlan']]],
   ['ngsp_5fmagic_23',['NGSP_MAGIC',['../namespacespz.html#a4e83083b274eb00bc5514f5ea4e12489',1,'spz']]],

@@ -33,9 +33,10 @@ var searchData=
   ['loadsplatfromply_30',['loadSplatFromPly',['../namespacespz.html#ada5755a87e36478bc31537b42d92563f',1,'spz']]],
   ['loadspz_31',['loadSpz',['../namespacespz.html#af66d1ce1549035a0fe5c277fcaed8534',1,'spz::loadSpz(const std::vector&lt; uint8_t &gt; &amp;data, const UnpackOptions &amp;options)'],['../namespacespz.html#a3cc830df86e9ba926a34d03d5a653b60',1,'spz::loadSpz(const std::string &amp;filename, const UnpackOptions &amp;o)'],['../namespacespz.html#a54de377c6449e872ee77be8f69f1fee1',1,'spz::loadSpz(const uint8_t *data, size_t size, const UnpackOptions &amp;options)']]],
   ['loadspzpacked_32',['loadSpzPacked',['../namespacespz.html#a9c01e42c6c1c6aa13a629b0fafc01463',1,'spz::loadSpzPacked(const std::string &amp;filename)'],['../namespacespz.html#a6f8b1a0c01ae2ff10a0031e95bb2f200',1,'spz::loadSpzPacked(const uint8_t *data, size_t size)'],['../namespacespz.html#a24c3423c2a343f5dfd437a31249e7444',1,'spz::loadSpzPacked(const std::vector&lt; uint8_t &gt; &amp;data)']]],
-  ['lock_33',['lock',['../classGaussianSplatting_1_1ThreadOwnedMutex.html#afe490ed103a4cc42669d558f07bdca55',1,'GaussianSplatting::ThreadOwnedMutex']]],
-  ['log_34',['log',['../namespacegs__logger.html#adff94b27f1e0dab276953e7026874590',1,'gs_logger']]],
-  ['log_5fmessage_35',['log_message',['../namespacegs__logger.html#ad30704cdcbcb1cd9928fa52c734e33fc',1,'gs_logger']]],
-  ['log_5fperformance_5fdata_36',['log_performance_data',['../structGPUSortingConfig.html#a798cdc67814f64d746094bbbf72a0e89',1,'GPUSortingConfig']]],
-  ['log_5fsorting_5fperformance_37',['log_sorting_performance',['../gpu__sorting__config_8cpp.html#afc1909bf6398a99870722f1cdd4193ab',1,'log_sorting_performance(uint32_t element_count, float sort_time_ms, const String &amp;algorithm):&#160;gpu_sorting_config.cpp'],['../gpu__sorting__config_8h.html#afc1909bf6398a99870722f1cdd4193ab',1,'log_sorting_performance(uint32_t element_count, float sort_time_ms, const String &amp;algorithm):&#160;gpu_sorting_config.cpp']]]
+  ['local_5fvisibility_5fmargin_33',['local_visibility_margin',['../namespacegs__wind.html#a5ac3c318763c31e7ebfedfafaf28eea7',1,'gs_wind']]],
+  ['lock_34',['lock',['../classGaussianSplatting_1_1ThreadOwnedMutex.html#afe490ed103a4cc42669d558f07bdca55',1,'GaussianSplatting::ThreadOwnedMutex']]],
+  ['log_35',['log',['../namespacegs__logger.html#adff94b27f1e0dab276953e7026874590',1,'gs_logger']]],
+  ['log_5fmessage_36',['log_message',['../namespacegs__logger.html#ad30704cdcbcb1cd9928fa52c734e33fc',1,'gs_logger']]],
+  ['log_5fperformance_5fdata_37',['log_performance_data',['../structGPUSortingConfig.html#a798cdc67814f64d746094bbbf72a0e89',1,'GPUSortingConfig']]],
+  ['log_5fsorting_5fperformance_38',['log_sorting_performance',['../gpu__sorting__config_8cpp.html#afc1909bf6398a99870722f1cdd4193ab',1,'log_sorting_performance(uint32_t element_count, float sort_time_ms, const String &amp;algorithm):&#160;gpu_sorting_config.cpp'],['../gpu__sorting__config_8h.html#afc1909bf6398a99870722f1cdd4193ab',1,'log_sorting_performance(uint32_t element_count, float sort_time_ms, const String &amp;algorithm):&#160;gpu_sorting_config.cpp']]]
 ];

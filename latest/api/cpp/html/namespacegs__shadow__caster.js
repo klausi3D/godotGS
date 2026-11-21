@@ -1,6 +1,7 @@
 var namespacegs__shadow__caster =
 [
     [ "FrameRecord", "structgs__shadow__caster_1_1FrameRecord.html", "structgs__shadow__caster_1_1FrameRecord" ],
+    [ "RowSyncSnapshot", "structgs__shadow__caster_1_1RowSyncSnapshot.html", "structgs__shadow__caster_1_1RowSyncSnapshot" ],
     [ "PassPlan", "structgs__shadow__caster_1_1PassPlan.html", "structgs__shadow__caster_1_1PassPlan" ],
     [ "LightPassInfo", "structgs__shadow__caster_1_1LightPassInfo.html", "structgs__shadow__caster_1_1LightPassInfo" ],
     [ "FootprintEigen", "structgs__shadow__caster_1_1FootprintEigen.html", "structgs__shadow__caster_1_1FootprintEigen" ],
@@ -23,7 +24,10 @@ var namespacegs__shadow__caster =
       [ "INSTANCE_SLOT_OVERFLOW", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39ab876ea451a9c24727290ac28d2148e0a", null ],
       [ "BUNDLE_CHANGED", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a66ed569ab071ac98e5d4491a39188981", null ],
       [ "PIPELINE_UNAVAILABLE", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39aa5e68c5033ce2551442fa7d32facb920", null ],
-      [ "INVALID_ATLAS_RECT", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a633f928923d512534d4527792a79b61c", null ]
+      [ "INVALID_ATLAS_RECT", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a633f928923d512534d4527792a79b61c", null ],
+      [ "OMNI_PARABOLOID_UNSUPPORTED", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a8afeeaa19a179234e8735e553ffacdf0", null ],
+      [ "ROWS_MISMATCH", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a6e401d9a781549f2a0640512643edf8d", null ],
+      [ "ROWS_NOT_CURRENT", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a07e5e06d2e07b6979e880c85b87610a2", null ]
     ] ],
     [ "admitted_instance_splats", "namespacegs__shadow__caster.html#a1743fed0e72a00512985a671ccb97160", null ],
     [ "build_row_casts", "namespacegs__shadow__caster.html#aa288b7c9de63f8f24266a4ad98605bcf", null ],
@@ -31,12 +35,17 @@ var namespacegs__shadow__caster =
     [ "caster_depth_gradient", "namespacegs__shadow__caster.html#adf39fceec9aee97a82e768cacd58f41e", null ],
     [ "caster_fragment_depth", "namespacegs__shadow__caster.html#aa753a4ab049fc0e80897f759c4ad9f47", null ],
     [ "complete_record", "namespacegs__shadow__caster.html#ab074dbdded9cab471cfe99f80bffa99e", null ],
+    [ "current_rows_refusal", "namespacegs__shadow__caster.html#aace4081ef16c2eb94e4798ec4b295020", null ],
+    [ "entered_rows", "namespacegs__shadow__caster.html#acbe9c384f888f2616c6e8a99b4419e82", null ],
     [ "footprint_eigenvalues", "namespacegs__shadow__caster.html#a7259611851086d3fed95e68f968aa9d6", null ],
     [ "frame_relative_shadow_clip", "namespacegs__shadow__caster.html#a02074877ccf6387f5fc504c1c3562ef8", null ],
     [ "godot_directional_receiver_sample", "namespacegs__shadow__caster.html#aeeab84752eb77e8258694a46d1c5b3a9", null ],
     [ "godot_shadow_clip", "namespacegs__shadow__caster.html#a44e15650d12733e02d2e5a380d1ca5c1", null ],
     [ "light_kind_name", "namespacegs__shadow__caster.html#aef6ee597d1c8d6e467838f82756eb1fc", null ],
     [ "pancake_depth", "namespacegs__shadow__caster.html#ac47dc1db35c8847dfc1c043040fb8ca7", null ],
-    [ "plan_pass", "namespacegs__shadow__caster.html#ad5e44387896df904a3ea1118eec7b84c", null ],
-    [ "refusal_reason", "namespacegs__shadow__caster.html#a4d6ba6859aae020258df49fee09a6ca7", null ]
+    [ "plan_pass", "namespacegs__shadow__caster.html#aff003a55db76b71fb54c713e5d2cc050", null ],
+    [ "plan_pass", "namespacegs__shadow__caster.html#a9b34abe03680e5107bcbfa9fcd0446e0", null ],
+    [ "refusal_reason", "namespacegs__shadow__caster.html#a4d6ba6859aae020258df49fee09a6ca7", null ],
+    [ "retained_refusal_frame", "namespacegs__shadow__caster.html#ae1c38d414d99962c624a53134d31d611", null ],
+    [ "rows_frame_latched", "namespacegs__shadow__caster.html#a12f7968aa175b3cf0a31ef97cae6a2c5", null ]
 ];

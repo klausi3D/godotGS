@@ -1,5 +1,6 @@
 var classGsSplatShadowCaster =
 [
+    [ "DeformationUniform", "structGsSplatShadowCaster_1_1DeformationUniform.html", "structGsSplatShadowCaster_1_1DeformationUniform" ],
     [ "Inputs", "structGsSplatShadowCaster_1_1Inputs.html", "structGsSplatShadowCaster_1_1Inputs" ],
     [ "GsSplatShadowCaster", "classGsSplatShadowCaster.html#aa8de58da9199b6efea5d9c8ec48e69a1", null ],
     [ "~GsSplatShadowCaster", "classGsSplatShadowCaster.html#a9f04ffb62fa256ec8fe5695b4369b300", null ],

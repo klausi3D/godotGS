@@ -115,6 +115,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ac41f70bd73e4a7506282c7d61089cdb4" id="r_ac41f70bd73e4a7506282c7d61089cdb4"><td class="memItemLeft" align="right" valign="top">int32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac41f70bd73e4a7506282c7d61089cdb4">desired_residency_hint</a> = <a class="el" href="classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3aae53012a0357a2c94c7930fcbc4080b5">SUBMISSION_RESIDENCY_HINT_RESIDENT</a></td></tr>
 <tr class="memitem:afd864b5df8ee9b06f3b2e26f9dd731b3" id="r_afd864b5df8ee9b06f3b2e26f9dd731b3"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afd864b5df8ee9b06f3b2e26f9dd731b3">desired_renderer_overrides</a></td></tr>
 <tr class="memitem:aa02da6c76dd1cf9c88dd5fc1798cb684" id="r_aa02da6c76dd1cf9c88dd5fc1798cb684"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa02da6c76dd1cf9c88dd5fc1798cb684">casts_shadow</a> = true</td></tr>
+<tr class="memitem:a03f81698820043edd288a9a20a83025c" id="r_a03f81698820043edd288a9a20a83025c"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a03f81698820043edd288a9a20a83025c">wind_intensity</a> = 1.0f</td></tr>
+<tr class="memitem:a1e664a90c0c566b8d01cc6ada8f96055" id="r_a1e664a90c0c566b8d01cc6ada8f96055"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e664a90c0c566b8d01cc6ada8f96055">wind_mode</a> = <a class="el" href="classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c">INSTANCE_WIND_FORCE_DISABLED</a></td></tr>
+<tr class="memitem:abe3efd8a0255bfa522f6b0c7ae941847" id="r_abe3efd8a0255bfa522f6b0c7ae941847"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe3efd8a0255bfa522f6b0c7ae941847">scene_effectors_enabled</a> = false</td></tr>
 <tr class="memitem:a001f28ab5ce3a7c9dd87f1f9392c5888" id="r_a001f28ab5ce3a7c9dd87f1f9392c5888"><td class="memItemLeft" align="right" valign="top">Callable&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a001f28ab5ce3a7c9dd87f1f9392c5888">hlod_demotion_callback</a></td></tr>
 <tr class="memitem:a4a0042d8e3c7de7474605c168d6e3190" id="r_a4a0042d8e3c7de7474605c168d6e3190"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html">GaussianSplatWorldSubmissionRuntimeStateSnapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4a0042d8e3c7de7474605c168d6e3190">renderer_restore_state</a></td></tr>
 <tr class="memitem:a1c742eb467d1ea7e1de23831b67f1992" id="r_a1c742eb467d1ea7e1de23831b67f1992"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c742eb467d1ea7e1de23831b67f1992">active</a> = false</td></tr>
@@ -344,6 +347,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="abe3efd8a0255bfa522f6b0c7ae941847" name="abe3efd8a0255bfa522f6b0c7ae941847"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abe3efd8a0255bfa522f6b0c7ae941847">&#9670;&#160;</a></span>scene_effectors_enabled</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatSceneDirector::WorldSubmissionRecord::scene_effectors_enabled = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ad1bcbaf405344ed7b8591de473d198b7" name="ad1bcbaf405344ed7b8591de473d198b7"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ad1bcbaf405344ed7b8591de473d198b7">&#9670;&#160;</a></span>static_chunks</h2>
 
@@ -352,6 +369,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">Vector&lt;<a class="el" href="structStaticChunk.html">StaticChunk</a>&gt; GaussianSplatSceneDirector::WorldSubmissionRecord::static_chunks</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a03f81698820043edd288a9a20a83025c" name="a03f81698820043edd288a9a20a83025c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a03f81698820043edd288a9a20a83025c">&#9670;&#160;</a></span>wind_intensity</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">float GaussianSplatSceneDirector::WorldSubmissionRecord::wind_intensity = 1.0f</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1e664a90c0c566b8d01cc6ada8f96055" name="a1e664a90c0c566b8d01cc6ada8f96055"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1e664a90c0c566b8d01cc6ada8f96055">&#9670;&#160;</a></span>wind_mode</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatSceneDirector::WorldSubmissionRecord::wind_mode = <a class="el" href="classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c">INSTANCE_WIND_FORCE_DISABLED</a></td>
         </tr>
       </table>
 </div><div class="memdoc">

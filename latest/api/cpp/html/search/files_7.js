@@ -23,8 +23,9 @@ var searchData=
   ['hlod_5fruntime_5fselection_2ecpp_20',['hlod_runtime_selection.cpp',['../hlod__runtime__selection_8cpp.html',1,'']]],
   ['hlod_5fruntime_5fselection_2eh_21',['hlod_runtime_selection.h',['../hlod__runtime__selection_8h.html',1,'']]],
   ['hlod_5fshadow_5fcaster_5fplan_2eh_22',['hlod_shadow_caster_plan.h',['../hlod__shadow__caster__plan_8h.html',1,'']]],
-  ['hlod_5ftransition_2eh_23',['hlod_transition.h',['../hlod__transition_8h.html',1,'']]],
-  ['hlod_5fview_5fset_2ecpp_24',['hlod_view_set.cpp',['../hlod__view__set_8cpp.html',1,'']]],
-  ['hlod_5fview_5fset_2eh_25',['hlod_view_set.h',['../hlod__view__set_8h.html',1,'']]],
-  ['hlod_5fworld_5finstances_2eh_26',['hlod_world_instances.h',['../hlod__world__instances_8h.html',1,'']]]
+  ['hlod_5fshadow_5frefresh_2eh_23',['hlod_shadow_refresh.h',['../hlod__shadow__refresh_8h.html',1,'']]],
+  ['hlod_5ftransition_2eh_24',['hlod_transition.h',['../hlod__transition_8h.html',1,'']]],
+  ['hlod_5fview_5fset_2ecpp_25',['hlod_view_set.cpp',['../hlod__view__set_8cpp.html',1,'']]],
+  ['hlod_5fview_5fset_2eh_26',['hlod_view_set.h',['../hlod__view__set_8h.html',1,'']]],
+  ['hlod_5fworld_5finstances_2eh_27',['hlod_world_instances.h',['../hlod__world__instances_8h.html',1,'']]]
 ];

@@ -15,5 +15,8 @@ var structGaussianSplatSceneDirector_1_1WorldSubmission =
     [ "owner_id", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a8924bc60ed4b35be7aa0d916872af6dc", null ],
     [ "payload_source", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a3083ed6d266c029646cf8d2ed8d7bc65", null ],
     [ "scenario", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a4a8c693443b7ea2c9614db5f1faea3bd", null ],
-    [ "static_chunks", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a87ed002c7af70349e77689459f193e34", null ]
+    [ "scene_effectors_enabled", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a8577fb5d4914d1e429f372bafc45749b", null ],
+    [ "static_chunks", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a87ed002c7af70349e77689459f193e34", null ],
+    [ "wind_intensity", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a120735b5d7be62cdeb1733b1e69f5a74", null ],
+    [ "wind_mode", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a9d391e087fab7f7d5cb9dcb9307f3523", null ]
 ];

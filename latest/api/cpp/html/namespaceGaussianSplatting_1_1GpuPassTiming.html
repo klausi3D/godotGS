@@ -94,6 +94,9 @@ $(function(){initNavTree('namespaceGaussianSplatting_1_1GpuPassTiming.html','','
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
+<tr class="memitem:FrameDispatchRecord" id="r_FrameDispatchRecord"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a></td></tr>
+<tr class="memitem:FrameDispatchRecords" id="r_FrameDispatchRecords"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecords.html">FrameDispatchRecords</a></td></tr>
+<tr class="memitem:SubmissionRecords" id="r_SubmissionRecords"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1SubmissionRecords.html">SubmissionRecords</a></td></tr>
 <tr class="memitem:ScopedPassTimestamp" id="r_ScopedPassTimestamp"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html">ScopedPassTimestamp</a></td></tr>
 <tr class="memitem:StageTimes" id="r_StageTimes"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html">StageTimes</a></td></tr>
 <tr class="memitem:FrameStages" id="r_FrameStages"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html">FrameStages</a></td></tr>
@@ -120,6 +123,10 @@ Enumerations</h2></td></tr>
 , <a class="el" href="#a2597f395226531e343c4644eb9e16caba3315c8a1690c4c48efaeab9526bdc0e5">PASS_COUNT</a>
 <br />
  }</td></tr>
+<tr class="memitem:a54219e6e5ffd66ae2a18c7e59849662e" id="r_a54219e6e5ffd66ae2a18c7e59849662e"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662e">FrameRoute</a> : uint32_t { <a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662ead9d9c4be6a82f6df9779f66155ced55c">ROUTE_UNKNOWN</a> = 0
+, <a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662ea12391d8c9c181b8075bc6104f6595ff3">ROUTE_STANDALONE_CULL</a> = 1
+, <a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662eac43552452a6224cce53aeef6d3fac143">ROUTE_HLOD_FUSED</a> = 2
+ }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -130,6 +137,11 @@ Functions</h2></td></tr>
 <tr class="memitem:aaf389a21cd9dfe12940f8a7f5fb63fc6" id="r_aaf389a21cd9dfe12940f8a7f5fb63fc6"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf389a21cd9dfe12940f8a7f5fb63fc6">allocate_frame_serial</a> ()</td></tr>
 <tr class="memitem:a96bc3c5c7493d40ca6211046e6dc4170" id="r_a96bc3c5c7493d40ca6211046e6dc4170"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a96bc3c5c7493d40ca6211046e6dc4170">current_frame_serial</a> ()</td></tr>
 <tr class="memitem:a653952f17667d7dd7e105b3b5c13dcee" id="r_a653952f17667d7dd7e105b3b5c13dcee"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a653952f17667d7dd7e105b3b5c13dcee">note_external_frame_serial</a> (uint64_t p_serial)</td></tr>
+<tr class="memitem:a9695f8fc2b6cccf73aefbbec733580dd" id="r_a9695f8fc2b6cccf73aefbbec733580dd"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9695f8fc2b6cccf73aefbbec733580dd">required_pass_mask</a> (<a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662e">FrameRoute</a> p_route)</td></tr>
+<tr class="memitem:a0cfe181a3b715bcf64388c19f655d58b" id="r_a0cfe181a3b715bcf64388c19f655d58b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1SubmissionRecords.html">SubmissionRecords</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0cfe181a3b715bcf64388c19f655d58b">submission_records</a> ()</td></tr>
+<tr class="memitem:a9f5598b737fda03093d2258ab92f2981" id="r_a9f5598b737fda03093d2258ab92f2981"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9f5598b737fda03093d2258ab92f2981">begin_frame_dispatch_record</a> (RenderingDevice *p_device, <a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662e">FrameRoute</a> p_route, uint64_t p_serial=<a class="el" href="#a96bc3c5c7493d40ca6211046e6dc4170">current_frame_serial</a>())</td></tr>
+<tr class="memitem:a9fb80f80f0daf7662e776953b51c268b" id="r_a9fb80f80f0daf7662e776953b51c268b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9fb80f80f0daf7662e776953b51c268b">record_dispatch</a> (RenderingDevice *p_device, <a class="el" href="#a2597f395226531e343c4644eb9e16cab">Pass</a> p_pass, uint64_t p_serial=<a class="el" href="#a96bc3c5c7493d40ca6211046e6dc4170">current_frame_serial</a>())</td></tr>
+<tr class="memitem:a5ec7dd1b3d43273e9a76e8df29509e33" id="r_a5ec7dd1b3d43273e9a76e8df29509e33"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5ec7dd1b3d43273e9a76e8df29509e33">frame_dispatch_record</a> (RenderingDevice *p_device, uint64_t p_serial)</td></tr>
 <tr class="memitem:a5fe4f5eb457ddca8e38be031f32099d0" id="r_a5fe4f5eb457ddca8e38be031f32099d0"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5fe4f5eb457ddca8e38be031f32099d0">make_label</a> (<a class="el" href="#a2597f395226531e343c4644eb9e16cab">Pass</a> p_pass, uint64_t p_serial)</td></tr>
 <tr class="memitem:a22d53e8de109bffd29e1141ce410b990" id="r_a22d53e8de109bffd29e1141ce410b990"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a22d53e8de109bffd29e1141ce410b990">parse_label</a> (const String &amp;p_name, <a class="el" href="#a2597f395226531e343c4644eb9e16cab">Pass</a> &amp;r_pass, bool &amp;r_is_begin, uint64_t &amp;r_serial)</td></tr>
 <tr class="memitem:a2d8dc98229c77e2435566b74d12afdda" id="r_a2d8dc98229c77e2435566b74d12afdda"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2d8dc98229c77e2435566b74d12afdda">accumulate</a> (HashMap&lt; uint64_t, <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html">FrameStages</a> &gt; &amp;r_frames, const String &amp;p_name, double p_gpu_ns)</td></tr>
@@ -137,6 +149,25 @@ Functions</h2></td></tr>
 <tr class="memitem:a72e19e1d007027f8df1ae6a5ce12a4ad" id="r_a72e19e1d007027f8df1ae6a5ce12a4ad"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a72e19e1d007027f8df1ae6a5ce12a4ad">append_to_dictionary</a> (Dictionary &amp;r_metrics, const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html">PassTimingSnapshot</a> &amp;p_snapshot)</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Enumeration Type Documentation</h2>
+<a id="a54219e6e5ffd66ae2a18c7e59849662e" name="a54219e6e5ffd66ae2a18c7e59849662e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a54219e6e5ffd66ae2a18c7e59849662e">&#9670;&#160;</a></span>FrameRoute</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662e">GaussianSplatting::GpuPassTiming::FrameRoute</a> : uint32_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a54219e6e5ffd66ae2a18c7e59849662ead9d9c4be6a82f6df9779f66155ced55c" name="a54219e6e5ffd66ae2a18c7e59849662ead9d9c4be6a82f6df9779f66155ced55c"></a>ROUTE_UNKNOWN&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a54219e6e5ffd66ae2a18c7e59849662ea12391d8c9c181b8075bc6104f6595ff3" name="a54219e6e5ffd66ae2a18c7e59849662ea12391d8c9c181b8075bc6104f6595ff3"></a>ROUTE_STANDALONE_CULL&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a54219e6e5ffd66ae2a18c7e59849662eac43552452a6224cce53aeef6d3fac143" name="a54219e6e5ffd66ae2a18c7e59849662eac43552452a6224cce53aeef6d3fac143"></a>ROUTE_HLOD_FUSED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a id="a2597f395226531e343c4644eb9e16cab" name="a2597f395226531e343c4644eb9e16cab"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a2597f395226531e343c4644eb9e16cab">&#9670;&#160;</a></span>Pass</h2>
 
@@ -304,6 +335,40 @@ Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a9f5598b737fda03093d2258ab92f2981" name="a9f5598b737fda03093d2258ab92f2981"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9f5598b737fda03093d2258ab92f2981">&#9670;&#160;</a></span>begin_frame_dispatch_record()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatting::GpuPassTiming::begin_frame_dispatch_record </td>
+          <td>(</td>
+          <td class="paramtype">RenderingDevice *</td>          <td class="paramname"><span class="paramname"><em>p_device</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662e">FrameRoute</a></td>          <td class="paramname"><span class="paramname"><em>p_route</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_serial</em></span><span class="paramdefsep"> = </span><span class="paramdefval"><a class="el" href="#a96bc3c5c7493d40ca6211046e6dc4170">current_frame_serial</a>()</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a96bc3c5c7493d40ca6211046e6dc4170" name="a96bc3c5c7493d40ca6211046e6dc4170"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a96bc3c5c7493d40ca6211046e6dc4170">&#9670;&#160;</a></span>current_frame_serial()</h2>
 
@@ -318,6 +383,35 @@ Functions</h2></td></tr>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5ec7dd1b3d43273e9a76e8df29509e33" name="a5ec7dd1b3d43273e9a76e8df29509e33"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5ec7dd1b3d43273e9a76e8df29509e33">&#9670;&#160;</a></span>frame_dispatch_record()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html">FrameDispatchRecord</a> GaussianSplatting::GpuPassTiming::frame_dispatch_record </td>
+          <td>(</td>
+          <td class="paramtype">RenderingDevice *</td>          <td class="paramname"><span class="paramname"><em>p_device</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_serial</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -489,6 +583,90 @@ Functions</h2></td></tr>
           <td class="memname">const char * GaussianSplatting::GpuPassTiming::pass_name </td>
           <td>(</td>
           <td class="paramtype"><a class="el" href="#a2597f395226531e343c4644eb9e16cab">Pass</a></td>          <td class="paramname"><span class="paramname"><em>p_pass</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9fb80f80f0daf7662e776953b51c268b" name="a9fb80f80f0daf7662e776953b51c268b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9fb80f80f0daf7662e776953b51c268b">&#9670;&#160;</a></span>record_dispatch()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatting::GpuPassTiming::record_dispatch </td>
+          <td>(</td>
+          <td class="paramtype">RenderingDevice *</td>          <td class="paramname"><span class="paramname"><em>p_device</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="#a2597f395226531e343c4644eb9e16cab">Pass</a></td>          <td class="paramname"><span class="paramname"><em>p_pass</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_serial</em></span><span class="paramdefsep"> = </span><span class="paramdefval"><a class="el" href="#a96bc3c5c7493d40ca6211046e6dc4170">current_frame_serial</a>()</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9695f8fc2b6cccf73aefbbec733580dd" name="a9695f8fc2b6cccf73aefbbec733580dd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9695f8fc2b6cccf73aefbbec733580dd">&#9670;&#160;</a></span>required_pass_mask()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::GpuPassTiming::required_pass_mask </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="#a54219e6e5ffd66ae2a18c7e59849662e">FrameRoute</a></td>          <td class="paramname"><span class="paramname"><em>p_route</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0cfe181a3b715bcf64388c19f655d58b" name="a0cfe181a3b715bcf64388c19f655d58b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0cfe181a3b715bcf64388c19f655d58b">&#9670;&#160;</a></span>submission_records()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1SubmissionRecords.html">SubmissionRecords</a> &amp; GaussianSplatting::GpuPassTiming::submission_records </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>

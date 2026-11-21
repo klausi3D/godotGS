@@ -141,7 +141,7 @@ Public Member Functions</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:a9685fce806abb03efeedbef9f0e23ed8" id="r_a9685fce806abb03efeedbef9f0e23ed8"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9685fce806abb03efeedbef9f0e23ed8">view_cost</a> (const <a class="el" href="structgs__hlod__runtime_1_1ResidencyBudget.html">ResidencyBudget</a> &amp;p_budget, const <a class="el" href="structgs__hlod__runtime_1_1Caps.html">Caps</a> &amp;p_caps, uint64_t p_history_bytes, uint64_t p_draw_capacity, uint64_t &amp;r_bytes)</td></tr>
-<tr class="memitem:abb3a3b919c28a4c9723746972626471c" id="r_abb3a3b919c28a4c9723746972626471c"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb3a3b919c28a4c9723746972626471c">slot_bytes</a> (uint32_t p_nodes)</td></tr>
+<tr class="memitem:a24119ded0d7d33571572f901ddfe649c" id="r_a24119ded0d7d33571572f901ddfe649c"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a24119ded0d7d33571572f901ddfe649c">slot_bytes</a> (uint32_t p_nodes, bool p_displaced=false)</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
 <a id="ae51e02df8528f573f88859ba3e5bd9e5" name="ae51e02df8528f573f88859ba3e5bd9e5"></a>
@@ -410,8 +410,8 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="abb3a3b919c28a4c9723746972626471c" name="abb3a3b919c28a4c9723746972626471c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abb3a3b919c28a4c9723746972626471c">&#9670;&#160;</a></span>slot_bytes()</h2>
+<a id="a24119ded0d7d33571572f901ddfe649c" name="a24119ded0d7d33571572f901ddfe649c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a24119ded0d7d33571572f901ddfe649c">&#9670;&#160;</a></span>slot_bytes()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -422,8 +422,12 @@ Static Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">uint64_t gs_hlod_runtime::ViewSet::slot_bytes </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_nodes</em></span></td><td>)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_nodes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_displaced</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
   </td>

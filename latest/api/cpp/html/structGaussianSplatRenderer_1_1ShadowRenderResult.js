@@ -6,6 +6,7 @@ var structGaussianSplatRenderer_1_1ShadowRenderResult =
     [ "depth_size", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#a9547e0de3c28135ae919ad9aa3fb3a73", null ],
     [ "depth_texture", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#a27eee8676c4a69e220dfccdd05c858f3", null ],
     [ "failure_reason", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#a5891e696d9ab7f1fdbf2f9f2f95e5667", null ],
+    [ "hlod_refusal", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#a95c731151ccb35f7899d31b2c1ebd16a", null ],
     [ "light_id", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#a602111e5e66676bea710ab1d8281ff92", null ],
     [ "light_pass", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#a26a604caff92848a432b81428fcf2a8b", null ],
     [ "pass_kind", "structGaussianSplatRenderer_1_1ShadowRenderResult.html#afbd742fcc7b6932b4d9af8c0f7a8e736", null ],

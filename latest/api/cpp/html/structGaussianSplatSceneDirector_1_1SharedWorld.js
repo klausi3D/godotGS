@@ -1,5 +1,7 @@
 var structGaussianSplatSceneDirector_1_1SharedWorld =
 [
+    [ "DeformationVisibilityCache", "structGaussianSplatSceneDirector_1_1SharedWorld_1_1DeformationVisibilityCache.html", "structGaussianSplatSceneDirector_1_1SharedWorld_1_1DeformationVisibilityCache" ],
+    [ "deformation_visibility_cache", "structGaussianSplatSceneDirector_1_1SharedWorld.html#a220b067da690685fc863af02c7c87c76", null ],
     [ "instance_store", "structGaussianSplatSceneDirector_1_1SharedWorld.html#af900e98db5a2a221e2ab8c0772f111aa", null ],
     [ "lod_cache_owner", "structGaussianSplatSceneDirector_1_1SharedWorld.html#a5e68a614ab40fc01a3cdc907ec479106", null ],
     [ "renderer_owner", "structGaussianSplatSceneDirector_1_1SharedWorld.html#adda5592ef183432044d3abbdded3681c", null ],

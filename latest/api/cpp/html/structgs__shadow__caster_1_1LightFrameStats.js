@@ -3,7 +3,7 @@ var structgs__shadow__caster_1_1LightFrameStats =
     [ "Light", "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html", "structgs__shadow__caster_1_1LightFrameStats_1_1Light" ],
     [ "Snapshot", "structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html", "structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot" ],
     [ "no_caster_lights", "structgs__shadow__caster_1_1LightFrameStats.html#a675315b87353bba8a611cecee7b0949e", null ],
-    [ "record", "structgs__shadow__caster_1_1LightFrameStats.html#a22eba6d777b3cf3215af3c5cc919c178", null ],
+    [ "record", "structgs__shadow__caster_1_1LightFrameStats.html#acd33c0f30268cafafbaf87c64cb06ecf", null ],
     [ "snapshot", "structgs__shadow__caster_1_1LightFrameStats.html#a49628508b760ca7c3cd8dd70e38e41dc", null ],
     [ "lights", "structgs__shadow__caster_1_1LightFrameStats.html#a4e4430b57f98f81c165e02ab7bd3a574", null ],
     [ "overflow_passes", "structgs__shadow__caster_1_1LightFrameStats.html#ab6b215294ace7c45e874bba4fec2f1e0", null ],

@@ -81,10 +81,15 @@ var searchData=
   ['rfd_78',['RFD',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a7d8a37c14314d3e41777f477bad538df',1,'spz']]],
   ['rfu_79',['RFU',['../namespacespz.html#a19b51669532d1278d8601657d1097df6ae1429c911dd1c1772710f42ee47b3cee',1,'spz']]],
   ['rotations_80',['Rotations',['../namespacespz.html#a96226cbb1e742a06bd39b9ca66f5aaf0ae3a9f3ceea2a861d915023ad0a1b98b0',1,'spz']]],
-  ['rows_5fchanged_81',['ROWS_CHANGED',['../namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05dac09045b8431c091163c2992ff51b9ed9',1,'gs_hlod_bundle']]],
-  ['rows_5fonly_82',['ROWS_ONLY',['../namespacegs__hlod__bundle.html#aad55d73c0176cdecd261f962d09e0bd1a0a49f947dd3c7130f1a5b1127f5c1a43',1,'gs_hlod_bundle']]],
-  ['rub_83',['RUB',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a67654743cc32dfeebf2d2d154db69cd8',1,'spz']]],
-  ['ruf_84',['RUF',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a4f50ef6b08ed6fb9190416eadf0bb59e',1,'spz']]],
-  ['run_5fcpu_5fsort_85',['RUN_CPU_SORT',['../namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6a98eb587fef5c837d73e05f396589c2d1',1,'GaussianSplatting']]],
-  ['runtime_5fbootstrap_5fpending_86',['RUNTIME_BOOTSTRAP_PENDING',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fafc09d0a4b6ccfb7f4839a64fc1499ba3',1,'render_streaming_orchestrator.cpp']]]
+  ['route_5fhlod_5ffused_81',['ROUTE_HLOD_FUSED',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a54219e6e5ffd66ae2a18c7e59849662eac43552452a6224cce53aeef6d3fac143',1,'GaussianSplatting::GpuPassTiming']]],
+  ['route_5fstandalone_5fcull_82',['ROUTE_STANDALONE_CULL',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a54219e6e5ffd66ae2a18c7e59849662ea12391d8c9c181b8075bc6104f6595ff3',1,'GaussianSplatting::GpuPassTiming']]],
+  ['route_5funknown_83',['ROUTE_UNKNOWN',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a54219e6e5ffd66ae2a18c7e59849662ead9d9c4be6a82f6df9779f66155ced55c',1,'GaussianSplatting::GpuPassTiming']]],
+  ['rows_5fchanged_84',['ROWS_CHANGED',['../namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05dac09045b8431c091163c2992ff51b9ed9',1,'gs_hlod_bundle']]],
+  ['rows_5fmismatch_85',['ROWS_MISMATCH',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a6e401d9a781549f2a0640512643edf8d',1,'gs_shadow_caster']]],
+  ['rows_5fnot_5fcurrent_86',['ROWS_NOT_CURRENT',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a07e5e06d2e07b6979e880c85b87610a2',1,'gs_shadow_caster']]],
+  ['rows_5fonly_87',['ROWS_ONLY',['../namespacegs__hlod__bundle.html#aad55d73c0176cdecd261f962d09e0bd1a0a49f947dd3c7130f1a5b1127f5c1a43',1,'gs_hlod_bundle']]],
+  ['rub_88',['RUB',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a67654743cc32dfeebf2d2d154db69cd8',1,'spz']]],
+  ['ruf_89',['RUF',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a4f50ef6b08ed6fb9190416eadf0bb59e',1,'spz']]],
+  ['run_5fcpu_5fsort_90',['RUN_CPU_SORT',['../namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6a98eb587fef5c837d73e05f396589c2d1',1,'GaussianSplatting']]],
+  ['runtime_5fbootstrap_5fpending_91',['RUNTIME_BOOTSTRAP_PENDING',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fafc09d0a4b6ccfb7f4839a64fc1499ba3',1,'render_streaming_orchestrator.cpp']]]
 ];

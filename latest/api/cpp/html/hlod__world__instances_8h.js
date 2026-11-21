@@ -16,7 +16,7 @@ var hlod__world__instances_8h =
     [ "gs_hlod_bundle::object_share_records", "namespacegs__hlod__bundle.html#ae1e3300ff5045890136755c3b4799836", null ],
     [ "gs_hlod_bundle::object_share_records", "namespacegs__hlod__bundle.html#ac324b1e2985b776fa4f570d51fdc7ecf", null ],
     [ "gs_hlod_bundle::object_share_splats", "namespacegs__hlod__bundle.html#aa075be9e358bd778e8257cea779900a9", null ],
-    [ "gs_hlod_bundle::object_view_demand", "namespacegs__hlod__bundle.html#ad8eb870d00a05a79395ff7456515b8e0", null ],
+    [ "gs_hlod_bundle::object_view_demand", "namespacegs__hlod__bundle.html#a02b99a3a366167639187bf018e0c30c2", null ],
     [ "gs_hlod_bundle::pack_instance_rows", "namespacegs__hlod__bundle.html#a516dfc9247839f48e871303ca79883ad", null ],
     [ "gs_hlod_bundle::relative_capacity", "namespacegs__hlod__bundle.html#a32f5ff18d83edeb33e2824e722921222", null ],
     [ "gs_hlod_bundle::rows_refusal", "namespacegs__hlod__bundle.html#a7667be2d4b50290bc4ab701ec5885ed7", null ],

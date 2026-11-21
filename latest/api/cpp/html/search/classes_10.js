@@ -70,5 +70,6 @@ var searchData=
   ['pressuresummary_67',['PressureSummary',['../structStreamingQueuePressureController_1_1PressureSummary.html',1,'StreamingQueuePressureController']]],
   ['primarychunklayoutmetrics_68',['PrimaryChunkLayoutMetrics',['../structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html',1,'GaussianStreamingTypes']]],
   ['progress_69',['Progress',['../structgs__world__writer_1_1Progress.html',1,'gs_world_writer']]],
-  ['publishedinstanceassetremap_70',['PublishedInstanceAssetRemap',['../structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html',1,'GaussianRenderPipeline']]]
+  ['publishedcontent_70',['PublishedContent',['../structgs__shadow__refresh_1_1PublishedContent.html',1,'gs_shadow_refresh']]],
+  ['publishedinstanceassetremap_71',['PublishedInstanceAssetRemap',['../structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html',1,'GaussianRenderPipeline']]]
 ];
