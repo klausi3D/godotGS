@@ -193,11 +193,13 @@ private:
 		Ref<FileAccess> handle;
 	};
 
+	// READ_SERVICE_ prefix: <winsvc.h> defines SERVICE_RUNNING/SERVICE_STOPPED as
+	// macros, and Windows platform TUs reach this header through render_data_rd.h.
 	enum ServiceState {
-		SERVICE_NEW,
-		SERVICE_RUNNING,
-		SERVICE_STOPPING,
-		SERVICE_STOPPED,
+		READ_SERVICE_NEW,
+		READ_SERVICE_RUNNING,
+		READ_SERVICE_STOPPING,
+		READ_SERVICE_STOPPED,
 	};
 
 	static void _reader_entry(void *p_self);
@@ -219,7 +221,7 @@ private:
 	mutable BinaryMutex mutex;
 	ConditionVariable work_cv; // Readers: `pending` gained a request, or stopping.
 	ConditionVariable ready_cv; // Completion/ready/drain waiters and shutdown share state-change notifications.
-	ServiceState state = SERVICE_NEW;
+	ServiceState state = READ_SERVICE_NEW;
 	uint32_t waiters = 0; // Threads inside wait_completion(), wait_ready() or a cancellation drain.
 	uint64_t handle_epoch = 0; // release_handles() bumps it; a read leased in an older epoch drops its handle.
 	SelfList<Request>::List pending;
