@@ -2167,12 +2167,15 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
     auto *storage = RendererRD::GaussianSplatStorage::get_singleton();
     if (!storage) { return; }
     const auto wind = gs::settings::get_wind_settings(ProjectSettings::get_singleton());
+    HashSet<uint64_t> indexed_renderers; // Publish one stable list owner per shared renderer, not per storage RID.
     for (uint64_t i = 0; i < p_visible.size(); ++i) {
         const RID owner_rid = p_visible[i];
         if (!storage->gaussian_get_casts_shadow(owner_rid)) { continue; }
         // The existing storage slot_mutex protects these short copies, and is released before renderer/director calls.
         const Ref<GaussianSplatRenderer> renderer = storage->gaussian_get_renderer(owner_rid);
         if (renderer.is_null() || !renderer->uses_hlod_shadow_casters()) { continue; }
+        const uint64_t renderer_key = uint64_t(renderer->get_instance_id());
+        if (indexed_renderers.has(renderer_key)) { continue; }
         // Before positional shadow-cache decisions, so a moving row invalidates a stationary light this frame.
         if (renderer->refresh_hlod_shadow_rows() != gs_shadow_caster::Refusal::NONE) { continue; }
         auto &state = renderer->get_resource_state();
@@ -2183,10 +2186,8 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
                 record.draw_list_upload != state.hlod_draw_list_uploads || !state.hlod_relative.buffers.hlod_relative ||
                 record.row_casts.size() != state.hlod_instance_row_data.instances.size()) { continue; }
         gs_shadow_refresh::Owner owner;
-        owner.owner = owner_rid.get_id();
-        owner.renderer = uint64_t(renderer->get_instance_id());
-        record.content_revision = state.hlod_shadow_content.refresh_rows(record, state.hlod_instance_row_data.instances);
-        owner.revision = record.content_revision;
+        owner.owner = renderer_key; // RID admission/churn elsewhere cannot dirty an unchanged light-local set.
+        owner.renderer = renderer_key;
         owner.opacity = renderer->get_render_config().opacity_multiplier;
         // Storage AABBs are already world-space (the World3D/Node3D producers transform their local bounds).
         owner.bounds = storage->gaussian_get_aabb(owner_rid);
@@ -2203,19 +2204,31 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
             }
         }
         const auto &rows = state.hlod_instance_row_data.instances;
+        LocalVector<uint32_t> row_animated;
+        LocalVector<real_t> row_margins;
+        row_animated.resize(rows.size());
+        row_margins.resize(rows.size());
+        real_t owner_margin = 0;
         for (uint32_t row = 0; row < rows.size(); ++row) {
             const bool casts = record.row_casts[row] != 0;
-            owner.animated |= gs_wind::wind_active_on_casting_row(wind, rows[row], casts);
-            owner.animated |= gs_shadow_refresh::effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,
-                    effects.effector_spheres, effects.effector_configs, effects.effector_opacity_configs);
+            row_animated[row] = gs_wind::wind_active_on_casting_row(wind, rows[row], casts) ||
+                    gs_shadow_refresh::effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,
+                            effects.effector_spheres, effects.effector_configs, effects.effector_opacity_configs);
+            const double margin = gs_wind::frame_displacement_bound(wind, &rows[row], 1, effector_push,
+                    effects.effector_meta[3] <= 0.5f);
+            real_t rounded = real_t(margin);
+            if (double(rounded) < margin) { rounded = std::nextafter(rounded, std::numeric_limits<real_t>::infinity()); }
+            row_margins[row] = rounded;
+            owner_margin = MAX(owner_margin, rounded);
         }
-        const double margin = gs_wind::frame_displacement_bound(wind, rows.ptr(), rows.size(), effector_push,
-                effects.effector_meta[3] <= 0.5f);
-        real_t rounded_margin = real_t(margin);
-        if (double(rounded_margin) < margin) {
-            rounded_margin = std::nextafter(rounded_margin, std::numeric_limits<real_t>::infinity());
-        }
-        owner.bounds.grow_by(rounded_margin);
+        auto &index = state.hlod_shadow_index;
+        index.rebuild(state.hlod_shadow_content, record, rows, row_margins, row_animated);
+        owner.content = &index;
+        indexed_renderers.insert(renderer_key);
+        owner.bounds.grow_by(owner_margin);
+        // A shared world's admitted objects can move beyond the world's storage AABB. Keep the coarse test enclosing
+        // the whole published set; only the per-record query below decides whether this particular lamp has content.
+        if (!index.cells.is_empty()) { owner.bounds = gs_shadow_refresh::enclosing_merge(owner.bounds, index.cells[0].bounds); }
         r_owners.push_back(owner);
     }
 }

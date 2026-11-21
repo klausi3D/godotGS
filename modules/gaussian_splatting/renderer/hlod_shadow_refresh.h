@@ -5,68 +5,142 @@
 #include "core/math/aabb.h"
 #include "core/math/math_funcs.h"
 #include <cstring>
+#include <limits>
 
 namespace gs_shadow_refresh {
 
-// Uploads happen even for identical lists. Keep one exact CPU snapshot per renderer, not a hash or an upload counter.
-// All fields are render-thread-only. No GPU readback, worker wait, or additional lock is needed.
+// Render-thread CPU state only. No GPU ownership, worker wait, or additional lock.
+// FNV-1a 64-bit digest: accidental collisions remain possible (~2^-64 per independent comparison).
+// Hash once per record/row, then combine only spatial hits per light; retaining exact bytes per light would
+// duplicate the intersecting draw/row data for every lamp. This is a cache key, not an adversarial hash.
+inline uint64_t hash_bytes(uint64_t p_hash, const void *p_data, size_t p_size) {
+	const uint8_t *bytes = static_cast<const uint8_t *>(p_data);
+	for (size_t i = 0; i < p_size; ++i) { p_hash = (p_hash ^ bytes[i]) * UINT64_C(1099511628211); }
+	return p_hash;
+}
+static constexpr uint64_t HASH_SEED = UINT64_C(14695981039346656037);
+
+template <typename T>
+inline uint64_t hash_value(uint64_t p_hash, const T &p_value) {
+	return hash_bytes(p_hash, &p_value, sizeof(T));
+}
+
+// Preserve both endpoints when the float span crosses a large origin (e.g. [-2e8, 1]). AABB(lo, hi-lo)
+// alone can round its computed end back to zero. Aggregate cells must not narrow and prune an edge caster.
+inline AABB enclosing_bounds(const Vector3 &p_lower, const Vector3 &p_upper) {
+	Vector3 size;
+	for (int axis = 0; axis < 3; ++axis) {
+		const double span = double(p_upper[axis]) - double(p_lower[axis]);
+		size[axis] = real_t(span);
+		if (double(size[axis]) < span || p_lower[axis] + size[axis] < p_upper[axis]) {
+			size[axis] = std::nextafter(size[axis], std::numeric_limits<real_t>::infinity());
+		}
+	}
+	return AABB(p_lower, size);
+}
+
+inline AABB enclosing_merge(const AABB &p_a, const AABB &p_b) {
+	return enclosing_bounds(p_a.position.min(p_b.position),
+			(p_a.position + p_a.size).max(p_b.position + p_b.size));
+}
+
+struct Geometry {
+	AABB bounds; // World node: world-space bounds. Object chunk: asset-local bounds.
+	uint64_t payload = 0; // Per-node content version / per-chunk payload digest, never the whole cut's revision.
+	uint32_t chunk_key = 0; // World node slot or asset-local object chunk, never a dense bundle table address.
+};
+
 struct PublishedContent {
-	gs_shadow_caster::FrameRecord previous;
 	LocalVector<DrawnNodeGPU> draws;
-	LocalVector<InstanceDataGPU> rows;
-	uint64_t source_revision = 0;
-	uint64_t revision = 0;
-
-	template <typename T>
-	static bool equal_bytes(const LocalVector<T> &p_old, const T *p_new, uint32_t p_count) {
-		return p_old.size() == p_count && (p_count == 0 || std::memcmp(p_old.ptr(), p_new, sizeof(T) * p_count) == 0);
-	}
-	static LocalVector<InstanceDataGPU> casting_rows(const gs_shadow_caster::FrameRecord &p_record,
-			const LocalVector<InstanceDataGPU> &p_rows) {
-		LocalVector<InstanceDataGPU> result;
-		for (uint32_t row = 0; row < p_rows.size() && row < p_record.row_casts.size(); ++row) {
-			if (p_record.row_casts[row]) { result.push_back(p_rows[row]); }
-		}
-		return result;
-	}
-
-	// An end-of-main-view idle restore may upload newer rows without replacing the retained draw list.
-	uint64_t refresh_rows(const gs_shadow_caster::FrameRecord &p_record, const LocalVector<InstanceDataGPU> &p_rows) {
-		const auto current = casting_rows(p_record, p_rows);
-		if (!equal_bytes(rows, current.ptr(), current.size()) ||
-				!equal_bytes(previous.row_casts, p_record.row_casts.ptr(), p_record.row_casts.size())) {
-			rows = current;
-			previous.row_casts = p_record.row_casts;
-			++revision;
-		}
-		return revision;
-	}
-
-	uint64_t publish(const gs_shadow_caster::FrameRecord &p_record, const DrawnNodeGPU *p_draws,
-			const LocalVector<InstanceDataGPU> &p_rows, uint64_t p_source_revision) {
-		LocalVector<DrawnNodeGPU> casting_draws;
+	LocalVector<Geometry> geometry;
+	void publish(const gs_shadow_caster::FrameRecord &p_record, const DrawnNodeGPU *p_draws,
+			const LocalVector<Geometry> &p_geometry) {
+		draws.resize(p_record.draw_count);
 		for (uint32_t i = 0; i < p_record.draw_count; ++i) {
-			const uint32_t row = p_draws[i].instance_id;
-			if (row < p_record.row_casts.size() && p_record.row_casts[row]) { casting_draws.push_back(p_draws[i]); }
+			draws[i] = p_draws[i];
+			// frame_relative_shadow_clip compensates FrameRecord::camera. World identity comes from Geometry,
+			// not from adding an anchor to rounded GPU offsets; object translation comes from current rows.
+			for (float &offset : draws[i].camera_offset) { offset = 0; }
 		}
-		const auto current_rows = casting_rows(p_record, p_rows);
-		// Both GPU layouts have asserted sizes and no padding. Ignore renderer_frame and draw_list_upload: neither
-		// identifies a content change. Camera-relative offsets, row transforms, cast flags, edits and rebuilds do.
-		const bool same = revision != 0 && previous.bundle_builds == p_record.bundle_builds &&
-				previous.origin_revision == p_record.origin_revision && previous.camera == p_record.camera &&
-				source_revision == p_source_revision &&
-				equal_bytes(draws, casting_draws.ptr(), casting_draws.size()) &&
-				equal_bytes(rows, current_rows.ptr(), current_rows.size()) &&
-				equal_bytes(previous.row_casts, p_record.row_casts.ptr(), p_record.row_casts.size());
-		if (!same) {
-			++revision;
-			draws = casting_draws;
-			rows = current_rows;
-			previous = p_record;
-			source_revision = p_source_revision;
-		}
-		return revision;
+		geometry = p_geometry;
 	}
+};
+
+inline AABB record_bounds(const Geometry &p_geometry, uint32_t p_row, const InstanceDataGPU &p_data, real_t p_margin) {
+	AABB bounds = p_geometry.bounds;
+	if (p_row != 0) {
+		const Basis basis = Basis(Quaternion(p_data.rotation[0], p_data.rotation[1], p_data.rotation[2], p_data.rotation[3]))
+				.scaled(Vector3(p_data.translation_scale[3], p_data.translation_scale[3], p_data.translation_scale[3]));
+		bounds = Transform3D(basis, Vector3(p_data.translation_scale[0], p_data.translation_scale[1], p_data.translation_scale[2])).xform(bounds);
+	}
+	bounds.grow_by(p_margin);
+	return bounds;
+}
+
+struct SpatialRecord {
+	AABB bounds;
+	uint64_t digest = 0;
+	bool animated = false;
+	uint32_t next = UINT32_MAX;
+};
+
+// Fixed-depth sparse octree of record centres, with aggregate *full inflated bounds* at every node (large records
+// cannot be lost by centre assignment). O(6*N) build, <=min(1+6*N, 299593) nodes, O(N) storage. Query prunes
+// disjoint cells and consumes fully enclosed cells in O(1), including their digest and animation flag. Only boundary
+// cells visit records; cost is O(N + sum_light(visited cells + boundary-leaf candidates)), not an unconditional
+// lights*records scan. Degenerate boundary clustering can still visit N records per light. Depth is fixed at six.
+struct ContentIndex {
+	struct Cell {
+		AABB bounds;
+		uint32_t children[8] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
+		uint32_t head = UINT32_MAX;
+		uint64_t digest = 0;
+		uint32_t count = 0;
+		bool animated = false;
+		void add(const SpatialRecord &p_record) {
+			if (count == 0) { bounds = p_record.bounds; } else { bounds = enclosing_merge(bounds, p_record.bounds); }
+			digest += p_record.digest;
+			++count;
+			animated |= p_record.animated;
+		}
+	};
+	LocalVector<SpatialRecord> records;
+	LocalVector<Cell> cells;
+	void build() {
+		cells.clear();
+		if (records.is_empty()) { return; }
+		Cell root;
+		for (const SpatialRecord &record : records) { root.add(record); }
+		cells.push_back(root);
+		for (uint32_t i = 0; i < records.size(); ++i) {
+			Vector3 lo = root.bounds.position, size = root.bounds.size;
+			const Vector3 center = records[i].bounds.get_center();
+			uint32_t cell = 0;
+			for (uint32_t depth = 0; depth < 6; ++depth) {
+				size *= real_t(0.5);
+				uint32_t octant = 0;
+				for (int axis = 0; axis < 3; ++axis) {
+					if (center[axis] >= lo[axis] + size[axis]) { octant |= 1u << axis; lo[axis] += size[axis]; }
+				}
+				uint32_t child = cells[cell].children[octant];
+				if (child == UINT32_MAX) {
+					child = cells.size();
+					cells[cell].children[octant] = child;
+					Cell added;
+					cells.push_back(added);
+				}
+				cells[child].add(records[i]);
+				cell = child;
+			}
+			records[i].next = cells[cell].head;
+			cells[cell].head = i;
+		}
+	}
+	void rebuild(const PublishedContent &p_content, const gs_shadow_caster::FrameRecord &p_record,
+			const LocalVector<InstanceDataGPU> &p_rows, const LocalVector<real_t> &p_margins,
+			const LocalVector<uint32_t> &p_animated);
+	void query(uint32_t p_cell, const Vector3 &p_center, real_t p_radius,
+			uint64_t &r_digest, uint32_t &r_count, bool &r_animated) const;
 };
 
 // Godot's spot shadow projection has axial length range and base radius range*tan(angle). The apex-centred sphere
@@ -82,6 +156,83 @@ inline bool sphere_intersects_bounds(const Vector3 &p_center, real_t p_radius, c
 	const real_t dy = MAX(MAX(p_bounds.position.y - p_center.y, p_center.y - end.y), real_t(0));
 	const real_t dz = MAX(MAX(p_bounds.position.z - p_center.z, p_center.z - end.z), real_t(0));
 	return p_radius >= 0 && dx * dx + dy * dy + dz * dz <= p_radius * p_radius;
+}
+
+inline bool sphere_contains_bounds(const Vector3 &p_center, real_t p_radius, const AABB &p_bounds) {
+	const Vector3 end = p_bounds.position + p_bounds.size;
+	const real_t dx = MAX(Math::abs(p_bounds.position.x - p_center.x), Math::abs(end.x - p_center.x));
+	const real_t dy = MAX(Math::abs(p_bounds.position.y - p_center.y), Math::abs(end.y - p_center.y));
+	const real_t dz = MAX(Math::abs(p_bounds.position.z - p_center.z), Math::abs(end.z - p_center.z));
+	return p_radius >= 0 && dx * dx + dy * dy + dz * dz <= p_radius * p_radius;
+}
+
+inline void ContentIndex::query(uint32_t p_cell, const Vector3 &p_center, real_t p_radius,
+		uint64_t &r_digest, uint32_t &r_count, bool &r_animated) const {
+	const Cell &cell = cells[p_cell];
+	if (!sphere_intersects_bounds(p_center, p_radius, cell.bounds)) { return; }
+	if (sphere_contains_bounds(p_center, p_radius, cell.bounds)) {
+		r_digest += cell.digest;
+		r_count += cell.count;
+		r_animated |= cell.animated;
+		return;
+	}
+	for (uint32_t i = cell.head; i != UINT32_MAX; i = records[i].next) {
+		const SpatialRecord &record = records[i];
+		if (!sphere_intersects_bounds(p_center, p_radius, record.bounds)) { continue; }
+		// Commutative multiset digest: cut/list order and spatial-cell changes cannot dirty a map.
+		r_digest += record.digest;
+		++r_count;
+		r_animated |= record.animated;
+	}
+	for (uint32_t child : cell.children) {
+		if (child != UINT32_MAX) { query(child, p_center, p_radius, r_digest, r_count, r_animated); }
+	}
+}
+
+// No camera, list upload/build counter, whole-cut revision, or dense row index in the content identity.
+inline uint64_t record_digest(const DrawnNodeGPU &p_draw, const Geometry &p_geometry, uint64_t p_row_digest) {
+	uint64_t digest = hash_value(p_row_digest, p_geometry.chunk_key);
+	digest = hash_value(digest, p_draw.fade);
+	digest = hash_value(digest, p_draw.level);
+	digest = hash_value(digest, p_geometry.payload);
+	for (int axis = 0; axis < 3; ++axis) {
+		digest = hash_value(digest, p_geometry.bounds.position[axis]);
+		digest = hash_value(digest, p_geometry.bounds.size[axis]);
+	}
+	// Avalanche before commutative addition, so neighbouring node/row keys do not have linear sums.
+	digest = (digest ^ (digest >> 33)) * UINT64_C(0xff51afd7ed558ccd);
+	digest = (digest ^ (digest >> 33)) * UINT64_C(0xc4ceb9fe1a85ec53);
+	return digest ^ (digest >> 33);
+}
+
+inline uint64_t row_digest(const InstanceDataGPU &p_row, uint64_t p_key, uint64_t p_asset) {
+	InstanceDataGPU row = p_row; // Layout has asserted size and no padding.
+	row.ids[0] = 0; // The stable asset identity below replaces the bundle's dense remap.
+	row.lod[0] = row.lod[1] = 0; // Camera-selected legacy LOD fields are not read by the retained HLOD caster.
+	row.params[1] = 0; // LOD bias affects admission, already represented by selected node/chunk identities.
+	return hash_value(hash_value(hash_value(HASH_SEED, p_key), p_asset), row);
+}
+
+inline void ContentIndex::rebuild(const PublishedContent &p_content, const gs_shadow_caster::FrameRecord &p_record,
+		const LocalVector<InstanceDataGPU> &p_rows, const LocalVector<real_t> &p_margins,
+		const LocalVector<uint32_t> &p_animated) {
+	LocalVector<uint64_t> row_digests;
+	row_digests.resize(p_rows.size());
+	for (uint32_t row = 0; row < p_rows.size(); ++row) {
+		row_digests[row] = row_digest(p_rows[row], p_record.row_keys[row], p_record.row_asset_ids[row]);
+	}
+	records.clear();
+	for (uint32_t i = 0; i < p_content.draws.size(); ++i) {
+		const auto &draw = p_content.draws[i];
+		const uint32_t row = draw.instance_id;
+		if (row >= p_rows.size() || !p_record.row_casts[row]) { continue; }
+		SpatialRecord spatial;
+		spatial.bounds = record_bounds(p_content.geometry[i], row, p_rows[row], p_margins[row]);
+		spatial.digest = record_digest(draw, p_content.geometry[i], row_digests[row]);
+		spatial.animated = p_animated[row] != 0;
+		records.push_back(spatial);
+	}
+	build();
 }
 
 inline bool needs_refresh(bool p_intersects, bool p_seen, bool p_changed, bool p_animated) {
@@ -112,11 +263,12 @@ struct Owner {
 	float opacity = 1.0f;
 	AABB bounds;
 	bool animated = false;
+	uint32_t record_count = 0;
+	const ContentIndex *content = nullptr; // Borrowed only while preparing this view; never retained by LightState.
 
 	bool same_content(const Owner &p_other) const {
 		return owner == p_other.owner && renderer == p_other.renderer && revision == p_other.revision &&
-				opacity == p_other.opacity && bounds == p_other.bounds &&
-				animated == p_other.animated;
+				opacity == p_other.opacity && record_count == p_other.record_count && animated == p_other.animated;
 	}
 };
 
@@ -129,14 +281,28 @@ struct LightUpdate {
 // bounded by the intersecting visible owners of that pass; the scene-cull light-free hook erases the whole entry.
 struct LightState {
 	LocalVector<Owner> last_pass;
-	void commit(const LightUpdate &p_update) { last_pass = p_update.owners; }
+	void commit(const LightUpdate &p_update) {
+		last_pass = p_update.owners;
+		for (Owner &owner : last_pass) { owner.content = nullptr; }
+	}
 };
 
 inline LightUpdate prepare_light(const LocalVector<Owner> &p_owners, const Vector3 &p_center, real_t p_radius,
 		const LightState &p_state) {
 	LightUpdate update;
-	for (const Owner &owner : p_owners) {
-		if (!sphere_intersects_bounds(p_center, p_radius, owner.bounds)) { continue; }
+	for (const Owner &source : p_owners) {
+		if (!sphere_intersects_bounds(p_center, p_radius, source.bounds)) { continue; }
+		Owner owner = source;
+		if (source.content) {
+			owner.revision = 0;
+			owner.record_count = 0;
+			owner.animated = false;
+			if (!source.content->cells.is_empty()) {
+				source.content->query(0, p_center, p_radius, owner.revision, owner.record_count, owner.animated);
+			}
+			if (owner.record_count == 0) { continue; }
+		}
+		owner.content = nullptr;
 		const Owner *seen = nullptr;
 		for (const Owner &old : p_state.last_pass) {
 			if (old.owner == owner.owner) { seen = &old; break; }

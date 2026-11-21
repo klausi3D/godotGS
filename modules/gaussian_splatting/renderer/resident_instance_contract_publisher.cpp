@@ -1565,8 +1565,22 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     asset.bounds_radius_local = p_data.nodes[0].topology.radius;
     // PR1b: the instance region, after the world. Its chunk tables sit at [node_count, table_count) and its records after
     // the world's `records`, so the world's tables and atlas are exactly what they were without instances.
+    r_bundle.shadow_instance_geometry.resize(region.chunk_count);
     for (uint32_t k = 0; k < region.chunk_count; ++k) {
         ChunkMetaGPU meta = p_instances.chunk_meta[k];
+        auto &geometry = r_bundle.shadow_instance_geometry[k];
+        geometry.chunk_key = k - region.assets[meta.asset_id - 1u].first_chunk;
+        const real_t radius = meta.bounds_radius_local;
+        geometry.bounds = AABB(Vector3(meta.bounds_center_local[0], meta.bounds_center_local[1], meta.bounds_center_local[2]) -
+                Vector3(radius, radius, radius), Vector3(2 * radius, 2 * radius, 2 * radius));
+        // Hash the immutable chunk once at bundle creation. Atlas placement and other chunks never enter its key.
+        const uint64_t metadata_hash = gs_shadow_refresh::hash_value(gs_shadow_refresh::HASH_SEED, meta.splat_count);
+        geometry.payload = p_quantized
+                ? gs_shadow_refresh::hash_bytes(metadata_hash, p_instances.quantized.ptr() + meta.atlas_base,
+                        size_t(meta.splat_count) * sizeof(PackedGaussianQuantized))
+                : gs_shadow_refresh::hash_bytes(metadata_hash, p_instances.raw.ptr() + meta.atlas_base,
+                        size_t(meta.splat_count) * sizeof(PackedGaussian));
+        geometry.payload = gs_shadow_refresh::hash_value(geometry.payload, meta.flags);
         meta.atlas_base += records;
         metadata.write[node_count + k] = meta;
         indices.write[node_count + k].chunk_id = node_count + k;
@@ -1719,6 +1733,8 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_instance_refresh_failed_asset_generation = 0;
     state.hlod_instance_rows = 0;
     state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord(); // The buffers it names are gone.
+    state.hlod_shadow_content = gs_shadow_refresh::PublishedContent();
+    state.hlod_shadow_index = gs_shadow_refresh::ContentIndex();
     state.hlod_shadow_rows_server_frame = UINT64_MAX;
     state.hlod_shadow_rows_bundle_builds = 0;
     state.hlod_shadow_rows_contract_refused_frame = refused_frame;
@@ -2823,6 +2839,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     const gs_shadow_caster::FrameRecord previous_casters = state.hlod_shadow_caster_record;
     state.hlod_shadow_rows_entered_this_frame_not_cast = 0;
     bool instance_casters_ready = false;
+    LocalVector<uint64_t> world_shadow_versions; // Versions already resolved by the selector; O(1) per drawn node.
     auto publish_shadow_casters = [&](uint32_t p_world_records, uint64_t p_world_record_splats) {
         gs_shadow_caster::FrameRecord &caster = state.hlod_shadow_caster_record;
         caster = instance_casters;
@@ -2831,8 +2848,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         caster.bundle_builds = state.hlod_bundle_builds;
         caster.draw_list_upload = state.hlod_draw_list_uploads;
         gs_shadow_caster::complete_record(caster, p_world_records, p_world_record_splats);
-        // An idle world's list was uploaded from instance_draws, not relative.draw_entries. Publish the exact bytes
-        // the next shadow pass will draw, including the rows from this bundle generation. Repeated uploads are stable.
+        // An idle world's list was uploaded from instance_draws, not relative.draw_entries. Publish identities and
+        // anchor-independent geometry for the list the next shadow pass draws, with the current bundle's row keys.
         const DrawnNodeGPU *draws = p_world_records ? state.hlod_relative.draw_entries.ptr() : state.hlod_instance_draws.ptr();
         caster.row_keys = state.hlod_instance_row_keys;
         caster.row_asset_ids = state.hlod_instance_row_data.asset_ids;
@@ -2843,10 +2860,34 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
         state.hlod_shadow_rows_entered_this_frame_not_cast = gs_shadow_caster::entered_rows(previous_casters, caster);
         publish_hlod_shadow_rows_snapshot();
-        const uint64_t source_revision = state.hlod_streaming && state.hlod_streamer.is_valid()
-                ? state.hlod_streamer->get_telemetry().edit_revision : state.hlod_prepared_snapshot->edit_revision;
-        caster.content_revision = state.hlod_shadow_content.publish(caster, draws,
-                state.hlod_instance_row_data.instances, source_revision);
+        // Use the immutable source actually served by the streamed cut, including per-leaf edits.
+        const Ref<GaussianSplatHlodRuntimeData> source = state.hlod_streaming && state.hlod_streamer.is_valid()
+                ? state.hlod_streamer->get_data() : state.hlod_prepared_snapshot;
+        LocalVector<gs_shadow_refresh::Geometry> geometry;
+        geometry.resize(caster.draw_count);
+        for (uint32_t i = 0; i < caster.draw_count; ++i) {
+            const uint32_t chunk = draws[i].chunk_id;
+            if (draws[i].instance_id == 0) {
+                const auto &node = source->nodes[chunk];
+                auto &g = geometry[i];
+                Vector3 lo, hi;
+                for (int axis = 0; axis < 3; ++axis) {
+                    const double lower = node.exact_cell_center[axis] + double(node.topology.aabb_min[axis]);
+                    const double upper = node.exact_cell_center[axis] + double(node.topology.aabb_max[axis]);
+                    lo[axis] = real_t(lower);
+                    hi[axis] = real_t(upper);
+                    if (double(lo[axis]) > lower) { lo[axis] = std::nextafter(lo[axis], -std::numeric_limits<real_t>::infinity()); }
+                    if (double(hi[axis]) < upper) { hi[axis] = std::nextafter(hi[axis], std::numeric_limits<real_t>::infinity()); }
+                }
+                g.bounds = gs_shadow_refresh::enclosing_bounds(lo, hi);
+                // Node slot + stable source epoch + per-node revision survive camera motion and unrelated leaf edits.
+                g.payload = gs_shadow_refresh::hash_value(world_shadow_versions[i], source->source_epoch);
+                g.chunk_key = chunk;
+            } else {
+                geometry[i] = state.hlod_relative.shadow_instance_geometry[chunk - uint32_t(source->nodes.size())];
+            }
+        }
+        state.hlod_shadow_content.publish(caster, draws, geometry);
     };
     if (p_context.pass_kind == RenderPassKind::MAIN_VIEW) {
         // The per-view budget outcome describes THIS main view only: a view that never reaches the budget rule refuses
@@ -3433,7 +3474,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
     }
     state.clear_hlod_level_drawn();
+    world_shadow_versions.resize(selected_count);
     for (uint32_t i = 0; i < selected_count; ++i) {
+        world_shadow_versions[i] = gs_shadow_refresh::hash_value(outcome.records[i].version.content_revision,
+                outcome.records[i].version.bake_rule_revision);
         const uint32_t node = outcome.records[i].node;
         // The ViewSet formed camera_offset in double for snapshot.origin_revision; every world record names the
         // world's row (row 0, identity-placed). BV-04b: the record carries the node's HLOD level (height) so the

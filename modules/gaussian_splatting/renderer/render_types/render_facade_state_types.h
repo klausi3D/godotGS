@@ -68,6 +68,8 @@ struct HlodBundle {
     uint64_t generation = 0;
     bool quantized = false;
     Vector<DrawnNodeGPU> draw_entries;
+    // CPU-only per-chunk geometry/content retained with this bundle and released by hlod_free_bundle.
+    LocalVector<gs_shadow_refresh::Geometry> shadow_instance_geometry;
 };
 
 struct ResourceState {
@@ -207,6 +209,7 @@ struct ResourceState {
     // it. hlod_draw_list_uploads counts writes of the relative bundle's draw list (the record keys on it). Render thread only.
     gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
     gs_shadow_refresh::PublishedContent hlod_shadow_content; // Render thread; one bounded CPU snapshot, no GPU ownership.
+    gs_shadow_refresh::ContentIndex hlod_shadow_index; // Rebuilt once per owner/view before all light queries.
     uint64_t hlod_draw_list_uploads = 0;
     gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // Render-thread diagnostics: successful pre-shadow row sync in the RS frame, independently of main-view count.

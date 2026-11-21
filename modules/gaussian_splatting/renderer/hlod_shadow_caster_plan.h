@@ -101,7 +101,6 @@ struct FrameRecord {
 	// ResourceState::hlod_draw_list_uploads when the list was uploaded. A later upload rewrites the list the record names;
 	// an upload-free rebind (the streamed world's end-of-frame idle restore zeroes only the GPU counter) does not.
 	uint64_t draw_list_upload = 0;
-	uint64_t content_revision = 0; // Exact published caster content; identical re-uploads retain this revision.
 	// Per bundle row (InstanceDataGPU index): 1 = the row casts. Row 0 follows the world's own cast_shadow (Godot gives the
 	// shared renderer a shadow pass when ANY of its Gaussian instances casts, so that alone says nothing about the
 	// world); rows 1..N follow their node's cast_shadow.
