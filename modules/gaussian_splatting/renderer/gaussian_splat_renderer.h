@@ -47,6 +47,7 @@
 #include "gpu_memory_stream.h"
 #include "gaussian_gpu_layout.h"
 #include "hlod_contract_lifecycle.h"
+#include "hlod_shadow_refresh.h"
 #include "../core/gaussian_streaming.h"
 #include "tile_renderer.h"
 #include "gpu_buffer_manager.h"
@@ -1892,6 +1893,12 @@ public:
             int p_light_type = -1, int p_omni_shadow_mode = -1, int p_shadow_pass = -1);
     // Render-thread query: HLOD cube casters run before Godot's cube-to-atlas copy; canonical casters keep their path.
     bool uses_hlod_shadow_casters() const { return _is_hlod_shadow_route_owner(); }
+    static void collect_hlod_shadow_refresh_owners(const PagedArray<RID> &p_visible,
+            LocalVector<gs_shadow_refresh::Owner> &r_owners);
+    static gs_shadow_refresh::LightUpdate prepare_hlod_shadow_light(RID p_light,
+            const LocalVector<gs_shadow_refresh::Owner> &p_owners, const Vector3 &p_center, real_t p_range, real_t p_spot_angle);
+    static void commit_hlod_shadow_light(RID p_light, const gs_shadow_refresh::LightUpdate &p_update);
+    static void forget_hlod_shadow_light(RID p_light);
     const ShadowRenderResult &get_last_shadow_render_result() const { return last_shadow_render_result; }
 
     /**

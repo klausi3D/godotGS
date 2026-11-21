@@ -79,6 +79,8 @@ using GaussianSplatting::ScopedGpuMarker;
 #include "../shaders/gs_shadow_blit.glsl.gen.h"
 #include "gs_shadow_caster.h"
 #include "gs_deformation_frame.h"
+#include "gs_wind_bounds.h"
+#include "servers/rendering/renderer_rd/storage_rd/gaussian_splat_storage.h"
 #include "hlod_shadow_caster_plan.h"
 #include <cstdint>
 #include <algorithm>
@@ -2049,6 +2051,84 @@ bool GaussianSplatRenderer::_is_hlod_shadow_route_owner() const {
             // LOD off draws the canonical leaves, not a relative list: no caster record is published, so those frames
             // keep the canonical shadow path they used before the HLOD casters existed.
             get_lod_enabled();
+}
+
+// Render-thread-only. At most one entry per live light that actually scheduled an intersecting HLOD shadow pass;
+// RendererSceneCull removes it before freeing/replacing the light instance. No RID is retained as a GPU resource.
+static HashMap<uint64_t, gs_shadow_refresh::LightState> hlod_shadow_lights;
+
+gs_shadow_refresh::LightUpdate GaussianSplatRenderer::prepare_hlod_shadow_light(RID p_light,
+        const LocalVector<gs_shadow_refresh::Owner> &p_owners, const Vector3 &p_center, real_t p_range, real_t p_spot_angle) {
+    const gs_shadow_refresh::LightState *state = hlod_shadow_lights.getptr(p_light.get_id());
+    const gs_shadow_refresh::LightState empty;
+    return gs_shadow_refresh::prepare_light(p_owners, p_center,
+            gs_shadow_refresh::positional_sphere_radius(p_range, p_spot_angle), state ? *state : empty);
+}
+
+void GaussianSplatRenderer::commit_hlod_shadow_light(RID p_light, const gs_shadow_refresh::LightUpdate &p_update) {
+    if (p_update.owners.is_empty()) { hlod_shadow_lights.erase(p_light.get_id()); return; }
+    hlod_shadow_lights[p_light.get_id()].commit(p_update);
+}
+
+void GaussianSplatRenderer::forget_hlod_shadow_light(RID p_light) {
+    hlod_shadow_lights.erase(p_light.get_id());
+}
+
+void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<RID> &p_visible,
+        LocalVector<gs_shadow_refresh::Owner> &r_owners) {
+    r_owners.clear();
+    auto *storage = RendererRD::GaussianSplatStorage::get_singleton();
+    if (!storage) { return; }
+    const auto wind = gs::settings::get_wind_settings(ProjectSettings::get_singleton());
+    for (uint64_t i = 0; i < p_visible.size(); ++i) {
+        const RID owner_rid = p_visible[i];
+        if (!storage->gaussian_get_casts_shadow(owner_rid)) { continue; }
+        // The existing storage slot_mutex protects these short copies, and is released before renderer/director calls.
+        const Ref<GaussianSplatRenderer> renderer = storage->gaussian_get_renderer(owner_rid);
+        if (renderer.is_null() || !renderer->uses_hlod_shadow_casters()) { continue; }
+        auto &state = renderer->get_resource_state();
+        auto &record = state.hlod_shadow_caster_record;
+        // Match the caster's previous-main-view list/bundle generations. These fields and uploaded row copies are
+        // render-thread owned: no mutex or GPU wait. Never combine cast bits with rows from a replacement bundle.
+        if (!record.valid || record.bundle_builds != state.hlod_bundle_builds ||
+                record.draw_list_upload != state.hlod_draw_list_uploads || !state.hlod_relative.buffers.hlod_relative ||
+                record.row_casts.size() != state.hlod_instance_row_data.instances.size()) { continue; }
+        gs_shadow_refresh::Owner owner;
+        owner.owner = owner_rid.get_id();
+        owner.renderer = uint64_t(renderer->get_instance_id());
+        record.content_revision = state.hlod_shadow_content.refresh_rows(record, state.hlod_instance_row_data.instances);
+        owner.revision = record.content_revision;
+        owner.opacity = renderer->get_render_config().opacity_multiplier;
+        // Storage AABBs are already world-space (the World3D/Node3D producers transform their local bounds).
+        owner.bounds = storage->gaussian_get_aabb(owner_rid);
+        GaussianSplatting::TileRenderParams params;
+        // Uses the existing director world_mutex only to copy its selected payload, exactly as the caster does.
+        gs_wind::fill_frame_params(renderer.ptr(), 0.0, params);
+        GsSplatShadowCaster::DeformationUniform effects;
+        GaussianSplatting::pack_deformation_effectors(params, effects.effector_meta, effects.effector_spheres,
+                effects.effector_configs, effects.effector_opacity_configs);
+        double effector_push = 0.0;
+        for (uint32_t slot = 0; slot < uint32_t(effects.effector_meta[0]); ++slot) {
+            if (effects.effector_configs[slot][0] > 0.5f && effects.effector_opacity_configs[slot][0] > 0.5f) {
+                effector_push += std::abs(double(effects.effector_configs[slot][1]));
+            }
+        }
+        const auto &rows = state.hlod_instance_row_data.instances;
+        for (uint32_t row = 0; row < rows.size(); ++row) {
+            const bool casts = record.row_casts[row] != 0;
+            owner.animated |= gs_wind::wind_active_on_casting_row(wind, rows[row], casts);
+            owner.animated |= gs_shadow_refresh::effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,
+                    effects.effector_spheres, effects.effector_configs, effects.effector_opacity_configs);
+        }
+        const double margin = gs_wind::frame_displacement_bound(wind, rows.ptr(), rows.size(), effector_push,
+                effects.effector_meta[3] <= 0.5f);
+        real_t rounded_margin = real_t(margin);
+        if (double(rounded_margin) < margin) {
+            rounded_margin = std::nextafter(rounded_margin, std::numeric_limits<real_t>::infinity());
+        }
+        owner.bounds.grow_by(rounded_margin);
+        r_owners.push_back(owner);
+    }
 }
 
 bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_light_projection,

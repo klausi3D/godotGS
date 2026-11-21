@@ -13,6 +13,7 @@
 #include "../hlod_cut_telemetry.h"
 #include "../hlod_world_instances.h"
 #include "../hlod_shadow_caster_plan.h"
+#include "../hlod_shadow_refresh.h"
 #include "../../lod/hlod_auto_route.h"
 #include "core/os/mutex.h"
 #include "core/math/color.h"
@@ -205,6 +206,7 @@ struct ResourceState {
     // invalidated at the start of every main-view preparation and on release; the shadow passes of the next frame draw
     // it. hlod_draw_list_uploads counts writes of the relative bundle's draw list (the record keys on it). Render thread only.
     gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
+    gs_shadow_refresh::PublishedContent hlod_shadow_content; // Render thread; one bounded CPU snapshot, no GPU ownership.
     uint64_t hlod_draw_list_uploads = 0;
     gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // All shadow routes and early exits, recorded on the render thread like hlod_shadow_caster_stats above.

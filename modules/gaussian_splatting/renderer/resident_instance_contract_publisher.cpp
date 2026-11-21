@@ -2728,6 +2728,13 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         caster.bundle_builds = state.hlod_bundle_builds;
         caster.draw_list_upload = state.hlod_draw_list_uploads;
         gs_shadow_caster::complete_record(caster, p_world_records, p_world_record_splats);
+        // An idle world's list was uploaded from instance_draws, not relative.draw_entries. Publish the exact bytes
+        // the next shadow pass will draw, including the rows from this bundle generation. Repeated uploads are stable.
+        const DrawnNodeGPU *draws = p_world_records ? state.hlod_relative.draw_entries.ptr() : state.hlod_instance_draws.ptr();
+        const uint64_t source_revision = state.hlod_streaming && state.hlod_streamer.is_valid()
+                ? state.hlod_streamer->get_telemetry().edit_revision : state.hlod_prepared_snapshot->edit_revision;
+        caster.content_revision = state.hlod_shadow_content.publish(caster, draws,
+                state.hlod_instance_row_data.instances, source_revision);
     };
     if (p_context.pass_kind == RenderPassKind::MAIN_VIEW) {
         // The per-view budget outcome describes THIS main view only: a view that never reaches the budget rule refuses
