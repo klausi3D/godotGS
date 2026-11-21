@@ -1572,8 +1572,8 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 
 # Own wall-clock bound, reached by both whole/paged shadow proofs in Resident HLOD Main View.
 # A has four cascade passes, B one; require different positive totals without assuming a per-cascade draw list.
-# C exercises the refused NOT_DIRECTIONAL route: a submitted light with zero casters must be present, while a
-# light with no submitted passes must be absent. Moving C forces fresh atlas updates instead of cached omni shadows.
+# C is an omni light (cube mode). Since #1424 it casts its own positive count on every cube face; a light with no
+# submitted passes must still be absent. Moving C forces fresh atlas updates instead of cached omni shadows.
 func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplatWorld3D, ball: GaussianSplatNode3D, light_a: DirectionalLight3D, mode: String) -> bool:
 	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
 	world_node.set_opacity(1.0)
@@ -1666,7 +1666,13 @@ func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplat
 			if with_omni:
 				var c: int = per_light[light_ids["C"]]
 				summed += c
-				if not _check(c == 0 and int(st["shadow_no_caster_rastered"]) >= 1, "%s: refused C must report zero casters and shadow_no_caster_rastered >= 1 (C=%d no_caster=%s)" % [what, c, st["shadow_no_caster_rastered"]]):
+				# Before #1424 the omni light C was refused (0 casters, shadow_no_caster_rastered >= 1). #1424 makes the
+				# HLOD caster draw omni cube faces, so C must now cast its own positive count on every cube face.
+				if not _check(c > 0 and c != a and c != b and int(st["shadow_no_caster_rastered"]) == 0, "%s: omni C must report its own positive caster count and shadow_no_caster_rastered == 0 (#1424) (C=%d A=%d B=%d no_caster=%s)" % [what, c, a, b, st["shadow_no_caster_rastered"]]):
+					return false
+				var kinds: Dictionary = st.get("shadow_light_pass_kinds", {})
+				var c_kind: Dictionary = kinds.get(light_ids["C"], {})
+				if not _check(String(c_kind.get("type", "")) == "omni_cube" and int(c_kind.get("passes", 0)) > 0 and int(c_kind.get("cast_passes", -1)) == int(c_kind.get("passes", 0)), "%s: omni C must cast on every cube-face pass (#1424) (kind=%s)" % [what, c_kind]):
 					return false
 			else:
 				if not _check(not per_light.has(light_ids["C"]), "%s: shadow_casters_rastered_per_light[%s] (disabled C) must be absent" % [what, light_ids["C"]]):
