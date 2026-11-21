@@ -6,6 +6,7 @@
 
 #include "core/os/os.h"
 #include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering_server.h"
 
 // Tests for the CPU mirror of sphere-effector / wind deformation math in
 // gs_deformation.glsl. The mirror lives in deformation_cpu_mirror.h and must
@@ -179,7 +180,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Deformation] sphere effector spatial influe
 TEST_CASE("[GaussianSplatting][HLOD][Deformation] animation sampler latches one wall clock sample per server frame") {
 	// Shadows and colour are separate calls in the same server frame. Wall
 	// clock elapsed between them must not alter that frame's wind phase.
-	const bool has_compositor = RSG::rasterizer != nullptr;
+	const bool has_compositor = RenderingServer::get_singleton() != nullptr && RSG::rasterizer != nullptr;
 	const double first = RenderFrameContextManager::sample_render_animation_time_seconds();
 	// First call in the process latches epoch → 0. In a test binary this
 	// is a one-shot because the epoch is a function-static; if a prior test

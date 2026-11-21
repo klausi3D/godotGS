@@ -587,8 +587,10 @@ class ShadowCasterCurrentRowsTests(unittest.TestCase):
 
         host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
         getter, _ = block_after(r"bool\s+GaussianSplatRenderer::hlod_shadow_colour_refused\(\)\s+const", host)
-        self.assertRegex(getter, r"(?:RSG::rasterizer->get_frame_number\(\)\s*==\s*state\.hlod_shadow_rows_contract_refused_frame|"
-                                r"state\.hlod_shadow_rows_contract_refused_frame\s*==\s*RSG::rasterizer->get_frame_number\(\))")
+        # The server frame is read through gs_live_rasterizer(), which returns null when no RenderingServer is live.
+        self.assertRegex(getter, r"(?:gs_live_rasterizer\(\)->get_frame_number\(\)\s*==\s*state\.hlod_shadow_rows_contract_refused_frame|"
+                                r"state\.hlod_shadow_rows_contract_refused_frame\s*==\s*gs_live_rasterizer\(\)->get_frame_number\(\))")
+        self.assertIn("return RenderingServer::get_singleton() ? RSG::rasterizer : nullptr;", host)
 
     def test_release_retains_same_frame_refusal_before_destroying_the_latched_bundle(self):
         publisher = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")

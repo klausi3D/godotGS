@@ -5,6 +5,7 @@
 #include "core/os/mutex.h"
 #include "servers/rendering/rendering_server_globals.h"
 #include "servers/rendering/renderer_compositor.h"
+#include "servers/rendering_server.h"
 
 #include <atomic>
 
@@ -29,7 +30,8 @@ double RenderFrameContextManager::sample_render_animation_time_seconds() {
 	static const RendererCompositor *sampled_compositor = nullptr;
 	static uint64_t sampled_frame = UINT64_MAX;
 	static double sampled_seconds = 0.0;
-	const RendererCompositor *compositor = RSG::rasterizer;
+	// RSG::rasterizer is not nulled when a RenderingServer finishes; the singleton is, so it gates the read.
+	const RendererCompositor *compositor = RenderingServer::get_singleton() ? RSG::rasterizer : nullptr;
 	const uint64_t server_frame = compositor ? compositor->get_frame_number() : 0;
 	if (compositor && compositor == sampled_compositor && server_frame == sampled_frame) {
 		return sampled_seconds;

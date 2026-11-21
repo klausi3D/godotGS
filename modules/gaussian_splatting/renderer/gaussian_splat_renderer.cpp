@@ -2074,16 +2074,23 @@ void GaussianSplatRenderer::forget_hlod_shadow_light(RID p_light) {
     hlod_shadow_lights.erase(p_light.get_id());
 }
 
+// RSG::rasterizer is not nulled when a RenderingServer finishes (rendering_server_default.cpp memdeletes it), so a
+// renderer that outlives its server, or runs where none exists (host tests), must not dereference it. The
+// RenderingServer singleton IS cleared in its destructor, so it gates the compositor read.
+static RendererCompositor *gs_live_rasterizer() {
+    return RenderingServer::get_singleton() ? RSG::rasterizer : nullptr;
+}
+
 bool GaussianSplatRenderer::hlod_shadow_rows_latched() const {
     const auto &state = get_resource_state();
-    return RSG::rasterizer && gs_shadow_caster::rows_frame_latched(RSG::rasterizer->get_frame_number(),
+    return gs_live_rasterizer() && gs_shadow_caster::rows_frame_latched(gs_live_rasterizer()->get_frame_number(),
             state.hlod_bundle_builds, state.hlod_shadow_rows_server_frame, state.hlod_shadow_rows_bundle_builds);
 }
 
 void GaussianSplatRenderer::publish_hlod_shadow_rows_snapshot() {
     auto &state = get_resource_state();
     gs_shadow_caster::RowSyncSnapshot snapshot;
-    snapshot.observed_server_frame = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    snapshot.observed_server_frame = gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : 0;
     snapshot.synced_server_frame = state.hlod_shadow_rows_server_frame;
     snapshot.generation = state.hlod_shadow_rows_generation;
     snapshot.entry_renderer_frame = state.hlod_instance_view_frame;
@@ -2098,7 +2105,7 @@ void GaussianSplatRenderer::publish_hlod_shadow_rows_snapshot() {
 
 bool GaussianSplatRenderer::hlod_shadow_colour_refused() const {
     const auto &state = get_resource_state();
-    return RSG::rasterizer && state.hlod_shadow_rows_contract_refused_frame == RSG::rasterizer->get_frame_number();
+    return gs_live_rasterizer() && state.hlod_shadow_rows_contract_refused_frame == gs_live_rasterizer()->get_frame_number();
 }
 
 gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
@@ -2156,7 +2163,7 @@ gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
         record.instance_splats += state.hlod_instance_region.assets[asset].splat_count;
     }
     state.hlod_shadow_rows_generation = state.hlod_instance_generation;
-    state.hlod_shadow_rows_server_frame = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    state.hlod_shadow_rows_server_frame = gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : 0;
     state.hlod_shadow_rows_bundle_builds = state.hlod_bundle_builds;
     return refuse(gs_shadow_caster::Refusal::NONE);
 }
@@ -2323,7 +2330,7 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
     // Render-thread frame key: begin_frame() advances it once before all viewport/shadow work. Canonical shadow
     // rasterization may advance our renderer counter, but never this key. Standalone calls without an RS compositor
     // share key 0; they cannot observe an RS frame transition. Invalid light IDs are ignored by the accounting.
-    result.server_frame = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    result.server_frame = gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : 0;
     result.renderer_frame = get_frame_state().frame_counter;
     result.light_id = p_light.get_id();
     result.light_pass.light_type = p_light_type;
