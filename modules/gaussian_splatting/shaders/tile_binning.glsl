@@ -1001,9 +1001,13 @@ void main() {
 #endif
     float instance_intensity = max(instance.params.z, 0.0);
     float instance_wind_mode = instance.params.w;
-    uint stable_seed = gaussian_idx ^ (splat_ref.instance_id * 0x9e3779b9u);
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint wind_level = selected.level == GS_DRAWN_NODE_LEVEL_NONE ? 0u : selected.level;
+#else
+    uint wind_level = 0u;
+#endif
+    float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
-            stable_seed,
             g.opacity,
             instance_intensity,
             instance_wind_mode,
@@ -1015,7 +1019,8 @@ void main() {
             params.effector_spheres,
             params.effector_configs,
             params.effector_opacity_configs,
-            frame_anchor);
+            frame_anchor,
+            deformation_fade);
     world_position = deformation.position;
     vec3 world_scale = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u
             ? local_scale

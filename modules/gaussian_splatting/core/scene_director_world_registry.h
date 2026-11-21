@@ -18,6 +18,18 @@ struct GaussianSplatSceneDirector::SharedWorld {
     InstanceStore instance_store;
     SphereEffectorStore sphere_effector_store;
     SubmissionStore submission_store;
+    // Shared by the world's direct frame_pre_draw callbacks. Protected by world_mutex, owned/pruned with this world.
+    struct DeformationVisibilityCache {
+        bool valid = false;
+        uint64_t pre_draw_epoch = 0;
+        uint64_t row_generation = 0;
+        uint64_t effector_generation = 0;
+        bool wind_enabled = false;
+        float wind_strength = 0.0f;
+        gs::settings::GSSphereEffectorSettings project_effector;
+        double margin = 0.0;
+    };
+    mutable DeformationVisibilityCache deformation_visibility_cache;
     // #610 S9: the per-instance LOD-walk memoization + the walk itself.
     LODCacheOwner lod_cache_owner;
 };

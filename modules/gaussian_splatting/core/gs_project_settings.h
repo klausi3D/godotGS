@@ -41,6 +41,12 @@ static constexpr float GS_LOD_BIAS_MAX = 4.0f;
 
 namespace settings {
 
+// Keep the project setting path and the node property names distinct and canonical. Node properties are row-local
+// opt-ins, while get_wind_settings() is the sole reader of the project-wide wind family.
+inline constexpr const char *WIND_ENABLED_PATH = "rendering/gaussian_splatting/animation/wind_enabled";
+inline constexpr const char *WORLD_WIND_ENABLED_PROPERTY = "wind_enabled";
+inline constexpr const char *WORLD_WIND_INTENSITY_PROPERTY = "wind_intensity";
+
 /**
  * @brief Read a boolean from ProjectSettings with type coercion.
  *
@@ -260,7 +266,7 @@ static inline GSWindSettings get_wind_settings(ProjectSettings *p_ps) {
 	if (!p_ps) {
 		return settings;
 	}
-	settings.enabled = get_bool(p_ps, "rendering/gaussian_splatting/animation/wind_enabled", settings.enabled);
+	settings.enabled = get_bool(p_ps, WIND_ENABLED_PATH, settings.enabled);
 	settings.direction.x = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_direction_x", settings.direction.x);
 	settings.direction.y = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_direction_y", settings.direction.y);
 	settings.direction.z = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_direction_z", settings.direction.z);

@@ -26,6 +26,20 @@ class GsShadowCasterShaderRD;
 
 class GsSplatShadowCaster {
 public:
+	// Exact std430 mirror of the caster's binding 6. Kept out of push constants
+	// so the 96-byte draw packet remains below Vulkan's 128-byte minimum limit.
+	struct DeformationUniform {
+		float wind_dir_strength[4] = {};
+		float wind_time_config[4] = {};
+		float effector_meta[4] = {};
+		float effector_spheres[4][4] = {};
+		float effector_configs[4][4] = {};
+		float effector_opacity_configs[4][4] = {};
+		float frame_anchor[4] = {};
+	};
+	static_assert(sizeof(DeformationUniform) == 256, "Caster deformation buffer must match GLSL std430 layout");
+	static_assert(sizeof(DeformationUniform) % 16 == 0, "Caster deformation buffer requires 16-byte rounding");
+
 	struct Inputs {
 		RID atlas_gaussian_buffer;
 		RID instance_buffer;
@@ -41,6 +55,7 @@ public:
 		// world's "opacity_multiplier" override), the same value tile_binning.glsl multiplies into every splat of every row.
 		float opacity_multiplier = 1.0f;
 		const LocalVector<uint32_t> *row_casts = nullptr; // Per bundle row, uploaded into the caster-owned buffer.
+		DeformationUniform deformation;
 	};
 
 	GsSplatShadowCaster();
@@ -51,12 +66,16 @@ public:
 	bool draw(RenderingDevice *p_device, RID p_shadow_framebuffer, const Rect2i &p_atlas_rect,
 			const Projection &p_light_from_frame, const Inputs &p_inputs, String &r_error);
 	void clear();
-	uint64_t get_owned_buffer_bytes() const { return uint64_t(row_cast_capacity) * sizeof(uint32_t); }
+	uint64_t get_owned_buffer_bytes() const {
+		return uint64_t(row_cast_capacity) * sizeof(uint32_t) + (deformation_buffer.is_valid() ? sizeof(DeformationUniform) : 0);
+	}
 
 private:
 	bool _ensure_shader(RenderingDevice *p_device, String &r_error);
 	bool _upload_row_casts(RenderingDevice *p_device, const LocalVector<uint32_t> &p_row_casts, String &r_error);
 	void _free_row_cast_buffer();
+	bool _upload_deformation(RenderingDevice *p_device, const DeformationUniform &p_deformation, String &r_error);
+	void _free_deformation_buffer();
 
 	std::unique_ptr<GsShadowCasterShaderRD> shader_source;
 	bool shader_source_initialized = false;
@@ -68,6 +87,10 @@ private:
 	uint32_t row_cast_capacity = 0;
 	LocalVector<uint32_t> row_cast_uploaded;
 	GaussianSplatting::BufferOwnership row_cast_owner;
+	// Current frame's wind state, uploaded for every caster draw. Owned and freed
+	// by this caster on teardown, device replacement, or a failed upload/draw.
+	RID deformation_buffer;
+	GaussianSplatting::BufferOwnership deformation_owner;
 };
 
 #endif // GS_SHADOW_CASTER_H

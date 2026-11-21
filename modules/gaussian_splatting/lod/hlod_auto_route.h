@@ -28,7 +28,7 @@ struct WorldInputs {
 	bool identity_transform = true; // the world node's global transform is the identity
 	bool route_policy_streaming = true; // route_policy == streaming (the project default)
 	// A setup of this world that the HLOD route never serves, known at submission (nullptr, or one of the keys of
-	// GaussianSplatWorld3D::_hlod_auto_route_refusal(): lod_disabled, deformation_or_instance_domain, painterly_enabled,
+	// GaussianSplatWorld3D::_hlod_auto_route_refusal(): lod_disabled, painterly_enabled,
 	// shadow_instance_filter).
 	const char *domain_refusal = nullptr;
 	// The node was demoted (see "Sticky demotion" below): it keeps the route it had without the automatic route until

@@ -78,6 +78,7 @@ using GaussianSplatting::ScopedGpuMarker;
 #include "../shaders/gaussian_splat.glsl.gen.h"
 #include "../shaders/gs_shadow_blit.glsl.gen.h"
 #include "gs_shadow_caster.h"
+#include "gs_deformation_frame.h"
 #include "hlod_shadow_caster_plan.h"
 #include <cstdint>
 #include <algorithm>
@@ -2092,6 +2093,24 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         // render_params.opacity_multiplier -> tile_binning.glsl); the caster applies the same current value.
         inputs.opacity_multiplier = get_render_config().opacity_multiplier;
         inputs.row_casts = &record.row_casts;
+        GaussianSplatting::TileRenderParams deformation_params;
+        const auto wind = gs::settings::get_wind_settings(ProjectSettings::get_singleton());
+        const double animation_time = RenderFrameContextManager::sample_render_animation_time_seconds();
+        gs_wind::fill_frame_params(this, animation_time, deformation_params);
+        auto &deformation = inputs.deformation;
+        deformation.wind_dir_strength[0] = wind.direction.x;
+        deformation.wind_dir_strength[1] = wind.direction.y;
+        deformation.wind_dir_strength[2] = wind.direction.z;
+        deformation.wind_dir_strength[3] = MAX(0.0f, wind.strength);
+        inputs.deformation.wind_time_config[0] = gs::settings::compute_wind_time_seconds(wind, animation_time);
+        deformation.wind_time_config[1] = MAX(0.0f, wind.frequency);
+        deformation.wind_time_config[2] = wind.spatial_frequency;
+        deformation.wind_time_config[3] = wind.enabled ? 1.0f : 0.0f;
+        GaussianSplatting::pack_deformation_effectors(deformation_params, deformation.effector_meta,
+                deformation.effector_spheres, deformation.effector_configs, deformation.effector_opacity_configs);
+        deformation.frame_anchor[0] = record.camera.x;
+        deformation.frame_anchor[1] = record.camera.y;
+        deformation.frame_anchor[2] = record.camera.z;
         const Projection light_from_frame = gs_shadow_caster::frame_relative_shadow_clip(p_light_projection,
                 p_light_transform, p_flip_y, record.camera);
         String error;

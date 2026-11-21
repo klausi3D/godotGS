@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <tuple>
 #include <utility>
 
@@ -64,13 +65,14 @@ uint64_t bits_of(double p_value) {
 }
 // Everything that, when changed, makes the previous frame's refinement stamps meaningless. Mirrors the
 // renderer's policy hash (tau, capacities, record budget) and adds the tile area.
-uint64_t policy_hash(const ViewSpec &p_spec, const Caps &p_instance_caps) {
+uint64_t policy_hash(const ViewSpec &p_spec, const Caps &p_instance_caps, double p_local_margin) {
 	uint64_t h = 0x484c4f44u;
 	h = mix(h, bits_of(p_spec.tau_pixels));
 	h = mix(h, bits_of(p_spec.tile_area));
 	h = mix(h, p_instance_caps.splat_budget);
 	h = mix(h, p_instance_caps.node_budget);
 	h = mix(h, bits_of(p_instance_caps.record_budget));
+	h = mix(h, bits_of(p_local_margin));
 	return h;
 }
 // Rank of every node's NodeKey (ties by index only when keys are identical, i.e. corrupt input).
@@ -135,12 +137,18 @@ bool make_node_key(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, 
 	return true;
 }
 
-uint64_t ViewSet::slot_bytes(uint32_t p_nodes) {
+uint64_t ViewSet::slot_bytes(uint32_t p_nodes, bool p_displaced) {
 	uint64_t ranks = 0;
 	const uint64_t history = CutHistory::workspace_bytes(p_nodes);
 	if (history == 0 || !allocation_bytes(p_nodes, sizeof(uint32_t), ranks)) { return 0; }
 	uint64_t total = 0;
-	return add_u64(history, ranks, total) ? total : 0;
+	if (!add_u64(history, ranks, total)) { return 0; }
+	if (p_displaced) {
+		uint64_t nodes = 0;
+		if (!allocation_bytes(p_nodes, sizeof(GaussianSplatHlodRuntimeData::Node), nodes) ||
+				!add_u64(total, nodes, total) || !add_u64(total, sizeof(GaussianSplatHlodRuntimeData), total)) { return 0; }
+	}
+	return total;
 }
 
 bool ViewSet::view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uint64_t p_history_bytes,
@@ -230,7 +238,8 @@ bool ViewSet::validate_snapshot(const SelectionSnapshot &p_snapshot) const {
 	const int instances = p_snapshot.instances.size();
 	for (int i = 0; i < instances; ++i) {
 		const SnapshotInstance &inst = p_snapshot.instances[i];
-		if (inst.asset_index >= uint32_t(p_snapshot.assets.size()) || !rigid_uniform(inst.placement.basis) || !caps_valid(inst.caps)) {
+		if (inst.asset_index >= uint32_t(p_snapshot.assets.size()) || !rigid_uniform(inst.placement.basis) || !caps_valid(inst.caps) ||
+				!std::isfinite(inst.displacement_margin) || inst.displacement_margin < 0.0) {
 			return false;
 		}
 		key_scratch.write[i] = inst.instance_key;
@@ -285,8 +294,9 @@ bool ViewSet::required_storage(const SelectionSnapshot &p_snapshot, uint64_t &r_
 	r_history_bytes = 0;
 	r_nodes = 0;
 	for (int i = 0; i < p_snapshot.instances.size(); ++i) {
-		const uint32_t nodes = p_snapshot.assets[p_snapshot.instances[i].asset_index].data->nodes.size();
-		const uint64_t bytes = slot_bytes(nodes);
+		const SnapshotInstance &inst = p_snapshot.instances[i];
+		const uint32_t nodes = p_snapshot.assets[inst.asset_index].data->nodes.size();
+		const uint64_t bytes = slot_bytes(nodes, inst.displacement_margin > 0.0);
 		if (bytes == 0 || !add_u64(r_history_bytes, bytes, r_history_bytes) || !add_u64(r_nodes, nodes, r_nodes)) { return false; }
 	}
 	return true;
@@ -320,6 +330,11 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 					slot.tie_rank = old.tie_rank;
 					slot.content_revision = old.content_revision;
 					slot.policy = old.policy;
+					slot.displacement_source = old.displacement_source;
+					slot.displacement_data = old.displacement_data;
+					slot.displacement_source_revision = old.displacement_source_revision;
+					slot.displacement_edit_revision = old.displacement_edit_revision;
+					slot.displacement_local_margin = old.displacement_local_margin;
 					reused = true;
 					break;
 				}
@@ -340,7 +355,75 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 			slot.history.invalidate();
 			slot.content_revision = snapshot_content_key(*asset.data.ptr());
 		}
+		if (!prepare_displacement_bounds(slot, p_snapshot.instances[order[i]], asset)) { return false; }
 	}
+	return true;
+}
+
+bool ViewSet::prepare_displacement_bounds(InstanceSlot &r_slot, const SnapshotInstance &p_instance, const SnapshotAsset &p_asset) {
+	if (p_instance.displacement_margin == 0.0) {
+		r_slot.displacement_data.unref();
+		r_slot.displacement_source.unref();
+		r_slot.displacement_local_margin = -1.0;
+		return true;
+	}
+	const double local_margin = p_instance.displacement_margin / double(p_instance.placement.basis.get_column(0).length());
+	if (!(local_margin > 0.0) || !std::isfinite(local_margin)) { return false; }
+	const GaussianSplatHlodRuntimeData &source = *p_asset.data.ptr();
+	if (r_slot.displacement_data.is_valid() && r_slot.displacement_source == p_asset.data &&
+			r_slot.displacement_source_revision == source.source_revision && r_slot.displacement_edit_revision == source.edit_revision &&
+			r_slot.displacement_local_margin == local_margin) { return true; }
+	if (r_slot.displacement_data.is_null()) { r_slot.displacement_data.instantiate(); }
+	GaussianSplatHlodRuntimeData &bounds = *r_slot.displacement_data.ptr();
+	if (!gs_resize_or_fail(bounds.nodes, source.nodes.size(), "HLOD displaced selection nodes")) { return false; }
+	// CutHistory reads exactly these metadata fields besides nodes. Keep edits and placement reserve semantics;
+	// do not retain or copy the paged source, Gaussian payload, SH arrays or edited payloads in the derivative.
+	bounds.source_revision = source.source_revision;
+	bounds.edit_revision = source.edit_revision;
+	bounds.edit_state = source.edit_state;
+	bounds.max_node_payload_count = source.max_node_payload_count;
+	bounds.placement_node_pages = source.placement_node_pages;
+	bounds.placement_page_splats = source.placement_page_splats;
+	bounds.placement_reserve_prepared = source.placement_reserve_prepared;
+	auto *nodes = bounds.nodes.ptrw();
+	for (int i = 0; i < source.nodes.size(); ++i) {
+		const auto &original = source.nodes[i];
+		auto &node = nodes[i];
+		node = original;
+		// The existing cut uses an enclosing sphere for culling and near-surface screen error. Growing
+		// each AABB axis by m is enclosed by growing its sphere by sqrt(3)*m, at every hierarchy level.
+		const double radius = double(original.topology.radius) + std::sqrt(3.0) * local_margin;
+		if (!std::isfinite(radius) || original.topology.radius < 0 || radius > std::numeric_limits<float>::max()) { return false; }
+		node.topology.radius = float(radius);
+		if (double(node.topology.radius) < radius) {
+			node.topology.radius = std::nextafter(node.topology.radius, std::numeric_limits<float>::infinity());
+		}
+		for (int axis = 0; axis < 3; ++axis) {
+			const double lo = double(original.topology.aabb_min[axis]) - local_margin;
+			const double hi = double(original.topology.aabb_max[axis]) + local_margin;
+			if (!std::isfinite(lo) || !std::isfinite(hi) || lo < -std::numeric_limits<real_t>::max() || hi > std::numeric_limits<real_t>::max()) { return false; }
+			node.topology.aabb_min[axis] = real_t(lo);
+			node.topology.aabb_max[axis] = real_t(hi);
+			if (double(node.topology.aabb_min[axis]) > lo) {
+				node.topology.aabb_min[axis] = std::nextafter(node.topology.aabb_min[axis], -std::numeric_limits<real_t>::infinity());
+			}
+			if (double(node.topology.aabb_max[axis]) < hi) {
+				node.topology.aabb_max[axis] = std::nextafter(node.topology.aabb_max[axis], std::numeric_limits<real_t>::infinity());
+			}
+		}
+		// Inflating the sphere also increases CutHistory's inside-distance floor. Compensate by the
+		// squared floor ratio so the record estimate cannot DECREASE near or inside a displaced node.
+		// The selector's 1e-6 near-distance clamp handles zero-radius nodes without division by zero.
+		const double old_floor = std::max(1.0e-6, kCostInsideDistanceFraction * double(original.topology.radius));
+		const double new_floor = std::max(1.0e-6, kCostInsideDistanceFraction * double(node.topology.radius));
+		const double ratio = new_floor / old_floor;
+		node.footprint = original.footprint * ratio * ratio;
+		if (!(node.footprint >= 0.0) || !std::isfinite(node.footprint)) { return false; }
+	}
+	r_slot.displacement_source = p_asset.data;
+	r_slot.displacement_source_revision = source.source_revision;
+	r_slot.displacement_edit_revision = source.edit_revision;
+	r_slot.displacement_local_margin = local_margin;
 	return true;
 }
 
@@ -466,6 +549,9 @@ uint64_t ViewSet::allocated_bytes() const {
 				uint64_t(view.desired.size()) * sizeof(DesiredRecord);
 		for (int s = 0; s < view.slots.size(); ++s) {
 			bytes += view.slots[s].history.allocated_bytes();
+			if (view.slots[s].displacement_data.is_valid()) {
+				bytes += sizeof(GaussianSplatHlodRuntimeData) + uint64_t(view.slots[s].displacement_data->nodes.size()) * sizeof(GaussianSplatHlodRuntimeData::Node);
+			}
 		}
 	}
 	return bytes;
@@ -531,7 +617,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			const SnapshotInstance &inst = p_snapshot.instances[order[i]];
 			const SnapshotAsset &asset = p_snapshot.assets[inst.asset_index];
 			InstanceSlot &slot = view.slots.write[i];
-			const uint64_t policy = policy_hash(*spec, inst.caps);
+			const uint64_t policy = policy_hash(*spec, inst.caps, inst.displacement_margin > 0.0 ? slot.displacement_local_margin : 0.0);
 			if (slot.policy != policy) {
 				slot.history.invalidate(); // tau, tile area or caps changed: old stamps do not apply.
 				slot.policy = policy;
@@ -575,7 +661,8 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				const double camera_delta[3] = { double(spec->camera.x), double(spec->camera.y), double(spec->camera.z) };
 				if (!p_snapshot.origin.translated(camera_delta, camera_precise)) { any_failed = true; continue; }
 			}
-			const CutHistory::Result cut = slot.history.select(*asset.data.ptr(), request);
+			const GaussianSplatHlodRuntimeData &selection_data = slot.displacement_data.is_valid() ? *slot.displacement_data.ptr() : *asset.data.ptr();
+			const CutHistory::Result cut = slot.history.select(selection_data, request);
 			slot.last_cut = cut;
 			result.selected_splats += cut.selected_splats;
 			result.visited_nodes += cut.visited_nodes;

@@ -20,6 +20,7 @@
 #include "core/os/os.h"
 #include "../resources/color_grading_resource.h"
 #include "gs_shadow_caster.h"
+#include "gs_wind_bounds.h"
 #include "resident_atlas_budget.h"
 #include "../core/gs_project_settings.h"
 #include "core/config/project_settings.h"
@@ -1882,8 +1883,7 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     if (state.hlod_streaming && !p_relative) { return idle_hlod_streaming_bundle(); }
     auto &bundle = p_relative ? state.hlod_relative : state.hlod_canonical;
     // Row content moved without the asset set (a transform, parameter or grading edit): re-upload the rows in place.
-    // A single-row world never gets here with a moved row generation (every bump it can see also moves the asset or the
-    // grading-default generation, which the contract check above refuses).
+    // World wind/effector row edits can move the row generation without moving the asset. Refresh them here too.
     if (!refresh_hlod_instance_rows()) {
         release_hlod_resources();
         state.hlod_reason = "hlod_instance_rows_refresh_failed";
@@ -2111,13 +2111,9 @@ bool GaussianSplatRenderer::request_hlod_auto_route_demotion(const gs_hlod_auto_
 const char *GaussianSplatRenderer::hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const {
     // Conditions under which the HLOD cut can never become active; a streamed bundle would then draw nothing for
     // ever, so these setups keep the whole-tree / legacy resident route (reason keys as in prepare_hlod_frame).
-    ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!get_lod_enabled()) { return "lod_disabled_canonical_leaves"; }
     if (is_shadow_instance_filter_enabled()) { return "shadow_instance_filter"; }
     if (get_painterly_config().enabled) { return "unsupported_view_or_material"; } // Persistent renderer setting, known at publish.
-    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) { return "deformation_or_instance_domain"; }
-    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
-    if (!director || director->get_sphere_effector_count_for_renderer(this) != 0) { return "deformation_or_instance_domain"; }
     if (p_instance) {
         const bool identity = (p_instance->ids[1] & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0 && p_instance->translation_scale[0] == 0.0f &&
                 p_instance->translation_scale[1] == 0.0f && p_instance->translation_scale[2] == 0.0f && p_instance->translation_scale[3] == 1.0f;
@@ -2144,12 +2140,12 @@ static const char *hlod_paged_reason_key(const char *p_base, bool p_publish) {
 // What `p_views` ViewSet views of the HLOD route charge against the route's headroom (snapshot budget physical_bytes):
 // each holds one world instance's history (ViewSet::slot_bytes) and its draw records for node_budget = the world's nodes
 // (ViewSet::view_cost; the route's ResidencyBudget prices nothing per splat, record or node). UINT64_MAX when unprovable.
-static uint64_t hlod_view_reservation_bytes(uint32_t p_world_nodes, uint32_t p_views) {
+static uint64_t hlod_view_reservation_bytes(uint32_t p_world_nodes, uint32_t p_views, bool p_displaced) {
     using gs_hlod_runtime::ViewSet;
     gs_hlod_runtime::Caps caps;
     caps.splat_budget = 1;
     caps.node_budget = MAX<uint32_t>(p_world_nodes, 1u);
-    const uint64_t history = ViewSet::slot_bytes(caps.node_budget);
+    const uint64_t history = ViewSet::slot_bytes(caps.node_budget, p_displaced);
     uint64_t one = 0;
     if (history == 0 || !ViewSet::view_cost(gs_hlod_runtime::ResidencyBudget(), caps, history, caps.node_budget, one)) { return UINT64_MAX; }
     return one != 0 && p_views > UINT64_MAX / one ? UINT64_MAX : one * p_views;
@@ -2804,13 +2800,34 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     }
     ProjectSettings *ps = ProjectSettings::get_singleton();
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
-    // DESIGN E5: a lost world submission used to be reported as deformation_or_instance_domain. It names itself now;
-    // wind and sphere effectors keep their own (unchanged) key.
+    // Wind and effectors are per-row domains. Only a missing world submission refuses here.
     if (!director || !director->has_hlod_world_submission(this, state.hlod_owner_key)) {
         return fallback(input->is_paged() ? "hlod_paged_world_submission_lost" : "hlod_world_submission_lost");
     }
-    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled ||
-            director->get_sphere_effector_count_for_renderer(this) != 0) { return fallback(input->is_paged() ? hlod_paged_reason_key("deformation_or_instance_domain", false) : "deformation_or_instance_domain"); }
+    const gs::settings::GSWindSettings wind_settings = gs::settings::get_wind_settings(ps);
+    LocalVector<GaussianSplatSceneDirector::SphereEffectorSelection> wind_effectors;
+    uint32_t scene_effector_count = 0;
+    director->build_sphere_effector_payload_for_renderer(this, wind_effectors, &scene_effector_count);
+    double effector_push = 0.0;
+    for (const auto &effector : wind_effectors) {
+        if (effector.enabled && effector.affect_position && effector.radius > 0.0f && std::isfinite(effector.strength)) {
+            effector_push += std::abs(double(effector.strength));
+        }
+    }
+    const auto project_effector = gs::settings::get_sphere_effector_settings(ps);
+    const bool legacy_effector = wind_effectors.is_empty() && project_effector.enabled && project_effector.max_effectors > 0;
+    if (legacy_effector && project_effector.affect_position && project_effector.radius > 0.0f && std::isfinite(project_effector.strength)) {
+        effector_push = std::abs(double(project_effector.strength));
+    }
+    const gs_hlod_bundle::Rows &wind_rows = state.hlod_instance_row_data;
+    const uint64_t wind_row_generation = state.hlod_instance_generation;
+    const double wind_d_max = gs_wind::frame_displacement_bound(wind_settings,
+            wind_rows.instances.ptr(), wind_rows.count(), effector_push, legacy_effector);
+    if (!std::isfinite(wind_d_max)) { return fallback("hlod_wind_bound_invalid"); }
+    auto row_displaced = [&](const InstanceDataGPU &row) {
+        return (gs_wind::row_wind_enabled(wind_settings, row) && row.params[2] > 0.0f) ||
+                (effector_push > 0.0 && (gs_wind::row_has_effectors(row) || (legacy_effector && row.effect_params[0] > 0.0f)));
+    };
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
     const uint64_t route_limit = hlod_route_limit_bytes(state, get_device_state().rd);
@@ -2856,7 +2873,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // Each admitted view (and this one, if it is new) is charged its history and draw records against the same
         // headroom every frame (ViewSet::admit_view / select): node_budget = the world's nodes, one world instance.
         const uint32_t views = MIN<uint32_t>(frame_context_manager.get_hlod_view_set().view_count() + 1u, RenderFrameContextManager::HLOD_MAX_VIEWS);
-        const uint64_t histories = hlod_view_reservation_bytes(input->nodes.size(), views);
+        const bool displaced_world = wind_rows.count() > 0 && row_displaced(wind_rows.instances[0]) && wind_d_max > 0.0;
+        const uint64_t histories = hlod_view_reservation_bytes(input->nodes.size(), views, displaced_world);
         const uint64_t transitions = state.hlod_streaming ? state.hlod_streamer->transition_workspace_bytes() : 0;
         const uint64_t cpu_reservation = transitions > UINT64_MAX - histories ? UINT64_MAX : histories + transitions;
         mandatory_bytes = ResidentAtlasBudget::hlod_mandatory_outstanding_bytes(grid_bytes, tile->get_hlod_scratch_outstanding_bytes(scratch_params),
@@ -2919,7 +2937,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             const Vector3 center = rotation.xform(asset.bounds_center * scale) + translation;
             gs_hlod_bundle::ObjectDemand demand;
             if (!gs_hlod_bundle::object_view_demand(asset, center, scale, view_frustum, get_frustum_culling(), view_to_world.origin,
-                        view_focal, view_tile_area, demand.importance, demand.records)) {
+                        view_focal, view_tile_area, demand.importance, demand.records, row_displaced(r) ? wind_d_max : 0.0)) {
                 continue; // Outside this view: it reserves nothing and is not refused.
             }
             demand.instance_key = state.hlod_instance_row_keys[row];
@@ -3182,6 +3200,13 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     instance.asset_index = 0;
     instance.placement = gs_world_frame::PrecisePlacement(); // World == asset frame (the tree origin is double).
     instance.caps = spec.caps;
+    instance.displacement_margin = wind_rows.count() > 0 && row_displaced(wind_rows.instances[0]) ? wind_d_max : 0.0;
+#ifdef TESTS_ENABLED
+    // FORCING control: leaves the runtime scenario's visible-image assertion intact.
+    if (OS::get_singleton()->get_environment("GODOTGS_TEST_DISABLE_WIND_BOUND_INFLATION") == "1") {
+        instance.displacement_margin = 0.0;
+    }
+#endif
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
     const HlodViewOutcome outcome = frame_context_manager.select_hlod_view(identity, input->get_instance_id(), snapshot, spec);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
@@ -3325,6 +3350,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_visited_nodes = uint32_t(std::min<uint64_t>(outcome.view.visited_nodes, UINT32_MAX));
     state.hlod_budget_bound_frames += outcome.view.budget_bound ? 1u : 0u;
     if (!publish_hlod_bundle(true)) { return false; }
+    if (state.hlod_instance_generation != wind_row_generation) {
+        // A main-thread row edit raced selection. Its new amplitude was not bounded by this cut.
+        return fallback("hlod_wind_rows_changed_during_selection");
+    }
     // Streamed world nodes passed fail-closed page-table publication; instance tails remain contiguous.
     state.hlod_drawn_nodes_paged = state.hlod_streaming ? selected_count : 0u;
     state.hlod_drawn_nodes_contiguous = instance_records + (state.hlod_streaming ? 0u : selected_count);

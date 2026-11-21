@@ -91,12 +91,49 @@ bool GsSplatShadowCaster::_upload_row_casts(RenderingDevice *p_device, const Loc
 
 void GsSplatShadowCaster::clear() {
 	_free_row_cast_buffer();
+	_free_deformation_buffer();
 	pipeline_cache.clear();
 	if (shader.is_valid() && shader_owner.device) {
 		shader_owner.device->free(shader);
 	}
 	shader = RID();
 	shader_owner.clear();
+}
+
+void GsSplatShadowCaster::_free_deformation_buffer() {
+	if (deformation_buffer.is_valid() && deformation_owner.device) {
+		deformation_owner.device->free(deformation_buffer);
+	}
+	deformation_buffer = RID();
+	deformation_owner.clear();
+}
+
+bool GsSplatShadowCaster::_upload_deformation(RenderingDevice *p_device, const DeformationUniform &p_deformation, String &r_error) {
+	if (deformation_buffer.is_valid() && (!deformation_owner.matches(p_device) || !p_device->buffer_is_valid(deformation_buffer))) {
+		_free_deformation_buffer();
+	}
+	if (!deformation_buffer.is_valid()) {
+		Vector<uint8_t> initial;
+		if (!gs_resize_or_fail(initial, sizeof(DeformationUniform), "GsSplatShadowCaster deformation")) {
+			r_error = "caster deformation staging allocation failed";
+			return false;
+		}
+		memcpy(initial.ptrw(), &p_deformation, sizeof(DeformationUniform));
+		deformation_buffer = p_device->storage_buffer_create(sizeof(DeformationUniform), initial);
+		if (!deformation_buffer.is_valid()) {
+			r_error = "caster deformation buffer allocation failed";
+			return false;
+		}
+		deformation_owner.set(p_device);
+		p_device->set_resource_name(deformation_buffer, "GS_ShadowCaster_Deformation");
+		return true;
+	}
+	if (p_device->buffer_update(deformation_buffer, 0, sizeof(DeformationUniform), &p_deformation) != OK) {
+		_free_deformation_buffer();
+		r_error = "caster deformation buffer upload failed";
+		return false;
+	}
+	return true;
 }
 
 bool GsSplatShadowCaster::_ensure_shader(RenderingDevice *p_device, String &r_error) {
@@ -167,29 +204,35 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 			return false;
 		}
 	}
+	if (!_ensure_shader(p_device, r_error)) {
+		return false;
+	}
 	if (!p_inputs.row_casts || !_upload_row_casts(p_device, *p_inputs.row_casts, r_error)) {
 		if (r_error.is_empty()) {
 			r_error = "row cast flags missing";
 		}
 		return false;
 	}
-	if (!_ensure_shader(p_device, r_error)) {
+	if (!_upload_deformation(p_device, p_inputs.deformation, r_error)) {
 		return false;
 	}
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	if (!uniform_set_cache) {
+		_free_deformation_buffer();
 		r_error = "uniform set cache unavailable";
 		return false;
 	}
 	const RID uniform_set = uniform_set_cache->get_cache(shader, 0, storage_uniform(0, buffers[0]),
 			storage_uniform(1, buffers[1]), storage_uniform(2, buffers[2]), storage_uniform(3, buffers[3]),
-			storage_uniform(4, row_cast_buffer), storage_uniform(5, buffers[4]));
+			storage_uniform(4, row_cast_buffer), storage_uniform(5, buffers[4]), storage_uniform(6, deformation_buffer));
 	if (!uniform_set.is_valid()) {
+		_free_deformation_buffer();
 		r_error = "caster uniform set unavailable";
 		return false;
 	}
 	const RID pipeline = pipeline_cache.get_render_pipeline(RD::INVALID_ID, p_device->framebuffer_get_format(p_shadow_framebuffer));
 	if (!pipeline.is_valid()) {
+		_free_deformation_buffer();
 		r_error = "caster pipeline unavailable for the shadow framebuffer format";
 		return false;
 	}
@@ -215,6 +258,7 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 	RD::DrawListID draw_list = p_device->draw_list_begin(p_shadow_framebuffer, RD::DRAW_DEFAULT_ALL, VectorView<Color>(), 0.0f, 0,
 			Rect2(p_atlas_rect));
 	if (draw_list == RD::INVALID_ID) {
+		_free_deformation_buffer();
 		r_error = "draw_list_begin failed";
 		return false;
 	}

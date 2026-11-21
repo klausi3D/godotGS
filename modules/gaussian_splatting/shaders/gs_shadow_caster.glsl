@@ -13,6 +13,7 @@
 
 #include "includes/gs_instance_layout.glsl"
 #include "includes/gs_camera_relative.glsl"
+#include "includes/gs_deformation.glsl"
 
 // Raw relative payload; same layout as PackedGaussian in compute/depth_compute.glsl and Gaussian in tile_binning.glsl.
 struct CasterGaussian {
@@ -50,6 +51,18 @@ layout(set = 0, binding = 4, std430) readonly buffer RowCastBuffer {
 layout(set = 0, binding = 5, std430) readonly buffer HlodPageTableBuffer {
     uint pages[];
 } hlod_page_table;
+
+// Host mirror: GsSplatShadowCaster::DeformationUniform (256 bytes, std430).
+// This frame's wind time, with the previous view's rest-frame camera origin.
+layout(set = 0, binding = 6, std430) readonly buffer DeformationBuffer {
+    vec4 wind_dir_strength;
+    vec4 wind_time_config;
+    vec4 effector_meta;
+    vec4 effector_spheres[GS_MAX_SPHERE_EFFECTORS];
+    vec4 effector_configs[GS_MAX_SPHERE_EFFECTORS];
+    vec4 effector_opacity_configs[GS_MAX_SPHERE_EFFECTORS];
+    vec4 frame_anchor;
+} deformation_params;
 
 // Host mirror: ShadowCasterPushConstant in renderer/gs_shadow_caster.cpp (96 bytes).
 layout(push_constant, std430) uniform Params {
@@ -159,14 +172,6 @@ void main() {
     // support radius: a faded node or world casts what it shows.
     InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
     float opacity_multiplier = uintBitsToFloat(params.counts.w);
-    float opacity = clamp(atlas_gaussian_buffer.gaussians[atlas_index].opacity * instance.params.x * opacity_multiplier,
-            0.0, 1.0);
-    float threshold = params.viewport.z;
-    // A splat whose peak alpha is below the threshold occludes nowhere.
-    if (!(opacity >= threshold) || threshold <= 0.0) {
-        gs_caster_reject();
-        return;
-    }
     vec3 local_position = atlas_gaussian_buffer.gaussians[atlas_index].position;
     vec3 local_scale = atlas_gaussian_buffer.gaussians[atlas_index].scale;
     vec4 local_rotation = atlas_gaussian_buffer.gaussians[atlas_index].rotation;
@@ -181,6 +186,22 @@ void main() {
     float uniform_scale = abs(instance.translation_scale.w);
     vec3 frame_position = gs_hlod_camera_relative_position(local_position, instance_flags, instance.rotation,
             uniform_scale, drawn.camera_offset.xyz);
+    uint wind_level = drawn.level == GS_DRAWN_NODE_LEVEL_NONE ? 0u : drawn.level;
+    float deformation_fade = gs_wind_distance_level_fade(frame_position, wind_level);
+    GSDeformationResult deformation = gs_apply_wind_deformation(frame_position,
+            atlas_gaussian_buffer.gaussians[atlas_index].opacity,
+            max(instance.params.z, 0.0), instance.params.w, instance.wind_params, instance.effect_params,
+            deformation_params.wind_dir_strength, deformation_params.wind_time_config, deformation_params.effector_meta,
+            deformation_params.effector_spheres, deformation_params.effector_configs, deformation_params.effector_opacity_configs,
+            deformation_params.frame_anchor.xyz, deformation_fade);
+    frame_position = deformation.position;
+    float opacity = clamp(deformation.opacity * instance.params.x * opacity_multiplier, 0.0, 1.0);
+    float threshold = params.viewport.z;
+    // A splat whose peak alpha is below the threshold occludes nowhere.
+    if (!(opacity >= threshold) || threshold <= 0.0) {
+        gs_caster_reject();
+        return;
+    }
     vec3 scale = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u ? local_scale : local_scale * uniform_scale;
     vec4 rotation = (instance_flags & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0u
             ? local_rotation
