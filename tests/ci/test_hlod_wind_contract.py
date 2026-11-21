@@ -96,5 +96,25 @@ def body_gd(text, name):
     return text.split("func " + name + "(", 1)[1].split("\nfunc ", 1)[0]
 
 
+class HlodRowEffectorFreshness(unittest.TestCase):
+    # HLOD rows pack per-row sphere-effector slot masks. Effector edits advance only the effector generation,
+    # so every HLOD row-freshness check must mix it in (Codex P2 on #1518). Red if a site reads the raw
+    # instance generation again, or if the helper drops the effector generation.
+    def test_hlod_row_generation_mixes_the_effector_generation(self):
+        publisher = (MODULE / "renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        helper = body(publisher, "uint64_t GaussianSplatRenderer::hlod_row_generation(")
+        self.assertIn("get_instance_generation_for_renderer(this)", helper)
+        self.assertIn("get_sphere_effector_generation_for_renderer(this)", helper)
+        self.assertIn("_mix_generation(", helper)
+
+    def test_no_hlod_row_freshness_site_reads_the_raw_instance_generation(self):
+        for rel in ("renderer/resident_instance_contract_publisher.cpp", "renderer/gaussian_splat_renderer.cpp"):
+            text = (MODULE / rel).read_text(encoding="utf-8")
+            for line in text.splitlines():
+                if not re.search(r"(?<![A-Za-z_])director->get_instance_generation_for_renderer\(this\)", line):
+                    continue
+                # Only the publication readback identity diagnostics may keep the raw value.
+                self.assertIn("current_instance_generation", line, rel + ": " + line.strip())
+
 if __name__ == "__main__":
     unittest.main()

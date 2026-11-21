@@ -2141,7 +2141,7 @@ gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
     if (state.hlod_instance_asset_generation != director->get_instance_asset_generation_for_renderer(this)) {
         return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED);
     }
-    if (state.hlod_instance_generation != director->get_instance_generation_for_renderer(this)) {
+    if (state.hlod_instance_generation != hlod_row_generation(director)) {
         return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT);
     }
     LocalVector<uint64_t> caster_keys;
@@ -2149,7 +2149,7 @@ gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
     if (state.hlod_instance_asset_generation != director->get_instance_asset_generation_for_renderer(this)) {
         return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED);
     }
-    if (state.hlod_instance_generation != director->get_instance_generation_for_renderer(this)) {
+    if (state.hlod_instance_generation != hlod_row_generation(director)) {
         return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT);
     }
     gs_shadow_caster::build_row_casts(state.hlod_instance_row_keys, world_casts, caster_keys, record.row_casts);

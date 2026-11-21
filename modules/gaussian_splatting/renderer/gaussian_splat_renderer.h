@@ -77,6 +77,7 @@
 
 // Forward declarations for interface implementations
 class DebugOverlaySystem;
+class GaussianSplatSceneDirector;
 class InteractiveStateManager;
 class TileRasterizer;
 class GPUCuller;
@@ -918,6 +919,8 @@ public:
     bool refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal = nullptr);
     // Render thread, before positional cache decisions or the first directional shadow pass; retains the previous list.
     gs_shadow_caster::Refusal refresh_hlod_shadow_rows();
+    // Row freshness for HLOD instance rows: instance-store generation mixed with the sphere-effector generation.
+    uint64_t hlod_row_generation(const GaussianSplatSceneDirector *p_director) const;
     bool hlod_shadow_rows_latched() const;
     bool hlod_shadow_colour_refused() const;
     void publish_hlod_shadow_rows_snapshot();

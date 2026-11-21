@@ -1789,7 +1789,7 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     change.asset_generation = director->get_instance_asset_generation_for_renderer(this);
     change.instance_refresh_failed_asset_generation = state.hlod_instance_refresh_failed_asset_generation;
     change.prepared_row_generation = state.hlod_instance_generation;
-    change.row_generation = director->get_instance_generation_for_renderer(this);
+    change.row_generation = hlod_row_generation(director);
     const bool quantized = g_quantization_config.per_chunk_quantization;
     if (quantized && (!input->quantized_eligible ||
             state.hlod_position_bits != MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX) ||
@@ -2016,7 +2016,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
         return false;
     };
     if (!rd || !director || input.is_null() || !state.hlod_streaming || state.hlod_instance_region.reserved_records == 0) { return refresh_failed(); }
-    const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t row_generation = hlod_row_generation(director);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     gs_hlod_bundle::Rows rows;
     LocalVector<uint64_t> keys;
@@ -2068,7 +2068,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
             !get_hlod_owned_byte_upper_bound(after_bytes) || after_bytes > ledger.limit() ||
             input != state.hlod_snapshot || !input->is_current() || input->source_data != get_scene_state().gaussian_data ||
             rd != get_device_state().rd || sorter->get_sort_resource_device() != rd ||
-            row_generation != director->get_instance_generation_for_renderer(this) ||
+            row_generation != hlod_row_generation(director) ||
             asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
             grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
             hlod_prepared_contract_change().action != gs_hlod_bundle::ContractChangeAction::INSTANCE_REGION_ONLY) {
@@ -2117,6 +2117,14 @@ bool GaussianSplatRenderer::refresh_hlod_instance_region() {
     });
 }
 
+// HLOD rows pack per-row sphere-effector masks (slot indices into the sorted effector payload), so a row is
+// current only for BOTH the instance-store generation and the sphere-effector generation. Adding, removing,
+// reordering or rescoping effectors must refresh the rows, as the resident publisher's instance generation does.
+uint64_t GaussianSplatRenderer::hlod_row_generation(const GaussianSplatSceneDirector *p_director) const {
+    return _mix_generation(p_director->get_instance_generation_for_renderer(this),
+            p_director->get_sphere_effector_generation_for_renderer(this));
+}
+
 bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal) {
     auto &state = get_resource_state();
     if (hlod_shadow_rows_latched()) { return true; } // Colour and idle restores reuse the pre-shadow snapshot.
@@ -2129,7 +2137,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal
     if (!director || !rd) { return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT); }
     const uint64_t asset_generation = director->get_instance_asset_generation_for_renderer(this);
     if (asset_generation != state.hlod_instance_asset_generation) { return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED); }
-    const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t row_generation = hlod_row_generation(director);
     if (row_generation == state.hlod_instance_generation) { return true; }
     gs_hlod_bundle::Rows rows;
     LocalVector<uint64_t> keys;
@@ -2432,7 +2440,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         release_hlod_resources();
         return 0;
     }
-    const uint64_t instance_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t instance_generation = hlod_row_generation(director);
     const uint64_t instance_asset_generation = director->get_instance_asset_generation_for_renderer(this);
     // PR1b: the bundle's rows (row 0 is the world, rows 1..N the visible node instances) and their packed node assets.
     // A current prepared bundle keeps its own (a moving node only re-uploads rows); anything else builds them here,
@@ -2770,7 +2778,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 !handles.valid || handles.capacity < sort_capacity || !input->is_current() ||
                 input != state.hlod_snapshot || input->source_data != get_scene_state().gaussian_data ||
                 rd != get_device_state().rd || subsystem_state.sorting_pipeline->get_sort_resource_device() != rd ||
-                instance_generation != director->get_instance_generation_for_renderer(this) ||
+                instance_generation != hlod_row_generation(director) ||
                 instance_asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
                 grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
                 quantized != g_quantization_config.per_chunk_quantization || owner_key != state.hlod_owner_key ||
