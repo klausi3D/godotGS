@@ -34,6 +34,17 @@ inline gs_hlod::BakeInput input(const LocalVector<Gaussian> &g) {
     in.gaussians = g.ptr(); in.count = g.size();
     return in;
 }
+inline bool node_payload(const gs_hlod::BakeResult &p_baked, const GaussianSplatHlodNode &p_node, gs_hlod::SplatSpan &r_span) {
+    // payload_first addresses [leaves | interiors]; the two test buffers are separate.
+    const bool leaf = p_node.is_leaf();
+    const uint64_t base = leaf ? 0 : p_baked.tree.leaf_splat_count;
+    const auto &payload = leaf ? p_baked.leaf_gaussians : p_baked.tree.interior_gaussians;
+    if (p_node.payload_first < base) { return false; }
+    const uint64_t first = p_node.payload_first - base;
+    if (first > payload.size() || p_node.payload_count == 0 || p_node.payload_count > payload.size() - first) { return false; }
+    r_span = {payload.ptr() + first, nullptr, p_node.payload_count, 0};
+    return true;
+}
 inline Dictionary box(const String &kind, const String &path, const String &name, float weight = 0) {
     Dictionary d;
     d["kind"] = kind; d["path"] = path; d["name"] = name;
@@ -117,11 +128,15 @@ TEST_CASE("[GaussianSplatting][HLOD][B2] cell key preserves both regions and eve
     gs_hlod::BakeResult baked; String reason;
     if (!gs_hlod::bake_world(input(g), params, baked, &reason)) { FAIL(reason.utf8().get_data()); return; }
     for (const auto &node : baked.tree.nodes) {
-        const Gaussian *payload = node.is_leaf() ? baked.leaf_gaussians.ptr() : baked.tree.interior_gaussians.ptr();
+        gs_hlod::SplatSpan payload;
+        if (!node_payload(baked, node, payload)) { FAIL("node payload must address its leaf or interior buffer"); return; }
         uint32_t seen = 0;
-        for (uint32_t i = 0; i < node.payload_count; ++i) {
-            const uint16_t region = gaussian_semantic_region(payload[node.payload_first + i].semantic);
-            CHECK((region == 1 || region == 2)); seen |= 1u << region;
+        for (uint32_t i = 0; i < payload.count; ++i) {
+            const uint32_t word = payload.gaussians[i].semantic;
+            CHECK(gaussian_semantic_validate(word));
+            const uint16_t region = gaussian_semantic_region(word);
+            CHECK((region == 1 || region == 2));
+            if (region < 32) { seen |= 1u << region; }
         }
         if (!node.is_leaf()) { CHECK(seen == 6); }
     }
@@ -151,10 +166,11 @@ TEST_CASE("[GaussianSplatting][HLOD][B2] node provenance and maximum describe ow
     if (!gs_hlod::bake_world(input(g), params, baked, &reason) || baked.tree.nodes.is_empty()) { FAIL("bake fixture"); return; }
     uint8_t subtree_max = 0;
     for (const auto &node : baked.tree.nodes) {
-        const Gaussian *payload = node.is_leaf() ? baked.leaf_gaussians.ptr() : baked.tree.interior_gaussians.ptr();
+        gs_hlod::SplatSpan payload;
+        if (!node_payload(baked, node, payload)) { FAIL("node payload must address its leaf or interior buffer"); return; }
         uint8_t maximum = 0; bool valid = true;
-        for (uint32_t i = 0; i < node.payload_count; ++i) {
-            const uint32_t word = payload[node.payload_first + i].semantic;
+        for (uint32_t i = 0; i < payload.count; ++i) {
+            const uint32_t word = payload.gaussians[i].semantic;
             maximum = MAX(maximum, gaussian_semantic_wind_weight(word)); valid &= gaussian_semantic_valid(word);
         }
         CHECK(node.max_wind_weight == maximum);
@@ -243,7 +259,10 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][B2] island extraction hole grid an
         if (saver.save(holder, path) != OK) { FAIL("manifest save"); return; }
         Ref<GaussianSplatWorld> restored = loader.load_resident(path, &error);
         if (restored.is_null()) { FAIL("manifest reopen"); return; }
-        CHECK(restored->get_metadata() == metadata);
+        // The format persists JSON values: numbers reopen as FLOAT, packed arrays
+        // reopen as Array, and floats use the writer's default precision.
+        const Dictionary persisted_metadata = JSON::parse_string(JSON::stringify(metadata));
+        CHECK(restored->get_metadata() == persisted_metadata);
         DirAccess::remove_absolute(path); DirAccess::remove_absolute(asset); DirAccess::remove_absolute(dir);
     }
 }
@@ -363,7 +382,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][B2] public bake extracts islands a
     ResourceFormatLoaderGaussianSplatWorld loader; Error error; Ref<GaussianSplatWorld> loaded = loader.load_resident(path, &error);
     if (loaded.is_null() || loaded->get_hlod_tree().nodes.is_empty()) { FAIL("reopen semantic v3 tree"); return; }
     CHECK((loaded->get_hlod_tree().nodes[0].flags & (1u << 5)) != 0);
-    CHECK(loaded->get_metadata() == world->get_metadata());
+    const Dictionary persisted_metadata = JSON::parse_string(JSON::stringify(world->get_metadata()));
+    CHECK(loaded->get_metadata() == persisted_metadata);
     CHECK(loaded->get_gaussian_data()->get_gaussian(0).position.x == 3);
     const Array islands = world->get_metadata().get("islands", Array());
     for (const Variant &entry : islands) { const Dictionary island = entry; DirAccess::remove_absolute(island.get("asset_path", "")); }
