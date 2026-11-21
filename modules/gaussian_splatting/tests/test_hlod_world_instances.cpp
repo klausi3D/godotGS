@@ -369,6 +369,12 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] the next pre-draw
 	node->reparent(scope);
 	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u, false,
 			0.0f, GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+	// Registering through the director does not run the node's effector-filter setter. Cache the ancestor chain the
+	// node setter would cache, so the explicit-root scope can contain this row (else its effector mask is 0).
+	LocalVector<ObjectID> ancestors;
+	ancestors.push_back(scope->get_instance_id());
+	ancestors.push_back(scene.root->get_instance_id());
+	scene.director->update_instance_scene_effector_filter(node->get_instance_id(), true, 1u, false, true, ObjectID(), ancestors);
 	Node3D *effector = scene.add_node();
 	scene.director->register_sphere_effector(effector->get_instance_id(), Transform3D(), 10.0f, 0.5f, 1.0f, 1.0f,
 			true, true, false, 1.0f, 0.0f, 1u, GaussianSplatSceneDirector::SPHERE_EFFECTOR_SCOPE_EXPLICIT_ROOT,
