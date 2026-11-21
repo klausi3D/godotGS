@@ -204,6 +204,11 @@ public:
     void apply_world();
     void clear_world();
 
+    // Inert WP5 seam: tests-first stays buildable and fails on placement assertions.
+    Array create_island_nodes(Node *p_parent = nullptr) { return Array(); }
+    PackedStringArray get_island_names() { return PackedStringArray(); }
+    PackedStringArray get_island_errors() const { return PackedStringArray(); }
+
     Ref<GaussianSplatRenderer> get_renderer() const;
 
 #ifdef TESTS_ENABLED

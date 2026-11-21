@@ -78,6 +78,9 @@ void GaussianSplatWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_opacity"), &GaussianSplatWorld3D::get_opacity);
     ClassDB::bind_method(D_METHOD("apply_world"), &GaussianSplatWorld3D::apply_world);
     ClassDB::bind_method(D_METHOD("clear_world"), &GaussianSplatWorld3D::clear_world);
+    ClassDB::bind_method(D_METHOD("create_island_nodes", "parent"), &GaussianSplatWorld3D::create_island_nodes, DEFVAL(Variant()));
+    ClassDB::bind_method(D_METHOD("get_island_names"), &GaussianSplatWorld3D::get_island_names);
+    ClassDB::bind_method(D_METHOD("get_island_errors"), &GaussianSplatWorld3D::get_island_errors);
     ClassDB::bind_method(D_METHOD("get_renderer"), &GaussianSplatWorld3D::get_renderer);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "world", PROPERTY_HINT_RESOURCE_TYPE, "GaussianSplatWorld"),

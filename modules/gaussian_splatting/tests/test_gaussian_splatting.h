@@ -91,6 +91,7 @@
 #include "test_b2_bake.h"
 #include "test_b3_wind.h"
 #include "test_b3_wind_gpu.h"
+#include "test_d_island_nodes.h"
 #include "test_gsq_codec.h"
 #include "test_gsq_codec_hardening.h"
 #include "test_gsq_page_builder.h"
