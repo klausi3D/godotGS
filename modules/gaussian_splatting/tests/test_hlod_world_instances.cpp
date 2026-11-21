@@ -234,7 +234,7 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] world wind and ef
 	GS_NEED(scene.init());
 	GaussianSplatSceneDirector::WorldSubmission submission;
 	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
-	CHECK(submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+	CHECK(submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT);
 	CHECK_FALSE(submission.scene_effectors_enabled);
 	Node3D *node = scene.add_node();
 	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u, false,
@@ -306,7 +306,7 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] world effectors r
 	CHECK(opted.instances[0].effect_params[0] == 1.0f);
 	CHECK(opted.instances[0].effect_params[1] == 1.0f);
 	CHECK(mask(opted.instances[1]) == 1u);
-	CHECK(opted.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
+	CHECK(opted.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT));
 }
 
 // New API compile-red before W-S. The shared bound feeds the outer RenderingServer instance as well as the HLOD cut;
@@ -317,7 +317,8 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] outer visibility 
 	gs::settings::GSWindSettings wind;
 	wind.enabled = true;
 	wind.strength = 2.0f;
-	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == 0.0);
+	// AUTO reserves the conservative envelope before per-splat semantic data is read.
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == doctest::Approx(2.0));
 	GaussianSplatSceneDirector::WorldSubmission submission;
 	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
 	submission.wind_mode = GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT;

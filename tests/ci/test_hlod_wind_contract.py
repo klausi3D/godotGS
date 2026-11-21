@@ -51,9 +51,12 @@ class HlodWindContract(unittest.TestCase):
         self.assertIn("await _run_streamed_wind_proof_body()", wrapper)
         self.assertIn("get_root().size = previous_size", wrapper)
         proof = body_gd(scenario, "_run_streamed_wind_proof_body")
-        for signal in ("has_hlod_paged_source", "wind_enabled", "get_data()", "wind_off_identical",
+        for signal in ("has_hlod_paged_source", "wind_mode", "get_data()", "wind_off_identical",
                        "legacy_static", "wind_on_moved"):
             self.assertIn(signal, proof)
+        for mode in ("AUTO", "ON", "OFF"):
+            self.assertIn("GaussianSplatWorld3D.WIND_MODE_" + mode, proof)
+        self.assertNotIn("_node.wind_enabled", proof)
         runner = (ROOT / "tests/runtime/run_runtime_validation.py").read_text()
         self.assertIn('"Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd"', runner)
 

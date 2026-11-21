@@ -644,7 +644,8 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         source=SHADERS_DIR / "gs_shadow_caster.glsl",
         stages=("vertex", "fragment"),
         issue_ids=("#1095",),
-        variants=(Variant("default", (), ("#1095",)),),
+        variants=(Variant("default", (), ("#1095",)),
+                  Variant("legacy_wind_weight_control", ("GS_TESTS_ENABLED=1", "GS_TEST_LEGACY_WIND_WEIGHT=1"))),
     ),
     ShaderMatrixEntry(
         key="sobel_outline",

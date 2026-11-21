@@ -706,17 +706,21 @@ func _run_streamed_wind_proof_body() -> bool:
 			off_signal = off_signal or pixel.r > 0.0 or pixel.g > 0.0 or pixel.b > 0.0
 	if not _check(off_signal, "W-S OFF comparison has no rendered scene signal"):
 		return false
-	_node.wind_enabled = true
+	_node.wind_mode = GaussianSplatWorld3D.WIND_MODE_ON
 	var opted_off := await _wind_capture(_node, deadline)
 	if opted_off == null or not _check(off.get_data() == opted_off.get_data(), "W-S wind_off_identical: opted-in/OFF differs from undeformed pose"):
 		return false
 	ProjectSettings.set_setting(prefix + "wind_enabled", true)
-	_node.wind_enabled = false
+	_node.wind_mode = GaussianSplatWorld3D.WIND_MODE_AUTO
 	ProjectSettings.emit_signal("settings_changed")
 	var legacy := await _wind_capture(_node, deadline)
 	if legacy == null or not _check(off.get_data() == legacy.get_data(), "W-S legacy_static: O4 world swayed without opt-in"):
 		return false
-	_node.wind_enabled = true
+	_node.wind_mode = GaussianSplatWorld3D.WIND_MODE_OFF
+	var explicit_off := await _wind_capture(_node, deadline)
+	if explicit_off == null or not _check(off.get_data() == explicit_off.get_data(), "W-F OFF world swayed under active project wind"):
+		return false
+	_node.wind_mode = GaussianSplatWorld3D.WIND_MODE_ON
 	var first := await _wind_capture(_node, deadline)
 	if first == null:
 		return false

@@ -89,6 +89,8 @@
 #include "test_gs_world_writer_v4_gsq.h"
 #include "test_b1_format.h"
 #include "test_b2_bake.h"
+#include "test_b3_wind.h"
+#include "test_b3_wind_gpu.h"
 #include "test_gsq_codec.h"
 #include "test_gsq_codec_hardening.h"
 #include "test_gsq_page_builder.h"

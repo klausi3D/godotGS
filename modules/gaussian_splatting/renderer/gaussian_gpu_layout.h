@@ -143,6 +143,7 @@ static constexpr uint32_t GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4;
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_INHERIT = 0u;
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_FORCE_DISABLED = 1u;
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_FORCE_ENABLED = 2u;
+static constexpr uint32_t GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT = 3u;
 
 static_assert(alignof(InstanceDataGPU) == 16, "InstanceDataGPU must be 16-byte aligned");
 static_assert(sizeof(InstanceDataGPU) == 128, "InstanceDataGPU must be 128 bytes");

@@ -923,9 +923,11 @@ class HlodWindFieldTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
-        cls.program = glsl.GlslProgram(cls.source, defines={
+        semantic = (INCLUDES_DIR / "gs_semantic.glsl").read_text(encoding="utf-8")
+        cls.program = glsl.GlslProgram(semantic + "\n" + cls.source, defines={
             "GS_INSTANCE_WIND_MODE_FORCE_ENABLED": "2u",
             "GS_INSTANCE_WIND_MODE_FORCE_DISABLED": "1u",
+            "GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT": "3u",
         })
         # Standard GLSL scalar sin, evaluated in double as the rest of this harness.
         cls.program.namespace["sin"] = math.sin
@@ -976,12 +978,13 @@ class HlodWindFieldTests(unittest.TestCase):
         displacement = self.program.fn("gs_wind_displacement")
         vec3 = self.program.namespace["vec3"]
         rest = vec3(1.25, 0.5, -4.0)
-        previous = displacement(rest, 0.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
-        colour = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
-        caster = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        weight = self.program.fn("gs_splat_wind_weight")(glsl.U32(0), 0.75, 0.0)
+        previous = displacement(rest, 0.1, 1.0, 0.1, 2.0, weight, 1.0, 1.0)
+        colour = displacement(rest, 1.1, 1.0, 0.1, 2.0, weight, 1.0, 1.0)
+        caster = displacement(rest, 1.1, 1.0, 0.1, 2.0, weight, 1.0, 1.0)
         self.assertEqual(caster, colour)
         self.assertGreater(abs(caster - previous), 0.01)
-        self.assertEqual(displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 0.0), 0.0)
+        self.assertEqual(displacement(rest, 1.1, 1.0, 0.1, 2.0, weight, 1.0, 0.0), 0.0)
 
     def test_depth_inflation_retains_wind_reachable_edge_splat(self) -> None:
         # Execute the actual GPU frustum helper and actual displacement bound,
@@ -1051,6 +1054,131 @@ class HlodWindFieldTests(unittest.TestCase):
         self.assertEqual(sum(extent * 16 for _, extent in shader_fields), 256)
         self.assertIn("storage_uniform(6, deformation_buffer)", host)
         self.assertIn("_free_deformation_buffer();", host)
+
+
+class B3WindWeightTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
+        cls.semantic = (INCLUDES_DIR / "gs_semantic.glsl").read_text(encoding="utf-8")
+        cls.defines = {"GS_INSTANCE_WIND_MODE_FORCE_ENABLED": "2u",
+                       "GS_INSTANCE_WIND_MODE_FORCE_DISABLED": "1u",
+                       "GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT": "3u"}
+        cls.program = cls.make_program()
+
+    @classmethod
+    def make_program(cls, extra=None):
+        program = glsl.GlslProgram(cls.semantic + "\n" + cls.source, defines=cls.defines | (extra or {}))
+        program.namespace["sin"] = math.sin
+        return program
+
+    def weight(self, word, opacity=0.75, mode=3, program=None):
+        return (program or self.program).fn("gs_splat_wind_weight")(glsl.U32(word), opacity, float(mode))
+
+    def test_w4_rigid_zero_and_tests_only_legacy_forcing_control(self):
+        rigid = 0x80000007
+        self.assertEqual(self.weight(rigid), 0.0)
+        forced = self.make_program({"GS_TESTS_ENABLED": "1", "GS_TEST_LEGACY_WIND_WEIGHT": "1"})
+        self.assertAlmostEqual(self.weight(rigid, program=forced), 0.4)
+        shipping = self.make_program({"GS_TEST_LEGACY_WIND_WEIGHT": "1"})
+        self.assertEqual(self.weight(rigid, program=shipping), 0.0, "forcing define alone cannot alter production")
+
+    def test_full_half_weights_replace_opacity_and_keep_row_intensity(self):
+        p = self.program
+        rest = p.namespace["vec3"](1.25, 0.5, -4.0)
+        phase = (1.25 - 4.0) * 0.1 + 1.1 + p.fn("gs_wind_phase_noise")(rest)
+        oracle = math.sin(phase) * 2.0 * 0.7
+        self.assertGreater(abs(oracle), 0.01)
+        for opacity in (0.0, 0.1, 0.75, 1.0):
+            for weight in (0, 128, 255):
+                actual_weight = self.weight(0x80000009 | (weight << 16), opacity)
+                self.assertEqual(actual_weight, weight / 255.0)
+                actual = p.fn("gs_wind_displacement")(rest, 1.1, 1.0, 0.1, 2.0, actual_weight, 0.7, 1.0)
+                self.assertAlmostEqual(actual, oracle * weight / 255.0)
+
+    def test_o4_auto_legacy_on_legacy_and_instance_legacy(self):
+        self.assertEqual(self.weight(0), 0.0)
+        self.assertEqual(self.weight(0x00ff0000), 0.0, "valid bit, not nonzero wind byte, enables semantics")
+        for opacity in (-0.1, 0.0, 0.75, 1.0, 1.1):
+            expected = 0.2 + 0.8 * min(1.0, max(0.0, 1.0 - opacity))
+            self.assertAlmostEqual(self.weight(0, opacity, 0), expected)  # ON world and default instance.
+        self.assertEqual(self.weight(0x80000001), 0.0, "semantic world with no wind input")
+        enabled = self.program.fn("gs_is_wind_enabled_for_instance")
+        vec4 = self.program.namespace["vec4"]
+        self.assertFalse(enabled(1.0, vec4(1, 1, 1, 1)), "OFF must disable semantic wind too")
+        self.assertTrue(enabled(3.0, vec4(1, 1, 1, 1)))
+        self.assertFalse(enabled(3.0, vec4(1, 1, 1, 0)))
+
+    def test_w2_parent_tracks_weighted_children_below_fade_and_coarse_control_moves(self):
+        p = self.program
+        vec3 = p.namespace["vec3"]
+        displacement = p.fn("gs_wind_displacement")
+        self.assertEqual(self.weight(0x80800000), 128.0 / 255.0)
+        def move(rest, byte, fade=1.0):
+            return displacement(rest, 1.1, 1.0, 0.1, 0.5, self.weight(0x80000000 | (byte << 16)), 1.0, fade)
+        parent = vec3(0, 0, -8)
+        children = (vec3(-0.005, 0, -8), vec3(0.005, 0, -8))
+        pixels_per_unit = 1080.0 / (2.0 * math.tan(math.radians(35.0)) * 8.0)
+        child_mean = (move(children[0], 0) + move(children[1], 255)) / 2.0
+        self.assertLessEqual(abs(move(parent, 128) - child_mean) * pixels_per_unit, 0.5)
+        fade = p.fn("gs_wind_distance_level_fade")(parent, glsl.U32(4))
+        self.assertEqual(move(parent, 128, fade), 0.0)
+        self.assertGreater(abs(move(parent, 128, 1.0)) * pixels_per_unit, 0.5, "coarse fade forcing must be observable")
+
+    def test_every_payload_route_passes_semantic_to_the_shared_helper(self):
+        paths = ("compute/depth_compute.glsl", "shaders/tile_binning.glsl", "shaders/gs_shadow_caster.glsl")
+        for name in paths:
+            source = (ROOT / "modules/gaussian_splatting" / name).read_text()
+            call = source[source.index("GSDeformationResult deformation ="):]
+            call = call[:call.index(");")]
+            self.assertRegex(call, r"(?:gaussian|g|gaussians\[atlas_index\])\.semantic", name)
+            self.assertIn("gs_apply_wind_deformation(", call)
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text()
+        self.assertIn("g.semantic = src.semantic;", binning, "quantized colour must copy the semantic word")
+        self.assertIn("gs_splat_wind_weight(semantic, opacity, instance_wind_mode)", self.source)
+        self.assertIn("* splat_weight", self.source, "position effectors must share W(splat)")
+        self.assertNotIn("opacity_scale = max(instance_effect_config.y, 0.0) * splat_weight", self.source)
+
+    def test_effector_position_uses_same_weight_and_opacity_remains_independent(self):
+        # Execute the production scalar expressions without modelling buffer loops or result structs.
+        for field, expected in (("position_scale", 0.0), ("opacity_scale", 0.7)):
+            expression = re.search(r"float " + field + r" = ([^;]+);", self.source).group(1)
+            program = glsl.GlslProgram("float sample(vec4 instance_effect_config, float deformation_fade, float splat_weight) { return " + expression + "; }")
+            fn = program.fn("sample")
+            config = program.namespace["vec4"](2.0, 0.7, 0.0, 0.0)
+            self.assertEqual(fn(config, 1.0, 0.0), expected)
+            if field == "position_scale":
+                self.assertEqual(fn(config, 1.0, 128.0 / 255.0), 2.0 * 128.0 / 255.0)
+                self.assertEqual(fn(config, 1.0, 1.0), 2.0)
+
+    def test_node_cut_cull_and_record_estimates_use_bit5_scaled_margin(self):
+        source = (ROOT / "modules/gaussian_splatting/lod/hlod_view_set.cpp").read_text()
+        body = source.split("bool ViewSet::prepare_displacement_bounds(", 1)[1].split("ViewSet::AdmitResult", 1)[0]
+        self.assertIn("gs_wind::node_displacement_bound(local_margin, original.topology.max_wind_weight, original.topology.is_semantic_valid())", body)
+        for expression in ("std::sqrt(3.0) * node_margin", "aabb_min[axis]) - node_margin", "aabb_max[axis]) + node_margin",
+                           "node.footprint = original.footprint * ratio * ratio"):
+            self.assertIn(expression, body)
+        header = (ROOT / "modules/gaussian_splatting/renderer/gs_wind_bounds.h").read_text()
+        self.assertIn("p_semantic_valid ? double(p_weight) / 255.0 : 1.0", header)
+
+    def test_auto_on_off_api_and_required_gpu_wiring_are_present(self):
+        module = ROOT / "modules/gaussian_splatting"
+        node = (module / "nodes/gaussian_splat_world_3d.cpp").read_text()
+        header = (module / "nodes/gaussian_splat_world_3d.h").read_text()
+        self.assertNotIn("set_wind_enabled", node)
+        self.assertNotIn("is_wind_enabled", header)
+        for mode in ("AUTO", "ON", "OFF"):
+            self.assertIn("BIND_ENUM_CONSTANT(WIND_MODE_" + mode + ")", node)
+        self.assertIn("WORLD_WIND_MODE_PROPERTY", node)
+        self.assertIn('PROPERTY_HINT_ENUM, "Auto,On,Off"', node)
+        self.assertIn("WindMode wind_mode = WIND_MODE_AUTO", header)
+        for name in ("test_b3_wind.h", "test_b3_wind_gpu.h"):
+            self.assertIn('#include "' + name + '"', (module / "tests/test_gaussian_splatting.h").read_text())
+        gpu = (module / "tests/test_b3_wind_gpu.h").read_text()
+        self.assertIn("[Sort][RequiresGPU][B3]", gpu)
+        self.assertIn("rd->texture_get_data(target, 0)", gpu)
+        self.assertIn("GS_TESTS_ENABLED 1", gpu)
+        self.assertIn("GS_TEST_LEGACY_WIND_WEIGHT 1", gpu)
 
 
 class StableSplatIdentityTests(unittest.TestCase):

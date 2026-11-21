@@ -31,6 +31,11 @@ inline real_t local_visibility_margin(double p_scene_margin, const Basis &p_basi
 	return rounded;
 }
 
+// B3 seam: legacy full envelope until the fix is applied.
+inline double node_displacement_bound(double p_d_max, uint8_t p_weight, bool p_semantic_valid) {
+	return p_d_max;
+}
+
 inline double displacement_bound(double p_strength, double p_intensity, double p_push) {
 	return MAX(0.0, p_strength) * MAX(0.0, p_intensity) * (1.0 + MAX(0.0, p_push));
 }

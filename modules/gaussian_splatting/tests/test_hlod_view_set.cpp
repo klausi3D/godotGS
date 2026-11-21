@@ -1707,6 +1707,75 @@ TEST_CASE("[GaussianSplatting][HLOD] wind inflation never decreases record estim
 	}
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][B3] semantic node margin drives actual culling and cut record estimates") {
+	for (const bool valid : { false, true }) {
+		for (const uint8_t weight : { uint8_t(0), uint8_t(255) }) {
+			auto tree = make_tree(IDENT);
+			tree->nodes.resize(1);
+			auto &node = tree->nodes.write[0];
+			node.topology.child_count = 0;
+			node.topology.radius = 0.5f;
+			node.topology.flags = valid ? gs_hlod::kNodeFlagSemanticValid : 0;
+			node.topology.max_wind_weight = weight;
+			node.topology.aabb_min = Vector3(-0.5, -0.5, -0.5);
+			node.topology.aabb_max = Vector3(0.5, 0.5, 0.5);
+			node.bounds_center = Vector3(0.9, 0, 0);
+			node.footprint = 1;
+			auto snap = snapshot(tree);
+			snap.instances.write[0].displacement_margin = 0.25;
+			ViewSpec edge = box_view(1);
+			edge.camera = Vector3(0, 0, 10);
+			snap.views.push_back(edge);
+			ViewSet set;
+			if (set.admit_view(snap, edge).status != ViewSet::ADMITTED) { FAIL("B3 edge view refused"); return; }
+			Vector<ViewSet::ViewResult> results;
+			CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+			CHECK(nodes_of(set, 1).is_empty() == (valid && weight == 0));
+			// A second, unculled view observes the same derivative in the cost estimate.
+			double costs[2] = {};
+			for (int displaced = 0; displaced < 2; ++displaced) {
+				auto cost_snap = snapshot(tree);
+				cost_snap.instances.write[0].displacement_margin = displaced ? 0.25 : 0.0;
+				ViewSpec spec = perspective(2);
+				cost_snap.views.push_back(spec);
+				ViewSet cost_set;
+				if (cost_set.admit_view(cost_snap, spec).status != ViewSet::ADMITTED) { FAIL("B3 cost view refused"); return; }
+				Vector<ViewSet::ViewResult> cost_results;
+				CHECK(run(cost_set, cost_snap, cost_results) == ViewSet::SNAPSHOT_OK);
+				const auto *result = result_of(cost_results, 2);
+				if (!result) { FAIL("B3 cost view result absent"); return; }
+				CHECK(result->readiness == ViewSet::READY);
+				CHECK(same(nodes_of(cost_set, 2), { 0 }));
+				costs[displaced] = result->estimated_records;
+			}
+			if (valid && weight == 0) { CHECK(costs[0] == costs[1]); }
+			else { CHECK(costs[1] > costs[0]); }
+			CHECK(tree->nodes[0].topology.radius == 0.5f);
+		}
+	}
+	// B2 stores the maximum of the OWN payload, not the subtree. A rigid parent
+	// must still enclose a swaying child or traversal could cull that child first.
+	auto tree = make_tree(IDENT);
+	tree->nodes.resize(3);
+	for (int i = 0; i < 3; ++i) {
+		auto &node = tree->nodes.write[i];
+		node.bounds_center = Vector3(0.9, 0, 0);
+		node.topology.radius = 0.5f;
+		node.topology.flags = gs_hlod::kNodeFlagSemanticValid;
+		node.topology.max_wind_weight = i == 0 ? 0 : 255;
+		node.topology.child_count = i == 0 ? 2 : 0;
+	}
+	auto snap = snapshot(tree);
+	snap.instances.write[0].displacement_margin = 0.25;
+	ViewSpec edge = box_view(3);
+	snap.views.push_back(edge);
+	ViewSet set;
+	if (set.admit_view(snap, edge).status != ViewSet::ADMITTED) { FAIL("B3 ancestor view refused"); return; }
+	Vector<ViewSet::ViewResult> results;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	CHECK(same(nodes_of(set, 3), { 1, 2 }));
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] displaced selection tables are reserved before admission and invalid margins fail closed") {
 	auto tree = make_tree(IDENT);
 	uint64_t node_bytes = 0;

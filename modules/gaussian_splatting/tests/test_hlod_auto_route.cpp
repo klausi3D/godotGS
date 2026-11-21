@@ -359,18 +359,18 @@ TEST_CASE("[GaussianSplatting][HLOD] publisher allows wind and effectors but sti
 }
 
 // New public API: compile-error red on pre-P2 (the row default assertion elsewhere does not require this API).
-TEST_CASE("[GaussianSplatting][HLOD] legacy World3D wind and effectors default off and opt in independently") {
+TEST_CASE("[GaussianSplatting][HLOD] World3D AUTO ON OFF wind and effectors remain independent") {
 	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
-	CHECK_FALSE(node->is_wind_enabled());
+	CHECK(node->get_wind_mode() == GaussianSplatWorld3D::WIND_MODE_AUTO);
 	CHECK_FALSE(node->is_effectors_enabled());
 	CHECK(node->get_wind_intensity() == doctest::Approx(1.0f));
-	node->set_wind_enabled(true);
-	CHECK(node->is_wind_enabled());
+	node->set_wind_mode(GaussianSplatWorld3D::WIND_MODE_ON);
+	CHECK(node->get_wind_mode() == GaussianSplatWorld3D::WIND_MODE_ON);
 	CHECK_FALSE(node->is_effectors_enabled());
 	node->set_effectors_enabled(true);
 	CHECK(node->is_effectors_enabled());
-	node->set_wind_enabled(false);
-	CHECK_FALSE(node->is_wind_enabled());
+	node->set_wind_mode(GaussianSplatWorld3D::WIND_MODE_OFF);
+	CHECK(node->get_wind_mode() == GaussianSplatWorld3D::WIND_MODE_OFF);
 	CHECK(node->is_effectors_enabled());
 	node->set_wind_intensity(-0.25f);
 	CHECK(node->get_wind_intensity() == 0.0f);

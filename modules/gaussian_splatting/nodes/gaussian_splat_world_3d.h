@@ -15,6 +15,9 @@ class GaussianSplatRenderer;
 class GaussianSplatWorld3D : public Node3D {
     GDCLASS(GaussianSplatWorld3D, Node3D);
 
+public:
+    enum WindMode { WIND_MODE_AUTO, WIND_MODE_ON, WIND_MODE_OFF };
+
 private:
     Ref<GaussianSplatWorld> world;
     Ref<GaussianSplatRenderer> renderer;
@@ -168,6 +171,8 @@ public:
     void set_cast_shadow(bool p_enabled);
     bool is_cast_shadow() const { return cast_shadow; }
 
+    void set_wind_mode(WindMode p_mode) { set_wind_enabled(p_mode == WIND_MODE_ON); }
+    WindMode get_wind_mode() const { return is_wind_enabled() ? WIND_MODE_ON : WIND_MODE_AUTO; }
     void set_wind_enabled(bool p_enabled);
     bool is_wind_enabled() const { return wind_enabled; }
     void set_wind_intensity(float p_intensity);

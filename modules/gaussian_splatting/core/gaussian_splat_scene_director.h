@@ -41,6 +41,7 @@ public:
         INSTANCE_WIND_INHERIT = 0u,
         INSTANCE_WIND_FORCE_DISABLED = 1u,
         INSTANCE_WIND_FORCE_ENABLED = 2u,
+        INSTANCE_WIND_SEMANTIC_INHERIT = 3u,
     };
 
     enum SubmissionResidencyHint : int32_t {

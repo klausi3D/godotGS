@@ -53,6 +53,11 @@ float gs_wind_displacement_bound(float strength, float row_intensity, float effe
     return max(strength, 0.0) * max(row_intensity, 0.0) * (1.0 + max(effector_max_push, 0.0));
 }
 
+// B3 seam: legacy until the fix is applied.
+float gs_splat_wind_weight(uint semantic, float opacity, float encoded_mode) {
+    return 0.2 + 0.8 * clamp(1.0 - opacity, 0.0, 1.0);
+}
+
 // Shared scalar kernel used by colour, depth and shadow casters. Keeping the
 // kernel independent of identities/buffers also permits host evaluation of
 // the actual GLSL expression in the deterministic shader-numerics lane.
