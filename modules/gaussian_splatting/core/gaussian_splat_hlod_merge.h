@@ -165,6 +165,7 @@ Error merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps
 // ---------------------------------------------------------------------------------------------
 
 struct InteriorBakeParams {
+	bool measure_region_compression = false; // Opt-in F3 reference merge.
 	uint32_t merge_grid = 64u; // first eps = cell edge / merge_grid
 	double reduction = 4.0; // node target = ceil(children total / reduction)
 	uint32_t node_max_splats = 16384u;
@@ -180,6 +181,8 @@ struct InteriorBakeScratch {
 };
 
 struct InteriorBakeResult {
+	uint64_t region_keyed_interior_bytes = 0;
+	uint64_t single_region_interior_bytes = 0;
 	SplatList payload; // importance-ordered
 	double geometric_error = 0.0; // the eps the payload was built at
 	uint32_t eps_steps = 0u;

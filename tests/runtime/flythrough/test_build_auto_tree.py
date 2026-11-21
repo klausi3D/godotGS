@@ -45,6 +45,30 @@ def example_job():
 
 
 class DriverContract(unittest.TestCase):
+    def test_b2_job_accepts_semantic_volumes_and_opt_in_reference(self):
+        job = example_job()
+        job["volumes"] = [{"kind": "region", "path": "/root/House", "name": "house",
+            "size": [2, 3, 4], "transform": [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]}]
+        job["measure_region_compression"] = True
+        job["island_output_dir"] = "islands"
+        try:
+            validated = self.driver.validate_job_manifest(job)
+        except self.driver.BuildError as error:
+            self.fail(f"semantic job must be accepted: {error}")
+        self.assertEqual(validated, job)
+
+    def test_b2_semantic_options_are_typed_and_volume_errors_fail_closed(self):
+        for key, value in (("volumes", {}), ("measure_region_compression", 1), ("island_output_dir", 2)):
+            job = example_job(); job[key] = value
+            self.assert_reason("job_manifest_type", self.driver.validate_job_manifest, job)
+        for volume in ({"kind": "wrong", "path": "A"}, {"kind": "wind", "path": "A", "wind_weight": 2},
+                       {"kind": "region", "path": "A", "size": [1, -1, 1]},
+                       {"kind": "region", "path": "A", "transform": [1]},
+                       {"kind": "island", "path": "A", "unknown": 1}):
+            job = example_job(); job["volumes"] = [volume]
+            with self.assertRaises(self.driver.BuildError):
+                self.driver.validate_job_manifest(job)
+
     def setUp(self):
         self.assertTrue(DRIVER.is_file(), "driver_missing: tests/runtime/flythrough/build_auto_tree.py")
         self.driver = load_module("d2_build_auto_tree", DRIVER)

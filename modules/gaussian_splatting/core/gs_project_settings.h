@@ -46,6 +46,8 @@ namespace settings {
 inline constexpr const char *WIND_ENABLED_PATH = "rendering/gaussian_splatting/animation/wind_enabled";
 inline constexpr const char *WORLD_WIND_ENABLED_PROPERTY = "wind_enabled";
 inline constexpr const char *WORLD_WIND_INTENSITY_PROPERTY = "wind_intensity";
+// Authoring-volume and PLY property name, not a project setting.
+inline constexpr const char *WIND_WEIGHT_PROPERTY = "wind_weight";
 
 /**
  * @brief Read a boolean from ProjectSettings with type coercion.
