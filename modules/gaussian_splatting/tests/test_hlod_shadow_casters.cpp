@@ -1,6 +1,8 @@
 extern "C" int test_hlod_shadow_casters_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../renderer/hlod_shadow_caster_plan.h"
+#include "../renderer/hlod_shadow_refresh.h"
+#include "../renderer/gs_wind_bounds.h"
 #include "../renderer/hlod_world_instances.h"
 #include "servers/rendering_server.h"
 
@@ -994,6 +996,237 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a needle tilted across both 
 	const DepthGradient ay = caster_depth_gradient(1.0f, 0.0f, 9.0f, 0.0f, 3.0f, 2.0f);
 	CHECK(ay.x == doctest::Approx(3.0f / 1.0f));
 	CHECK(ay.y == doctest::Approx(2.0f / 9.0f));
+}
+
+// Existing [HLOD] is a strict host lane. These cases exercise production helpers without a device or scene tree.
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a static omni reuses identical reuploads and each light observes its own pass") {
+	gs_shadow_refresh::PublishedContent content;
+	FrameRecord record;
+	record.valid = true;
+	record.draw_count = 1;
+	record.row_casts.push_back(1);
+	DrawnNodeGPU draw{};
+	LocalVector<InstanceDataGPU> rows;
+	rows.push_back(InstanceDataGPU{});
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owner.revision = content.publish(record, &draw, rows, 0);
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light_a, light_b;
+	const auto first = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a);
+	CHECK(first.refresh);
+	light_a.commit(first);
+	++record.draw_list_upload;
+	++record.renderer_frame;
+	owners[0].revision = content.publish(record, &draw, rows, 0);
+	CHECK(owners[0].revision == owner.revision);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b).refresh);
+	// Querying without scheduling a pass must not consume a change (allocation/update budget can refuse it).
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b).refresh);
+	light_b.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b));
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_b).refresh);
+
+	// The new main-view cut is published AFTER this frame's shadows and first refreshes the following frame.
+	++draw.chunk_id;
+	owners[0].revision = content.publish(record, &draw, rows, 0);
+	CHECK(owners[0].revision != owner.revision);
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
+	light_a.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a));
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
+
+	// A casting-row transform uploaded during idle restore changes what that retained list will draw.
+	rows[0].translation_scale[0] = 3.0f;
+	owners[0].revision = content.refresh_rows(record, rows);
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
+	light_a.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a));
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light_a).refresh);
+	const uint64_t before_edit = owners[0].revision;
+	CHECK(content.publish(record, &draw, rows, 1) != before_edit);
+	const uint64_t before_rebuild = content.revision;
+	++record.bundle_builds;
+	CHECK(content.publish(record, &draw, rows, 1) != before_rebuild);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] noncasting rows cannot animate or dirty positional content") {
+	gs_shadow_refresh::PublishedContent content;
+	FrameRecord record;
+	record.draw_count = 2;
+	record.row_casts.push_back(1);
+	record.row_casts.push_back(0);
+	DrawnNodeGPU draws[2]{};
+	draws[1].instance_id = 1;
+	LocalVector<InstanceDataGPU> rows;
+	rows.push_back(InstanceDataGPU{});
+	rows.push_back(InstanceDataGPU{});
+	const uint64_t revision = content.publish(record, draws, rows, 0);
+	rows[1].translation_scale[0] = 17;
+	draws[1].chunk_id = 7;
+	CHECK(content.publish(record, draws, rows, 0) == revision);
+	CHECK(content.refresh_rows(record, rows) == revision);
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 1;
+	rows[1].params[2] = 1;
+	CHECK_FALSE(gs_wind::wind_active_on_casting_row(wind, rows[1], record.row_casts[1] != 0));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] wind forces intersecting casters while never-observing lights stay untouched") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	gs::settings::GSWindSettings wind;
+	wind.enabled = true;
+	wind.strength = 1;
+	InstanceDataGPU row{};
+	row.params[2] = 1;
+	owners[0].animated = gs_wind::wind_active_on_casting_row(wind, row, true);
+	CHECK(owners[0].animated);
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	const gs_shadow_refresh::LightState never_observed;
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(20, 0, 0), 2, never_observed).refresh);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(2, 2, 2), 1, never_observed).refresh);
+	CHECK(gs_shadow_refresh::sphere_intersects_bounds(Vector3(3, 0, 0), 2, owner.bounds));
+	CHECK(gs_shadow_refresh::positional_sphere_radius(10, -1) == 10);
+	CHECK(gs_shadow_refresh::positional_sphere_radius(10, 60) >= real_t(19.99)); // Cone rim lies outside range sphere.
+	owners[0].animated = false; // Turning deformation off needs one final static map.
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	owners.clear(); // The collector supplies no entries on a non-HLOD route.
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, never_observed).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a hidden previous owner clears once then reuses the empty map") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	owners.clear(); // Same collector outcome for hidden, freed, noncasting, non-HLOD, or released-renderer owners.
+	const auto clear = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(clear.refresh);
+	CHECK(clear.owners.is_empty());
+	// A refused scheduling attempt must retry; only the scheduled clearing pass consumes the departure.
+	CHECK(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	light.commit(clear);
+	CHECK(light.last_pass.is_empty());
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a previous owner leaving light range clears exactly once") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	owners[0].bounds.position = Vector3(20, -1, -1);
+	const auto clear = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(clear.refresh);
+	CHECK(clear.owners.is_empty());
+	light.commit(clear);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a light that never observed HLOD owners never requests a clearing pass") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::LightState light;
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.animated = true;
+	owner.bounds = AABB(Vector3(20, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	owners.clear();
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] removing or replacing one of several observed owners clears once") {
+	LocalVector<gs_shadow_refresh::Owner> owners;
+	gs_shadow_refresh::Owner owner;
+	owner.owner = 42;
+	owner.revision = 1;
+	owner.bounds = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
+	owners.push_back(owner);
+	owner.owner = 43;
+	owners.push_back(owner);
+	gs_shadow_refresh::LightState light;
+	light.commit(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light));
+	owners.resize(1);
+	const auto removed = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(removed.refresh);
+	light.commit(removed);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+	owners[0].owner = 44; // Replacement has the same set size but is unseen by this light.
+	const auto replaced = gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light);
+	CHECK(replaced.refresh);
+	light.commit(replaced);
+	CHECK_FALSE(gs_shadow_refresh::prepare_light(owners, Vector3(), 2, light).refresh);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a moving camera changes the published relative list but a static camera reuses it") {
+	gs_shadow_refresh::PublishedContent content;
+	FrameRecord record;
+	record.draw_count = 1;
+	record.row_casts.push_back(1);
+	DrawnNodeGPU draw{};
+	LocalVector<InstanceDataGPU> rows;
+	rows.push_back(InstanceDataGPU{});
+	const uint64_t first = content.publish(record, &draw, rows, 0);
+	++record.draw_list_upload;
+	++record.renderer_frame;
+	CHECK(content.publish(record, &draw, rows, 0) == first);
+	record.camera.x = 1;
+	draw.camera_offset[0] = -1; // Same world position, expressed against the new main-view camera.
+	const uint64_t moved = content.publish(record, &draw, rows, 0);
+	CHECK(moved != first);
+	++record.draw_list_upload;
+	++record.renderer_frame;
+	CHECK(content.publish(record, &draw, rows, 0) == moved);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] selected sphere effectors refresh only responsive casting rows") {
+	InstanceDataGPU row{};
+	row.effect_params[0] = 1;
+	float meta[4] = { 1, 0, 0, 1 };
+	float spheres[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float configs[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	float opacity[GS_MAX_SPHERE_EFFECTORS][4] = {};
+	spheres[0][3] = 3;
+	configs[0][0] = 1;
+	configs[0][1] = 2;
+	opacity[0][0] = 1;
+	const uint32_t mask = 1;
+	std::memcpy(&row.effect_params[2], &mask, sizeof(mask));
+	CHECK(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, false, meta, spheres, configs, opacity));
+	row.effect_params[2] = 0;
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	meta[3] = 0; // Project fallback has no scene mask.
+	CHECK(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	row.effect_params[0] = 0;
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	row.effect_params[1] = 1;
+	opacity[0][1] = 1;
+	opacity[0][2] = 0.5f;
+	CHECK(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
+	configs[0][0] = 0;
+	CHECK_FALSE(gs_shadow_refresh::effectors_active_on_casting_row(row, true, meta, spheres, configs, opacity));
 }
 
 } // namespace TestHlodShadowCasters
