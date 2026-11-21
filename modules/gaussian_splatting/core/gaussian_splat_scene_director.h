@@ -520,6 +520,10 @@ private:
     // Cache invalidation sequence, advanced by the main-thread pre-draw signal; protected by world_mutex.
     uint64_t deformation_pre_draw_epoch = 1;
     void _on_deformation_frame_pre_draw();
+    // Main thread. Connects the pre-draw invalidation to the CURRENT RenderingServer. The constructor alone is not
+    // enough: the director can be created before a RenderingServer exists, or outlive one and see a new one (test
+    // fixtures create one per [SceneTree] case). Without the connection the margin cache would never invalidate.
+    void _ensure_deformation_pre_draw_connected();
     // #611 PR B2: serializes submit_world_submission's three-phase
     // arbitrate-under-lock -> apply-unlocked -> commit-under-lock sequence.
     //

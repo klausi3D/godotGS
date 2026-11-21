@@ -443,6 +443,10 @@ GaussianSplatSceneDirector::GaussianSplatSceneDirector() {
     if (!singleton) {
         singleton = this;
     }
+    _ensure_deformation_pre_draw_connected();
+}
+
+void GaussianSplatSceneDirector::_ensure_deformation_pre_draw_connected() {
     if (RenderingServer *rs = RenderingServer::get_singleton()) {
         const Callable callback = callable_mp(this, &GaussianSplatSceneDirector::_on_deformation_frame_pre_draw);
         if (!rs->is_connected(SNAME("frame_pre_draw"), callback)) { rs->connect(SNAME("frame_pre_draw"), callback); }
@@ -1098,6 +1102,7 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
         float p_wind_intensity, uint32_t p_wind_mode, const Vector3 &p_wind_direction, float p_wind_frequency,
         bool p_visible, bool p_has_desired_residency_hint, int32_t p_desired_residency_hint,
         float p_effect_position_scale, float p_effect_opacity_scale) {
+	_ensure_deformation_pre_draw_connected();
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
@@ -2426,6 +2431,7 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 		float p_radius, float p_strength, float p_falloff, float p_frequency, bool p_enabled,
 		bool p_affect_position, bool p_affect_opacity, float p_opacity_strength, float p_target_opacity,
 		uint32_t p_layer_mask, uint32_t p_scope_mode, ObjectID p_scope_root_id, int32_t p_priority) {
+	_ensure_deformation_pre_draw_connected();
 	if (p_effector_id == ObjectID()) {
 		return;
 	}
@@ -2598,6 +2604,7 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 }
 
 bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &p_submission) {
+	_ensure_deformation_pre_draw_connected();
 	if (p_submission.owner_id == ObjectID() || !p_submission.scenario.is_valid()) {
 		return false;
 	}
