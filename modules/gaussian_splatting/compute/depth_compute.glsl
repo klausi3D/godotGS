@@ -7,6 +7,7 @@
 #include "../shaders/includes/gs_instance_layout.glsl"
 #include "../shaders/includes/gs_camera_relative.glsl"
 #include "../shaders/includes/gs_sort_key.glsl"
+#include "../shaders/includes/gs_splat_identity.glsl"
 #include "../shaders/includes/gs_deformation.glsl"
 #include "../shaders/includes/quantization_dequant.glsl"
 
@@ -303,8 +304,8 @@ void main() {
     uint instance_sh_limit = gs_instance_sh_limit(uint(params.cull_frustum_radius.w + 0.5), instance.lod.x);
     splat_ref_buffer.splat_refs[write_index].atlas_index =
             gs_pack_splat_ref_atlas_index(atlas_index, min(chunk.sh_limit, instance_sh_limit));
-    // Favor atlas index for tie-break to improve cache locality when depths are similar.
-    uint tie_break = atlas_index;
+    uint identity_hash = gs_splat_identity_hash(visible_chunk.chunk_id, splat_index_in_chunk, instance.placement_key);
+    uint tie_break = gs_identity_tie_break(identity_hash, atlas_index);
     sort_key_buffer.keys[write_index] = gs_pack_sort_key64(depth, tie_break);
     sort_value_buffer.values[write_index] = write_index;
 }

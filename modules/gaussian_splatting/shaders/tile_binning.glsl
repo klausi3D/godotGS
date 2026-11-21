@@ -26,6 +26,7 @@
 #include "includes/tile_projection_common.glsl"
 
 #include "includes/gs_instance_layout.glsl"
+#include "includes/gs_splat_identity.glsl"
 #include "includes/gs_camera_relative.glsl"
 #include "includes/gs_alpha_threshold.glsl"
 #include "includes/quantization_dequant.glsl"
@@ -901,6 +902,10 @@ void main() {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
+    if (splat_ref.instance_id >= uint(instance_buffer.instances.length())) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
     InstanceDataGPU instance = instance_buffer.instances[splat_ref.instance_id];
     uint chunk_sh_limit = gs_splat_ref_sh_limit(splat_ref.atlas_index);
 
@@ -944,6 +949,10 @@ void main() {
 #endif
 
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    if (splat_ref_idx >= uint(hlod_draw_entry_buffer.draw_entries.length())) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
     uint draw_entry = hlod_draw_entry_buffer.draw_entries[splat_ref_idx];
     if (draw_entry >= hlod_draw_list_buffer.entries.length()) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
@@ -955,19 +964,22 @@ void main() {
         return;
     }
     ChunkMetaGPU selected_node = chunk_meta_buffer.chunk_meta[selected.chunk_id];
-    bool address_matches;
+    uint reverse_slot = 0xffffffffu;
     if (selected_node.page_table_ref != 0u) {
         uint physical_page = gaussian_idx >> GS_HLOD_PAGE_SHIFT;
-        address_matches = physical_page < uint(hlod_page_owner.owners.length()) &&
-                hlod_page_owner.owners[physical_page] == selected.chunk_id;
-    } else {
-        address_matches = gaussian_idx >= selected_node.atlas_base &&
-                gaussian_idx - selected_node.atlas_base < selected_node.splat_count;
+        if (physical_page >= uint(hlod_page_owner.owners.length())) {
+            GS_DEBUG_INCREMENT(index_mismatch_count);
+            return;
+        }
+        reverse_slot = hlod_page_owner.owners[physical_page];
     }
-    if (!address_matches) {
+    uint local_splat_index;
+    if (!gs_hlod_local_splat_index(gaussian_idx, reverse_slot, selected_node.page_table_ref,
+            selected_node.atlas_base, selected_node.splat_count, local_splat_index)) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
+    uint identity_hash = gs_splat_identity_hash(selected.chunk_id, local_splat_index, instance.placement_key);
     vec3 hlod_camera_offset = selected.camera_offset.xyz;
 #endif
 
@@ -1196,14 +1208,30 @@ void main() {
     // Wide gap (1/3 ratio) handles view-dependent radius oscillation during camera rotation.
     float enter_threshold = min_allowed_radius;
     float exit_threshold = max(MIN_SPLAT_RADIUS, min_allowed_radius * (1.0 / 3.0));
-    uint history_size = max(params.total_gaussians, 1u);
-    uint history_idx = gaussian_idx;
+    uint history_size = min(params.total_gaussians, uint(subpixel_history.entries.length()));
+    if (history_size == 0u) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint history_idx = identity_hash % history_size;
+    uint history_key = identity_hash & 0x7FFFFFFFu;
+#else
+    uint history_idx = gaussian_idx % history_size;
     uint history_key = gs_hash_u32(gaussian_idx) & 0x7FFFFFFFu;
+#endif
+#ifdef GS_ADDRESS_HISTORY
+    history_idx = gaussian_idx % history_size;
+    history_key = gs_hash_u32(gaussian_idx) & 0x7FFFFFFFu;
     if (splat_ref.instance_id != 0u) {
         history_idx = gs_hash_u32(gaussian_idx ^ (splat_ref.instance_id * 0x9e3779b9u)) % history_size;
         history_key = gs_hash_u32(gaussian_idx ^ (splat_ref.instance_id * 0x85ebca6bu)) & 0x7FFFFFFFu;
     }
-    uint history_packed = subpixel_history.entries[history_idx];
+#endif
+    uint history_packed = 0u;
+#ifndef GS_TILE_GLOBAL_SORT_EMIT_PASS
+    history_packed = subpixel_history.entries[history_idx];
+#endif
     bool was_visible = ((history_packed & 1u) != 0u) && ((history_packed >> 1u) == history_key);
     float threshold = was_visible ? exit_threshold : enter_threshold;
 
@@ -1224,7 +1252,10 @@ void main() {
     // Only EMIT pass writes to history buffer to prevent COUNT/EMIT visibility mismatch.
     // If both passes write, EMIT sees COUNT's writes and may make different decisions.
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
-    subpixel_history.entries[history_idx] = (history_key << 1u) | (is_visible ? 1u : 0u);
+    // Stable hash slots can collide. Atomic writes avoid a storage-buffer data
+    // race; the key rejects another identity's last-writer entry next frame.
+    // EMIT uses COUNT's visibility and deliberately does not read this history.
+    atomicExchange(subpixel_history.entries[history_idx], (history_key << 1u) | (is_visible ? 1u : 0u));
 #endif
 
     // Reject truly subpixel splats using pre-low-pass-filter minor radius (#797).

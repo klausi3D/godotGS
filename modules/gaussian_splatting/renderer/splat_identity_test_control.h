@@ -30,14 +30,17 @@ inline uint32_t hash(uint32_t p_value) {
 
 // Host mirror of gs_splat_identity.glsl; Python also executes the actual GLSL.
 inline Keys keys(uint32_t p_node, uint32_t p_local, uint64_t p_placement, uint32_t p_atlas, uint32_t p_history_size, uint32_t p_row = 0) {
-	// Parent-compatible seam: intentionally retain legacy address keys in both modes.
-	(void)p_node;
-	(void)p_local;
-	(void)p_placement;
 	const uint32_t size = p_history_size > 0 ? p_history_size : 1u;
-	const uint32_t slot = p_row == 0 ? p_atlas % size : hash(p_atlas ^ (p_row * 0x9e3779b9u)) % size;
-	const uint32_t key = hash(p_atlas ^ (p_row * 0x85ebca6bu)) & 0x7fffffffu;
-	return { p_atlas, slot, key };
+	if (get_force_address_keying()) {
+		const uint32_t slot = p_row == 0 ? p_atlas % size : hash(p_atlas ^ (p_row * 0x9e3779b9u)) % size;
+		const uint32_t key = hash(p_atlas ^ (p_row * 0x85ebca6bu)) & 0x7fffffffu;
+		return { p_atlas, slot, key };
+	}
+	uint32_t h = hash(p_node ^ 0x9e3779b9u);
+	h = hash(h ^ p_local);
+	h = hash(h ^ uint32_t(p_placement));
+	h = hash(h ^ uint32_t(p_placement >> 32u));
+	return { h, h % size, h & 0x7fffffffu };
 }
 }
 #endif

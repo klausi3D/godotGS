@@ -332,6 +332,8 @@ public:
     int get_aggregated_count() const { return debug_stats.cached_overflow_stats.overflow_splats_aggregated; }
 
 #ifdef TESTS_ENABLED
+    bool test_address_identity_enabled = false;
+    bool _test_uses_address_identity() const { return shader_resources.tile_binning_pipeline.is_valid() && test_address_identity_enabled; }
     // Test-only accessors. Mirror the pattern used in core/gaussian_streaming.h
     // (search for `_test_*`). Replaced the `#define private public` macro that
     // test_tile_async_readback_freshness.cpp and

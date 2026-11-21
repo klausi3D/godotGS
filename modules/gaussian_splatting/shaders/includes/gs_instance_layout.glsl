@@ -37,6 +37,8 @@ struct InstanceDataGPU {
     vec4 wind_params;        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     vec4 effect_params;      // x = position response scale, y = opacity response scale,
                              // z = scene effector mask bits, w = bound scene effector count snapshot
+    uvec2 placement_key;     // low/high halves of stable placement ObjectID; world row = 0
+    uvec2 placement_pad;     // explicit std430 tail padding (zero)
 };
 
 // Instance flag bits (ids.y).
@@ -137,7 +139,7 @@ struct InstanceGradingGPU {
     vec4 secondary;
 };
 
-const uint GS_INSTANCE_DATA_GPU_SIZE = 112u;
+const uint GS_INSTANCE_DATA_GPU_SIZE = 128u;
 const uint GS_ASSET_LOD_RANGE_GPU_SIZE = 8u;
 const uint GS_ASSET_META_GPU_SIZE = 48u + 8u * GS_MAX_ASSET_LODS;
 const uint GS_CHUNK_META_GPU_SIZE = 64u;

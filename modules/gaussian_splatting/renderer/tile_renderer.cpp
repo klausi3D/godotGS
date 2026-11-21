@@ -1,4 +1,5 @@
 #include "tile_renderer.h"
+#include "splat_identity_test_control.h"
 
 #include "../core/gs_vector_alloc.h"
 #include "overlap_bootstrap_policy.h"
@@ -2394,6 +2395,9 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_X %d\n", config_state.tile_size));
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_Y %d\n", config_state.tile_size));
 #ifdef TESTS_ENABLED
+	if (GSSplatIdentityTestControl::get_force_address_keying()) {
+		defines.push_back(GSSplatIdentityTestControl::shader_defines());
+	}
 	if (p_include_dispatch_group && debug_stats.membership_enabled()) {
 		defines.push_back("#define GS_RECORD_LOSS_CAPTURE 1\n");
 	}
@@ -2750,7 +2754,17 @@ Error TileRenderer::_compile_raster_shaders(RenderingDevice *p_device, bool p_wa
 
 Error TileRenderer::_compile_tile_shaders() {
 	ERR_FAIL_NULL_V(shader_compilation_manager, ERR_UNCONFIGURED);
-	return shader_compilation_manager->compile_all_shaders(device_context.resource_rd);
+#ifdef TESTS_ENABLED
+	const bool force_address = GSSplatIdentityTestControl::get_force_address_keying();
+	if (test_address_identity_enabled != force_address) {
+		_release_compiled_shaders();
+	}
+#endif
+	const Error result = shader_compilation_manager->compile_all_shaders(device_context.resource_rd);
+#ifdef TESTS_ENABLED
+	if (result == OK) { test_address_identity_enabled = force_address; }
+#endif
+	return result;
 }
 
 uint64_t TileRenderer::_compute_shader_defines_hash() const {

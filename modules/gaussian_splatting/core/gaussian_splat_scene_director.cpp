@@ -1754,6 +1754,9 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 			entry.effect_params[1] = record.effect_opacity_scale;
 			entry.effect_params[2] = _encode_u32_as_float_bits(_build_scene_effector_mask_for_record(record, scene_payload));
 			entry.effect_params[3] = float(scene_payload.size());
+			const uint64_t placement_key = uint64_t(record.node_id);
+			entry.placement_key[0] = uint32_t(placement_key);
+			entry.placement_key[1] = uint32_t(placement_key >> 32);
 
 			out.push_back(entry);
 		}
@@ -1797,6 +1800,9 @@ void GaussianSplatSceneDirector::_fill_world_identity_row(const WorldSubmissionR
 	}
 	entry.effect_params[2] = _encode_u32_as_float_bits(world_scope_mask);
 	entry.effect_params[3] = float(p_payload.size());
+	// World identity is carried by the drawn node, with no separate placement.
+	entry.placement_key[0] = 0u;
+	entry.placement_key[1] = 0u;
 }
 
 double GaussianSplatSceneDirector::_deformation_visibility_margin_locked(const SharedWorld *p_world,
@@ -1820,13 +1826,13 @@ double GaussianSplatSceneDirector::_deformation_visibility_margin_locked(const S
 	if (p_world) {
 		_build_sorted_sphere_effector_payload(*p_world, payload);
 		if (p_world->submission_store.is_active() && SubmissionStore::record_has_renderable_payload(p_world->submission_store.get_record())) {
-			InstanceDataGPU row;
+			InstanceDataGPU row = {};
 			_fill_world_identity_row(p_world->submission_store.get_record(), payload, row);
 			rows.push_back(row);
 		}
 		for (const InstanceRecord &record : p_world->instance_store.records()) {
 			// Include currently software-culled rows: their displacement can bring the rest bounds back into the view.
-			InstanceDataGPU row;
+			InstanceDataGPU row = {};
 			_fill_instance_row(record, payload, row);
 			rows.push_back(row);
 		}
@@ -1930,6 +1936,11 @@ void GaussianSplatSceneDirector::_fill_instance_row(const InstanceRecord &p_reco
 	entry.effect_params[1] = record.effect_opacity_scale;
 	entry.effect_params[2] = _encode_u32_as_float_bits(_build_scene_effector_mask_for_record(record, p_payload));
 	entry.effect_params[3] = float(p_payload.size());
+	// ObjectID survives dense-row reorder and is already the director's HLOD
+	// instance key. Publish both halves; the dense row/asset slots are transient.
+	const uint64_t placement_key = uint64_t(record.node_id);
+	entry.placement_key[0] = uint32_t(placement_key);
+	entry.placement_key[1] = uint32_t(placement_key >> 32);
 }
 
 void GaussianSplatSceneDirector::build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer,

@@ -21,6 +21,7 @@
 #include "../compute/compute_infrastructure.h"
 #include "../interfaces/gpu_culler.h"
 #include "../compute/depth_compute.glsl.gen.h"
+#include "../renderer/splat_identity_test_control.h"
 #include "../compute/instance_count_clamp.glsl.gen.h"
 #include "../compute/instance_chunk_dispatch.glsl.gen.h"
 #include "core/config/project_settings.h"
@@ -1404,7 +1405,11 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
     }
 
     const bool quantized_storage = g_quantization_config.per_chunk_quantization;
-    if (depth_compute_shader.is_valid() && (quantized_storage != depth_quantization_enabled || instance_inputs.hlod_relative != depth_hlod_relative_enabled)) {
+    bool identity_variant_changed = false;
+#ifdef TESTS_ENABLED
+    identity_variant_changed = depth_address_identity_enabled != GSSplatIdentityTestControl::get_force_address_keying();
+#endif
+    if (depth_compute_shader.is_valid() && (quantized_storage != depth_quantization_enabled || instance_inputs.hlod_relative != depth_hlod_relative_enabled || identity_variant_changed)) {
         RenderingDevice *resource_device = sort_resource_device ? sort_resource_device : device;
         _free_owned_resource(resource_device, depth_uniform_set, true);
         _free_owned_resource(resource_device, depth_compute_pipeline, true);
@@ -1415,6 +1420,9 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
     }
     depth_quantization_enabled = quantized_storage;
     depth_hlod_relative_enabled = instance_inputs.hlod_relative;
+#ifdef TESTS_ENABLED
+    depth_address_identity_enabled = GSSplatIdentityTestControl::get_force_address_keying();
+#endif
 
     if (!depth_compute_shader.is_valid()) {
         static DepthComputeShaderRD depth_shader_source;
@@ -1458,6 +1466,13 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
 
         compute_source = _inject_sort_pad_depth_define(compute_source);
         compute_source = _inject_quantization_define(compute_source, quantized_storage);
+#ifdef TESTS_ENABLED
+        if (depth_address_identity_enabled) {
+            const int version_end = compute_source.find("\n", compute_source.find("#version"));
+            if (version_end < 0) { last_compute_error = "Identity control depth source lacks version"; return; }
+            compute_source = compute_source.insert(version_end + 1, GSSplatIdentityTestControl::shader_defines());
+        }
+#endif
         if (depth_hlod_relative_enabled) {
             const int version_end = compute_source.find("\n", compute_source.find("#version"));
             if (version_end < 0) { last_compute_error = "HLOD depth source lacks version"; return; }

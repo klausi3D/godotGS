@@ -122,6 +122,8 @@ struct alignas(16) InstanceDataGPU {
     float wind_params[4];        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     float effect_params[4];      // x = position response scale, y = opacity response scale,
                                  // z = scene effector mask bits, w = bound scene effector count snapshot
+    uint32_t placement_key[2];   // low/high halves of the stable placement ObjectID; world row = 0
+    uint32_t placement_pad[2];   // explicit std430 tail padding (zero)
 };
 
 // Instance flag bits (ids[1]).
@@ -143,7 +145,7 @@ static constexpr uint32_t GS_INSTANCE_WIND_MODE_FORCE_DISABLED = 1u;
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_FORCE_ENABLED = 2u;
 
 static_assert(alignof(InstanceDataGPU) == 16, "InstanceDataGPU must be 16-byte aligned");
-static_assert(sizeof(InstanceDataGPU) == 112, "InstanceDataGPU must be 112 bytes");
+static_assert(sizeof(InstanceDataGPU) == 128, "InstanceDataGPU must be 128 bytes");
 static_assert(offsetof(InstanceDataGPU, rotation) == 0, "InstanceDataGPU.rotation offset mismatch");
 static_assert(offsetof(InstanceDataGPU, inv_rotation) == 16, "InstanceDataGPU.inv_rotation offset mismatch");
 static_assert(offsetof(InstanceDataGPU, translation_scale) == 32, "InstanceDataGPU.translation_scale offset mismatch");
@@ -152,6 +154,8 @@ static_assert(offsetof(InstanceDataGPU, ids) == 64, "InstanceDataGPU.ids offset 
 static_assert(offsetof(InstanceDataGPU, lod) == 72, "InstanceDataGPU.lod offset mismatch");
 static_assert(offsetof(InstanceDataGPU, wind_params) == 80, "InstanceDataGPU.wind_params offset mismatch");
 static_assert(offsetof(InstanceDataGPU, effect_params) == 96, "InstanceDataGPU.effect_params offset mismatch");
+static_assert(offsetof(InstanceDataGPU, placement_key) == 112, "InstanceDataGPU.placement_key offset mismatch");
+static_assert(offsetof(InstanceDataGPU, placement_pad) == 120, "InstanceDataGPU.placement_pad offset mismatch");
 
 struct alignas(16) SphereEffectorGPU {
     float sphere[4];         // xyz = center (world), w = radius

@@ -593,6 +593,7 @@ Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeD
 	const NodeResidency::Config rc = residency.config();
 	if (!residency.reset(infos, rc, p_world, p_device)) { return ERR_INVALID_DATA; }
 	published_page_table = residency.page_table();
+	// reset() leaves every CPU owner FREE, also the GPU reverse-table sentinel.
 	published_page_owner = residency.page_owners();
 	released_pages.clear();
 	released_slots.clear();
@@ -644,6 +645,7 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 		return false;
 	}
 	published_page_table = residency.page_table();
+	// reset() leaves every CPU owner FREE, also the GPU reverse-table sentinel.
 	published_page_owner = residency.page_owners();
 	released_pages.clear();
 	released_slots.clear();
@@ -1583,9 +1585,13 @@ Error HlodNodeStreamer::write_page_tables(RenderingDevice *p_device, const Buffe
 	const Error err = write_table_range(p_device, p_buffers.page_table, true, p_ticket.node, p_ticket.pt_base,
 			p_ticket.pages.size(), p_ticket.pages.ptr(), p_ticket.shadow);
 	if (err != OK) { return err; }
-	for (uint32_t page : p_ticket.pages) {
+	for (uint32_t i = 0; i < uint32_t(p_ticket.pages.size()); ++i) {
+		const uint32_t page = p_ticket.pages[i];
+		// The GPU must recover the node-local page even when physical pages are
+		// scattered. CPU allocator owners keep node ids for lifetime accounting.
+		const uint32_t forward_slot = p_ticket.pt_base + i;
 		const Error owner_error = write_table_range(p_device, p_buffers.page_owner, false, p_ticket.node,
-				page, 1, &p_ticket.node, p_ticket.shadow);
+				page, 1, &forward_slot, p_ticket.shadow);
 		if (owner_error != OK) { return owner_error; }
 	}
 	return OK;
@@ -1633,7 +1639,7 @@ Error HlodNodeStreamer::write_meta(RenderingDevice *p_device, const Buffers &p_b
 			const uint32_t page = p_ticket->pages[i];
 			if (uint64_t(p_ticket->pt_base) + i >= uint64_t(published_page_table.size()) ||
 					page >= uint32_t(published_page_owner.size()) || published_page_table[p_ticket->pt_base + i] != page ||
-					published_page_owner[page] != p_node) {
+					published_page_owner[page] != p_ticket->pt_base + i) {
 				++telemetry.page_table_publish_refusals_total;
 				++telemetry.page_table_publish_refusals_this_frame;
 				return ERR_INVALID_DATA;
