@@ -235,6 +235,7 @@ void main() {
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             gaussian.opacity,
+            gaussian.semantic,
             instance_intensity,
             instance_wind_mode,
             instance.wind_params,

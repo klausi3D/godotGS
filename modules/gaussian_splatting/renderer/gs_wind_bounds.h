@@ -8,7 +8,7 @@
 #include <cstring>
 #include <limits>
 
-// W-S global bound, in scene units. Effectors have independent additive displacement;
+// Frame-global bound, in scene units. Effectors have independent additive displacement;
 // their push is the SUM of absolute enabled positional strengths, including overlapping
 // spheres. The effective base is at least one for effectors/forced rows, preserving the
 // existing zero-project-strength override while bounding the additive term.
@@ -31,9 +31,12 @@ inline real_t local_visibility_margin(double p_scene_margin, const Basis &p_basi
 	return rounded;
 }
 
-// B3 seam: legacy full envelope until the fix is applied.
+// B2's byte is a maximum over the OWN payload. Only bit 5 proves that zero
+// means rigid rather than legacy; mixed/legacy payloads keep the full envelope.
 inline double node_displacement_bound(double p_d_max, uint8_t p_weight, bool p_semantic_valid) {
-	return p_d_max;
+	const double weight = p_semantic_valid ? double(p_weight) / 255.0 : 1.0;
+	if (weight == 0.0 || weight == 1.0 || p_d_max == 0.0) { return p_d_max * weight; }
+	return std::nextafter(p_d_max * weight, std::numeric_limits<double>::infinity());
 }
 
 inline double displacement_bound(double p_strength, double p_intensity, double p_push) {

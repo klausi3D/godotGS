@@ -45,7 +45,6 @@ namespace settings {
 // opt-ins, while get_wind_settings() is the sole reader of the project-wide wind family.
 inline constexpr const char *WIND_ENABLED_PATH = "rendering/gaussian_splatting/animation/wind_enabled";
 inline constexpr const char *WORLD_WIND_MODE_PROPERTY = "wind_mode";
-inline constexpr const char *WORLD_WIND_ENABLED_PROPERTY = "wind_enabled";
 inline constexpr const char *WORLD_WIND_INTENSITY_PROPERTY = "wind_intensity";
 // Authoring-volume and PLY property name, not a project setting.
 inline constexpr const char *WIND_WEIGHT_PROPERTY = "wind_weight";

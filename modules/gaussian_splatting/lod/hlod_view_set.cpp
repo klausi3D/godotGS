@@ -1,6 +1,7 @@
 #include "hlod_view_set.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "../renderer/gs_wind_bounds.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -390,17 +391,18 @@ bool ViewSet::prepare_displacement_bounds(InstanceSlot &r_slot, const SnapshotIn
 		const auto &original = source.nodes[i];
 		auto &node = nodes[i];
 		node = original;
+		const double node_margin = gs_wind::node_displacement_bound(local_margin, original.topology.max_wind_weight, original.topology.is_semantic_valid());
 		// The existing cut uses an enclosing sphere for culling and near-surface screen error. Growing
 		// each AABB axis by m is enclosed by growing its sphere by sqrt(3)*m, at every hierarchy level.
-		const double radius = double(original.topology.radius) + std::sqrt(3.0) * local_margin;
+		const double radius = double(original.topology.radius) + std::sqrt(3.0) * node_margin;
 		if (!std::isfinite(radius) || original.topology.radius < 0 || radius > std::numeric_limits<float>::max()) { return false; }
 		node.topology.radius = float(radius);
 		if (double(node.topology.radius) < radius) {
 			node.topology.radius = std::nextafter(node.topology.radius, std::numeric_limits<float>::infinity());
 		}
 		for (int axis = 0; axis < 3; ++axis) {
-			const double lo = double(original.topology.aabb_min[axis]) - local_margin;
-			const double hi = double(original.topology.aabb_max[axis]) + local_margin;
+			const double lo = double(original.topology.aabb_min[axis]) - node_margin;
+			const double hi = double(original.topology.aabb_max[axis]) + node_margin;
 			if (!std::isfinite(lo) || !std::isfinite(hi) || lo < -std::numeric_limits<real_t>::max() || hi > std::numeric_limits<real_t>::max()) { return false; }
 			node.topology.aabb_min[axis] = real_t(lo);
 			node.topology.aabb_max[axis] = real_t(hi);
@@ -411,6 +413,43 @@ bool ViewSet::prepare_displacement_bounds(InstanceSlot &r_slot, const SnapshotIn
 				node.topology.aabb_max[axis] = std::nextafter(node.topology.aabb_max[axis], std::numeric_limits<real_t>::infinity());
 			}
 		}
+	}
+	// Own-payload maxima can be lower than a child's maximum after a merge.
+	// Preserve the tree's containment invariant before the selector traverses it.
+	// Valid topology orders parents before children; refuse an invalid ordering.
+	for (int i = source.nodes.size() - 1; i > 0; --i) {
+		const uint32_t parent = source.nodes[i].topology.parent;
+		if (parent >= uint32_t(i)) { return false; }
+		auto &ancestor = nodes[parent];
+		const auto &child = nodes[i];
+		const double dx = double(child.bounds_center.x) - double(ancestor.bounds_center.x);
+		const double dy = double(child.bounds_center.y) - double(ancestor.bounds_center.y);
+		const double dz = double(child.bounds_center.z) - double(ancestor.bounds_center.z);
+		const double radius = std::max(double(ancestor.topology.radius),
+				std::sqrt(dx * dx + dy * dy + dz * dz) + double(child.topology.radius));
+		if (!std::isfinite(radius) || radius > std::numeric_limits<float>::max()) { return false; }
+		ancestor.topology.radius = float(radius);
+		if (double(ancestor.topology.radius) < radius) {
+			ancestor.topology.radius = std::nextafter(ancestor.topology.radius, std::numeric_limits<float>::infinity());
+		}
+		for (int axis = 0; axis < 3; ++axis) {
+			const double offset = child.exact_cell_center[axis] - ancestor.exact_cell_center[axis];
+			const double lo = std::min(double(ancestor.topology.aabb_min[axis]), offset + double(child.topology.aabb_min[axis]));
+			const double hi = std::max(double(ancestor.topology.aabb_max[axis]), offset + double(child.topology.aabb_max[axis]));
+			if (!std::isfinite(lo) || !std::isfinite(hi) || lo < -std::numeric_limits<real_t>::max() || hi > std::numeric_limits<real_t>::max()) { return false; }
+			ancestor.topology.aabb_min[axis] = real_t(lo);
+			ancestor.topology.aabb_max[axis] = real_t(hi);
+			if (double(ancestor.topology.aabb_min[axis]) > lo) {
+				ancestor.topology.aabb_min[axis] = std::nextafter(ancestor.topology.aabb_min[axis], -std::numeric_limits<real_t>::infinity());
+			}
+			if (double(ancestor.topology.aabb_max[axis]) < hi) {
+				ancestor.topology.aabb_max[axis] = std::nextafter(ancestor.topology.aabb_max[axis], std::numeric_limits<real_t>::infinity());
+			}
+		}
+	}
+	for (int i = 0; i < source.nodes.size(); ++i) {
+		const auto &original = source.nodes[i];
+		auto &node = nodes[i];
 		// Inflating the sphere also increases CutHistory's inside-distance floor. Compensate by the
 		// squared floor ratio so the record estimate cannot DECREASE near or inside a displaced node.
 		// The selector's 1e-6 near-distance clamp handles zero-radius nodes without division by zero.

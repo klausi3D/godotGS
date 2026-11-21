@@ -37,8 +37,8 @@ private:
 
     bool auto_apply_on_ready = true;
     bool cast_shadow = false;
-    // No baked wind semantics exist in W-S. Legacy worlds opt in independently of project wind and instance rows.
-    bool wind_enabled = false;
+    // AUTO inherits project wind only for splats with baked semantics; legacy worlds opt in with ON.
+    WindMode wind_mode = WIND_MODE_AUTO;
     float wind_intensity = 1.0f;
     bool effectors_enabled = false;
     bool bounds_dirty = true;
@@ -171,10 +171,8 @@ public:
     void set_cast_shadow(bool p_enabled);
     bool is_cast_shadow() const { return cast_shadow; }
 
-    void set_wind_mode(WindMode p_mode) { set_wind_enabled(p_mode == WIND_MODE_ON); }
-    WindMode get_wind_mode() const { return is_wind_enabled() ? WIND_MODE_ON : WIND_MODE_AUTO; }
-    void set_wind_enabled(bool p_enabled);
-    bool is_wind_enabled() const { return wind_enabled; }
+    void set_wind_mode(WindMode p_mode);
+    WindMode get_wind_mode() const { return wind_mode; }
     void set_wind_intensity(float p_intensity);
     float get_wind_intensity() const { return wind_intensity; }
     void set_effectors_enabled(bool p_enabled);
@@ -215,5 +213,7 @@ public:
     }
 #endif
 };
+
+VARIANT_ENUM_CAST(GaussianSplatWorld3D::WindMode);
 
 #endif // GAUSSIAN_SPLAT_WORLD_3D_H

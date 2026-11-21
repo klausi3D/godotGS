@@ -24,7 +24,7 @@ uint64_t hlod_world_key = 0;
     bool casts_shadow = true;
     // Protected by the director's world_mutex, like every other submission field.
     float wind_intensity = 1.0f;
-    uint32_t wind_mode = INSTANCE_WIND_FORCE_DISABLED;
+    uint32_t wind_mode = INSTANCE_WIND_SEMANTIC_INHERIT;
     bool scene_effectors_enabled = false;
     Callable hlod_demotion_callback;
     GaussianSplatWorldSubmissionRuntimeStateSnapshot renderer_restore_state;

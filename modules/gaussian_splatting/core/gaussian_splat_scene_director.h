@@ -93,7 +93,7 @@ public:
         // W-S / O4: no baked semantics exist yet, so legacy worlds explicitly opt in. These fields are copied into
         // the submission record under world_mutex; row 0 never inherits a node instance's wind or effector policy.
         float wind_intensity = 1.0f;
-        uint32_t wind_mode = INSTANCE_WIND_FORCE_DISABLED;
+        uint32_t wind_mode = INSTANCE_WIND_SEMANTIC_INHERIT;
         bool scene_effectors_enabled = false;
         // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
         // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted. The

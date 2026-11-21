@@ -27,6 +27,14 @@ static bool _is_world_debug_enabled() {
     return gs::settings::is_any_debug_log_enabled();
 }
 
+static uint32_t _world_row_wind_mode(GaussianSplatWorld3D::WindMode p_mode) {
+    switch (p_mode) {
+        case GaussianSplatWorld3D::WIND_MODE_ON: return GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT;
+        case GaussianSplatWorld3D::WIND_MODE_OFF: return GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED;
+        default: return GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT;
+    }
+}
+
 } // namespace
 
 GaussianSplatWorld3D::GaussianSplatWorld3D() = default;
@@ -43,8 +51,11 @@ void GaussianSplatWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_auto_apply_on_ready"), &GaussianSplatWorld3D::is_auto_apply_on_ready);
     ClassDB::bind_method(D_METHOD("set_cast_shadow", "enabled"), &GaussianSplatWorld3D::set_cast_shadow);
     ClassDB::bind_method(D_METHOD("is_cast_shadow"), &GaussianSplatWorld3D::is_cast_shadow);
-    ClassDB::bind_method(D_METHOD("set_wind_enabled", "enabled"), &GaussianSplatWorld3D::set_wind_enabled);
-    ClassDB::bind_method(D_METHOD("is_wind_enabled"), &GaussianSplatWorld3D::is_wind_enabled);
+    ClassDB::bind_method(D_METHOD("set_wind_mode", "mode"), &GaussianSplatWorld3D::set_wind_mode);
+    ClassDB::bind_method(D_METHOD("get_wind_mode"), &GaussianSplatWorld3D::get_wind_mode);
+    BIND_ENUM_CONSTANT(WIND_MODE_AUTO);
+    BIND_ENUM_CONSTANT(WIND_MODE_ON);
+    BIND_ENUM_CONSTANT(WIND_MODE_OFF);
     ClassDB::bind_method(D_METHOD("set_wind_intensity", "intensity"), &GaussianSplatWorld3D::set_wind_intensity);
     ClassDB::bind_method(D_METHOD("get_wind_intensity"), &GaussianSplatWorld3D::get_wind_intensity);
     ClassDB::bind_method(D_METHOD("set_effectors_enabled", "enabled"), &GaussianSplatWorld3D::set_effectors_enabled);
@@ -73,7 +84,7 @@ void GaussianSplatWorld3D::_bind_methods() {
             "set_world", "get_world");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_apply_on_ready"), "set_auto_apply_on_ready", "is_auto_apply_on_ready");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cast_shadow"), "set_cast_shadow", "is_cast_shadow");
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, gs::settings::WORLD_WIND_ENABLED_PROPERTY), "set_wind_enabled", "is_wind_enabled");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, gs::settings::WORLD_WIND_MODE_PROPERTY, PROPERTY_HINT_ENUM, "Auto,On,Off"), "set_wind_mode", "get_wind_mode");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, gs::settings::WORLD_WIND_INTENSITY_PROPERTY, PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"),
             "set_wind_intensity", "get_wind_intensity");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "effectors_enabled"), "set_effectors_enabled", "is_effectors_enabled");
@@ -441,9 +452,10 @@ void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {
     _resubmit_world_submission_if_registered();
 }
 
-void GaussianSplatWorld3D::set_wind_enabled(bool p_enabled) {
-    if (wind_enabled == p_enabled) { return; }
-    wind_enabled = p_enabled;
+void GaussianSplatWorld3D::set_wind_mode(WindMode p_mode) {
+    ERR_FAIL_COND(p_mode < WIND_MODE_AUTO || p_mode > WIND_MODE_OFF);
+    if (wind_mode == p_mode) { return; }
+    wind_mode = p_mode;
     _resubmit_world_submission_if_registered();
 }
 
@@ -728,8 +740,7 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     submission.owner_id = get_instance_id();
     submission.casts_shadow = cast_shadow; // Row 0 of the HLOD shadow casters (#1095); see set_cast_shadow().
     submission.wind_intensity = wind_intensity;
-    submission.wind_mode = wind_enabled ? GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT :
-            GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED;
+    submission.wind_mode = _world_row_wind_mode(wind_mode);
     submission.scene_effectors_enabled = effectors_enabled;
     submission.scenario = get_world_3d().is_valid() ? get_world_3d()->get_scenario() : RID();
     // Refresh the cached scenario so PREDELETE can teardown even after the
@@ -937,8 +948,7 @@ void GaussianSplatWorld3D::_update_deformation_visibility_margin() {
     if (!rs || !is_inside_tree() || !render_instance.is_valid()) { return; }
     InstanceDataGPU row = {};
     row.params[2] = wind_intensity;
-    row.params[3] = float(wind_enabled ? GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT :
-            GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+    row.params[3] = float(_world_row_wind_mode(wind_mode));
     row.effect_params[0] = effectors_enabled ? 1.0f : 0.0f;
     const double scene_margin = GaussianSplatSceneDirector::deformation_visibility_margin_for_renderer(renderer.ptr(), row);
     const real_t local_margin = gs_wind::local_visibility_margin(scene_margin, get_global_transform().basis);

@@ -200,6 +200,7 @@ void main() {
     float deformation_fade = gs_wind_distance_level_fade(frame_position, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(frame_position,
             atlas_gaussian_buffer.gaussians[atlas_index].opacity,
+            atlas_gaussian_buffer.gaussians[atlas_index].semantic,
             max(instance.params.z, 0.0), instance.params.w, instance.wind_params, instance.effect_params,
             deformation_params.wind_dir_strength, deformation_params.wind_time_config, deformation_params.effector_meta,
             deformation_params.effector_spheres, deformation_params.effector_configs, deformation_params.effector_opacity_configs,

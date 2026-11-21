@@ -924,6 +924,7 @@ void main() {
 
     Gaussian g;
     g.opacity = src.opacity;
+    g.semantic = src.semantic;
     g.sh_dc = src.sh_dc;
     g.sh_metadata = gs_build_quantized_sh_metadata(24u, (chunk_meta.flags & GS_ASSET_FLAG_DC_LINEAR_RGB) != 0u);
     for (int i = 0; i < 24; ++i) {
@@ -1021,6 +1022,7 @@ void main() {
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             g.opacity,
+            g.semantic,
             instance_intensity,
             instance_wind_mode,
             instance.wind_params,

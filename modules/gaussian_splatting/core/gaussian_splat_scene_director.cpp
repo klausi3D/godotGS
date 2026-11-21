@@ -910,7 +910,7 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.desired_renderer_overrides = p_submission.desired_renderer_overrides;
 	r_record.casts_shadow = p_submission.casts_shadow;
 	r_record.wind_intensity = MAX(0.0f, p_submission.wind_intensity);
-	r_record.wind_mode = MIN(p_submission.wind_mode, uint32_t(INSTANCE_WIND_FORCE_ENABLED));
+	r_record.wind_mode = MIN(p_submission.wind_mode, uint32_t(INSTANCE_WIND_SEMANTIC_INHERIT));
 	r_record.scene_effectors_enabled = p_submission.scene_effectors_enabled;
 	r_record.hlod_demotion_callback = p_submission.hlod_demotion_callback;
 	r_record.renderer_restore_state = GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();

@@ -335,8 +335,11 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 - The decision becomes per row:
   - The world row and every instance row carry their own `wind_mode`. The existing field is
     `InstanceDataGPU.params.w` (`gs_instance_layout.glsl:33`) [V].
-  - The world row defaults to **inherit only when the world has valid semantic data**, otherwise
-    off; a world opts in explicitly (O4, decided).
+  - `GaussianSplatWorld3D.wind_mode` is **AUTO** by default: the internal row mode
+    `SEMANTIC_INHERIT` inherits project wind for each splat with `semantic_valid`, using its baked
+    weight; legacy splats have `W = 0`. Thus mixed payloads are handled per splat and a legacy world
+    stays still (O4). **ON** maps to `INHERIT`, opting legacy splats into the opacity heuristic;
+    **OFF** maps to `FORCE_DISABLED`, disabling wind even on semantic splats. No bool alias is kept.
 - Effectors carry a row mask; the existing `effect_params.z` is the "scene effector mask bits"
   (`gs_instance_layout.glsl:37-38`) [V].
 - One-route §4.6 ("each domain is lifted in its own PR (F5)") [ADR]: this is that PR for wind and
@@ -350,6 +353,9 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 - **Without the format step:** every node of a wind-enabled row gets `D_max` added to its AABB
   for frustum culling and for the cut's screen-size and record estimates.
 - **With the format step:** the inflation is `D_max × max_wind_weight(node) / 255`.
+  Only topology flag bit 5 (the payload's semantic-valid AND) permits this reduction; legacy or
+  mixed payloads retain full `D_max`, including when the stored wind byte is zero. After scaling
+  each own-payload envelope, ancestor bounds still enclose displaced children for safe traversal.
 - When `D_max` changes, it changes the cut input. This is acceptable, because the cut already
   reacts to the camera every frame [I].
 - **Cost [I]:** slightly more overlap records and conservative culling. It must be measured in
