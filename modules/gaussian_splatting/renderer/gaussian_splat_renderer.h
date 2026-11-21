@@ -913,7 +913,12 @@ public:
     bool publish_hlod_bundle(bool p_relative);
     // Re-uploads the prepared bundles' instance and grading rows in place when only the director's row generation moved
     // (gs_hlod_bundle::PreparedRows::REUPLOAD). False when the rows can no longer be served in place (the caller releases).
-    bool refresh_hlod_instance_rows();
+    bool refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal = nullptr);
+    // Render thread, before positional cache decisions or the first directional shadow pass; retains the previous list.
+    gs_shadow_caster::Refusal refresh_hlod_shadow_rows();
+    bool hlod_shadow_rows_latched() const;
+    bool hlod_shadow_colour_refused() const;
+    void publish_hlod_shadow_rows_snapshot();
     // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
     // PR1b (ADR 4.4): with `p_with_instances` the view's instance records (resource state hlod_instance_draws, offsets
     // for `p_origin_revision`) are still drawn: a loading world never hides the objects.

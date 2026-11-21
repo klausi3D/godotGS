@@ -33,7 +33,12 @@ struct PublishedContent {
 	// An end-of-main-view idle restore may upload newer rows without replacing the retained draw list.
 	uint64_t refresh_rows(const gs_shadow_caster::FrameRecord &p_record, const LocalVector<InstanceDataGPU> &p_rows) {
 		const auto current = casting_rows(p_record, p_rows);
-		if (!equal_bytes(rows, current.ptr(), current.size())) { rows = current; ++revision; }
+		if (!equal_bytes(rows, current.ptr(), current.size()) ||
+				!equal_bytes(previous.row_casts, p_record.row_casts.ptr(), p_record.row_casts.size())) {
+			rows = current;
+			previous.row_casts = p_record.row_casts;
+			++revision;
+		}
 		return revision;
 	}
 

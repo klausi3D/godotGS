@@ -2074,6 +2074,93 @@ void GaussianSplatRenderer::forget_hlod_shadow_light(RID p_light) {
     hlod_shadow_lights.erase(p_light.get_id());
 }
 
+bool GaussianSplatRenderer::hlod_shadow_rows_latched() const {
+    const auto &state = get_resource_state();
+    return RSG::rasterizer && gs_shadow_caster::rows_frame_latched(RSG::rasterizer->get_frame_number(),
+            state.hlod_bundle_builds, state.hlod_shadow_rows_server_frame, state.hlod_shadow_rows_bundle_builds);
+}
+
+void GaussianSplatRenderer::publish_hlod_shadow_rows_snapshot() {
+    auto &state = get_resource_state();
+    gs_shadow_caster::RowSyncSnapshot snapshot;
+    snapshot.observed_server_frame = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    snapshot.synced_server_frame = state.hlod_shadow_rows_server_frame;
+    snapshot.generation = state.hlod_shadow_rows_generation;
+    snapshot.entry_renderer_frame = state.hlod_instance_view_frame;
+    snapshot.entered = state.hlod_shadow_rows_entered_this_frame_not_cast;
+    snapshot.current = hlod_shadow_rows_latched() && state.hlod_shadow_rows_refusal == gs_shadow_caster::Refusal::NONE;
+    snapshot.refusal = snapshot.current ? gs_shadow_caster::Refusal::NONE :
+            (state.hlod_shadow_rows_refusal == gs_shadow_caster::Refusal::NONE ?
+                    gs_shadow_caster::Refusal::ROWS_NOT_CURRENT : state.hlod_shadow_rows_refusal);
+    MutexLock lock(state.shadow_light_snapshot_mutex);
+    state.hlod_shadow_rows_snapshot = snapshot;
+}
+
+bool GaussianSplatRenderer::hlod_shadow_colour_refused() const {
+    const auto &state = get_resource_state();
+    return RSG::rasterizer && state.hlod_shadow_rows_contract_refused_frame == RSG::rasterizer->get_frame_number();
+}
+
+gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
+    auto &state = get_resource_state();
+    auto &record = state.hlod_shadow_caster_record;
+    auto refuse = [&](gs_shadow_caster::Refusal p_reason) {
+        state.hlod_shadow_rows_refusal = p_reason;
+        publish_hlod_shadow_rows_snapshot();
+        return p_reason;
+    };
+    if (!record.valid) { return refuse(gs_shadow_caster::Refusal::NO_ACTIVE_HLOD_VIEW); }
+    if (record.bundle_builds != state.hlod_bundle_builds || record.draw_list_upload != state.hlod_draw_list_uploads ||
+            !state.hlod_relative.buffers.hlod_relative) {
+        return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED);
+    }
+    // The main thread may already be processing the next scene update while RS draws. Freeze this successful snapshot
+    // through every cascade and colour publication in the server frame, as we already freeze the animation clock.
+    if (hlod_shadow_colour_refused()) { return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED); }
+    if (hlod_shadow_rows_latched()) { return refuse(gs_shadow_caster::Refusal::NONE); }
+    auto *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director || get_device_state().rd != RenderingDevice::get_singleton() || !get_device_state().rd) {
+        return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT);
+    }
+    // The record names an exact ordered domain, not merely a row count. In particular a same-size visible-node swap
+    // must never reinterpret the previous list's indices. The upload path checks freshly built rows before writing too.
+    const auto domain = gs_shadow_caster::current_rows_refusal(record, state.hlod_instance_row_data, state.hlod_instance_row_keys);
+    if (domain != gs_shadow_caster::Refusal::NONE) { return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH); }
+    gs_shadow_caster::Refusal upload_refusal = gs_shadow_caster::Refusal::ROWS_NOT_CURRENT;
+    // Render thread, outside any draw/compute list. RD::buffer_update stages a copy and tracks COPY_TO against prior
+    // shader reads, including previous-frame stages (rendering_device.cpp:457-536; rendering_device_graph.h:185-190;
+    // rendering_device_graph.cpp:550-582,1678-1696). The same buffer is safe: GPU reads -> update -> new reads, no sync().
+    if (!refresh_hlod_instance_rows(&upload_refusal)) { return refuse(upload_refusal); }
+    if (state.hlod_instance_asset_generation != director->get_instance_asset_generation_for_renderer(this)) {
+        return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED);
+    }
+    if (state.hlod_instance_generation != director->get_instance_generation_for_renderer(this)) {
+        return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT);
+    }
+    LocalVector<uint64_t> caster_keys;
+    const bool world_casts = director->collect_hlod_shadow_caster_keys_for_renderer(this, caster_keys);
+    if (state.hlod_instance_asset_generation != director->get_instance_asset_generation_for_renderer(this)) {
+        return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED);
+    }
+    if (state.hlod_instance_generation != director->get_instance_generation_for_renderer(this)) {
+        return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT);
+    }
+    gs_shadow_caster::build_row_casts(state.hlod_instance_row_keys, world_casts, caster_keys, record.row_casts);
+    record.world_splats = world_casts ? record.world_list_splats : 0;
+    record.instance_splats = 0;
+    if (record.row_in_list.size() != record.row_keys.size()) { return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH); }
+    for (uint32_t row = 1; row < record.row_keys.size(); ++row) {
+        if (!record.row_in_list[row] || !record.row_casts[row]) { continue; }
+        const int asset = state.hlod_instance_region.find(record.row_asset_ids[row]);
+        if (asset < 0) { return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH); }
+        record.instance_splats += state.hlod_instance_region.assets[asset].splat_count;
+    }
+    state.hlod_shadow_rows_generation = state.hlod_instance_generation;
+    state.hlod_shadow_rows_server_frame = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    state.hlod_shadow_rows_bundle_builds = state.hlod_bundle_builds;
+    return refuse(gs_shadow_caster::Refusal::NONE);
+}
+
 void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<RID> &p_visible,
         LocalVector<gs_shadow_refresh::Owner> &r_owners) {
     r_owners.clear();
@@ -2086,6 +2173,8 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
         // The existing storage slot_mutex protects these short copies, and is released before renderer/director calls.
         const Ref<GaussianSplatRenderer> renderer = storage->gaussian_get_renderer(owner_rid);
         if (renderer.is_null() || !renderer->uses_hlod_shadow_casters()) { continue; }
+        // Before positional shadow-cache decisions, so a moving row invalidates a stationary light this frame.
+        if (renderer->refresh_hlod_shadow_rows() != gs_shadow_caster::Refusal::NONE) { continue; }
         auto &state = renderer->get_resource_state();
         auto &record = state.hlod_shadow_caster_record;
         // Match the caster's previous-main-view list/bundle generations. These fields and uploaded row copies are
@@ -2135,6 +2224,9 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         const Transform3D &p_light_transform, const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y,
         ShadowRenderResult &r_result) {
     auto &state = get_resource_state();
+    // Also covers directional-only scenes and direct shadow hooks. The generation check makes repeated passes
+    // upload-free; rows are never deferred until prepare_hlod_frame (which runs after these passes).
+    const gs_shadow_caster::Refusal rows_refusal = refresh_hlod_shadow_rows();
     const gs_shadow_caster::FrameRecord &record = state.hlod_shadow_caster_record;
     const InstancePipelineBuffers &buffers = state.hlod_relative.buffers;
     RenderingDevice *main_device = RenderingDevice::get_singleton();
@@ -2151,7 +2243,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
             valid_buffer(buffers.visible_chunk_buffer);
     // Cube views arrive before Godot converts this light's combined mesh/splat cube into the atlas. Explicit type
     // and projection checks prevent identity cameras or direct paraboloids from masquerading as directional views.
-    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass, bundle_current);
+    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass, bundle_current, rows_refusal);
     if (plan.draws()) {
         if (!splat_shadow_caster) {
             splat_shadow_caster = std::make_unique<GsSplatShadowCaster>();

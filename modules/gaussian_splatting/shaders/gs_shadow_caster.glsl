@@ -114,6 +114,15 @@ void gs_caster_reject() {
     v_depth_center_cap = vec2(0.0);
 }
 
+// World payloads are node-relative, with node centres in the retained draw offsets. Object payloads are asset-local:
+// their translation must come from this frame's row, expressed against the PREVIOUS list's camera (frame_anchor).
+vec3 gs_caster_camera_offset(uint row, vec3 drawn_offset, vec3 translation, vec3 frame_camera) {
+    if (row == 0u) {
+        return drawn_offset;
+    }
+    return translation - frame_camera;
+}
+
 void main() {
     uint stride = params.counts.y;
     if (stride == 0u) {
@@ -185,7 +194,8 @@ void main() {
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
     vec3 frame_position = gs_hlod_camera_relative_position(local_position, instance_flags, instance.rotation,
-            uniform_scale, drawn.camera_offset.xyz);
+            uniform_scale, gs_caster_camera_offset(drawn.instance_id, drawn.camera_offset.xyz,
+                    instance.translation_scale.xyz, deformation_params.frame_anchor.xyz));
     uint wind_level = drawn.level == GS_DRAWN_NODE_LEVEL_NONE ? 0u : drawn.level;
     float deformation_fade = gs_wind_distance_level_fade(frame_position, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(frame_position,
