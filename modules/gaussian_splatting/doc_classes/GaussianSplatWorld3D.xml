@@ -56,14 +56,14 @@
 				Enables or disables level-of-detail culling for the world's splats.
 			</description>
 		</method>
-		<method name="set_wind_enabled">
+		<method name="set_wind_mode">
 			<return type="void" />
-			<param index="0" name="enabled" type="bool" />
-			<description>Sets [member wind_enabled].</description>
+			<param index="0" name="mode" type="int" enum="GaussianSplatWorld3D.WindMode" />
+			<description>Sets [member wind_mode].</description>
 		</method>
-		<method name="is_wind_enabled">
-			<return type="bool" />
-			<description>Returns [member wind_enabled].</description>
+		<method name="get_wind_mode" qualifiers="const">
+			<return type="int" enum="GaussianSplatWorld3D.WindMode" />
+			<description>Returns [member wind_mode].</description>
 		</method>
 		<method name="set_wind_intensity">
 			<return type="void" />
@@ -207,14 +207,14 @@
 		<member name="cast_shadow" type="bool" setter="set_cast_shadow" getter="is_cast_shadow" default="false">
 			Enables shadow casting from this world node.
 		</member>
-		<member name="wind_enabled" type="bool" setter="set_wind_enabled" getter="is_wind_enabled" default="false">
-			Opts this world into project wind, including on the streamed HLOD route. The project setting [code]rendering/gaussian_splatting/animation/wind_enabled[/code] must also be enabled. Legacy worlds have no baked semantic wind weights, so they remain still by default even when project wind is active. An opted-in world uses [member wind_intensity] multiplied by the opacity stiffness heuristic. The rest-position phase uses a smoothly interpolated 32-metre lattice in world XZ space. Wind has full weight through 64 metres from the camera, smoothly reaches zero at 128 metres, and fades from full weight at leaf height 0 to zero at HLOD height 4. These are explicit shader constants; instance rows without an HLOD level use height 0. [GaussianSplatNode3D] instances keep their own wind modes independently of this property.
+		<member name="wind_mode" type="int" setter="set_wind_mode" getter="get_wind_mode" enum="GaussianSplatWorld3D.WindMode" default="0">
+			Controls how this world inherits project wind, including on the streamed HLOD route. The project setting [code]rendering/gaussian_splatting/animation/wind_enabled[/code] must also be enabled. [constant WIND_MODE_AUTO] uses baked weights only on splats with valid semantic data; legacy splats stay still. [constant WIND_MODE_ON] also opts legacy splats into the opacity stiffness heuristic. [constant WIND_MODE_OFF] disables wind even on semantic splats. Semantic content with no authored wind input has weight zero and stays still. The rest-position phase uses a smoothly interpolated 32-metre lattice in world XZ space. Wind has full weight through 64 metres from the camera, smoothly reaches zero at 128 metres, and fades from full weight at leaf height 0 to zero at HLOD height 4. These are explicit shader constants; instance rows without an HLOD level use height 0. Sphere effectors are controlled independently by [member effectors_enabled]. [GaussianSplatNode3D] instances keep their own wind modes independently of this property.
 		</member>
 		<member name="wind_intensity" type="float" setter="set_wind_intensity" getter="get_wind_intensity" default="1.0">
-			Nonnegative wind weight for this world's row. Multiplies project wind strength and the legacy opacity stiffness heuristic when [member wind_enabled] is enabled. Zero disables wind displacement for this world. Does not change instance row weights.
+			Nonnegative wind weight for this world's row. Multiplies project wind strength and the per-splat wind weight selected by [member wind_mode]. Zero disables wind displacement for this world. Does not change instance row weights.
 		</member>
 		<member name="effectors_enabled" type="bool" setter="set_effectors_enabled" getter="is_effectors_enabled" default="false">
-			Opts this world's row into position and opacity effects from world-scope scene sphere effectors, or the project sphere-effector fallback when no scene payload exists. Independent of [member wind_enabled]. Disabled by default for legacy worlds without baked semantics. Instance rows retain their own effector masks and scope filters.
+			Opts this world's row into position and opacity effects from world-scope scene sphere effectors, or the project sphere-effector fallback when no scene payload exists. Independent of [member wind_mode]. Disabled by default for legacy worlds without baked semantics. Instance rows retain their own effector masks and scope filters.
 		</member>
 		<member name="quality/lod_enabled" type="bool" setter="set_lod_enabled" getter="is_lod_enabled" default="true">
 			Enables level-of-detail culling.
@@ -241,4 +241,15 @@
 			Global opacity for all splats.
 		</member>
 	</members>
+	<constants>
+		<constant name="WIND_MODE_AUTO" value="0" enum="WindMode">
+			Default. Inherits enabled project wind per splat using its baked wind weight when semantic data is valid. Legacy splats have zero wind weight, so a world without semantic data stays still.
+		</constant>
+		<constant name="WIND_MODE_ON" value="1" enum="WindMode">
+			Inherits enabled project wind, using baked weights for semantic splats and the opacity stiffness heuristic for legacy splats. This does not force project wind on.
+		</constant>
+		<constant name="WIND_MODE_OFF" value="2" enum="WindMode">
+			Disables wind for this world, including splats with valid semantic data. Sphere effector enablement remains independent.
+		</constant>
+	</constants>
 </class>

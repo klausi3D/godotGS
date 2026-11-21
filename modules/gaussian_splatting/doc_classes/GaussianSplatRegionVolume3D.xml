@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatRegionVolume3D" inherits="GaussianSplatBakeVolume3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Names a region at bake time.</brief_description>
+	<description>Assigns a region to every matching splat centre. PLY region ids keep their numbers and manifest names [code]ply_&lt;id&gt;[/code]. Volume ids start above the maximum reserved PLY or existing manifest id and are allocated in sorted node-path order, up to 65,535; exhaustion fails with [code]semantic_region_id_exhausted[/code]. Volume ids are NOT stable across edits: adding a volume can renumber others. Game code must resolve regions by NAME through the persisted [code]regions[][/code] manifest, never by a hard-coded numeric id. Semantic input without wind input has valid semantics and wind weight zero, so it does not sway.</description>
+	<tutorials></tutorials>
+	<methods>
+	</methods>
+	<members>
+		<member name="region_name" type="String" setter="set_region_name" getter="get_region_name" default="&quot;&quot;">Manifest name; an empty string uses the node name. Duplicate region names are refused.</member>
+	</members>
+</class>
