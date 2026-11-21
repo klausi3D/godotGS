@@ -871,6 +871,9 @@ void BitonicSort::dispatch_bitonic_pass(RenderingDevice *p_rd, RenderingDevice::
     uint32_t num_groups = (num_threads + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
     
     // Dispatch compute
+    if (stage == 1 && pass == 1) {
+        GaussianSplatting::GpuPassTiming::record_dispatch(p_rd, dispatch_timing_pass, pending_frame_label_serial);
+    }
     p_rd->compute_list_dispatch(p_command_list, num_groups, 1, 1);
 }
 
@@ -1609,6 +1612,9 @@ uint64_t RadixSort::_sort_async_internal(RID keys_buffer, RID values_buffer, uin
                 } hist_params = { pass * variant->radix_bits, histogram_offset, workgroup_stride, 0 };
 
                 command_rd->compute_list_set_push_constant(compute_list, &hist_params, sizeof(hist_params));
+                if (pass == 0) {
+                    GaussianSplatting::GpuPassTiming::record_dispatch(command_rd, dispatch_timing_pass, pending_frame_label_serial);
+                }
                 command_rd->compute_list_dispatch(compute_list, workgroups, 1, 1);
             }
             command_rd->compute_list_add_barrier(compute_list);
@@ -2781,6 +2787,7 @@ uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer, RID values_buffer, 
                 uint32_t pad2;
             } dispatch_params = { workgroup_size, 0u, 0u, 0u };
             compute_rd->compute_list_set_push_constant(dispatch_list, &dispatch_params, sizeof(dispatch_params));
+            GaussianSplatting::GpuPassTiming::record_dispatch(compute_rd, dispatch_timing_pass, pending_frame_label_serial);
             compute_rd->compute_list_dispatch(dispatch_list, 1, 1, 1);
             compute_rd->compute_list_add_barrier(dispatch_list);
             compute_rd->compute_list_end();
@@ -2815,6 +2822,9 @@ uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer, RID values_buffer, 
                 } hist_params = { pass * variant->radix_bits, histogram_offset, workgroup_stride, 0 };
 
                 command_rd->compute_list_set_push_constant(compute_list, &hist_params, sizeof(hist_params));
+                if (pass == 0) {
+                    GaussianSplatting::GpuPassTiming::record_dispatch(command_rd, dispatch_timing_pass, pending_frame_label_serial);
+                }
                 if (use_indirect_dispatch) {
                     command_rd->compute_list_dispatch_indirect(compute_list, dispatch_args_buffer, 0);
                 } else {
@@ -3550,6 +3560,9 @@ Error OneSweepSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
         } global_params = { count, bit_shift, 0, 0 };
 
         compute_rd->compute_list_set_push_constant(compute_list, &global_params, sizeof(global_params));
+        if (pass == 0) {
+            GaussianSplatting::GpuPassTiming::record_dispatch(compute_rd, dispatch_timing_pass, pending_frame_label_serial);
+        }
         compute_rd->compute_list_dispatch(compute_list, workgroups, 1, 1);
         compute_rd->compute_list_add_barrier(compute_list);
 

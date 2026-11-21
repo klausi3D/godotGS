@@ -650,6 +650,121 @@ TEST_CASE("[Gaussian Diagnostics] BV-04b accumulator keeps per-pass frame serial
     CHECK(snap.coherent_total_ms == doctest::Approx(4.0f));
 }
 
+TEST_CASE("[Gaussian Diagnostics] HLOD dispatch records require every submitted pass in the same frame") {
+    FrameDispatchRecords records;
+    records.begin_frame(35, ROUTE_HLOD_FUSED);
+    FrameDurations frame;
+    frame.has_data = true;
+    frame.serial = 35;
+    for (uint32_t i = PASS_PROJECTION; i < PIPELINE_PASS_COUNT; i++) {
+        records.record_dispatch(frame.serial, Pass(i));
+        frame.valid[i] = true;
+        frame.ms[i] = 1.0;
+    }
+    PassTimingAccumulator acc;
+    acc.ingest(frame, 100, records.get(frame.serial));
+    CHECK(acc.get_snapshot().all_route_passes_coherent());
+    CHECK_FALSE(acc.get_snapshot().all_bv04b_passes_coherent());
+    Dictionary metrics;
+    append_to_dictionary(metrics, acc.get_snapshot());
+    const Dictionary timing = metrics.get("gpu_pass_timing", Dictionary());
+    CHECK(bool(timing.get("coherent_has_all_route_passes", false)));
+    CHECK(int64_t(timing.get("coherent_route", 0)) == 2);
+    CHECK(int64_t(timing.get("coherent_dispatch_frame_serial", 0)) == 35);
+    CHECK(int64_t(timing.get("coherent_dispatched_pass_mask", 0)) == 0x3fe);
+
+    frame.valid[PASS_RASTER] = false; // Dispatch receipt survives missing timestamps.
+    acc.ingest(frame, 101, records.get(35));
+    CHECK_FALSE(acc.get_snapshot().all_route_passes_coherent());
+    frame.valid[PASS_RASTER] = true;
+    frame.serial = 36;
+    acc.ingest(frame, 102, records.get(35));
+    CHECK_FALSE(acc.get_snapshot().all_route_passes_coherent());
+    CHECK(acc.get_snapshot().coherent_dispatch.serial == 0u);
+
+    frame.serial = 37;
+    records.begin_frame(37, ROUTE_STANDALONE_CULL);
+    for (uint32_t i = PASS_PROJECTION; i < PIPELINE_PASS_COUNT; i++) {
+        records.record_dispatch(37, Pass(i));
+    }
+    acc.ingest(frame, 103, records.get(37));
+    CHECK_FALSE(acc.get_snapshot().all_route_passes_coherent()); // Route 1 still needs cull.
+    for (uint64_t i = 0; i <= PassTimingAccumulator::STALE_RESOLVES; i++) {
+        acc.ingest(FrameDurations());
+    }
+    CHECK(acc.get_snapshot().coherent_dispatch.serial == 0u);
+}
+
+TEST_CASE("[Gaussian Diagnostics] HLOD fixed required passes reject underreported dispatches and undeclared cull") {
+    CHECK(HLOD_REQUIRED_PASSES_MASK == 0x2eeu);
+    FrameDurations frame;
+    frame.has_data = true;
+    frame.serial = 45;
+    for (uint32_t i = PASS_PROJECTION; i < PIPELINE_PASS_COUNT; i++) {
+        frame.valid[i] = true;
+        frame.ms[i] = 1.0;
+    }
+    FrameDispatchRecord record;
+    record.serial = frame.serial;
+    record.route = ROUTE_HLOD_FUSED;
+    record.dispatched_pass_mask = ALL_PIPELINE_PASSES_MASK & ~(1u << PASS_CULL);
+    PassTimingAccumulator acc;
+    acc.ingest(frame, 100, record);
+    CHECK(acc.get_snapshot().all_route_passes_coherent());
+
+    frame.valid[PASS_CULL] = true; // Timed in this frame but NOT declared dispatched.
+    frame.ms[PASS_CULL] = 0.125;
+    acc.ingest(frame, 101, record);
+    CHECK(acc.get_snapshot().valid[PASS_CULL]);
+    CHECK(acc.get_snapshot().frame_serial[PASS_CULL] == frame.serial);
+    CHECK_FALSE(acc.get_snapshot().all_route_passes_coherent());
+    frame.valid[PASS_CULL] = false;
+
+    for (uint32_t i = PASS_PROJECTION; i < PIPELINE_PASS_COUNT; i++) {
+        if ((HLOD_REQUIRED_PASSES_MASK & (1u << i)) == 0) {
+            continue;
+        }
+        frame.serial++;
+        record.serial = frame.serial;
+        record.dispatched_pass_mask &= ~(1u << i);
+        frame.valid[i] = false; // Under-report both masks; equality alone is insufficient.
+        acc.ingest(frame, 102, record);
+        CHECK_FALSE(acc.get_snapshot().all_route_passes_coherent());
+        record.dispatched_pass_mask |= 1u << i;
+        frame.valid[i] = true;
+    }
+    record.serial = frame.serial - 1;
+    acc.ingest(frame, 103, record);
+    CHECK_FALSE(acc.get_snapshot().all_route_passes_coherent());
+    CHECK(acc.get_snapshot().coherent_dispatch.serial == 0u);
+
+    frame.serial++;
+    record.serial = frame.serial;
+    record.dispatched_pass_mask = HLOD_REQUIRED_PASSES_MASK;
+    for (uint32_t i = PASS_PROJECTION; i < PIPELINE_PASS_COUNT; i++) {
+        frame.valid[i] = (HLOD_REQUIRED_PASSES_MASK & (1u << i)) != 0;
+    }
+    acc.ingest(frame, 104, record); // Legitimate CPU prefix / raw-input resolve alternatives.
+    CHECK(acc.get_snapshot().all_route_passes_coherent());
+}
+
+TEST_CASE("[Gaussian Diagnostics] Dispatch receipts are bounded and isolate device lifetimes") {
+    FrameDispatchRecords records;
+    records.begin_frame(1, ROUTE_HLOD_FUSED, 10);
+    records.record_dispatch(1, PASS_PROJECTION, 11);
+    CHECK(records.get(1, 10).dispatched_pass_mask == 0u);
+    CHECK(records.get(1, 11).serial == 0u);
+    records.record_dispatch(1, PASS_PROJECTION, 10);
+    CHECK(records.get(1, 10).dispatched_pass_mask == (1u << PASS_PROJECTION));
+    records.begin_frame(1, ROUTE_STANDALONE_CULL, 10);
+    CHECK(records.get(1, 10).route == ROUTE_UNKNOWN);
+    for (uint64_t serial = 2; serial <= FrameDispatchRecords::CAPACITY + 1u; serial++) {
+        records.begin_frame(serial, ROUTE_HLOD_FUSED, 10);
+    }
+    CHECK(records.get(1, 10).serial == 0u);
+    CHECK(records.get(FrameDispatchRecords::CAPACITY + 1u, 10).serial == FrameDispatchRecords::CAPACITY + 1u);
+}
+
 TEST_CASE("[Gaussian Diagnostics] HLOD shaped timings cannot certify their own dispatched pass record") {
     // The active HLOD route has no standalone cull dispatch. Its fine GPU rejection
     // is already timed as projection. Durations alone do not prove what was dispatched.

@@ -111,6 +111,8 @@ bool TileRenderer::TilePrefixScanStage::dispatch_pass1(const PrefixDispatchConte
     p_context.device->compute_list_bind_compute_pipeline(p_context.compute_list, owner.shader_resources.tile_prefix_pipeline_pass1);
     p_context.device->compute_list_bind_uniform_set(p_context.compute_list, p_context.buffer_uniform_set, 0);
     p_context.device->compute_list_bind_uniform_set(p_context.compute_list, p_context.param_uniform_set, 1);
+    GaussianSplatting::GpuPassTiming::record_dispatch(p_context.device, GaussianSplatting::GpuPassTiming::PASS_PREFIX,
+            owner.frame_state.current_frame_serial);
     p_context.device->compute_list_dispatch(p_context.compute_list, p_context.workgroup_count, 1, 1);
     return true;
 }

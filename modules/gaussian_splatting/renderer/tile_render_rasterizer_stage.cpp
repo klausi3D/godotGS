@@ -216,6 +216,8 @@ TileRenderer::RasterDispatchResult TileRenderer::TileRasterizerStage::dispatch_t
     submission_device->compute_list_bind_uniform_set(compute_list, p_buffer_uniform_set, 0);
     submission_device->compute_list_bind_uniform_set(compute_list, p_param_uniform_set, 1);
     submission_device->compute_list_bind_uniform_set(compute_list, p_image_uniform_set, 2);
+    GaussianSplatting::GpuPassTiming::record_dispatch(submission_device, GaussianSplatting::GpuPassTiming::PASS_RASTER,
+            owner.frame_state.current_frame_serial);
     submission_device->compute_list_dispatch(compute_list, dispatch_x, dispatch_y, 1);
     submission_device->compute_list_end();
     submission_device->capture_timestamp(raster_label + String("_End"));
@@ -343,6 +345,8 @@ TileRenderer::RasterDispatchResult TileRenderer::TileRasterizerStage::dispatch_t
     submission_device->draw_list_bind_render_pipeline(draw_list, owner.shader_resources.tile_raster_pipeline);
     submission_device->draw_list_bind_uniform_set(draw_list, p_buffer_uniform_set, 0);
     submission_device->draw_list_bind_uniform_set(draw_list, p_param_uniform_set, 1);
+    GaussianSplatting::GpuPassTiming::record_dispatch(submission_device, GaussianSplatting::GpuPassTiming::PASS_RASTER,
+            owner.frame_state.current_frame_serial);
     submission_device->draw_list_draw(draw_list, false, 1, 3);
     submission_device->draw_list_end();
 

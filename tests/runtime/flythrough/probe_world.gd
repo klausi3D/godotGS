@@ -66,7 +66,7 @@ func _camera_path_sha256(segments) -> String:
 
 
 const TRACE_MAGIC := "GSBV7TR1"
-const TRACE_SCHEMA := "godotgs-bv07-probe-trace/2"
+const TRACE_SCHEMA := "godotgs-bv07-probe-trace/3"
 const RESULT_SCHEMA := "godotgs-bv07-probe-result/1"
 
 const PASS_NAMES := ["cull", "projection", "presort", "overlap_count", "prefix", "binning",
@@ -178,6 +178,7 @@ var FIELDS := [
 	["render_ready", "q"], ["upload_stall_wall_ms", "d"],
 	["coherent_frame_serial", "q"], ["coherent_pass_mask", "q"], ["coherent_total_ms", "d"],
 	["coherent_resolve_usec", "q"], ["coherent_all_bv04b", "q"], ["last_resolve_usec", "q"],
+	["coherent_route", "q"], ["coherent_dispatch_frame_serial", "q"], ["coherent_dispatched_pass_mask", "q"],
 	["pass_valid_mask", "q"],
 	["cull_ms", "d"], ["projection_ms", "d"], ["presort_ms", "d"], ["overlap_count_ms", "d"],
 	["prefix_ms", "d"], ["binning_ms", "d"], ["overlap_sort_ms", "d"], ["raster_ms", "d"],
@@ -621,6 +622,8 @@ func _sample_and_write() -> void:
 		int(_g(gpt, "coherent_frame_serial", 0)), int(_g(gpt, "coherent_pass_mask", 0)), float(_g(gpt, "coherent_total_ms", 0.0)),
 		int(_g(gpt, "coherent_resolve_usec", 0)), 1 if bool(_g(gpt, "coherent_has_all_bv04b_passes", false)) else 0,
 		int(_g(gpt, "last_resolve_usec", 0)),
+		int(_g(gpt, "coherent_route", 0)), int(_g(gpt, "coherent_dispatch_frame_serial", 0)),
+		int(_g(gpt, "coherent_dispatched_pass_mask", 0)),
 		valid_mask,
 	]
 	values.append_array(pass_ms)

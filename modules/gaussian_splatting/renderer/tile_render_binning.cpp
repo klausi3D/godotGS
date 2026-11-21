@@ -110,6 +110,8 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning(uint32_t p_gaussi
 	if (p_lighting_uniform_set.is_valid()) {
 		submission_device->compute_list_bind_uniform_set(compute_list, p_lighting_uniform_set, 2);
 	}
+	GaussianSplatting::GpuPassTiming::record_dispatch(submission_device, GaussianSplatting::GpuPassTiming::PASS_BINNING,
+			owner.frame_state.current_frame_serial);
 	if (use_instance_indirect) {
 		submission_device->compute_list_dispatch_indirect(compute_list,
 				owner.instance_pipeline_buffers.indirect_dispatch_buffer, 0);
@@ -193,6 +195,8 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning_count(uint32_t p_
 	if (p_lighting_uniform_set.is_valid()) {
 		submission_device->compute_list_bind_uniform_set(compute_list, p_lighting_uniform_set, 2);
 	}
+	GaussianSplatting::GpuPassTiming::record_dispatch(submission_device, GaussianSplatting::GpuPassTiming::PASS_OVERLAP_COUNT,
+			owner.frame_state.current_frame_serial);
 	if (use_instance_indirect) {
 		submission_device->compute_list_dispatch_indirect(compute_list,
 				owner.instance_pipeline_buffers.indirect_dispatch_buffer, 0);

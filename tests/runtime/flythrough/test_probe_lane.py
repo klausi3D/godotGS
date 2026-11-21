@@ -599,6 +599,151 @@ class CapturedTrace(unittest.TestCase):
         self.assertEqual(fresh, [])
         self.assertGreater(counts["incomplete_mask"], 0)
 
+    def test_new_trace_schema_cannot_lose_all_dispatch_columns(self) -> None:
+        # Malformed replay: change only the schema of captured legacy bytes. This
+        # deliberately lacks the new producer fields and must not fall back to legacy.
+        data = self.path_trace.read_bytes()
+        (length,) = struct.unpack_from("<I", data, 8)
+        header = json.loads(data[12:12 + length])
+        header["schema"] = ps.TRACE_SCHEMA
+        encoded = json.dumps(header).encode()
+        path = self.tmp / "missing_dispatch_columns.bin"
+        path.write_bytes(data[:8] + struct.pack("<I", len(encoded)) + encoded + data[12 + length:])
+        tr = ps.read_trace(path)
+        self.assertEqual(tr.schema, ps.TRACE_SCHEMA)
+        gpu = self._route_moving_gpu(tr)
+        self.assertEqual(gpu["freshness"]["fresh"], 0)
+        self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_partial_dispatch_columns_never_fall_back_to_legacy(self) -> None:
+        original = self._with_gpu_frame_record(route=1)
+        for omitted in ps.DISPATCH_RECORD_COLUMNS:
+            with self.subTest(omitted=omitted):
+                keep = [i for i, name in enumerate(original.fields) if name != omitted]
+                tr = ps.Trace([original.fields[i] for i in keep], "".join(original.types[i] for i in keep),
+                              [tuple(row[i] for i in keep) for row in original.rows], 0)
+                gpu = self._route_moving_gpu(tr)
+                self.assertEqual(gpu["freshness"]["fresh"], 0)
+                self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_hlod_record_cannot_claim_a_standalone_cull(self) -> None:
+        tr = self._with_gpu_frame_record(route=1)
+        route = tr.index["coherent_route"]
+        tr.rows = [row[:route] + (2,) + row[route + 1:] for row in tr.rows]
+        self.assertEqual(self._route_moving_gpu(tr)["freshness"]["fresh"], 0)
+
+    def test_hlod_dispatch_record_does_not_make_held_timings_fresh(self) -> None:
+        tr = self._with_gpu_frame_record()
+        held = tr.rows[0]
+        columns = ("coherent_frame_serial", "coherent_dispatch_frame_serial", "coherent_resolve_usec")
+        for i, row in enumerate(tr.rows):
+            values = list(row)
+            for name in columns:
+                values[tr.index[name]] = tr.get(held, name)
+            tr.rows[i] = tuple(values)
+        self.assertEqual(self._route_moving_gpu(tr)["freshness"]["fresh"], 0)
+
+    def test_hlod_undeclared_cull_timing_is_rejected(self) -> None:
+        tr = self._with_gpu_frame_record()
+        for i, row in enumerate(tr.rows):
+            values = list(row)
+            values[tr.index["coherent_pass_mask"]] |= 1
+            values[tr.index["pass_valid_mask"]] |= 1
+            values[tr.index["cull_ms"]] = 0.125
+            values[tr.index["coherent_total_ms"]] += 0.125
+            tr.rows[i] = tuple(values)
+        gpu = self._route_moving_gpu(tr)
+        self.assertEqual(gpu["freshness"]["fresh"], 0)
+        self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_hlod_required_pass_cannot_disappear_from_both_masks(self) -> None:
+        # Fixed policy, independent of the producer's dispatch declaration.
+        for name in ("projection", "presort", "overlap_count", "binning", "overlap_sort", "raster", "composite"):
+            with self.subTest(required=name):
+                tr = self._with_gpu_frame_record(missing_pass=name, omit_dispatch=True)
+                gpu = self._route_moving_gpu(tr)
+                self.assertEqual(gpu["freshness"]["fresh"], 0, gpu["freshness"])
+                self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_hlod_dispatch_serial_mismatch_is_rejected(self) -> None:
+        gpu = self._route_moving_gpu(self._with_gpu_frame_record(serial_delta=1))
+        self.assertEqual(gpu["freshness"]["fresh"], 0)
+        self.assertEqual(gpu["coherent_total_ms"]["status"], ps.MISSING)
+
+    def test_hlod_conditional_prefix_and_resolve_may_be_absent(self) -> None:
+        tr = self._with_gpu_frame_record()
+        optional = sum(1 << ps.PASS_NAMES.index(name) for name in ("prefix", "resolve"))
+        for i, row in enumerate(tr.rows):
+            values = list(row)
+            for name in ("coherent_pass_mask", "coherent_dispatched_pass_mask"):
+                values[tr.index[name]] &= ~optional
+            values[tr.index["coherent_total_ms"]] -= tr.get(row, "prefix_ms") + tr.get(row, "resolve_ms")
+            tr.rows[i] = tuple(values)
+        self.assertGreater(self._route_moving_gpu(tr)["freshness"]["fresh"], 0)
+
+    def test_hlod_cull_stays_nonnumeric_through_summary_and_consumers(self) -> None:
+        tr = self._with_gpu_frame_record()
+        m = manifest()
+        path = pp.resolve_path(m)
+        truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+        flythrough = rp.summarise_path(tr, self.run_of(self.path_trace, self.path_result), path, truth, 1)
+        world = {"flythrough": flythrough, "rss": {"peak_rss_bytes": ps.metric(1)}}
+        summary = {"worlds": {"T-smoke": world}}
+        # Exercise json.dumps and the actual summary.json writer, including its
+        # finite-value conversion. This is a constructed HLOD policy replay.
+        decoded = json.loads(json.dumps(summary, allow_nan=False))
+        rp.required_path_metrics(world)
+        rp.write_summary(self.tmp, decoded)
+        saved = json.loads((self.tmp / rp.SUMMARY_NAME).read_text())
+        cull = saved["worlds"]["T-smoke"]["flythrough"]["passes"][0]["moving_gpu"]["passes"]["cull"]
+
+        def no_numbers(value):
+            self.assertNotIsInstance(value, (int, float))
+            if isinstance(value, dict):
+                self.assertNotIn("mean", value)
+                for child in value.values():
+                    no_numbers(child)
+            elif isinstance(value, list):
+                for child in value:
+                    no_numbers(child)
+
+        self.assertEqual(cull["status"], ps.NOT_APPLICABLE)
+        no_numbers(cull)
+        compare = _load("compare_shared_layers_t0")
+        metrics = compare._route_metrics({"probe": flythrough})
+        compared = metrics["performance"]["frame_coherent_gpu"]["value"]["passes"]["cull"]
+        self.assertEqual(compared, cull)
+        no_numbers(compared)
+        table = compare.render_markdown({"metrics": {"hlod": metrics}})
+        gpu_line = next(line for line in table.splitlines() if line.startswith("| performance / frame_coherent_gpu |"))
+        table_cull = json.loads(gpu_line.split("|")[3].strip())["passes"]["cull"]
+        self.assertEqual(table_cull, cull)
+        no_numbers(table_cull)
+        verdict = _load("flythrough_verdict")
+        with self.assertRaises(verdict.Missing):
+            verdict._metric(cull, "standalone HLOD GPU cull")
+        verdict.markdown(verdict.evaluate(verdict.load_thresholds(), "A", "hlod", {"summary": saved}))
+        self.assertEqual(saved["worlds"]["T-smoke"]["flythrough"]["passes"][0]["moving_gpu"]["passes"]["cull"], cull)
+
+    def test_gpu_required_masks_mirror_cpp_policy(self) -> None:
+        header = (ROOT / "modules/gaussian_splatting/renderer/gpu_pass_timing.h").read_text()
+        enum = re.search(r"enum Pass : uint32_t \{(.*?)\};", header, re.S)
+        self.assertIsNotNone(enum)
+        names = re.findall(r"^\s*(PASS_[A-Z_]+)(?:\s*=\s*0)?\s*,", enum.group(1), re.M)
+        indices = {name: i for i, name in enumerate(names)}
+        self.assertEqual(tuple(name[5:].lower() for name in names[:len(ps.PASS_NAMES)]), ps.PASS_NAMES)
+        for name in ("BV04B_PASSES_MASK", "HLOD_REQUIRED_PASSES_MASK"):
+            with self.subTest(constant=name):
+                expression = re.search(rf"static constexpr uint32_t {name} = ([^;]+);", header).group(1)
+                self.assertRegex(expression, r"^\s*\(1u << PASS_[A-Z_]+\)(?:\s*\|\s*\(1u << PASS_[A-Z_]+\))*\s*$")
+                cpp_mask = 0
+                for symbol in re.findall(r"1u << (PASS_[A-Z_]+)", expression):
+                    cpp_mask |= 1 << indices[symbol]
+                self.assertEqual(getattr(ps, name), cpp_mask)
+        self.assertEqual(ps.HLOD_REQUIRED_PASSES_MASK, 0x2ee)
+        self.assertEqual(ps.ROUTE_REQUIRED_PASSES[2], ps.HLOD_REQUIRED_PASSES_MASK)
+        self.assertRegex(header, r"case ROUTE_HLOD_FUSED:\s*return HLOD_REQUIRED_PASSES_MASK;")
+
     def _with_gpu_frame_record(self, route=2, missing_pass=None, omit_dispatch=False, serial_delta=0):
         """Proposed policy inputs over captured timings, NOT a new producer-format fixture.
 
@@ -2754,8 +2899,17 @@ class HlodProbe(unittest.TestCase):
         self.assertIn('>= 0', block)
         self.assertTrue(text[:start].rfind('if bool(_plan.get("shared_layers_t0", false)):') > text[:start].rfind('func '))
         baseline = subprocess.check_output(["git", "show", "9faecfb155a:tests/runtime/flythrough/probe_world.gd"], cwd=ROOT, text=True)
-        # #1514 adds telemetry fields; every other byte outside the opt-in collector remains pinned.
+        # Exact authorized telemetry additions; every other byte outside the opt-in collector remains pinned.
         additions = (
+            ('const TRACE_SCHEMA := "godotgs-bv07-probe-trace/2"\n',
+             'const TRACE_SCHEMA := "godotgs-bv07-probe-trace/3"\n'),
+            ('\t["coherent_resolve_usec", "q"], ["coherent_all_bv04b", "q"], ["last_resolve_usec", "q"],\n',
+             '\t["coherent_resolve_usec", "q"], ["coherent_all_bv04b", "q"], ["last_resolve_usec", "q"],\n'
+             '\t["coherent_route", "q"], ["coherent_dispatch_frame_serial", "q"], ["coherent_dispatched_pass_mask", "q"],\n'),
+            ('\t\tint(_g(gpt, "last_resolve_usec", 0)),\n',
+             '\t\tint(_g(gpt, "last_resolve_usec", 0)),\n'
+             '\t\tint(_g(gpt, "coherent_route", 0)), int(_g(gpt, "coherent_dispatch_frame_serial", 0)),\n'
+             '\t\tint(_g(gpt, "coherent_dispatched_pass_mask", 0)),\n'),
             ('\t["hlod_stream_allocation_refused_total", "q"], ["hlod_stream_allocation_no_contiguous_run_total", "q"],\n',
              '\t["hlod_stream_allocation_refused_total", "q"], ["hlod_stream_allocation_no_contiguous_run_total", "q"],\n'
              '\t["hlod_drawn_nodes_paged", "q"], ["hlod_drawn_nodes_contiguous", "q"],\n'
@@ -2779,7 +2933,7 @@ class HlodProbe(unittest.TestCase):
         begin = text.index('\t\t# HLOD collection only.')
         end = text.index('\t\tvar payload = ', begin)
         self.assertEqual(text[:begin] + text[end:], baseline,
-                         "only the opt-in collector and exact #1514 fields may change; frame loop, timing and passes are pinned")
+                         "only the opt-in collector and exact telemetry/schema additions may change; frame loop and passes are pinned")
 
     def test_separate_manifest_cli_uses_source_for_path_and_tree_for_render(self):
         with tempfile.TemporaryDirectory() as tmp:

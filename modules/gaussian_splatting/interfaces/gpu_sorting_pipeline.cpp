@@ -2821,6 +2821,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     }
     compute_rd->compute_list_bind_compute_pipeline(compute_list, instance_chunk_dispatch_pipeline);
     compute_rd->compute_list_bind_uniform_set(compute_list, instance_chunk_dispatch_uniform_set, 0);
+    GaussianSplatting::GpuPassTiming::record_dispatch(compute_rd, GaussianSplatting::GpuPassTiming::PASS_PROJECTION);
     compute_rd->compute_list_dispatch(compute_list, 1, 1, 1);
     compute_rd->compute_list_add_barrier(compute_list);
     compute_rd->compute_list_end();
@@ -2928,6 +2929,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     // BV-04b: the depth pre-sort brackets itself (RadixSort indirect path) with this frame's
     // GPU-timing serial under its own label, never the overlap sort's.
     if (gpu_sorter.is_valid()) {
+        gpu_sorter->set_dispatch_timing_pass(GaussianSplatting::GpuPassTiming::PASS_PRESORT);
         gpu_sorter->set_timestamp_label_prefix(GaussianSplatting::GpuPassTiming::label_prefix(
                 GaussianSplatting::GpuPassTiming::PASS_PRESORT));
         gpu_sorter->set_pending_frame_label_serial(GaussianSplatting::GpuPassTiming::current_frame_serial());

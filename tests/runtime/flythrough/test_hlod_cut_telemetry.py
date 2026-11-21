@@ -166,11 +166,12 @@ class HlodPressureTelemetry(unittest.TestCase):
         compare_source = (HERE / "compare_shared_layers_t0.py").read_text(encoding="utf-8")
         self.assertIn('"hlod_pressure_report": _hlod_pressure_report(arms)', compare_source)
 
-    def test_trace_version_two_round_trip_declared_columns_and_legacy_reader(self):
+    def test_trace_version_three_round_trip_declared_columns_and_legacy_reader(self):
         schema = re.search(r'const TRACE_SCHEMA := "([^"]+)"', self.source).group(1)
         self.assertEqual(schema, ps.TRACE_SCHEMA)
-        self.assertEqual(schema, "godotgs-bv07-probe-trace/2")
+        self.assertEqual(schema, "godotgs-bv07-probe-trace/3")
         for version, fields in ((schema, ["row", *self.fields]),
+                                ("godotgs-bv07-probe-trace/2", ["row", *self.fields]),
                                 ("godotgs-bv07-probe-trace/1", ["row"])):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
                 types = "q" * len(fields)
