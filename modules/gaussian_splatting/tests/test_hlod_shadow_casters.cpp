@@ -942,14 +942,14 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] every omni cube face reaches
 				}
 				const Vector3 wrong_ortho = cube_caster_sample_after_copy(godot_shadow_clip(orthographic, face_light, false), world,
 						base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
-				CHECK(std::fabs(wrong_ortho.x - receiver.x) > uv_tolerance || std::fabs(wrong_ortho.y - receiver.y) > uv_tolerance);
+				CHECK((std::fabs(wrong_ortho.x - receiver.x) > uv_tolerance || std::fabs(wrong_ortho.y - receiver.y) > uv_tolerance));
 				CHECK(std::fabs(wrong_ortho.z - receiver.z) > depth_tolerance);
 				const Vector3 wrong_flip = cube_caster_sample_after_copy(godot_shadow_clip(perspective, face_light, true), world,
 						base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
-				CHECK(std::fabs(wrong_flip.x - receiver.x) > uv_tolerance || std::fabs(wrong_flip.y - receiver.y) > uv_tolerance);
+				CHECK((std::fabs(wrong_flip.x - receiver.x) > uv_tolerance || std::fabs(wrong_flip.y - receiver.y) > uv_tolerance));
 				const Vector3 wrong_face_sample = cube_caster_sample_after_copy(godot_shadow_clip(perspective, face_light, false), world,
 						base_light, wrong_face, first_cell, offset, atlas_size, near_plane, range);
-				CHECK(std::fabs(wrong_face_sample.x - receiver.x) > uv_tolerance || std::fabs(wrong_face_sample.y - receiver.y) > uv_tolerance);
+				CHECK((std::fabs(wrong_face_sample.x - receiver.x) > uv_tolerance || std::fabs(wrong_face_sample.y - receiver.y) > uv_tolerance));
 				const Projection raw_depth = perspective * Projection(face_light.affine_inverse());
 				const Vector3 wrong_depth = cube_caster_sample_after_copy(raw_depth, world, base_light, face_light, first_cell, offset, atlas_size, near_plane, range);
 				CHECK(std::fabs(wrong_depth.z - receiver.z) > depth_tolerance);
