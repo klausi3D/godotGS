@@ -1493,7 +1493,7 @@ void GaussianSplatRenderer::_teardown_resources() {
         get_sorting_state().gpu_sorter.unref();
     }
 
-    release_hlod_resources();
+    release_hlod_resources(true);
     _release_resident_contract_buffers();
 
     // Clean up GPU resources

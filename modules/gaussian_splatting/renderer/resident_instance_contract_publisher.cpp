@@ -1695,10 +1695,11 @@ void GaussianSplatRenderer::release_hlod_bundle(GaussianRenderFacadeState::HlodB
     r_bundle = GaussianRenderFacadeState::HlodBundle();
 }
 
-void GaussianSplatRenderer::release_hlod_resources() {
+void GaussianSplatRenderer::release_hlod_resources(bool p_renderer_teardown) {
     auto &state = get_resource_state();
-    const uint64_t refused_frame = gs_shadow_caster::retained_refusal_frame(hlod_shadow_rows_latched(), hlod_shadow_colour_refused(),
-            state.hlod_shadow_rows_server_frame, state.hlod_shadow_rows_contract_refused_frame);
+    const uint64_t refused_frame = p_renderer_teardown ? UINT64_MAX :
+            gs_shadow_caster::retained_refusal_frame(hlod_shadow_rows_latched(), hlod_shadow_colour_refused(),
+                    state.hlod_shadow_rows_server_frame, state.hlod_shadow_rows_contract_refused_frame);
 #ifdef TESTS_ENABLED
     state.hlod_test_sort_count_buffer = RID();
 #endif
