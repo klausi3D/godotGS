@@ -1403,7 +1403,7 @@ func _run() -> void:
 			"resolution": [get_root().size.x, get_root().size.y],
 			"camera": {"fov_deg": _camera.fov, "keep": "width" if _camera.keep_aspect == Camera3D.KEEP_WIDTH else "height",
 					"near_m": _camera.near, "far_m": _camera.far},
-			"codec": {"encoding": "gsq" if codec_params is Dictionary and int(codec_params.get("codec_id", -1)) in [1, 2] else "unknown",
+			"codec": {"encoding": "gsq" if codec_params is Dictionary and int(codec_params.get("codec_id", -1)) == 2 else "unknown",
 					"sh_bands": world_res.get_sh_degree(), "params": codec_params,
 					"per_chunk_quantization": bool(ProjectSettings.get_setting("rendering/gaussian_splatting/compression/per_chunk_quantization"))},
 			"sh_bands": world_res.get_sh_degree(), "visible_splats": _node.get_max_splat_count(),
