@@ -11,8 +11,6 @@ const CAPTURE_STRIDE = 224 # GSGame1Sample, existing layout guard + contract tes
 const VIEW = Vector2i(1920, 1080)
 const RAW_STRIDE = 176 # PackedGaussian; checked against the bridge's raw_stride.
 const PAGE_SPLATS = 1024 # GS_HLOD_PAGE_SPLATS / HlodNodeStreamer DEFAULT_PAGE_SPLATS.
-const CHURN_GRID = 8 # 8 x 8 outward-facing churn poses.
-const CHURN_TAU_PX = 0.25 # Finer cut during churn only, for page pressure.
 
 var _plan: Dictionary
 var _raw: Dictionary = {"rows": {}, "frames": [], "completed": false}
@@ -418,21 +416,13 @@ func _churn(before: Dictionary) -> Dictionary:
 	var old_pages = _pages(before, ids)
 	var evidence: Array = []
 	var deadline = Time.get_ticks_msec() + DEADLINE_MS
-	# Page-budget churn without changing the scene's atlas budget (P1/M1 keep it):
-	# a finer cut at many distinct poses creates the demand that evicts pose A's
-	# set (eviction only happens under page pressure). The tau is restored after.
-	var tau = _world.get_hlod_tau_px()
-	_world.set_hlod_tau_px(CHURN_TAU_PX)
-	var grid: Array = []
-	for i in range(CHURN_GRID):
-		grid.append(-220 + i * 440 / (CHURN_GRID - 1))
-	for x in grid:
-		for z in grid:
-			# Look away from the world centre: pose A's set (centre, coarse frontier)
-			# must leave the cut to become evictable; facing the centre kept it drawn.
-			_camera.look_at_from_position(Vector3(x, 8, z), Vector3(x * 2.0, 1, z * 2.0), Vector3.UP)
+	var last: Dictionary = {}
+	for x in [-220, -70, 90, 220]:
+		for z in [-220, -70, 90, 220]:
+			_camera.look_at_from_position(Vector3(x, 8, z), Vector3(-x * 0.7, 1, -z * 0.7), Vector3.UP)
 			var settled = await _settle()
 			var obs = await _native("_test_gs_game_1_observe")
+			last = obs
 			var evicted: Array = []
 			var occupied: Array = []
 			for node in obs.get("nodes", []):
@@ -444,14 +434,35 @@ func _churn(before: Dictionary) -> Dictionary:
 							occupied.append(int(page))
 			evidence.append({"pose": [x, z], "settled": settled.get("ready"), "evicted": evicted, "preoccupied": occupied})
 			if not ids.is_empty() and evicted.size() == ids.size() and not old_pages.is_empty() and occupied.size() == old_pages.size():
-				_world.set_hlod_tau_px(tau)
-				return {"evicted_nodes": evicted, "preoccupied_pages": occupied, "evidence": evidence, "churn_tau_px": CHURN_TAU_PX}
+				return {"evicted_nodes": evicted, "preoccupied_pages": occupied, "evidence": evidence}
 			if Time.get_ticks_msec() > deadline:
 				break
-		if Time.get_ticks_msec() > deadline:
-			break
-	_world.set_hlod_tau_px(tau)
-	return {"error": "full drawn-set eviction and preoccupation not observed", "evidence": evidence, "churn_tau_px": CHURN_TAU_PX}
+	return {"error": "full drawn-set eviction and preoccupation not observed", "evidence": evidence,
+		"not_run_reason": _churn_reason(ids, evidence, last)}
+
+
+# Names why W1/C1/R2 cannot run: the churn never evicted the whole pose-A set.
+# Survivors are split into drawn, ancestors of drawn (protected by design) and
+# the rest, which page pressure alone did not evict.
+func _churn_reason(ids: Array, evidence: Array, last: Dictionary) -> String:
+	var best = 0
+	for item in evidence:
+		best = maxi(best, item["evicted"].size())
+	var drawn: Array = []
+	for id in last.get("stats", {}).get("hlod_drawn_node_ids", []):
+		drawn.append(int(id))
+	var ancestors: Dictionary = {}
+	var nodes: Array = last.get("nodes", [])
+	for id in drawn:
+		var n = int(nodes[id]["parent"]) if id < nodes.size() else -1
+		while n >= 0 and n < nodes.size() and not ancestors.has(n):
+			ancestors[n] = true
+			n = int(nodes[n]["parent"])
+	var stuck = 0
+	for id in ids:
+		if id < nodes.size() and nodes[id]["resident"] and id not in drawn and not ancestors.has(id):
+			stuck += 1
+	return "churn cannot reach full eviction: %d/%d; %d non-drawn non-ancestor nodes stay resident" % [best, ids.size(), stuck]
 
 
 func _identity() -> void:
@@ -528,6 +539,14 @@ func _identity() -> void:
 				"same_drawn_digest": first_proof.get("drawn_digest") != null and first_proof.get("drawn_digest") == reference_proof.get("drawn_digest"),
 				"first_sha256": _image_sha(first), "reference_sha256": _image_sha(reference)}
 	_raw["rows"]["W1"] = {"arms": arms}
+	# Without full eviction W1 and C1 have no oracle (ADR §7 W1 step 3); say why.
+	for arm in arms:
+		if arm["churn"].has("error"):
+			var reason = arm["churn"].get("not_run_reason", arm["churn"]["error"])
+			_raw["rows"]["W1"]["not_run_reason"] = reason
+			if not _raw["rows"].has("C1"):
+				_raw["rows"]["C1"] = {"not_run_reason": reason}
+			break
 
 
 # Reads only the atlas pages that hold the first `max_local` splats of each node
@@ -917,6 +936,8 @@ func _regions_rows() -> void:
 			_raw["rows"]["R2"] = {"set_frame": capture.get("armed_frame"),
 				"same_frame_effect": first_effect, "survives_far_evict_near": _green_capture(returned, false),
 				"first_capture": capture, "return_capture": returned, "churn": churn}
+		else:
+			_raw["rows"]["R2"] = {"not_run_reason": churn.get("not_run_reason", churn["error"]), "churn": churn}
 		for region in _regions:
 			_overrides[region].cast_shadow = int(region) == target
 		_overrides[target].opacity = 0

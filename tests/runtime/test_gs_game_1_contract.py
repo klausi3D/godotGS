@@ -201,12 +201,19 @@ class ContractTests(unittest.TestCase):
         self.assertIn("_wind_keys(", self._harness_function("_deformation_rows"))
         self.assertNotIn("_world_keys(before)", self._harness_function("_identity"))
 
-    def test_churn_poses_look_away_from_the_pose_a_set(self):
-        # All 16 churn poses looked at the world centre, so pose A's coarse nodes
-        # stayed drawn and at most 16 of 64 nodes were ever evicted.
+    def test_rows_without_full_churn_eviction_name_why(self):
+        # Churn never evicts the whole pose-A set (44/63 at best locally), so W1,
+        # C1 and R2 have no ADR §7 oracle; they must say so, not just be absent.
         churn = self._harness_function("_churn")
-        self.assertIn("Vector3(x * 2.0, 1, z * 2.0)", churn)
-        self.assertNotIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+        self.assertIn('"not_run_reason": _churn_reason(ids, evidence, last)', churn)
+        reason = self._harness_function("_churn_reason")
+        self.assertIn("churn cannot reach full eviction: %d/%d; %d non-drawn non-ancestor nodes stay resident", reason)
+        identity = self._harness_function("_identity")
+        self.assertIn('_raw["rows"]["W1"]["not_run_reason"] = reason', identity)
+        self.assertIn('_raw["rows"]["C1"] = {"not_run_reason": reason}', identity)
+        self.assertIn('_raw["rows"]["R2"] = {"not_run_reason":', self._harness_function("_regions_rows"))
+        # The scene's atlas budget and the churn poses are unchanged (P1/M1 keep them).
+        self.assertIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
 
     def test_r1_expects_only_levels_reachable_for_the_region(self):
         # expected_lods listed every level of the tree; levels 5 and 7 never drew

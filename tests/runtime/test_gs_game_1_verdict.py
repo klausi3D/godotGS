@@ -117,6 +117,22 @@ class VerdictTests(unittest.TestCase):
             del r["rows"][row]["control"]
             self.assertEqual(self.evaluate(r)["rows"][row]["state"], "NOT_RUN", row)
 
+    def test_named_not_run_reason_reaches_the_report_and_never_passes(self):
+        reason = "churn cannot reach full eviction: 44/63; 13 non-drawn non-ancestor nodes stay resident"
+        for row in ("W1", "C1", "R2"):
+            r = record()
+            r["rows"][row]["measurement"]["not_run_reason"] = reason
+            out = self.evaluate(r)["rows"][row]
+            self.assertEqual(out["state"], "NOT_RUN", row)
+            self.assertEqual(out["measurement"], {"reason": reason}, row)
+            self.assertIn(reason, V.markdown(self.evaluate(r)))
+        # An empty or non-string reason is not a reason: the row is judged as before.
+        baseline = self.evaluate()["rows"]["W1"]["state"]
+        for value in ("", None, 0):
+            r = record()
+            r["rows"]["W1"]["measurement"]["not_run_reason"] = value
+            self.assertEqual(self.evaluate(r)["rows"]["W1"]["state"], baseline)
+
     def test_w1_digest_mismatch_invalid_in_either_arm(self):
         for divisor in (0, 8):
             r = record()

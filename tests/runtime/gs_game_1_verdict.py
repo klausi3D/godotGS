@@ -117,6 +117,10 @@ def p1_control_ready(m):
 
 def judge(row, m, cap):
     """Return measurement state + raw-derived statistics; all limits cite §7 row."""
+    # A producer that could not build the row's oracle names why. This can only
+    # make a row NOT_RUN; it never passes one.
+    if isinstance(m, dict) and isinstance(m.get("not_run_reason"), str) and m["not_run_reason"]:
+        raise Missing(m["not_run_reason"])
     if row == "P1":
         fs = timed_frames(m)
         ms = [f["frame_ms"] for f in fs]
