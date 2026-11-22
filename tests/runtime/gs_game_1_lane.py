@@ -57,7 +57,12 @@ def prepare_world(binary, cache_root, out, prime):
     """Use the existing flock/auto-tree producer and immutable complete cache key."""
     job = semantic_job()
     fingerprint = cache.source_fingerprint(ROOT, tuple(cache.GENERATOR_SOURCES) + tuple(cache.TREE_SOURCES))
-    key = hashlib.sha256((fingerprint + json.dumps(job, sort_keys=True)).encode()).hexdigest()
+    # The plain input's encoding is part of the world id (world_cache.world_id), so
+    # it is part of this key too: the lane is in neither cache source list.
+    # build_auto_tree's native source reads only paged plain-v3 GSQ input.
+    encoding = dispatch.ENCODING_GSQ
+    key = hashlib.sha256((fingerprint + cache.world_id("T0", encoding)
+                          + json.dumps(job, sort_keys=True)).encode()).hexdigest()
     cache_root.mkdir(parents=True, exist_ok=True)
     directory = cache_root / "gs-game-1-T0-v4-raw" / key[:12]
     with cache.cache_lock(cache_root, exclusive=True):
@@ -77,7 +82,7 @@ def prepare_world(binary, cache_root, out, prime):
                 plain = staging / "plain"
                 command = [sys.executable, str(HERE / "flythrough/generate_world.py"),
                            "--godot-binary", str(binary), "--tier", "T0",
-                           "--encoding", "plain_v3_uncompressed", "--out", str(plain)]
+                           "--encoding", encoding, "--out", str(plain)]
                 rc = dispatch._run_logged(command, out / "logs/generate.log", subprocess.run, 600)
                 if rc:
                     raise dispatch.LaneError(f"T0 generator failed: {rc}")
@@ -106,7 +111,7 @@ def prepare_world(binary, cache_root, out, prime):
                 cache.drop_from_page_cache(files)
                 hashes = {str(p.relative_to(staging)): dispatch._sha256(p)
                           for p in staging.rglob("*") if p.is_file()}
-                save(staging / ".complete", {"key": key, "source_fingerprint": fingerprint,
+                save(staging / ".complete", {"key": key, "source_fingerprint": fingerprint, "encoding": encoding,
                                                "job": job, "sha256": hashes})
                 # No previous complete key is modified or deleted.
                 if directory.exists():
