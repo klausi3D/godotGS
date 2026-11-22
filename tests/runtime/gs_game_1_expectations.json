@@ -1,0 +1,96 @@
+{
+  "schema": "gs-game-1/expectations/v1",
+  "basis": "ADR §7 table verbatim. Coordinator 2026-11-21: no ADR number => MEASURED (no ADR threshold). No invented upload threshold.",
+  "rows": {
+    "P1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 P1",
+      "threshold_verbatim": "Hard gate (O7): p95 ≤ 25 ms, p99 ≤ 33.3 ms (the GR-15 3080 numbers); max ≤ 50 ms at spawn. **Target:** p95 ≤ 16.7 ms, **always reported next to the gate**, never instead of it.",
+      "control_verbatim": "a scripted 30 ms GPU stall"
+    },
+    "P2": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 P2",
+      "threshold_verbatim": "≤ +1.5 ms p95",
+      "control_verbatim": "— (ratio row)"
+    },
+    "H1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 H1",
+      "threshold_verbatim": "0 / 0 %",
+      "control_verbatim": "a forced non-resident draw"
+    },
+    "W1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 W1",
+      "threshold_verbatim": "**0 changed frames**",
+      "control_verbatim": "forcing switch: address-keyed phase and tie-break restored"
+    },
+    "W2": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 W2",
+      "threshold_verbatim": "≤ 0.5 px",
+      "control_verbatim": "fade disabled at coarse levels"
+    },
+    "W3": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 W3",
+      "threshold_verbatim": "≤ 1 shadow texel",
+      "control_verbatim": "caster without deformation"
+    },
+    "W4": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 W4",
+      "threshold_verbatim": "0 px",
+      "control_verbatim": "legacy opacity stiffness forced"
+    },
+    "C1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 C1",
+      "threshold_verbatim": "0 changed pixels in the first frame after admission",
+      "control_verbatim": "invalidation switched off"
+    },
+    "R1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 R1",
+      "threshold_verbatim": "100 % of region pixels tinted, 0 foreign pixels",
+      "control_verbatim": "override applied by address"
+    },
+    "R2": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 R2",
+      "threshold_verbatim": "effect in the frame it was set; survives far → evict → near",
+      "control_verbatim": "upload deferred by one frame"
+    },
+    "R3": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 R3",
+      "threshold_verbatim": "0 sort records for the hidden region; no shadow",
+      "control_verbatim": "hide applied only in raster"
+    },
+    "S1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 S1",
+      "threshold_verbatim": "the world's `drawn_nodes` do not fall to the root LOD",
+      "control_verbatim": "#1473 forced (asset-set reset)"
+    },
+    "O1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 O1",
+      "threshold_verbatim": "passes the triaged tolerance contract",
+      "control_verbatim": "—"
+    },
+    "O2": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 O2",
+      "threshold_verbatim": "≤ 0.5 px object offset; caster versus colour of the moving object ≤ 1 texel",
+      "control_verbatim": "rows uploaded after shadow"
+    },
+    "L1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 L1",
+      "threshold_verbatim": "pass",
+      "control_verbatim": "—"
+    },
+    "L2": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 L2",
+      "threshold_verbatim": "pass after #1424. Before that, **reported as a known fail**, never skipped.",
+      "control_verbatim": "—"
+    },
+    "M1": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 M1",
+      "threshold_verbatim": "within budget; upload ≤ a threshold fixed before the first run",
+      "control_verbatim": "—"
+    },
+    "F3": {
+      "source": "docs/architecture/adr-dynamics-on-hlod.md §7 F3",
+      "threshold_verbatim": "interior bytes ≤ +10 % versus single-region",
+      "control_verbatim": "—"
+    }
+  }
+}

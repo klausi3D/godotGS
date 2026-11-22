@@ -2397,7 +2397,7 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_Y %d\n", config_state.tile_size));
 #ifdef TESTS_ENABLED
     defines.push_back("#define GS_TESTS_ENABLED 1\n#define GS_TEST_REGION_CONTROLS 1\n");
-	if (GSSplatIdentityTestControl::get_force_address_keying()) {
+	{
 		defines.push_back(GSSplatIdentityTestControl::shader_defines());
 	}
 	if (p_include_dispatch_group && debug_stats.membership_enabled()) {
@@ -2758,13 +2758,13 @@ Error TileRenderer::_compile_tile_shaders() {
 	ERR_FAIL_NULL_V(shader_compilation_manager, ERR_UNCONFIGURED);
 #ifdef TESTS_ENABLED
 	const bool force_address = GSSplatIdentityTestControl::get_force_address_keying();
-	if (test_address_identity_enabled != force_address) {
+	if (test_address_identity_enabled != force_address || test_game_shader_variant != GSSplatIdentityTestControl::shader_variant()) {
 		_release_compiled_shaders();
 	}
 #endif
 	const Error result = shader_compilation_manager->compile_all_shaders(device_context.resource_rd);
 #ifdef TESTS_ENABLED
-	if (result == OK) { test_address_identity_enabled = force_address; }
+	if (result == OK) { test_address_identity_enabled = force_address; test_game_shader_variant = GSSplatIdentityTestControl::shader_variant(); }
 #endif
 	return result;
 }

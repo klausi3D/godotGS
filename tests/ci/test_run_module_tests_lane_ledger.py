@@ -4061,10 +4061,16 @@ class GuardScriptWiringTests(unittest.TestCase):
         that checked-but-not-run shape observable.
         """
         commands: list[list[object]] = []
+        # Produce the unittest completion receipt with unittest itself. This is
+        # process-boundary wiring data, not an invented producer-format fixture.
+        receipt = io.StringIO()
+        unittest.TextTestRunner(stream=receipt).run(
+            unittest.TestSuite([unittest.FunctionTestCase(lambda: None)])
+        )
 
         def _record_command(argv, *_args, **_kwargs):
             commands.append(list(argv))
-            return 0, "", ""
+            return 0, receipt.getvalue(), ""
 
         # The child suite does not inherit its parent's --base-ref global. Keep
         # CI enabled, but supply this wiring-only fixture's explicit base input;

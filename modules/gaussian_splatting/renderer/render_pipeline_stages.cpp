@@ -3045,8 +3045,12 @@ bool RenderPipelineStages::execute_raster_composite_pipeline(const GaussianSplat
 		StageResult &r_raster_result, StageResult &r_composite_result, float &r_composite_time_ms,
 		bool &r_composite_executed) {
 	ERR_FAIL_NULL_V(raster_composite_stage.get(), false);
-	return raster_composite_stage->execute(p_context, p_frame_start_usec, r_raster_output, r_raster_result,
+	const bool executed = raster_composite_stage->execute(p_context, p_frame_start_usec, r_raster_output, r_raster_result,
 			r_composite_result, r_composite_time_ms, r_composite_executed);
+#ifdef TESTS_ENABLED
+    if (executed) { renderer->_test_gs_game_1_publish_image(r_raster_output); }
+#endif
+    return executed;
 }
 
 void RenderPipelineStages::render_sorted_splats_with_context(const GaussianSplatRenderer::RenderFrameContext &p_context) {

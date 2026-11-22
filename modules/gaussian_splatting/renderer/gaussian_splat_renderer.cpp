@@ -1,3 +1,4 @@
+#include "splat_identity_test_control.h"
 #include "gaussian_splat_renderer.h"
 #include "../core/gs_project_settings.h"
 #include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
@@ -1396,6 +1397,7 @@ void GaussianSplatRenderer::_teardown_resources() {
     }
 
 #ifdef TESTS_ENABLED
+    _test_gs_game_1_clear_resources();
     _test_cancel_hlod_publication_observation();
 #endif
     _release_shared_dynamic_asset();
@@ -2138,6 +2140,17 @@ gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
     // must never reinterpret the previous list's indices. The upload path checks freshly built rows before writing too.
     const auto domain = gs_shadow_caster::current_rows_refusal(record, state.hlod_instance_row_data, state.hlod_instance_row_keys);
     if (domain != gs_shadow_caster::Refusal::NONE) { return refuse(gs_shadow_caster::Refusal::ROWS_MISMATCH); }
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::rows_after_shadow.load()) {
+        // O2: deliberately keep the preceding valid GPU rows for the caster.
+        // The colour refresh bypasses this test latch and uploads the new rows.
+        state.hlod_shadow_rows_server_frame = gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : 0;
+        state.hlod_shadow_rows_bundle_builds = state.hlod_bundle_builds;
+        state.hlod_shadow_rows_refusal = gs_shadow_caster::Refusal::NONE;
+        publish_hlod_shadow_rows_snapshot();
+        return gs_shadow_caster::Refusal::NONE;
+    }
+#endif
     gs_shadow_caster::Refusal upload_refusal = gs_shadow_caster::Refusal::ROWS_NOT_CURRENT;
     // Render thread, outside any draw/compute list. RD::buffer_update stages a copy and tracks COPY_TO against prior
     // shader reads, including previous-frame stages (rendering_device.cpp:457-536; rendering_device_graph.h:185-190;
@@ -3952,6 +3965,11 @@ bool GaussianSplatRenderer::prepare_region_override_rows(LocalVector<InstanceDat
         const uint64_t *segment = segments.getptr(placement);
         row.lod[1] = segment ? uint32_t(*segment) : UINT32_MAX;
         row.placement_pad[0] = segment ? uint32_t(*segment >> 32) : 0;
+#ifdef TESTS_ENABLED
+        row.ids[1] &= ~((1u << 30u) | (1u << 29u));
+        if (GSSplatIdentityTestControl::override_by_address.load()) { row.ids[1] |= 1u << 30u; }
+        if (GSSplatIdentityTestControl::hide_only_in_raster.load()) { row.ids[1] |= 1u << 29u; }
+#endif
     }
     return true;
 }

@@ -80,6 +80,9 @@ private:
 
 	std::unique_ptr<GsShadowCasterShaderRD> shader_source;
 	bool shader_source_initialized = false;
+#ifdef TESTS_ENABLED
+    uint32_t test_game_shader_variant = 0;
+#endif
 	RID shader;
 	GaussianSplatting::BufferOwnership shader_owner;
 	PipelineCacheRD pipeline_cache;

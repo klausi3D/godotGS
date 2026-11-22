@@ -24,7 +24,18 @@ float gs_wind_lattice_value(ivec2 cell) {
 // instance rows sample scene-space REST positions after rigid placement. Thus
 // a parent and its children, or different objects at the same point, see one
 // coherent gust field; atlas repacking and LOD replacement add no flutter.
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_ADDRESS_WIND_PHASE
+uint gs_test_wind_atlas_address = 0u;
+#endif
+#endif
 float gs_wind_phase_noise(vec3 scene_rest_position) {
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_ADDRESS_WIND_PHASE
+    // W1 negative control: restore the address phase removed by PR1.
+    return float(gs_wind_hash_u32(gs_test_wind_atlas_address) & 0x00ffffffu) * (6.28318530718 / 16777215.0);
+#endif
+#endif
     vec2 lattice = scene_rest_position.xz * (1.0 / 32.0);
     vec2 cell = floor(lattice);
     vec2 f = lattice - cell;
@@ -42,6 +53,11 @@ float gs_wind_phase_noise(vec3 scene_rest_position) {
 // 0 (leaf) has full weight, height >=4 has zero. Object rows have no HLOD
 // height and pass 0. This fade changes amplitude only, never the rest field.
 float gs_wind_distance_level_fade(vec3 rest_from_camera, uint level) {
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_COARSE_FADE_OFF
+    if (level > 0u) { return 1.0; } // ADR §7 W2 forcing control only.
+#endif
+#endif
     float distance_to_camera = sqrt(rest_from_camera.x * rest_from_camera.x +
             rest_from_camera.y * rest_from_camera.y + rest_from_camera.z * rest_from_camera.z);
     float distance_weight = clamp((128.0 - distance_to_camera) / 64.0, 0.0, 1.0);
@@ -160,7 +176,7 @@ float gs_row_deformation_bound(float encoded_mode, float row_intensity, vec4 ins
 // correlated (coherent travelling wave across the sphere) instead of
 // per-splat random phases that visually read as noise. The spatial
 // coefficient is scaled by 1/radius so one full wavelength is comparable
-// to the effector diameter — large enough that the whole influence region
+// to the effector diameter â€” large enough that the whole influence region
 // pulses together, small enough that there's still visible motion across
 // the volume.
 float gs_compute_sphere_effector_weight(vec3 world_position, vec4 effector_sphere, vec4 effector_config,
@@ -187,7 +203,7 @@ float gs_compute_sphere_effector_weight(vec3 world_position, vec4 effector_spher
     float influence = pow(normalized, falloff);
     float anim_freq = effector_config.w > 0.0 ? effector_config.w : 2.0;
     // Spatial phase anchored to the effector center. Coefficient 1/radius
-    // gives wavelength ≈ 2π·radius, so a travelling wave crosses the
+    // gives wavelength â‰ˆ 2Ï€Â·radius, so a travelling wave crosses the
     // sphere every few oscillations rather than standing-waving inside.
     float spatial_phase = dot(delta, vec3(1.0 / max(radius, 1e-3)));
     float anim_phase = time_seconds * anim_freq * 6.28318530718 + spatial_phase + rest_position_phase;
@@ -307,7 +323,7 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
     // on the node) bypasses the global enable gate but, without these fallbacks,
     // is still muted by zero project-level wind_strength / wind_frequency. Since
     // wind_dir_strength.w is a pass-global uniform, we can't merge a per-instance
-    // value into it on the CPU for mixed scenes — instead, when the instance
+    // value into it on the CPU for mixed scenes â€” instead, when the instance
     // explicitly forces wind on and the global base is unset, fall back to unit
     // strength / frequency here so the instance's own wind_strength (multiplied
     // into instance_intensity) and wind_frequency (instance_wind_config.w)

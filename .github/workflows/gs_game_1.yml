@@ -1,0 +1,175 @@
+name: GS-GAME-1 (report-only)
+
+# ADR dynamics §7, §11 O6/O7. Dispatch-only; this is not a required check.
+# A skipped self-hosted job is reported red by the always-running hosted job.
+on:
+  workflow_dispatch:
+    inputs:
+      prime_world_cache:
+        description: Build the synthetic raw V4 T0 semantic cache if absent/stale
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# GitHub retains ONE pending dispatch per group; a new pending dispatch may
+# replace it. Running jobs are never cancelled. No per-ref multiplication.
+concurrency:
+  group: gs-game-1-dispatch
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # Same optimized tests-enabled producer and separate cache as beyond-VRAM.
+  GS_GAME_SCONS_ARGS: "platform=linuxbsd target=editor optimize=speed_trace dev_build=no tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache-opt cache_limit=15 -j16"
+
+jobs:
+  baseline-qa-gate:
+    name: Wait for Baseline QA on this SHA (hosted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Wait for Baseline QA
+        run: python3 tests/runtime/flythrough/dispatch_lane.py baseline-qa-gate --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --event "$GITHUB_EVENT_NAME" --mode flythrough
+
+  build-linux-editor:
+    name: Build optimized tests=yes producer (self-hosted CPU)
+    needs: baseline-qa-gate
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+      - name: Check Linux build toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools --build-only
+      - name: Install SCons
+        run: bash tests/ci/linux_gpu_runner.sh venv
+      - name: Build optimized tests-enabled editor
+        run: |
+          # shellcheck disable=SC2086
+          python -m SCons $GS_GAME_SCONS_ARGS
+      - name: Stage binary with commit provenance
+        run: bash tests/ci/linux_gpu_runner.sh stage-binary bin/godot.linuxbsd.editor.x86_64 "$RUNNER_TEMP/godot-build"
+      - name: Upload pinned binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build/
+          if-no-files-found: error
+          retention-days: 7
+
+  gs-game-1-gpu:
+    name: GS-GAME-1 RTX 3080 approximation (report-only)
+    needs: build-linux-editor
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
+    timeout-minutes: 180
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      NODEVICE_SELECT: '1'
+      GS_GAME_PRIME: ${{ inputs.prime_world_cache }}
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 1
+          set-safe-directory: false
+      - name: Set contention record path
+        run: echo "GS_CI_GPU_CONTENTION_DIR=$RUNNER_TEMP/gs-game-1-contention" >> "$GITHUB_ENV"
+      - name: Check Linux GPU toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+      - name: Preflight - GPU contention
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+      - name: Preflight - runner GPU environment
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+      - name: Download binary for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+      - name: Verify and install commit-pinned binary
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+      - name: Run subject and every forcing control in this job
+        run: |
+          PRIME=()
+          if [ "$GS_GAME_PRIME" = "true" ]; then PRIME=(--prime-world-cache); fi
+          python3 tests/runtime/gs_game_1_lane.py --godot-binary bin/godot.linuxbsd.editor.x86_64 --cache-root /opt/actions-runner/godotgs-world-cache --out "$RUNNER_TEMP/gs-game-1" --job-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${PRIME[@]}"
+      - name: Postflight - GPU contention verdict
+        id: contention_postflight
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+      - name: Finalize evidence after contention postflight
+        if: always()
+        env:
+          GS_GAME_POSTFLIGHT: ${{ steps.contention_postflight.outcome }}
+        run: python3 tests/runtime/gs_game_1_lane.py --out "$RUNNER_TEMP/gs-game-1" --finalize-postflight "$GS_GAME_POSTFLIGHT"
+      - name: Append report-only verdict
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/gs-game-1/verdict.md" ]; then
+            cat "$RUNNER_TEMP/gs-game-1/verdict.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "NOT_RUN: GS-GAME-1 producer/verdict absent. RTX 3080 with an 8 GB ledger cap is an approximation, never the mid-range result." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload synthetic report allowlist
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gs-game-1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/gs-game-1/raw.json
+            ${{ runner.temp }}/gs-game-1/verdict.json
+            ${{ runner.temp }}/gs-game-1/verdict.md
+            ${{ runner.temp }}/gs-game-1/verdict.md.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: GS-GAME-1 execution status (report-only)
+    needs: [baseline-qa-gate, build-linux-editor, gs-game-1-gpu]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Distinguish completed evidence from skipped execution
+        env:
+          GPU_RESULT: ${{ needs.gs-game-1-gpu.result }}
+          BUILD_RESULT: ${{ needs.build-linux-editor.result }}
+          QA_RESULT: ${{ needs.baseline-qa-gate.result }}
+        run: |
+          if [ "$GPU_RESULT" != "success" ] || [ "$BUILD_RESULT" != "success" ] || [ "$QA_RESULT" != "success" ]; then
+            echo "NOT_RUN or failed/invalid GS-GAME-1 evidence: QA=$QA_RESULT build=$BUILD_RESULT GPU=$GPU_RESULT"
+            exit 1
+          fi
+          echo "GS-GAME-1 produced a report; see its per-row states. Report-only, not a required check."

@@ -51,6 +51,7 @@ TARGET_STRUCT_NAMES = ("PackedGaussian", "Gaussian", "GaussianQuantized")
 # needs nested-struct-array + constant-resolution support the layout engine does not
 # yet have -- tracked as a follow-on.)
 EXTRA_MIRROR_STRUCTS = (
+    (HOST_LAYOUT.parent / "splat_identity_test_control.h", "GSGame1Sample", "GSGame1Sample"),
     (HOST_LAYOUT, "InstanceDataGPU", "InstanceDataGPU"),
     (HOST_LAYOUT, "InstanceGradingGPU", "InstanceGradingGPU"),
     (HOST_LAYOUT, "RegionOverrideGPU", "RegionOverrideGPU"),

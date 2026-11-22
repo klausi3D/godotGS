@@ -12,6 +12,8 @@
 #[compute]
 
 #version 450
+#define GS_GAME_1_CAPTURE_BINDING 27
+#include "includes/gs_game_1_capture.glsl"
 
 #include "includes/platform_compat.glsl"
 
@@ -1026,7 +1028,16 @@ void main() {
 #else
     uint wind_level = 0u;
 #endif
+#ifdef GS_GAME_1_CAPTURE
+    vec3 game_rest_position = world_position + frame_anchor;
+#endif
+    #ifdef GS_GAME_1_CAPTURE
+    if (splat_ref.instance_id == 0u && (gs_game_1.header.w >> 16u) != 0u && wind_level + 1u != (gs_game_1.header.w >> 16u)) { return; }
+#endif
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_ADDRESS_WIND_PHASE)
+    gs_test_wind_atlas_address = gaussian_idx;
+#endif
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             g.opacity,
             gs_region_wind_semantic(g.semantic, region_override.flags),
@@ -1696,6 +1707,19 @@ void main() {
     // Pack ProjectedGaussian payload using the active layout (packed or full).
     ProjectedGaussian payload;
     gs_pack_projected_gaussian(payload, screen_pos, linear_depth, base_opacity, sh_color, normal_view, conic, global_idx);
+#if defined(GS_GAME_1_CAPTURE) && defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint game_slot = gs_game_1_slot(selected.chunk_id, local_splat_index, splat_ref.instance_id);
+    if (game_slot != 0xffffffffu && gs_game_1.header.y != 0u && gs_game_1.samples[game_slot].meta.x == 0u) {
+        gs_game_1.samples[game_slot].local_rest = vec4(local_position, 1.0);
+        gs_game_1.samples[game_slot].rest = vec4(game_rest_position, g.opacity);
+        gs_game_1.samples[game_slot].colour = vec4(world_position + frame_anchor, uintBitsToFloat(gs_game_1.samples[0].key.w));
+        gs_game_1.samples[game_slot].screen = vec4(screen_pos, base_opacity, uintBitsToFloat(gaussian_idx));
+        gs_game_1.samples[game_slot].tint = vec4(sh_color, 1.0);
+        gs_game_1.samples[game_slot].meta.x = gs_game_1.header.y;
+        gs_game_1.samples[game_slot].meta.z = g.semantic;
+        gs_game_1.samples[game_slot].meta.w = wind_level;
+    }
+#endif
 
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
     // #1393: bin from COUNT's footprint, read before the payload overwrites the slot. A splat COUNT

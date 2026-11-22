@@ -86,6 +86,8 @@ BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_ben
 # runner actually reaches these contract-test files.
 RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
 GS_COMBINED_1_VERDICT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_gs_combined_1_verdict.py"
+GS_GAME_1_VERDICT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_gs_game_1_verdict.py"
+GS_GAME_1_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_gs_game_1_contract.py"
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 # BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
 BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
@@ -2337,6 +2339,23 @@ def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds runner trust guard passed."]
 
 
+def _run_gs_game_1_tests() -> tuple[bool, list[str]]:
+    """Dispatch verdict and reachable workflow contracts; no GPU/binary."""
+    messages = []
+    ok = True
+    for script in (GS_GAME_1_VERDICT_TEST_SCRIPT, GS_GAME_1_CONTRACT_TEST_SCRIPT):
+        if not script.is_file():
+            return False, [f"Missing GS-GAME-1 suite: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        complete = re.search(
+            r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+            (out + "\n" + err).rstrip("\r\n"),
+        )
+        ok = ok and code == 0 and complete is not None
+        messages.extend(line for line in (out + err).splitlines() if line.strip())
+    return ok, messages
+
+
 def _run_gs_combined_1_verdict_guard() -> tuple[bool, list[str]]:
     """Guard: the GS-COMBINED-1 verdict module's own unit test (ADR one-route section 9).
 
@@ -4359,6 +4378,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_publication_gating_guard,
             "Release publication gating guard failed.",
             "Release publication gating guard passed.",
+        ),
+        (
+            True,
+            _run_gs_game_1_tests,
+            "GS-GAME-1 verdict/contracts failed.",
+            "GS-GAME-1 verdict/contracts passed.",
         ),
         (
             True,

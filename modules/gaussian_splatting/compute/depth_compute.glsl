@@ -1,6 +1,8 @@
 #[compute]
 
 #version 450
+#define GS_GAME_1_CAPTURE_BINDING 13
+#include "../shaders/includes/gs_game_1_capture.glsl"
 
 #VERSION_DEFINES
 
@@ -243,7 +245,13 @@ void main() {
 #else
     uint wind_level = 0u;
 #endif
+    #ifdef GS_GAME_1_CAPTURE
+    if (visible_chunk.instance_id == 0u && (gs_game_1.header.w >> 16u) != 0u && wind_level + 1u != (gs_game_1.header.w >> 16u)) { return; }
+#endif
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_ADDRESS_WIND_PHASE)
+    gs_test_wind_atlas_address = atlas_index;
+#endif
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             gaussian.opacity,
             gs_region_wind_semantic(gaussian.semantic, region_override.flags),
@@ -309,6 +317,9 @@ void main() {
 
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
     hlod_draw_entry_buffer.draw_entries[write_index] = visible_chunk_index;
+#endif
+#ifdef GS_GAME_1_CAPTURE
+    if ((gaussian.semantic & GS_SEMANTIC_REGION_MASK) == (gs_game_1.header.w & 65535u)) { atomicAdd(gs_game_1.header.z, 1u); }
 #endif
     splat_ref_buffer.splat_refs[write_index].instance_id = visible_chunk.instance_id;
     // Registered chunks are shared by every instance of an asset, so the SH limit also

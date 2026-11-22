@@ -1,3 +1,6 @@
+#include "splat_identity_test_control.h"
+#include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering/renderer_compositor.h"
 /**
  * tile_render_binning.cpp — TileRenderer::TileBinningStage method implementations.
  *
@@ -95,7 +98,14 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning(uint32_t p_gaussi
 		owner.test_before_emit_hook(submission_device);
 	}
 #endif
-	String binning_label = "TileBinning_" + String::num_uint64(owner.frame_state.current_frame_serial);
+#ifdef TESTS_ENABLED
+	if (GSSplatIdentityTestControl::capture_enabled.load() &&
+            GSSplatIdentityTestControl::capture_device_id == submission_device->get_device_instance_id() && RSG::rasterizer) {
+        const uint32_t frame = uint32_t(RSG::rasterizer->get_frame_number());
+        submission_device->buffer_update(GSSplatIdentityTestControl::capture_buffer, GSSplatIdentityTestControl::capture_colour_frame_offset, sizeof(frame), &frame);
+    }
+#endif
+    String binning_label = "TileBinning_" + String::num_uint64(owner.frame_state.current_frame_serial);
 	submission_device->capture_timestamp(binning_label + String("_Begin"));
 	ScopedGpuMarker binning_marker(submission_device, "GS_TileBinning_EMIT", Color(0.3f, 0.9f, 0.3f, 1.0f));
 
@@ -280,11 +290,11 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 		cached_binning_tile_counts_alt = RID();
 	}
 
-	if (cache_deps_match && cached_binning_buffer_uniform_set.is_valid() &&
+	if (cache_deps_match && cached_binning_buffer_uniform_set.is_valid() && p_device->uniform_set_is_valid(cached_binning_buffer_uniform_set) &&
 			cached_binning_tile_counts == tile_counts_buffer) {
 		return cached_binning_buffer_uniform_set;
 	}
-	if (cache_deps_match && cached_binning_buffer_uniform_set_alt.is_valid() &&
+	if (cache_deps_match && cached_binning_buffer_uniform_set_alt.is_valid() && p_device->uniform_set_is_valid(cached_binning_buffer_uniform_set_alt) &&
 			cached_binning_tile_counts_alt == tile_counts_buffer) {
 		return cached_binning_buffer_uniform_set_alt;
 	}
@@ -332,6 +342,17 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
     region_uniform.binding = 26;
     region_uniform.append_id(region_buffer);
     uniforms.push_back(region_uniform);
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::capture_enabled.load()) {
+        if (GSSplatIdentityTestControl::capture_device_id != p_device->get_device_instance_id() ||
+                !p_device->buffer_is_valid(GSSplatIdentityTestControl::capture_buffer)) { return RID(); }
+        RD::Uniform capture;
+        capture.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        capture.binding = 27;
+        capture.append_id(GSSplatIdentityTestControl::capture_buffer);
+        uniforms.push_back(capture);
+    }
+#endif
 
 
 	if (quantization_required) {
@@ -554,11 +575,11 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 		cached_binning_count_tile_counts_alt = RID();
 	}
 
-	if (cache_deps_match && cached_binning_count_uniform_set.is_valid() &&
+	if (cache_deps_match && cached_binning_count_uniform_set.is_valid() && p_device->uniform_set_is_valid(cached_binning_count_uniform_set) &&
 			cached_binning_count_tile_counts == tile_counts_buffer) {
 		return cached_binning_count_uniform_set;
 	}
-	if (cache_deps_match && cached_binning_count_uniform_set_alt.is_valid() &&
+	if (cache_deps_match && cached_binning_count_uniform_set_alt.is_valid() && p_device->uniform_set_is_valid(cached_binning_count_uniform_set_alt) &&
 			cached_binning_count_tile_counts_alt == tile_counts_buffer) {
 		return cached_binning_count_uniform_set_alt;
 	}
@@ -607,6 +628,17 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
     region_uniform.binding = 26;
     region_uniform.append_id(region_buffer);
     uniforms.push_back(region_uniform);
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::capture_enabled.load()) {
+        if (GSSplatIdentityTestControl::capture_device_id != p_device->get_device_instance_id() ||
+                !p_device->buffer_is_valid(GSSplatIdentityTestControl::capture_buffer)) { return RID(); }
+        RD::Uniform capture;
+        capture.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        capture.binding = 27;
+        capture.append_id(GSSplatIdentityTestControl::capture_buffer);
+        uniforms.push_back(capture);
+    }
+#endif
 
 
 	if (quantization_required) {

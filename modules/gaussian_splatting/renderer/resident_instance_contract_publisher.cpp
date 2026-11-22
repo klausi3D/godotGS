@@ -1,3 +1,4 @@
+#include "splat_identity_test_control.h"
 #include "../lod/hlod_edit.h"
 #include "resident_instance_contract_publisher.h"
 
@@ -1478,6 +1479,9 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
 void hlod_invalidate_content_range(void *p_context, uint32_t p_first_record, uint32_t p_record_count) {
     auto *renderer = static_cast<GaussianSplatRenderer *>(p_context);
     if (!renderer) { return; }
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::disable_cache_invalidation.load()) { return; }
+#endif
     Ref<TileRenderer> tile = renderer->get_tile_renderer();
     if (tile.is_valid() && tile->get_active_device() == renderer->get_device_state().rd) {
         tile->invalidate_sh_color_cache_range(p_first_record, p_record_count);
@@ -1861,6 +1865,9 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
                     hlod_owned_cap_for(streaming, limit));
     if (!fits) { return resources_changed(); }
     if (change.prepared_asset_generation != change.asset_generation) {
+#ifdef TESTS_ENABLED
+        if (GSSplatIdentityTestControl::asset_set_reset.load()) { return resources_changed(); }
+#endif
         if (!streaming || region.reserved_records == 0) { return resources_changed(); }
         const uint32_t page = state.hlod_streamer->get_residency().config().page_splats;
         const uint64_t records = hlod_instance_records(director, this);
@@ -2129,7 +2136,11 @@ uint64_t GaussianSplatRenderer::hlod_row_generation(const GaussianSplatSceneDire
 
 bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal) {
     auto &state = get_resource_state();
+#ifdef TESTS_ENABLED
+    if (hlod_shadow_rows_latched() && !(GSSplatIdentityTestControl::rows_after_shadow.load() && !r_shadow_refusal)) { return true; }
+#else
     if (hlod_shadow_rows_latched()) { return true; } // Colour and idle restores reuse the pre-shadow snapshot.
+#endif
     auto refuse = [&](gs_shadow_caster::Refusal p_reason) {
         if (r_shadow_refusal) { *r_shadow_refusal = p_reason; }
         return false;
@@ -3478,12 +3489,29 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (selected_count > world_nodes || uint64_t(selected_count) + instance_records > uint64_t(bundle.draw_entries.size())) {
         return fallback("hlod_view_failed");
     }
+    uint32_t test_nonresident_node = UINT32_MAX;
+#ifdef TESTS_ENABLED
+    if (state.hlod_streaming && selected_count > 0 && GSSplatIdentityTestControl::force_nonresident_draw.load()) {
+        for (uint32_t node = 1; node < world_nodes; ++node) {
+            if (state.hlod_streamer->get_residency().state(node) != gs_hlod_runtime::NodeResidency::ABSENT) { continue; }
+            const ChunkMetaGPU cleared = {};
+            if (get_device_state().rd->buffer_update(bundle.buffers.chunk_meta_buffer, node * sizeof(ChunkMetaGPU), sizeof(cleared), &cleared) == OK) {
+                test_nonresident_node = node;
+            }
+            break;
+        }
+    }
+#endif
+    auto actual_draw_node = [&](uint32_t i) { return i == 0 && test_nonresident_node != UINT32_MAX ? test_nonresident_node : outcome.records[i].node; };
     if (state.hlod_streaming) {
         // Absence of a signal is not a pass: re-check that every drawn node is resident-ready before its record
         // reaches the GPU. The selector only sees resident nodes, so a miss here is a contract violation.
         for (uint32_t i = 0; i < selected_count; ++i) {
-            if (state.hlod_streamer->get_residency().state(outcome.records[i].node) != gs_hlod_runtime::NodeResidency::RESIDENT) {
+            if (state.hlod_streamer->get_residency().state(actual_draw_node(i)) != gs_hlod_runtime::NodeResidency::RESIDENT) {
                 ++state.hlod_stream_nonresident_drawn;
+#ifdef TESTS_ENABLED
+                if (actual_draw_node(i) == test_nonresident_node) { continue; }
+#endif
                 return fallback("hlod_stream_drawn_node_not_resident");
             }
         }
@@ -3493,7 +3521,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     for (uint32_t i = 0; i < selected_count; ++i) {
         world_shadow_versions[i] = gs_shadow_refresh::hash_value(outcome.records[i].version.content_revision,
                 outcome.records[i].version.bake_rule_revision);
-        const uint32_t node = outcome.records[i].node;
+        const uint32_t node = actual_draw_node(i);
         // The ViewSet formed camera_offset in double for snapshot.origin_revision; every world record names the
         // world's row (row 0, identity-placed). BV-04b: the record carries the node's HLOD level (height) so the
         // emit pass can count records per splat per level.

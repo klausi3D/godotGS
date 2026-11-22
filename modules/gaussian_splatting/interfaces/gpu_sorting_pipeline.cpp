@@ -1408,7 +1408,7 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
     const bool quantized_storage = g_quantization_config.per_chunk_quantization;
     bool identity_variant_changed = false;
 #ifdef TESTS_ENABLED
-    identity_variant_changed = depth_address_identity_enabled != GSSplatIdentityTestControl::get_force_address_keying();
+    identity_variant_changed = depth_game_shader_variant != GSSplatIdentityTestControl::shader_variant();
 #endif
     if (depth_compute_shader.is_valid() && (quantized_storage != depth_quantization_enabled || instance_inputs.hlod_relative != depth_hlod_relative_enabled || identity_variant_changed)) {
         RenderingDevice *resource_device = sort_resource_device ? sort_resource_device : device;
@@ -1423,6 +1423,7 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
     depth_hlod_relative_enabled = instance_inputs.hlod_relative;
 #ifdef TESTS_ENABLED
     depth_address_identity_enabled = GSSplatIdentityTestControl::get_force_address_keying();
+    depth_game_shader_variant = GSSplatIdentityTestControl::shader_variant();
 #endif
 
     if (!depth_compute_shader.is_valid()) {
@@ -1468,7 +1469,7 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
         compute_source = _inject_sort_pad_depth_define(compute_source);
         compute_source = _inject_quantization_define(compute_source, quantized_storage);
 #ifdef TESTS_ENABLED
-        if (depth_address_identity_enabled) {
+        {
             const int version_end = compute_source.find("\n", compute_source.find("#version"));
             if (version_end < 0) { last_compute_error = "Identity control depth source lacks version"; return; }
             compute_source = compute_source.insert(version_end + 1, GSSplatIdentityTestControl::shader_defines());
@@ -2725,6 +2726,13 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         region_buffer = neutral_region_overrides.get();
     }
     append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 12, region_buffer, "region_override_buffer");
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::capture_enabled.load()) {
+        ERR_FAIL_COND_V(GSSplatIdentityTestControl::capture_device_id != compute_rd->get_device_instance_id() ||
+                !compute_rd->buffer_is_valid(GSSplatIdentityTestControl::capture_buffer), false);
+        append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 13, GSSplatIdentityTestControl::capture_buffer, "gs_game_1_capture");
+    }
+#endif
     if (inputs.hlod_relative) {
         append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 10, inputs.hlod_draw_entry_buffer, "hlod_draw_entry_buffer");
         append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 11, inputs.hlod_page_table_buffer, "hlod_page_table_buffer");

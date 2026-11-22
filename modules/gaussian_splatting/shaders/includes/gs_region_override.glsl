@@ -47,7 +47,9 @@ RegionOverrideGPU gs_region_resolve(InstanceDataGPU instance, uint semantic, uin
     if (base == 0xffffffffu || segment_len == 0u || base >= count || segment_len > count - base) { return neutral; }
     uint region = (semantic & GS_SEMANTIC_VALID_MASK) != 0u ? semantic & GS_SEMANTIC_REGION_MASK : 0u;
 #ifdef GS_TEST_REGION_CONTROLS
+#ifndef GS_GAME_1_EXPECTED_REGION_KEY
     if ((instance.ids.y & (1u << 30u)) != 0u) { region = atlas_index; }
+#endif
 #endif
     return region_override_buffer.entries[base + min(region, segment_len - 1u)];
 }

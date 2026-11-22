@@ -228,6 +228,7 @@ private:
     bool depth_hlod_relative_enabled = false;
 #ifdef TESTS_ENABLED
     bool depth_address_identity_enabled = false;
+    uint32_t depth_game_shader_variant = 0;
 #endif
     RID instance_param_buffer = RID();
     RenderingDevice *instance_resource_device = nullptr;

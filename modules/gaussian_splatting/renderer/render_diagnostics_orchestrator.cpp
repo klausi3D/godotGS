@@ -367,6 +367,10 @@ static void _append_production_gpu_metrics(Dictionary &r_metrics,
 		r_metrics["gpu_coherent_frame_serial"] = static_cast<int64_t>(pt.coherent_frame_serial);
 		r_metrics["gpu_coherent_pass_mask"] = static_cast<int64_t>(pt.coherent_pass_mask);
 		r_metrics["gpu_coherent_total_ms"] = pt.coherent_total_ms;
+#ifdef TESTS_ENABLED
+        r_metrics["gs_game_1_submission_frame"] = int64_t(current_frame_serial());
+        r_metrics["gs_game_1_coherent_valid"] = pt.all_route_passes_coherent();
+#endif
 	}
 	r_metrics["gpu_prefix_ms"] = p_perf.gpu_tile_prefix_time_ms;
 	r_metrics["gpu_prefix_valid"] = p_perf.gpu_tile_prefix_time_valid;
