@@ -14,7 +14,7 @@
 // data. Callers must exclude external writers and validate the sidecar file SHA.
 // Only owned private staging/scratch directories are cleaned, never caller files.
 // codec="none" (default) preserves uncompressed output. codec="gsq" uses
-// gsq_v1_codec_params() for scratch and V4 output (header codec id 1).
+// gsq_v2_codec_params() for scratch and V4 output (header codec id 2).
 // Individual codec parameter overrides are not exposed by the bound API.
 //
 // Manifest schema godotgs-auto-tree-manifest/1:

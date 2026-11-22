@@ -419,8 +419,8 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Quantized partial prefixes count reta
         for (uint32_t word = 3 + selection.retained_higher; word < 24; word++) {
             CHECK_EQ(packed.sh_encoded[word], 0u);
         }
-        CHECK_EQ(packed._tail_padding[0], 0u);
-        CHECK_EQ(packed._tail_padding[1], 0u);
+        CHECK_EQ(packed.semantic, 0u);
+        CHECK_EQ(packed._tail_padding, 0u);
     }
     PackedGaussianQuantized missing_higher = {};
     SHCompressionMetrics missing_metrics;
@@ -1021,8 +1021,8 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Both GPU layouts preserve every SH0â€
 			CHECK_EQ(normal_a.sh.encoded[i], 0u);
 			CHECK_EQ(quant_a.sh_encoded[i], 0u);
 		}
-		CHECK_EQ(quant_a._tail_padding[0], 0u);
-		CHECK_EQ(quant_a._tail_padding[1], 0u);
+		CHECK_EQ(quant_a.semantic, 0u);
+		CHECK_EQ(quant_a._tail_padding, 0u);
 	}
 }
 

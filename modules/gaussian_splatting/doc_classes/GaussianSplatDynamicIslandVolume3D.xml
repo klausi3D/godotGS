@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatDynamicIslandVolume3D" inherits="GaussianSplatBakeVolume3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Extracts movable islands before HLOD partitioning.</brief_description>
+	<description>Removes matching splat centres from the world before leaf partitioning and writes each island to its own plain v3 gsplatworld asset. Islands are always v3: no existing bake size threshold selects V4. The world persists an [code]islands[][/code] manifest with name, asset path, identity rest transform and bounds; the island payload remains in bake coordinates. Output names must be new, valid filenames. [code]island_output_dir[/code] is required by the resource bake when extraction occurs; the auto-tree defaults to a sibling directory named after the output stem with suffix .islands. Failed bakes remove only the new island files they created. The report uses a top-down XZ grid of splat centres with 0.25 m cells. [code]hole_area_m2[/code] counts island cells containing no remaining world centre; [code]island_xz_footprint_m2[/code] counts all island cells. This is report-only and measures no holes in vertical surfaces behind the island (walls, cliffs).</description>
+	<tutorials></tutorials>
+	<methods>
+	</methods>
+	<members>
+		<member name="asset_name" type="String" setter="set_asset_name" getter="get_asset_name" default="&quot;&quot;">Optional island asset name; an empty string uses the node name.</member>
+	</members>
+</class>

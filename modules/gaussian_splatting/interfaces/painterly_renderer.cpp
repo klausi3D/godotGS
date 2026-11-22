@@ -1695,6 +1695,8 @@ Error PainterlyRenderer::populate_painterly_gbuffer(GaussianSplatRenderer *p_ren
         return ERR_INVALID_DATA;
     }
     if (has_instance_data) {
+        if (!p_renderer->sync_region_overrides()) { return ERR_UNAVAILABLE; }
+        render_params.region_override_buffer = p_renderer->get_region_override_buffer();
         render_params.instance_buffer = instance_buffer_rid;
         // The tile preflight now hard-fails when `instance_grading_buffer`
         // is missing (see InstancePipelineContract::first_tile_runtime_violation).

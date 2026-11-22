@@ -100,6 +100,7 @@ static void _set_instance_sort_inputs(const GaussianSplatRenderer::InstancePipel
 	instance_inputs.atlas_gaussian_buffer = p_buffers.atlas_gaussian_buffer;
 	instance_inputs.quantization_buffer = p_buffers.quantization_required ? p_buffers.quantization_buffer : RID();
 	instance_inputs.instance_buffer = p_buffers.instance_buffer;
+                    instance_inputs.region_override_buffer = p_renderer->get_region_override_buffer();
 	instance_inputs.chunk_meta_buffer = p_buffers.chunk_meta_buffer;
 	instance_inputs.visible_chunk_buffer = p_buffers.visible_chunk_buffer;
 	instance_inputs.splat_ref_buffer = p_buffers.splat_ref_buffer;
@@ -945,7 +946,8 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 	Transform3D instance_camera_to_world;
 	bool instance_camera_valid = false;
 	if (instance_pipeline_buffers_valid) {
-		instance_content_generation = renderer->get_instance_pipeline_content_generation();
+		if (!renderer->sync_region_overrides()) { return build_summary(); }
+		instance_content_generation = _mix_sort_buffer_generation(renderer->get_instance_pipeline_content_generation(), renderer->get_region_override_revision());
 		// The depth pass writes the instance SH policy into every splat ref, so a policy
 		// change (SH setting or LOD reduction) must miss the static instance sort cache.
 		if (renderer->get_streaming_state().current_streaming_system.is_valid()) {

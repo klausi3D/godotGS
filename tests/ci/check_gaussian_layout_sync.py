@@ -51,8 +51,10 @@ TARGET_STRUCT_NAMES = ("PackedGaussian", "Gaussian", "GaussianQuantized")
 # needs nested-struct-array + constant-resolution support the layout engine does not
 # yet have -- tracked as a follow-on.)
 EXTRA_MIRROR_STRUCTS = (
+    (HOST_LAYOUT.parent / "splat_identity_test_control.h", "GSGame1Sample", "GSGame1Sample"),
     (HOST_LAYOUT, "InstanceDataGPU", "InstanceDataGPU"),
     (HOST_LAYOUT, "InstanceGradingGPU", "InstanceGradingGPU"),
+    (HOST_LAYOUT, "RegionOverrideGPU", "RegionOverrideGPU"),
     (HOST_LAYOUT, "AssetLodRangeGPU", "AssetLodRangeGPU"),
     (HOST_LAYOUT, "ChunkMetaGPU", "ChunkMetaGPU"),
     (HOST_LAYOUT, "AssetChunkIndexGPU", "AssetChunkIndexGPU"),
@@ -434,7 +436,8 @@ def _build_quantized_expected_layout(host_structs: dict[str, StructDef]) -> Layo
         FlatField("sh_encoded", "uint", 24),
         FlatField("normal_xy", "uint", 1),
         FlatField("normal_z_stroke", "uint", 1),
-        FlatField("_tail_padding", "uint", 2),
+        FlatField("semantic", "uint", 1),
+        FlatField("_tail_padding", "uint", 1),
     )
     offsets = {
         "position_chunk": host_layout.offsets["quantized_position"],
@@ -448,6 +451,7 @@ def _build_quantized_expected_layout(host_structs: dict[str, StructDef]) -> Layo
         "sh_encoded": host_layout.offsets["sh_encoded"],
         "normal_xy": host_layout.offsets["normal_xy"],
         "normal_z_stroke": host_layout.offsets["normal_z_stroke"],
+        "semantic": host_layout.offsets["semantic"],
         "_tail_padding": host_layout.offsets["_tail_padding"],
     }
     return LayoutSpec(fields, offsets, host_layout.size, host_layout.alignment)
@@ -1848,7 +1852,7 @@ def _check_hlod_cut_semantic_coverage(failures: list[str]) -> int:
 
     # Explicit policy, not a prefix exemption: alignment before brush_axes and
     # tail storage to reach 144 bytes. Changed type/extent requires inspection too.
-    padding = (RawField("float", "_padding"), RawField("float", "_padding2", 2))
+    padding = (RawField("float", "_padding2", 2),)
     for field in padding:
         if fields.get(field.name) != field:
             failures.append(f"HLOD cut oracle: exact padding declaration changed: {field.name}")

@@ -1,6 +1,7 @@
 #ifndef TILE_RENDERER_H
 #define TILE_RENDERER_H
 
+#include "gs_region_override_buffer.h"
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector2i.h"
@@ -130,7 +131,7 @@ public:
     // Used by performance monitors to report real get_memory_usage() totals (the streaming
     // regulator's vram_current_usage_mb only accounts for the streaming atlas, not sort/projection buffers).
     RenderingDevice *get_active_device() const { return device_context.resource_rd; }
-    // Render-thread content rewrite hook; must run before binning and outside compute/draw lists.
+    // Render-thread content rewrite hook for SH colour AND subpixel history; before binning, outside lists.
     void invalidate_sh_color_cache_range(uint32_t p_first_record, uint32_t p_record_count);
     RID get_tile_binning_pipeline() const { return shader_resources.tile_binning_pipeline; }
     RID get_tile_raster_pipeline() const { return shader_resources.tile_raster_pipeline; }
@@ -143,6 +144,7 @@ public:
         return uint64_t(projection_buffers.projection_buffer_size) + subpixel_history_buffers.subpixel_history_size +
                 subpixel_visibility_buffers.subpixel_visibility_size + sh_cache_buffers.sh_color_cache_size;
     }
+    uint64_t get_region_override_neutral_bytes() const { return neutral_region_overrides.bytes(); }
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
     // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already
@@ -332,6 +334,14 @@ public:
     int get_aggregated_count() const { return debug_stats.cached_overflow_stats.overflow_splats_aggregated; }
 
 #ifdef TESTS_ENABLED
+    // Exercise the real cache range hook and the next same-frame GPU consumer.
+    RID _test_subpixel_history(uint32_t p_records) {
+        subpixel_history_buffers.ensure_history_buffer(p_records);
+        return subpixel_history_buffers.subpixel_history_buffer;
+    }
+    bool test_address_identity_enabled = false;
+    uint32_t test_game_shader_variant = 0;
+    bool _test_uses_address_identity() const { return shader_resources.tile_binning_pipeline.is_valid() && test_address_identity_enabled; }
     // Test-only accessors. Mirror the pattern used in core/gaussian_streaming.h
     // (search for `_test_*`). Replaced the `#define private public` macro that
     // test_tile_async_readback_freshness.cpp and
@@ -408,6 +418,7 @@ protected:
     static void _bind_methods();
 
 private:
+    GSRegionOverrideBuffer neutral_region_overrides;
     // Recorded means command recording succeeded, not GPU completion. Empty
     // denotes the explicit clear-only frame; failed work must not be published.
     enum class RasterDispatchResult { FAILED, RECORDED, EMPTY };
@@ -585,6 +596,7 @@ private:
     struct InstancePipelineBindings {
         RID instance_buffer;
         RID instance_grading_buffer;
+        RID region_override_buffer;
         RID splat_ref_buffer;
         RID hlod_draw_entry_buffer;
         RID hlod_page_owner_buffer;

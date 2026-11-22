@@ -157,6 +157,43 @@ static InstanceRegion region_for(const LocalVector<uint64_t> &p_asset_ids, const
 	return region;
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] A2 registered ObjectID rank survives middle removal and larger chunk registration") {
+    DirectorScene scene;
+    GS_NEED(scene.init());
+    const Ref<GaussianSplatAsset> small = blob_asset(3);
+    Node3D *a = scene.add_node(), *b = scene.add_node(), *c = scene.add_node();
+    // Register out of ObjectID order, including an invisible middle placement.
+    for (Node3D *node : { c, b, a }) {
+        scene.director->register_instance(node->get_instance_id(), small, Transform3D(), 1, 0, 0, false,
+                1, GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT, Vector3(), 1, node != b);
+    }
+    auto prefix = [&](uint64_t key) {
+        Rows rows; LocalVector<uint64_t> keys; scene.rows(rows, keys);
+        if (rows.instances.size() != keys.size()) {
+            CHECK_MESSAGE(false, "parallel identity rows missing"); return uint32_t(0);
+        }
+        for (uint32_t i = 0; i < keys.size(); ++i) {
+            if (keys[i] == key) { return rows.instances[i].ids[1] & 0xffffc000u; }
+        }
+        CHECK_MESSAGE(false, "registered visible placement missing");
+        return uint32_t(0);
+    };
+    const uint64_t ka = uint64_t(a->get_instance_id()), kc = uint64_t(c->get_instance_id());
+    const uint32_t pa = prefix(ka), pc = prefix(kc);
+    CHECK(pa == 0x80004000u); // R=2, C=0, L=14, rank 1.
+    CHECK(pc == 0x8000c000u); // Hidden middle row still owns rank 2.
+    CHECK(pa < pc);
+    scene.director->unregister_instance(b->get_instance_id());
+    CHECK(prefix(ka) < prefix(kc));
+    CHECK(prefix(kc) == 0x80008000u);
+    Node3D *large = scene.add_node();
+    // Real descriptor producer: 65537 splats -> two chunks; local maximum -> L=16.
+    scene.director->register_instance(large->get_instance_id(), blob_asset(65537), Transform3D(), 1, 0, 0);
+    CHECK(prefix(ka) < prefix(kc));
+    CHECK(prefix(ka) == 0x80020000u); // R=2, C=1, L=16.
+    CHECK(prefix(kc) == 0x80040000u);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] a world with 0, 1 and 8 node instances keeps the HLOD route and its row 0; nodes are rows 1..N") {
 	DirectorScene scene;
 	GS_NEED(scene.init());
@@ -193,8 +230,8 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] a world with 0, 1
 				(GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO));
 		CHECK(rows.instances[0].translation_scale[0] == 0.0f);
 		CHECK(rows.instances[0].translation_scale[3] == 1.0f);
-		// O4: the legacy world has no semantics and did not opt in. Project wind must not move it.
-		CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
+		// AUTO preserves the per-splat semantic gate: a legacy world still has W=0 (O4).
+		CHECK(rows.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT));
 		// Rows 1..N: the visible nodes, in registration order, with their transform, 64-bit asset id and stable key.
 		uint32_t row = 1;
 		for (uint32_t i = 0; i < k; ++i) {
@@ -234,7 +271,7 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] world wind and ef
 	GS_NEED(scene.init());
 	GaussianSplatSceneDirector::WorldSubmission submission;
 	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
-	CHECK(submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+	CHECK(submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT);
 	CHECK_FALSE(submission.scene_effectors_enabled);
 	Node3D *node = scene.add_node();
 	scene.director->register_instance(node->get_instance_id(), blob_asset(2), Transform3D(), 1.0f, 0.0f, 0u, false,
@@ -306,7 +343,7 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] world effectors r
 	CHECK(opted.instances[0].effect_params[0] == 1.0f);
 	CHECK(opted.instances[0].effect_params[1] == 1.0f);
 	CHECK(mask(opted.instances[1]) == 1u);
-	CHECK(opted.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED));
+	CHECK(opted.instances[0].params[3] == float(GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT));
 }
 
 // New API compile-red before W-S. The shared bound feeds the outer RenderingServer instance as well as the HLOD cut;
@@ -317,7 +354,8 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] outer visibility 
 	gs::settings::GSWindSettings wind;
 	wind.enabled = true;
 	wind.strength = 2.0f;
-	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == 0.0);
+	// AUTO reserves the conservative envelope before per-splat semantic data is read.
+	CHECK(scene.director->test_deformation_visibility_margin_for_scenario(scene.scenario, wind) == doctest::Approx(2.0));
 	GaussianSplatSceneDirector::WorldSubmission submission;
 	GS_NEED(scene.director->get_world_submission(scene.owner->get_instance_id(), &submission));
 	submission.wind_mode = GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT;

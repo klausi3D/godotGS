@@ -363,10 +363,10 @@ TEST_CASE("[GaussianSplatting] Default-constructed Gaussian leaves no member ind
 	// GaussianData::_validate_gpu_payload_locked() (gaussian_data_gpu.cpp:113 and
 	// :116), so a garbage value makes create_gpu_buffer() bail at
 	// gaussian_data_gpu.cpp:187 and return a null RID -- the caller renders
-	// nothing while reporting success. painterly_meta and _padding are NOT
+	// nothing while reporting success. painterly_meta and the former _padding were NOT
 	// validated; painterly_meta is copied straight into the upload struct
 	// (gaussian_gpu_layout.cpp:133) and reaches the shader as a bogus palette id,
-	// and _padding is memcpy'd verbatim into the serialized scene payload
+	// and old _padding reached persistence verbatim (now migrated to semantic = 0)
 	// (gaussian_scene_serializer.cpp:508), making saved bytes non-reproducible.
 	//
 	// Placement-new over 0xFF-filled heap storage makes this deterministic:
@@ -388,7 +388,7 @@ TEST_CASE("[GaussianSplatting] Default-constructed Gaussian leaves no member ind
 	CHECK(g->opacity == 0.0f);
 	CHECK(g->area == 0.0f);
 	CHECK(g->stroke_age == 0.0f);
-	CHECK(g->_padding == 0.0f);
+	CHECK(g->semantic == 0u);
 	CHECK(g->painterly_meta == 0u);
 	CHECK(g->render_meta == 0u);
 	CHECK(g->_padding2[0] == 0.0f);

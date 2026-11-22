@@ -18,13 +18,14 @@ uint64_t hlod_world_key = 0;
     Vector<StaticChunk> static_chunks;
     AABB bounds;
     Dictionary metadata;
+    Ref<GSRegionOverrideState> region_overrides;
     bool has_desired_residency_hint = false;
     int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
     Dictionary desired_renderer_overrides;
     bool casts_shadow = true;
     // Protected by the director's world_mutex, like every other submission field.
     float wind_intensity = 1.0f;
-    uint32_t wind_mode = INSTANCE_WIND_FORCE_DISABLED;
+    uint32_t wind_mode = INSTANCE_WIND_SEMANTIC_INHERIT;
     bool scene_effectors_enabled = false;
     Callable hlod_demotion_callback;
     GaussianSplatWorldSubmissionRuntimeStateSnapshot renderer_restore_state;

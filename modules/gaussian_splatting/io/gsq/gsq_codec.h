@@ -9,7 +9,7 @@
 // Page layout (little endian, 256 B of header in front of the frames):
 //
 //   0   u32   magic "GSQ1"
-//   4   u16   codec id (1)
+//   4   u16   codec id (1 or 2)
 //   6   u8    stored SH degree (0..3)
 //   7   u8    flags (bit 0: 21-bit positions, bit 1: per-splat normals)
 //   8   u32   splat count (1..65536)
@@ -38,6 +38,7 @@
 //   DC         r, g, b low bytes, then r | g << 3 | b << 6 of the 11/11/10-bit high bits
 //   SH         one plane per coefficient, biased signed integer, zero is exact
 //   normal     2 planes per axis, only with flag bit 1
+//   semantic   4 byte planes, codec 2 only
 //
 // Determinism (risk K10): the module's GCC/Clang flags include -ffast-math, and a digest that
 // depends on a floating point result is exposed to that and to contraction. So no value that
@@ -61,7 +62,9 @@ struct ZSTD_DCtx_s;
 
 namespace gs_gsq {
 
-constexpr uint32_t kCodecId = 1u;
+constexpr uint32_t kCodecV1 = 1u;
+constexpr uint32_t kCodecId = 2u;
+constexpr bool supported_codec(uint32_t p_codec) { return p_codec == kCodecV1 || p_codec == kCodecId; }
 constexpr uint32_t kSubBlockSplats = 4096u;
 constexpr uint32_t kMaxPageSplats = 65536u;
 constexpr uint32_t kMaxSubBlocks = 16u;
@@ -73,6 +76,7 @@ constexpr uint32_t kDigestBytes = 32u;
 
 // Mirrors gs_world_writer::CodecParams; the defaults are the D-12 pre-registered values.
 struct EncodeParams {
+	uint32_t codec_id = kCodecId; // v1 is retained for compatibility fixtures and explicit old-format output.
 	uint8_t sh_bits[3] = { 6, 5, 5 }; // 2..8
 	uint8_t opacity_bits = 16; // 8..16
 	float pos_step_m = 0.00025f; // Positions take 21 bits when 16 would be coarser than this.
@@ -80,6 +84,7 @@ struct EncodeParams {
 };
 
 struct PageInfo {
+	uint32_t codec_id = 1u;
 	uint32_t splat_count = 0;
 	uint32_t sh_degree = 0;
 	uint32_t sh_high_order = 0; // Vector3 coefficients per splat in the high-order array
@@ -118,11 +123,11 @@ Error parse_page_header(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &
 // parse_page_header() plus the stored SHA-256.
 Error verify_page(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &r_info, String &r_reason);
 
-// SHA-256 of the canonical little-endian decoded fields: every Gaussian field except padding,
+// SHA-256 of canonical decoded fields. v1 excludes semantic; v2 includes it. ABI padding is excluded,
 // then the high-order SH. It covers the floats the decoder produced, so it pins dequantization
 // as well as the quantized integers.
 void decoded_digest(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree,
-		uint8_t r_digest[kDigestBytes]);
+		uint8_t r_digest[kDigestBytes], uint32_t p_codec_id = kCodecId);
 
 // The zstd version the module was compiled against and the one it links (risk K11).
 uint32_t zstd_header_version();

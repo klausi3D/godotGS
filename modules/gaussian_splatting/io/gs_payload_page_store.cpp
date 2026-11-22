@@ -110,6 +110,7 @@ bool PayloadPageStore::_descriptors_equal(const PageDescriptor &p_a, const PageD
 	return p_a.id == p_b.id && p_a.offset == p_b.offset && p_a.stored_bytes == p_b.stored_bytes &&
 			p_a.encoding == p_b.encoding && p_a.splat_count == p_b.splat_count && p_a.sh_degree == p_b.sh_degree &&
 			memcmp(p_a.codec_params.sh_bits, p_b.codec_params.sh_bits, sizeof(p_a.codec_params.sh_bits)) == 0 &&
+			p_a.codec_params.codec_id == p_b.codec_params.codec_id &&
 			p_a.codec_params.opacity_bits == p_b.codec_params.opacity_bits &&
 			memcmp(&p_a.codec_params.pos_step_m, &p_b.codec_params.pos_step_m, sizeof(float)) == 0 &&
 			p_a.codec_params.zstd_level == p_b.codec_params.zstd_level &&
@@ -624,7 +625,7 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 			std::chrono::steady_clock::now() - decode_begin)
 					.count());
 	if (error == OK) {
-		bool matches = info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes &&
+		bool matches = info.codec_id == page.codec_params.codec_id && info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes &&
 				info.sh_degree == page.sh_degree && info.opacity_bits == page.codec_params.opacity_bits &&
 				memcmp(info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
 				memcmp(info.position_min, page.extent, sizeof(float) * 3u) == 0 &&
@@ -655,7 +656,7 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 		uint8_t digest[gs_gsq::kDigestBytes];
 		const auto digest_begin = std::chrono::steady_clock::now();
 		gs_gsq::decoded_digest(r_page.gaussians.ptr(), high_order > 0u ? r_page.sh_high_order.ptr() : nullptr,
-				page.splat_count, page.sh_degree, digest);
+				page.splat_count, page.sh_degree, digest, page.codec_params.codec_id);
 		digest_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - digest_begin)
 						.count());
@@ -666,7 +667,7 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 	}
 	if (error == OK) {
 		record_decoded_content(page.id, r_page.gaussians.ptr(), high_order > 0u ? r_page.sh_high_order.ptr() : nullptr,
-				page.splat_count, page.sh_degree);
+				page.splat_count, page.sh_degree, page.codec_params.codec_id);
 	}
 	const uint64_t decode_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - decode_begin)
@@ -739,7 +740,7 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 	}
 	const uint64_t verify_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - decode_begin).count());
-	if (error == OK && (info.splat_count != p_count || info.sh_degree != p_sh_degree ||
+	if (error == OK && (info.codec_id != p_page.descriptor.codec_params.codec_id || info.splat_count != p_count || info.sh_degree != p_sh_degree ||
 			info.sh_high_order != high_order || uint64_t(info.stored_bytes) != page_bytes)) {
 		r_reason = "gsq_page_layout_mismatch";
 		error = ERR_FILE_CORRUPT;
@@ -790,11 +791,11 @@ void PayloadPageStore::record_node_load(uint64_t p_record_verify_nsec, uint64_t 
 }
 
 void PayloadPageStore::record_decoded_content(uint64_t p_id, const Gaussian *p_gaussians, const Vector3 *p_sh,
-		uint32_t p_count, uint32_t p_sh_degree) {
+		uint32_t p_count, uint32_t p_sh_degree, uint32_t p_codec_id) {
 	// Config is immutable after start; caller holds its decode/capture lifetime.
 	if (!config.collect_content_digests) { return; }
 	uint8_t digest[gs_gsq::kDigestBytes];
-	gs_gsq::decoded_digest(p_gaussians, p_sh, p_count, p_sh_degree, digest);
+	gs_gsq::decoded_digest(p_gaussians, p_sh, p_count, p_sh_degree, digest, p_codec_id);
 	const String value = String::hex_encode_buffer(digest, sizeof(digest));
 	MutexLock lock(mutex);
 	if (state != RUNNING) { return; }

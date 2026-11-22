@@ -4,6 +4,7 @@
 #include "../io/gs_atomic_file_writer.h"
 #include "core/io/dir_access.h"
 #include "gaussian_splat_hlod_bake.h"
+#include "gaussian_splat_bake_semantics.h"
 #include "gaussian_splat_hlod_job.h"
 #include "gs_vector_alloc.h"
 #include "core/os/os.h"
@@ -118,7 +119,7 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_chunk_aabbs"), &GaussianSplatWorld::get_chunk_aabbs);
     ClassDB::bind_method(D_METHOD("clear"), &GaussianSplatWorld::clear);
     ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianSplatWorld::save_to_file);
-    ClassDB::bind_method(D_METHOD("bake_hlod"), &GaussianSplatWorld::bake_hlod);
+    ClassDB::bind_method(D_METHOD("bake_hlod", "options"), &GaussianSplatWorld::bake_hlod, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("save_hlod_paged", "path"), &GaussianSplatWorld::save_hlod_paged);
     ClassDB::bind_method(D_METHOD("has_hlod_paged_source"), &GaussianSplatWorld::has_hlod_paged_source);
     ClassDB::bind_method(D_METHOD("get_hlod_payload_source_generation"), &GaussianSplatWorld::get_hlod_payload_source_generation);
@@ -227,6 +228,11 @@ void GaussianSplatWorld::_assign_gaussian_data_locked(const Ref<GaussianData> &p
         hlod_tree.leaf_payload_revision_valid = true;
     }
     gaussian_data = p_data;
+    if (gaussian_data.is_valid() && gaussian_data->has_meta("gs_ply_semantics")) {
+        metadata["gs_ply_semantics"] = gaussian_data->get_meta("gs_ply_semantics");
+    } else if (!p_keep_hlod) {
+        metadata.erase("gs_ply_semantics");
+    }
     if (gaussian_data.is_valid()) {
         RWLockRead data_lock(gaussian_data->data_rwlock);
         splat_count_metadata = gaussian_data->get_count();
@@ -460,6 +466,7 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
             interior_extent.sh_high_order_count = hlod_tree.sh_high_order_count;
             interior_extent.interior_file_path = hlod_tree.interior_file_path;
             interior_extent.interior_gaussian_offset = hlod_tree.interior_gaussian_offset;
+            interior_extent.interior_gaussian_layout_version = hlod_tree.interior_gaussian_layout_version;
             interior_extent.interior_sh_offset = hlod_tree.interior_sh_offset;
             load_interior = true;
         }
@@ -850,8 +857,8 @@ static bool _probe_bake_payload(uint64_t p_gaussian_bytes, uint64_t p_sh_bytes, 
             gs_hlod::bake_allocation_probe(p_sh_bytes, p_where_sh);
 }
 
-Error GaussianSplatWorld::bake_hlod() {
-    return _bake_hlod(false);
+Error GaussianSplatWorld::bake_hlod(const Dictionary &p_options) {
+    return _bake_hlod(false, p_options);
 }
 
 Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, const String &p_candidate_path) const
@@ -952,7 +959,22 @@ Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, con
 	return report;
 }
 
-Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
+Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection, const Dictionary &p_options) {
+    for (const Variant &key : p_options.keys()) {
+        const String name = key;
+        const Variant::Type type = name == "volumes" ? Variant::ARRAY : (name == "island_output_dir" ? Variant::STRING : Variant::BOOL);
+        ERR_FAIL_COND_V_MSG((name != "volumes" && name != "island_output_dir" && name != "measure_region_compression") || p_options[key].get_type() != type,
+                ERR_INVALID_PARAMETER, "semantic_bake_option");
+    }
+    Dictionary baked_metadata, semantic_report;
+    // Only newly created island files are owned by this bake. Roll them back if
+    // any later allocation, concurrent-edit check or publication fails.
+    struct IslandRollback {
+        Vector<String> paths; bool committed = false;
+        ~IslandRollback() { if (!committed) { for (const String &path : paths) {
+            if (DirAccess::remove_absolute(path) != OK) { ERR_PRINT("semantic_island_cleanup_failed: " + path); }
+        } } }
+    } islands;
     // The 2D flag is carried through, not refused: the PLY loader sets it for any PLY with
     // nx/ny/nz (io/ply_loader.cpp, "has_normals"), which standard 3DGS exports carry, and no
     // shader reads it (GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D in gs_instance_layout.glsl
@@ -972,6 +994,7 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
         original_is_2d = is_2d_metadata;
         original_antialiased = antialiased_metadata;
         original_high_order_count = sh_high_order_count_metadata;
+        baked_metadata = metadata.duplicate(true);
     }
     ERR_FAIL_COND_V_MSG(original_data.is_null() && (original_source.is_null() || !original_source->is_valid()),
             ERR_UNCONFIGURED, "GaussianSplatWorld.bake_hlod(): no resident or file-backed payload to bake.");
@@ -1034,12 +1057,42 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
         input.sh_high_order_count = sh_high_order_count;
         input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
         gs_hlod::BakeParams params;
+        params.interior.measure_region_compression = p_options.get("measure_region_compression", false);
+        const Array volumes = p_options.get("volumes", Array());
+        Dictionary source_metadata = baked_metadata.duplicate(true);
+        if (original_data.is_valid() && original_data->has_meta("gs_ply_semantics")) {
+            source_metadata["gs_ply_semantics"] = original_data->get_meta("gs_ply_semantics");
+        }
+        gs_hlod::SplatList semantic_world;
+        if (!volumes.is_empty() || source_metadata.has("gs_ply_semantics")) {
+            const Array old_islands = source_metadata.get("islands", Array());
+            String semantic_reason;
+            const Error semantic_error = gs_hlod::prepare_semantic_bake(input, volumes, source_metadata,
+                    p_options.get("island_output_dir", ""), semantic_world, baked_metadata, semantic_report, semantic_reason, is_2d);
+            ERR_FAIL_COND_V_MSG(semantic_error != OK, semantic_error, semantic_reason);
+            const Array new_islands = baked_metadata.get("islands", Array());
+            for (int i = old_islands.size(); i < new_islands.size(); ++i) {
+                const Dictionary entry = new_islands[i]; islands.paths.push_back(entry.get("asset_path", ""));
+            }
+            ERR_FAIL_COND_V_MSG(semantic_world.size() == 0, ERR_INVALID_DATA, "semantic_world_empty_after_island_extraction");
+            input.gaussians = semantic_world.gaussians.ptr(); input.count = semantic_world.size();
+            input.sh_high_order = semantic_world.sh_high_order.ptr();
+        }
         params.mode = p_quality_selection ? gs_hlod::BakeParams::QUALITY_SELECTION : gs_hlod::BakeParams::MERGE_ONLY;
         String error;
         Error bake_err = ERR_INVALID_DATA;
         if (!gs_hlod::bake_world(input, params, result, &error, &bake_err)) {
             ERR_FAIL_V_MSG(bake_err, vformat("GaussianSplatWorld.bake_hlod(): %s", error));
         }
+        if (params.interior.measure_region_compression) {
+            const auto &stats = result.tree.bake_stats;
+            semantic_report["region_keyed_interior_bytes"] = int64_t(stats.region_keyed_interior_bytes);
+            semantic_report["single_region_interior_bytes"] = int64_t(stats.single_region_interior_bytes);
+            if (stats.single_region_interior_bytes) {
+                semantic_report["region_key_compression_ratio"] = double(stats.region_keyed_interior_bytes) / double(stats.single_region_interior_bytes);
+            } else { semantic_report["region_key_compression_ratio_unavailable_reason"] = "no interior payload"; }
+        }
+        if (!semantic_report.is_empty()) { baked_metadata["bake_report"] = semantic_report; }
     }
 
     // Build every fallible piece of the replacement before touching the world, so a failure
@@ -1083,6 +1136,7 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
         hlod_tree.leaf_payload_revision = baked->get_content_revision();
         hlod_tree.leaf_payload_revision_valid = true;
         static_chunks = leaf_chunks;
+        metadata = baked_metadata;
     };
     {
         MutexLock world_lock(render_input_mutex);
@@ -1102,6 +1156,7 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
         ++render_input_epoch;
     }
     // Notifications must run after the original data lock has been released.
+    islands.committed = true;
     notify_property_list_changed();
     emit_changed();
     return OK;

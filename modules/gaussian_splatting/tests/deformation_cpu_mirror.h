@@ -13,6 +13,7 @@
 
 #include "core/math/math_funcs.h"
 #include "core/math/vector3.h"
+#include "../core/gaussian_semantic.h"
 
 #include <cstdint>
 
@@ -24,6 +25,7 @@ enum WindMode : uint32_t {
 	WIND_MODE_INHERIT = 0u,
 	WIND_MODE_FORCE_DISABLED = 1u,
 	WIND_MODE_FORCE_ENABLED = 2u,
+	WIND_MODE_SEMANTIC_INHERIT = 3u,
 };
 
 inline uint32_t wind_hash_u32(uint32_t v) {
@@ -59,12 +61,21 @@ inline float wind_distance_level_fade(const Vector3 &rest_from_camera, uint32_t 
 			CLAMP(1.0f - float(level) / 4.0f, 0.0f, 1.0f);
 }
 
+inline float splat_wind_weight(uint32_t semantic, float opacity, WindMode mode, bool force_legacy = false) {
+	const float legacy = 0.2f + 0.8f * CLAMP(1.0f - opacity, 0.0f, 1.0f);
+	if (force_legacy) { return legacy; }
+	if (gaussian_semantic_valid(semantic)) { return float(gaussian_semantic_wind_weight(semantic)) / 255.0f; }
+	return mode == WIND_MODE_SEMANTIC_INHERIT ? 0.0f : legacy;
+}
+
 inline float wind_displacement(const Vector3 &scene_rest_position, float time_seconds, float temporal_frequency,
-		float spatial_frequency, float strength, float opacity, float row_intensity, float deformation_fade) {
-	const float resistance = 0.2f + 0.8f * CLAMP(1.0f - opacity, 0.0f, 1.0f);
+		float spatial_frequency, float strength, float opacity, float row_intensity, float deformation_fade,
+		uint32_t semantic = 0, WindMode mode = WIND_MODE_INHERIT, bool force_legacy = false) {
+	if (mode == WIND_MODE_FORCE_DISABLED) { return 0.0f; }
+	const float weight = splat_wind_weight(semantic, opacity, mode, force_legacy);
 	const float phase = float(scene_rest_position.x + scene_rest_position.z) * spatial_frequency +
 			time_seconds * temporal_frequency + wind_phase_noise(scene_rest_position);
-	return Math::sin(phase) * strength * resistance * MAX(row_intensity, 0.0f) * CLAMP(deformation_fade, 0.0f, 1.0f);
+	return Math::sin(phase) * strength * weight * MAX(row_intensity, 0.0f) * CLAMP(deformation_fade, 0.0f, 1.0f);
 }
 
 // Mirror of the per-instance wind-strength fallback path in

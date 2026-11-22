@@ -976,6 +976,9 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 	p_file->seek(ext.node_table_offset);
 	for (uint32_t i = 0; i < ext.node_count; i++) {
 		tree.nodes[i] = _read_hlod_node(p_file);
+		if (gaussian_resolve_persisted_layout_version(p_recorded_layout) == 1u && tree.nodes[i].is_semantic_valid()) {
+			return refuse("semantic_node_flag_in_legacy_layout");
+		}
 	}
 	tree.top_level_nodes.resize(ext.top_level_node_count);
 	if (ext.top_level_node_count > 0u) {
@@ -1052,6 +1055,7 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		} else if (!_read_exact(p_file, all.ptr(), gaussian_bytes)) {
 			return refuse("short read in the gaussian section");
 		}
+		if (!gaussian_prepare_persisted_payload(all.ptr(), uint32_t(total), p_recorded_layout, &reason)) { return refuse(reason); }
 		LocalVector<Vector3> all_sh;
 		if (sh_count > 0u) {
 			all_sh.resize(uint32_t(sh_count));
@@ -1104,6 +1108,7 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 			if (!_read_exact(p_file, scratch.ptr(), uint64_t(node.payload_count) * sizeof(Gaussian))) {
 				return refuse("short read in HLOD node payload");
 			}
+			if (!gaussian_prepare_persisted_payload(scratch.ptr(), node.payload_count, p_recorded_layout, &reason)) { return refuse(reason); }
 			if (sh_count > 0u) {
 				p_file->seek(p_sh_offset + node.payload_first * p_sh_high_order * sizeof(Vector3));
 				if (!_read_exact(p_file, scratch_sh.ptr(), uint64_t(node.payload_count) * p_sh_high_order * sizeof(Vector3))) {
@@ -1116,6 +1121,7 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		}
 		tree.interior_resident = false;
 		tree.interior_file_path = p_path;
+		tree.interior_gaussian_layout_version = p_recorded_layout;
 		tree.interior_gaussian_offset = p_gaussian_offset + uint64_t(p_splat_count) * sizeof(Gaussian);
 		tree.interior_sh_offset = sh_count > 0u ? p_sh_offset + uint64_t(p_splat_count) * p_sh_high_order * sizeof(Vector3) : 0u;
 	}
@@ -1452,7 +1458,7 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
 		uint64_t p_sh_offset, uint64_t p_chunk_table_offset, uint64_t p_indices_offset, uint64_t p_metadata_offset,
-		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, Error *r_error, float *r_progress,
+		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, uint32_t p_recorded_layout, Error *r_error, float *r_progress,
 		bool p_force_resident, bool p_skip_static_chunk_indices) {
 	auto refuse = [&](Error p_err, const String &p_why) {
 		if (r_error) {
@@ -1464,11 +1470,15 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 	// Paged extension (the W16 codec block and the page directory).
 	p_file->seek(gs_world_format::kPrefixBytes);
 	const uint32_t codec_id = p_file->get_32();
-	if (codec_id != gs_gsq::kCodecId) {
+	if (!gs_gsq::supported_codec(codec_id)) {
 		// A codec this build does not know: refused like an unknown flag, never guessed.
 		return refuse(ERR_FILE_UNRECOGNIZED, vformat("gsq_unknown_codec: codec id %d", codec_id));
 	}
+	if (codec_id == gs_gsq::kCodecId && p_recorded_layout == 1u) {
+        return refuse(ERR_FILE_CORRUPT, "gsq_layout_codec_mismatch");
+    }
 	gs_gsq::EncodeParams params;
+	params.codec_id = codec_id;
 	for (int i = 0; i < 3; i++) {
 		params.sh_bits[i] = p_file->get_8();
 	}
@@ -1656,7 +1666,7 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 			if (gs_gsq::verify_page(page_bytes.ptr(), page.stored_bytes, info, reason) != OK) {
 				return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
 			}
-			bool matches = info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes && info.sh_degree == p_sh_degree &&
+			bool matches = info.codec_id == codec_id && info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes && info.sh_degree == p_sh_degree &&
 					info.opacity_bits == params.opacity_bits && memcmp(info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
 					memcmp(info.position_min, page.extent, sizeof(float) * 3u) == 0 && memcmp(info.position_max, page.extent + 3, sizeof(float) * 3u) == 0;
 			for (int i = 0; i < 3; i++) {
@@ -1672,7 +1682,7 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 				return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
 			}
 			uint8_t digest[gs_gsq::kDigestBytes];
-			gs_gsq::decoded_digest(dst, dst_sh, page.splat_count, p_sh_degree, digest);
+			gs_gsq::decoded_digest(dst, dst_sh, page.splat_count, p_sh_degree, digest, codec_id);
 			if (memcmp(digest, page.decoded_digest, gs_gsq::kDigestBytes) != 0) {
 				return refuse(ERR_FILE_CORRUPT, vformat("gsq_decoded_digest_mismatch: page %d", p));
 			}
@@ -1836,7 +1846,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 
 	// Legacy v1 and HLOD v2 use the historical layout. v3 records it explicitly.
 	const uint32_t recorded_layout = header.has_layout_word ? file->get_32() : GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED;
-	if (recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+	if (!gaussian_persisted_layout_supported(recorded_layout)) {
 		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: its splats were written with Gaussian struct layout %d, but this build reads layout %d. Re-export the world from its source with this build.",
 				p_path, recorded_layout, GAUSSIAN_STRUCT_LAYOUT_VERSION));
 		if (r_error) {
@@ -1853,7 +1863,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	if (header.has_paged_chunks) {
 		return _load_gsplatworld_gsq_chunks(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
 				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
-				metadata_offset, metadata_size, header, r_error, r_progress, p_force_resident, p_skip_static_chunk_indices);
+				metadata_offset, metadata_size, header, recorded_layout, r_error, r_progress, p_force_resident, p_skip_static_chunk_indices);
 	}
 	if (header.has_hlod) {
 		return _load_gsplatworld_hlod(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
@@ -2052,6 +2062,14 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 		}
 	}
 
+	if (should_materialize_resident_payload) {
+        String semantic_reason;
+        if (!gaussian_prepare_persisted_payload(gaussians.ptr(), gaussians.size(), recorded_layout, &semantic_reason)) {
+            ERR_PRINT(semantic_reason);
+            if (r_error) { *r_error = ERR_FILE_CORRUPT; }
+            return Ref<Resource>();
+        }
+    }
 	LocalVector<Vector3> sh_high_coeffs;
 	if (should_materialize_resident_payload && (flags & kFlagHasHighSh) != 0 && sh_high_order > 0) {
 		uint64_t sh_count = 0;

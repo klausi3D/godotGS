@@ -119,7 +119,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): w
 		CHECK(TestGSWorldWriter::ww_u64_at(bytes, 64) == 0u);
 		CHECK(TestGSWorldWriter::ww_u64_at(bytes, 80) == 0u);
 		// W16: the codec block in the paged extension is the one the writer was given.
-		const gs_world_writer::CodecParams codec = gs_world_writer::gsq_v1_codec_params();
+		const gs_world_writer::CodecParams codec = gs_world_writer::gsq_v2_codec_params();
 		const int64_t ext = int64_t(gs_world_format::kPrefixBytes);
 		CHECK(pc_u32(bytes, ext + 0) == codec.codec_id);
 		CHECK(bytes[ext + 4] == codec.sh_bits[0]);
@@ -324,7 +324,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): a
 		// The next unknown flag is refused exactly as bit 7 was before this package.
 		{ "unknown flag bit 8", 8, flags | (1u << 8u), ERR_FILE_UNRECOGNIZED },
 		// An unknown codec id in the paged extension is refused, not guessed.
-		{ "codec id 2", int64_t(gs_world_format::kPrefixBytes), 2u, ERR_FILE_UNRECOGNIZED },
+		{ "unknown codec id 3", int64_t(gs_world_format::kPrefixBytes), 3u, ERR_FILE_UNRECOGNIZED },
 		// A reader that ignored bit 7 would see no splat section of the declared size: refused.
 		{ "bit 7 cleared", 8, flags & ~gs_world_format::kFlagPagedChunks, ERR_FILE_CORRUPT },
 		// Bit 7 never combines with the whole-section gzip or HLOD, and needs its chunk table.
@@ -364,7 +364,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): w
 	PCWorld no_table = pc_make(0u);
 	no_table.spec.write_chunk_table = false;
 	Writer writer;
-	CHECK(writer.begin_plain(path, no_table.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded()) == ERR_INVALID_PARAMETER);
+	CHECK(writer.begin_plain(path, no_table.spec, gs_world_writer::gsq_v2_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded()) == ERR_INVALID_PARAMETER);
 	CHECK(writer.get_error_message().contains("write_chunk_table"));
 	CHECK(ww_list(dir).size() == 0);
 	ww_remove_dir(dir);
@@ -382,7 +382,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): o
 	Limits out = Limits::unbounded();
 	out.max_output_bytes = 16384u;
 	Writer ow;
-	REQUIRE(ow.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, out) == OK);
+	REQUIRE(ow.begin_plain(path, w.spec, gs_world_writer::gsq_v2_codec_params(), SourceMode::SINGLE_PASS, out) == OK);
 	CHECK(ow.get_report().output_estimate_bytes == 16384u);
 	CHECK(ow.append_chunk(w.descs[0], w.src.gaussians.ptr(), w.src.sh_high.ptr(), w.counts[0]) == ERR_PARAMETER_RANGE_ERROR);
 	CHECK(ow.get_report().reason == "limit_output");
@@ -391,14 +391,14 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): o
 
 	// RAM: exactly the preflight estimate passes begin; holding chunk 0's pages exceeds it.
 	Writer probe;
-	REQUIRE(probe.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded()) == OK);
+	REQUIRE(probe.begin_plain(path, w.spec, gs_world_writer::gsq_v2_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded()) == OK);
 	const uint64_t ram_estimate = probe.get_report().ram_estimate_bytes;
 	probe.abort();
 	CHECK(probe.get_report().reason == "aborted");
 	Limits ram = Limits::unbounded();
 	ram.max_ram_bytes = ram_estimate;
 	Writer rw;
-	REQUIRE(rw.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, ram) == OK);
+	REQUIRE(rw.begin_plain(path, w.spec, gs_world_writer::gsq_v2_codec_params(), SourceMode::SINGLE_PASS, ram) == OK);
 	CHECK(rw.append_chunk(w.descs[0], w.src.gaussians.ptr(), high > 0u ? w.src.sh_high.ptr() : nullptr, w.counts[0]) == ERR_PARAMETER_RANGE_ERROR);
 	CHECK(rw.get_report().reason == "limit_ram");
 	CHECK(rw.get_report().ram_peak_bytes > ram_estimate);
@@ -407,7 +407,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): o
 	// Unbounded, the same world commits and the Report counts its pages.
 	uint32_t pages = 0;
 	Writer cw;
-	Error err = cw.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded());
+	Error err = cw.begin_plain(path, w.spec, gs_world_writer::gsq_v2_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded());
 	uint32_t base = 0;
 	for (uint32_t c = 0; err == OK && c < w.counts.size(); c++) {
 		err = cw.append_chunk(w.descs[c], w.src.gaussians.ptr() + base, high > 0u ? w.src.sh_high.ptr() + uint64_t(base) * high : nullptr, w.counts[c]);

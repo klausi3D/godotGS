@@ -48,6 +48,9 @@ func _init() -> void:
 		"scratch_dir": request["scratch"],
 		"limits": limits,
 	}
+	for key in ["volumes", "island_output_dir", "measure_region_compression"]:
+		if job.has(key):
+			options[key] = job[key]
 	var builder: Dictionary = api.call("build", request["input"], request["output"], options)
 	var report := {"builder": builder}
 	if builder.get("error", FAILED) != OK:

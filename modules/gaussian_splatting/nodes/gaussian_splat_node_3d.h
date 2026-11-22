@@ -11,6 +11,7 @@
 #define GAUSSIAN_SPLAT_NODE_3D_H
 
 #include "scene/3d/node_3d.h"
+#include "../resources/gaussian_splat_region_override.h"
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_quality_config.h"
 #include "../core/painterly_manager.h"
@@ -80,6 +81,8 @@ class GaussianSplatDebugHUD;
  */
 class GaussianSplatNode3D : public Node3D {
     GDCLASS(GaussianSplatNode3D, Node3D);
+    Ref<GSRegionOverrideState> region_overrides;
+    void _sync_region_overrides();
 
 public:
     /**
@@ -714,6 +717,15 @@ public:
     bool is_occlusion_culling_enabled() const { return use_occlusion_culling; }
 
     /** @brief Sets the per-instance opacity multiplier for this node. */
+    int get_region_id(const StringName &p_name) const;
+    PackedStringArray get_region_names() const;
+    void set_region_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override);
+    void clear_region_override(int p_region);
+    void clear_all_region_overrides();
+    void set_tint(const Color &p_color, float p_strength);
+    void set_emissive(const Color &p_color);
+    void set_hidden(bool p_hidden);
+
     void set_opacity(float p_opacity);
     float get_opacity() const { return opacity; }
 

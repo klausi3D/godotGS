@@ -747,7 +747,7 @@ Error GaussianSceneSerializer::_read_scene_header(Ref<FileAccess> file, SceneHea
 }
 
 Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header,
-        uint32_t p_declared_splat_count, uint16_t p_version, LoadStaging &r_staging) const {
+        uint32_t p_declared_splat_count, uint16_t p_version, uint32_t p_recorded_layout, LoadStaging &r_staging) const {
     const uint64_t corroborated_max_size = p_version >= 3
             ? ScenePayload::PREFIX_SIZE + uint64_t(p_declared_splat_count) * (ScenePayload::RECORD_SIZE + ScenePayload::MAX_HIGH_ORDER * 12)
             : uint64_t(sizeof(uint32_t)) + uint64_t(p_declared_splat_count) * sizeof(Gaussian);
@@ -806,6 +806,9 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     if (count > 0) {
         r_gaussians.resize(count);
         memcpy(r_gaussians.ptr(), r + sizeof(uint32_t), uint64_t(count) * sizeof(Gaussian));
+        // Historical raw records resolve to layout 1; never interpret their padding.
+        String semantic_reason;
+        ERR_FAIL_COND_V_MSG(!gaussian_prepare_persisted_payload(r_gaussians.ptr(), count, p_recorded_layout, &semantic_reason), ERR_FILE_CORRUPT, semantic_reason);
     }
 
     // Legacy records embedded SH1 but carried no structural metadata.
@@ -1090,7 +1093,7 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
         switch (chunk.type) {
             case ChunkType::GAUSSIAN_DATA:
                 ERR_FAIL_COND_V(header.version >= 3 && r_staging.has_gaussian_chunk, ERR_FILE_CORRUPT);
-                err = _read_gaussian_data_chunk(file, chunk, header.splat_count, header.version, r_staging);
+                err = _read_gaussian_data_chunk(file, chunk, header.splat_count, header.version, gaussian_resolve_persisted_layout_version(header.gaussian_layout_version), r_staging);
                 if (err == OK) {
                     r_staging.has_gaussian_chunk = true;
                 }
@@ -1254,7 +1257,7 @@ Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &f
     // later store canonical little-endian records validated by their own wire schema
     // (ScenePayload), independent of the in-memory struct, so the word is not a gate there.
     const uint32_t recorded_layout = gaussian_resolve_persisted_layout_version(scene_header.gaussian_layout_version);
-    ERR_FAIL_COND_V_MSG(scene_header.version < 3 && recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION, ERR_FILE_UNRECOGNIZED, vformat(
+    ERR_FAIL_COND_V_MSG(scene_header.version < 3 && !gaussian_persisted_layout_supported(recorded_layout), ERR_FILE_UNRECOGNIZED, vformat(
             "Gaussian scene file '%s' was written with Gaussian struct layout %d, but this build reads layout %d. "
             "Re-save the scene from its source with this build.",
             file_path, (int)recorded_layout, (int)GAUSSIAN_STRUCT_LAYOUT_VERSION));

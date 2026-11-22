@@ -306,7 +306,7 @@ Error GaussianData::populate_from_asset(const Ref<GaussianSplatAsset> &p_asset) 
 
         g.normal = normals[i];
         g.stroke_age = stroke_ages[i];
-        g._padding = 0.0f;
+        g.semantic = 0u;
         g.brush_axes = brush_axes[i];
         g.painterly_meta = gaussian_pack_painterly_meta(
                 uint16_t(CLAMP(palette_ids[i], 0, 65535)),
@@ -327,6 +327,17 @@ Error GaussianData::populate_from_asset(const Ref<GaussianSplatAsset> &p_asset) 
     }
 
     Dictionary import_metadata = p_asset->get_import_metadata();
+    const Variant semantic_value = import_metadata.get("gs_ply_semantics", Dictionary());
+    ERR_FAIL_COND_V_MSG(semantic_value.get_type() != Variant::DICTIONARY, ERR_INVALID_DATA, "semantic_ply_side_data_type");
+    const Dictionary semantic_side = semantic_value;
+    ERR_FAIL_COND_V_MSG(semantic_side.has("semantic_words") && semantic_side["semantic_words"].get_type() != Variant::PACKED_INT32_ARRAY, ERR_INVALID_DATA, "semantic_ply_side_data_type");
+    const PackedInt32Array semantic_words = semantic_side.get("semantic_words", PackedInt32Array());
+    ERR_FAIL_COND_V_MSG(!semantic_side.is_empty() && semantic_words.size() != splat_count, ERR_INVALID_DATA, "semantic_ply_side_data_count");
+    for (int i = 0; i < semantic_words.size(); ++i) {
+        const uint32_t word = uint32_t(semantic_words[i]);
+        ERR_FAIL_COND_V_MSG(!gaussian_semantic_validate(word), ERR_INVALID_DATA, "semantic_reserved_bits");
+        staged_gaussians[i].semantic = word;
+    }
     const GaussianDCEncoding staged_dc_encoding = _resolve_dc_encoding_from_metadata(import_metadata);
     for (int i = 0; i < splat_count; i++) {
         staged_gaussians[i].render_meta =
@@ -345,6 +356,8 @@ Error GaussianData::populate_from_asset(const Ref<GaussianSplatAsset> &p_asset) 
             staged_high_order_count,
             staged_is_2d_mode,
             GaussianSplatAsset::resolve_antialiased_from_metadata(import_metadata));
+    if (!semantic_side.is_empty()) { set_meta("gs_ply_semantics", semantic_side); }
+    else { remove_meta("gs_ply_semantics"); }
     return OK;
 }
 
@@ -373,6 +386,10 @@ Error GaussianData::save_to_file(const String &p_path, bool p_include_painterly_
         }
     }
 
+    for (const Gaussian &g : snapshot.gaussians) {
+        ERR_FAIL_COND_V_MSG(g.semantic != 0u, ERR_UNAVAILABLE,
+                "semantic_export_unsupported: PLY export cannot carry the semantic word; save GSF or gsplatworld.");
+    }
     const uint32_t high_order_slots = uint32_t(SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL) - SAVE_TO_FILE_SH_FIRST_ORDER_TERMS;
     if (snapshot.sh_high_order_count > high_order_slots) {
         // A PLY has room for degree 3 (15 non-DC terms). Anything above that cannot

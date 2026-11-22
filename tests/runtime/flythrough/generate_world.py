@@ -35,7 +35,7 @@ WORLD_NAME = "world.gsplatworld"
 MANIFEST_NAME = "world.manifest.json"
 ENCODINGS = ("plain_v3_uncompressed", "plain_v3_gsq")
 #: --encoding -> the generator's codec argument (GaussianSplatWorldGenerator.generate).
-CODEC_FOR_ENCODING = {"plain_v3_uncompressed": "none", "plain_v3_gsq": "gsq_v1"}
+CODEC_FOR_ENCODING = {"plain_v3_uncompressed": "none", "plain_v3_gsq": "gsq_v2"}
 TIERS = ("T0", "A", "A-mini", "T-smoke")
 
 sys.path.insert(0, str(HERE))

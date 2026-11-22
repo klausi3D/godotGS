@@ -67,6 +67,7 @@ struct TiledBakeTestHooks {
 #endif
 
 struct TiledBakeParams {
+	bool measure_region_compression = false;
 	uint32_t max_tile_splats = 1000000; // must be > kMaxNodeSplats
 	uint32_t worker_count = 1; // concurrency ceiling; admission can run smaller batches
 	uint64_t source_decoder_bytes = 0; // private source decoder scratch per concurrent read
@@ -104,6 +105,8 @@ public:
 };
 
 struct TiledBakeReport {
+	uint64_t region_keyed_interior_bytes = 0;
+	uint64_t single_region_interior_bytes = 0;
 	uint32_t tiles_planned = 0;
 	uint32_t tiles_baked = 0;
 	uint32_t largest_tile_splats = 0;

@@ -893,7 +893,7 @@ def _hlod_transition_proof_failures(metrics: Dict[str, object]) -> List[str]:
         # ABI sizes from gaussian_gpu_layout.h; the consumer checks full current
         # bytes, not a caller-supplied success bit or a hash of an unknown range.
         for actual, expected, size in (("atlas_hex", "source_leaf_hex", count * 176),
-                                       ("instance_hex", "expected_instance_hex", 112),
+                                       ("instance_hex", "expected_instance_hex", 128),
                                        ("grading_hex", "expected_grading_hex", 32)):
             raw = value.get(actual)
             if (not isinstance(raw, str) or len(raw) != size * 2

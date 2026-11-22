@@ -420,6 +420,8 @@ Error GaussianSplatHlodTree::read_interior_payload(LocalVector<Gaussian> &r_gaus
 	r_gaussians.resize(interior_splat_count);
 	file->seek(interior_gaussian_offset);
 	ERR_FAIL_COND_V(file->get_buffer(reinterpret_cast<uint8_t *>(r_gaussians.ptr()), gaussian_bytes) != gaussian_bytes, ERR_FILE_CORRUPT);
+	String semantic_reason;
+	ERR_FAIL_COND_V_MSG(!gaussian_prepare_persisted_payload(r_gaussians.ptr(), r_gaussians.size(), interior_gaussian_layout_version, &semantic_reason), ERR_FILE_CORRUPT, semantic_reason);
 	if (sh_bytes > 0u) {
 		ERR_FAIL_COND_V(sh_count > UINT32_MAX, ERR_FILE_CORRUPT);
 		ERR_FAIL_COND_V(interior_sh_offset > len || sh_bytes > len - interior_sh_offset, ERR_FILE_CORRUPT);

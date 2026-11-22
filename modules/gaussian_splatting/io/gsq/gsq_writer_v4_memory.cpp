@@ -29,7 +29,7 @@ uint64_t gs_world_paged::gsq_record_stored_bytes_limit(uint32_t p_count, uint32_
 	// Maximum planes: 21-bit positions, scale/rotation/opacity/DC, all SH,
 	// per-splat normals. parse_page_header checks the tighter actual frame bound.
 	const uint32_t sh = p_sh_degree == 0 ? 0 : 9 + 3 * gs_gsq::sh_high_order_for_degree(p_sh_degree);
-	const uint32_t planes = 9 + 14 + sh + 6;
+	const uint32_t planes = 9 + 14 + sh + 6 + 4;
 	uint64_t bytes = kPayloadRecordHeaderBytes + gs_gsq::kPageHeaderBytes;
 	for (uint32_t first = 0; first < p_count; first += gs_gsq::kSubBlockSplats) {
 		const uint32_t count = MIN(p_count - first, gs_gsq::kSubBlockSplats);
@@ -42,7 +42,7 @@ uint64_t gs_world_paged::gsq_decode_workspace_bytes() {
 	const uint32_t sh = 9 + 3 * gs_gsq::sh_high_order_for_degree(gs_gsq::kMaxShDegree);
 	// A pooled context may retain its largest prior sub-block. Include capacity
 	// growth and SH3 even when this particular read has fewer splats or bands.
-	const uint32_t planes = 9 + 14 + sh + 6;
+	const uint32_t planes = 9 + 14 + sh + 6 + 4;
 	return ZSTD_estimateDCtxSize() + sizeof(gs_gsq::DecodeContext) +
 			uint64_t(2) * gs_gsq::kSubBlockSplats * planes;
 }

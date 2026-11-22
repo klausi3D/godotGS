@@ -12,6 +12,8 @@
 #[compute]
 
 #version 450
+#define GS_GAME_1_CAPTURE_BINDING 27
+#include "includes/gs_game_1_capture.glsl"
 
 #include "includes/platform_compat.glsl"
 
@@ -26,6 +28,9 @@
 #include "includes/tile_projection_common.glsl"
 
 #include "includes/gs_instance_layout.glsl"
+#define GS_REGION_BINDING 26
+#include "includes/gs_region_override.glsl"
+#include "includes/gs_splat_identity.glsl"
 #include "includes/gs_camera_relative.glsl"
 #include "includes/gs_alpha_threshold.glsl"
 #include "includes/quantization_dequant.glsl"
@@ -57,10 +62,10 @@ struct Gaussian {
     float opacity;
 
     vec3 scale;
-    // Explicit padding, NOT a data lane. std430 aligns vec3 to 16 bytes, so
-    // `rotation` sits at offset 32 either way; this holds the host struct to
-    // the same offset. Previously `area`, which no shader ever read.
-    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
+    // Per-splat semantic word (ADR dynamics 6.2.1; bits in includes/gs_semantic.glsl).
+    // std430 aligns vec3 to 16 bytes, so `rotation` sits at offset 32 either way;
+    // the word fills the slot that was padding (and before that `area`).
+    uint semantic;  // std430 keeps rotation at offset 32; was `area` (never read)
 
     vec4 rotation; // Quaternion
 
@@ -901,6 +906,10 @@ void main() {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
+    if (splat_ref.instance_id >= uint(instance_buffer.instances.length())) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
     InstanceDataGPU instance = instance_buffer.instances[splat_ref.instance_id];
     uint chunk_sh_limit = gs_splat_ref_sh_limit(splat_ref.atlas_index);
 
@@ -919,6 +928,7 @@ void main() {
 
     Gaussian g;
     g.opacity = src.opacity;
+    g.semantic = src.semantic;
     g.sh_dc = src.sh_dc;
     g.sh_metadata = gs_build_quantized_sh_metadata(24u, (chunk_meta.flags & GS_ASSET_FLAG_DC_LINEAR_RGB) != 0u);
     for (int i = 0; i < 24; ++i) {
@@ -944,6 +954,10 @@ void main() {
 #endif
 
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    if (splat_ref_idx >= uint(hlod_draw_entry_buffer.draw_entries.length())) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
     uint draw_entry = hlod_draw_entry_buffer.draw_entries[splat_ref_idx];
     if (draw_entry >= hlod_draw_list_buffer.entries.length()) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
@@ -955,21 +969,29 @@ void main() {
         return;
     }
     ChunkMetaGPU selected_node = chunk_meta_buffer.chunk_meta[selected.chunk_id];
-    bool address_matches;
+    uint reverse_slot = 0xffffffffu;
     if (selected_node.page_table_ref != 0u) {
         uint physical_page = gaussian_idx >> GS_HLOD_PAGE_SHIFT;
-        address_matches = physical_page < uint(hlod_page_owner.owners.length()) &&
-                hlod_page_owner.owners[physical_page] == selected.chunk_id;
-    } else {
-        address_matches = gaussian_idx >= selected_node.atlas_base &&
-                gaussian_idx - selected_node.atlas_base < selected_node.splat_count;
+        if (physical_page >= uint(hlod_page_owner.owners.length())) {
+            GS_DEBUG_INCREMENT(index_mismatch_count);
+            return;
+        }
+        reverse_slot = hlod_page_owner.owners[physical_page];
     }
-    if (!address_matches) {
+    uint local_splat_index;
+    if (!gs_hlod_local_splat_index(gaussian_idx, reverse_slot, selected_node.page_table_ref,
+            selected_node.atlas_base, selected_node.splat_count, local_splat_index)) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
+    uint identity_hash = gs_splat_identity_hash(selected_node.reserved_node_y, local_splat_index, instance.placement_key);
     vec3 hlod_camera_offset = selected.camera_offset.xyz;
 #endif
+
+    RegionOverrideGPU region_override = gs_region_resolve(instance, g.semantic, gaussian_idx);
+    vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
+    if ((region_override.flags & GS_REGION_HIDE) != 0u || region_emissive_opacity.w == 0.0 ||
+            ((instance.ids.y & GS_INSTANCE_FLAG_SHADOW_PASS) != 0u && (region_override.flags & GS_REGION_NO_SHADOW) != 0u)) { return; }
 
     // Optional per-splat alpha clip. It runs before world transform/projection
     // only when projects opt into an aggressive threshold. The default stays 0
@@ -1006,9 +1028,19 @@ void main() {
 #else
     uint wind_level = 0u;
 #endif
+#ifdef GS_GAME_1_CAPTURE
+    vec3 game_rest_position = world_position + frame_anchor;
+#endif
+    #ifdef GS_GAME_1_CAPTURE
+    if (splat_ref.instance_id == 0u && (gs_game_1.header.w >> 16u) != 0u && wind_level + 1u != (gs_game_1.header.w >> 16u)) { return; }
+#endif
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_ADDRESS_WIND_PHASE)
+    gs_test_wind_atlas_address = gaussian_idx;
+#endif
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             g.opacity,
+            gs_region_wind_semantic(g.semantic, region_override.flags),
             instance_intensity,
             instance_wind_mode,
             instance.wind_params,
@@ -1153,7 +1185,7 @@ void main() {
         float visibility_threshold = min(gs_get_visibility_threshold(), GS_RASTER_ALPHA_THRESHOLD);
         // Use the base opacity (before any fades) for radius calculation
         // This ensures consistent culling regardless of size/aspect fades
-        float base_opacity_for_culling = clamp(max(g.opacity, deformation.opacity) * instance.params.x *
+        float base_opacity_for_culling = clamp(max(g.opacity, deformation.opacity) * region_emissive_opacity.w * instance.params.x *
                 params.opacity_multiplier, 0.0, 1.0);
 
         // Compute opacity-aware sigma (number of standard deviations to extend)
@@ -1196,14 +1228,27 @@ void main() {
     // Wide gap (1/3 ratio) handles view-dependent radius oscillation during camera rotation.
     float enter_threshold = min_allowed_radius;
     float exit_threshold = max(MIN_SPLAT_RADIUS, min_allowed_radius * (1.0 / 3.0));
-    uint history_size = max(params.total_gaussians, 1u);
+    uint history_size = min(params.total_gaussians, uint(subpixel_history.entries.length()));
+    if (history_size == 0u || gaussian_idx >= history_size) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
     uint history_idx = gaussian_idx;
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint history_key = identity_hash & 0x7FFFFFFFu;
+#else
     uint history_key = gs_hash_u32(gaussian_idx) & 0x7FFFFFFFu;
+#endif
+#ifdef GS_ADDRESS_HISTORY
+    history_key = gs_hash_u32(gaussian_idx) & 0x7FFFFFFFu;
     if (splat_ref.instance_id != 0u) {
-        history_idx = gs_hash_u32(gaussian_idx ^ (splat_ref.instance_id * 0x9e3779b9u)) % history_size;
         history_key = gs_hash_u32(gaussian_idx ^ (splat_ref.instance_id * 0x85ebca6bu)) & 0x7FFFFFFFu;
     }
-    uint history_packed = subpixel_history.entries[history_idx];
+#endif
+    uint history_packed = 0u;
+#ifndef GS_TILE_GLOBAL_SORT_EMIT_PASS
+    history_packed = subpixel_history.entries[history_idx];
+#endif
     bool was_visible = ((history_packed & 1u) != 0u) && ((history_packed >> 1u) == history_key);
     float threshold = was_visible ? exit_threshold : enter_threshold;
 
@@ -1224,7 +1269,12 @@ void main() {
     // Only EMIT pass writes to history buffer to prevent COUNT/EMIT visibility mismatch.
     // If both passes write, EMIT sees COUNT's writes and may make different decisions.
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
-    subpixel_history.entries[history_idx] = (history_key << 1u) | (is_visible ? 1u : 0u);
+    // Atlas-indexed slots are collision-free for distinct atlas records, so
+    // scheduling cannot choose another record's key as a last writer. The stable
+    // tag rejects a new tenant, and reassignment clears the range before COUNT.
+    // Shared-asset instance histories remain the separate ADR #1245 limitation.
+    // EMIT uses COUNT's visibility and deliberately does not read this history.
+    atomicExchange(subpixel_history.entries[history_idx], (history_key << 1u) | (is_visible ? 1u : 0u));
 #endif
 
     // Reject truly subpixel splats using pre-low-pass-filter minor radius (#797).
@@ -1374,7 +1424,7 @@ void main() {
     // GS_RASTER_ALPHA_THRESHOLD (no new magic number). Gated on opacity-aware culling so
     // the max-conservative / fidelity-override path is an exact no-op.
     if (gs_is_opacity_aware_culling_enabled()) {
-        float raster_peak_opacity = clamp(max(g.opacity, deformation.opacity) * instance.params.x *
+        float raster_peak_opacity = clamp(max(g.opacity, deformation.opacity) * region_emissive_opacity.w * instance.params.x *
                 params.opacity_multiplier * size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 1.0);
         raster_peak_opacity = min(raster_peak_opacity + GS_RASTER_ALPHA_THRESHOLD * 0.5, 1.0);
         // The rasterizer evaluates alpha with gs_exp_fast (Schraudolph bit-trick, no
@@ -1437,7 +1487,7 @@ void main() {
     // alpha_rescale_proj is the Mip-Splatting companion to the low-pass cov2d dilation
     // applied inside project_gaussian_2d. It is 1.0 for classic-trained assets, which
     // the references render with the dilated footprint at full opacity (#1173).
-    float base_opacity = clamp(deformation.opacity * instance.params.x * params.opacity_multiplier *
+    float base_opacity = clamp(deformation.opacity * region_emissive_opacity.w * instance.params.x * params.opacity_multiplier *
             size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 0.99);
 
     // Evaluate SH for view-dependent color using configurable band level.
@@ -1494,6 +1544,8 @@ void main() {
     sh_color = max(sh_color, vec3(0.0));
     sh_color = apply_color_grading_binning(sh_color, splat_ref.instance_id);
 #endif
+
+    sh_color = gs_region_tint(sh_color, region_override.tint, region_override.flags);
 
     // Debug: force white albedo to isolate lighting contribution (debug_overlay_flags.w).
     if (params.debug_overlay_flags.w > 0.5) {
@@ -1633,6 +1685,8 @@ void main() {
         }
     }
 
+    final_color += region_emissive_opacity.rgb; // Emission is independent of direct and ambient lighting.
+
     // #1168: a NaN/Inf colour (degenerate light direction, extreme grade) would survive the
     // R11G11B10 pack and the raster would accumulate it over the splat's whole footprint;
     // max()/clamp() with a NaN operand are undefined in GLSL. Zero it and count it.
@@ -1652,6 +1706,19 @@ void main() {
     // Pack ProjectedGaussian payload using the active layout (packed or full).
     ProjectedGaussian payload;
     gs_pack_projected_gaussian(payload, screen_pos, linear_depth, base_opacity, sh_color, normal_view, conic, global_idx);
+#if defined(GS_GAME_1_CAPTURE) && defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint game_slot = gs_game_1_slot(selected.chunk_id, local_splat_index, splat_ref.instance_id);
+    if (game_slot != 0xffffffffu && gs_game_1.header.y != 0u && gs_game_1.samples[game_slot].meta.x == 0u) {
+        gs_game_1.samples[game_slot].local_rest = vec4(local_position, 1.0);
+        gs_game_1.samples[game_slot].rest = vec4(game_rest_position, g.opacity);
+        gs_game_1.samples[game_slot].colour = vec4(world_position + frame_anchor, uintBitsToFloat(gs_game_1.samples[0].key.w));
+        gs_game_1.samples[game_slot].screen = vec4(screen_pos, base_opacity, uintBitsToFloat(gaussian_idx));
+        gs_game_1.samples[game_slot].tint = vec4(sh_color, 1.0);
+        gs_game_1.samples[game_slot].meta.x = gs_game_1.header.y;
+        gs_game_1.samples[game_slot].meta.z = g.semantic;
+        gs_game_1.samples[game_slot].meta.w = wind_level;
+    }
+#endif
 
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
     // #1393: bin from COUNT's footprint, read before the payload overwrites the slot. A splat COUNT

@@ -1,4 +1,5 @@
 #include "gaussian_splat_world_3d.h"
+#include "gaussian_splat_node_3d.h"
 
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gs_project_settings.h"
@@ -8,13 +9,17 @@
 #include "../renderer/gs_wind_bounds.h"
 #include "../renderer/quantization_config.h"
 #include "../logger/gs_logger.h"
+#include "../io/gaussian_splat_world_io.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/file_access.h"
 #include "core/math/math_funcs.h"
+#include "core/templates/hash_map.h"
 // #862: the world-resource resubmit is posted to the MAIN message queue
 // explicitly, never to the thread-local override a threaded load installs.
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
+#include "core/os/thread.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/main/viewport.h"
 #include "servers/rendering/renderer_rd/storage_rd/gaussian_splat_storage.h"
@@ -27,24 +32,221 @@ static bool _is_world_debug_enabled() {
     return gs::settings::is_any_debug_log_enabled();
 }
 
+static uint32_t _world_row_wind_mode(GaussianSplatWorld3D::WindMode p_mode) {
+    switch (p_mode) {
+        case GaussianSplatWorld3D::WIND_MODE_ON: return GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT;
+        case GaussianSplatWorld3D::WIND_MODE_OFF: return GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED;
+        default: return GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT;
+    }
+}
+
+struct IslandPlacement {
+    String name;
+    String asset_path;
+    Transform3D rest_transform;
+    int index = 0;
+};
+
+static bool _island_vector(const Variant &p_value, Vector3 &r_vector) {
+    if (p_value.get_type() == Variant::VECTOR3) {
+        r_vector = p_value;
+        return r_vector.is_finite();
+    }
+    if (p_value.get_type() != Variant::ARRAY) { return false; }
+    const Array values = p_value;
+    if (values.size() != 3) { return false; }
+    for (int i = 0; i < 3; ++i) {
+        if (values[i].get_type() != Variant::INT && values[i].get_type() != Variant::FLOAT) { return false; }
+        r_vector[i] = double(values[i]);
+    }
+    return r_vector.is_finite();
+}
+
+static String _island_entry(const Dictionary &p_entry, const String &p_world_path, IslandPlacement &r_island) {
+    if (r_island.name.is_empty() || r_island.name == "." || r_island.name == ".." ||
+            r_island.name.validate_node_name() != r_island.name || r_island.name.strip_edges() != r_island.name) {
+        return "island_name";
+    }
+    const Variant bounds_value = p_entry.get("bounds", Variant());
+    if (bounds_value.get_type() != Variant::DICTIONARY) { return "island_bounds"; }
+    const Dictionary bounds = bounds_value;
+    Vector3 position, size;
+    if (!_island_vector(bounds.get("position", Variant()), position) || !_island_vector(bounds.get("size", Variant()), size) ||
+            size.x < 0 || size.y < 0 || size.z < 0 || !(position + size).is_finite()) { return "island_bounds"; }
+
+    const Variant rest_value = p_entry.get("rest_transform", Variant());
+    if (rest_value.get_type() != Variant::ARRAY) { return "island_rest_transform"; }
+    const Array rest = rest_value;
+    if (rest.size() != 12) { return "island_rest_transform"; }
+    for (int i = 0; i < 12; ++i) {
+        if (rest[i].get_type() != Variant::INT && rest[i].get_type() != Variant::FLOAT) { return "island_rest_transform"; }
+        if (i < 9) { r_island.rest_transform.basis[i / 3][i % 3] = double(rest[i]); }
+        else { r_island.rest_transform.origin[i - 9] = double(rest[i]); }
+    }
+    if (!r_island.rest_transform.is_finite()) { return "island_rest_transform"; }
+
+    const Variant path_value = p_entry.get("asset_path", Variant());
+    if (path_value.get_type() != Variant::STRING || String(path_value).is_empty()) { return "island_asset_path"; }
+    const String path = String(path_value).replace("\\", "/");
+    // B2 writes output_dir.path_join(name + ".gsplatworld"), including absolute
+    // filesystem / res:// / user:// paths. Keep those; never interpret relative
+    // traversal against the process cwd or outside the world file's directory.
+    for (const String &component : path.split("/", false)) {
+        if (component == "..") { return "island_asset_path_escape"; }
+    }
+    if (path.is_absolute_path()) {
+        r_island.asset_path = path.simplify_path();
+    } else {
+        if (p_world_path.is_empty()) { return "island_world_path_missing"; }
+        r_island.asset_path = p_world_path.get_base_dir().path_join(path).simplify_path();
+    }
+    return String();
+}
+
+static String _island_error(const IslandPlacement &p_island, const String &p_reason) {
+    return vformat("islands[%d] '%s': %s", p_island.index, p_island.name, p_reason);
+}
+
+static Vector<IslandPlacement> _read_island_manifest(const Ref<GaussianSplatWorld> &p_world, PackedStringArray &r_errors) {
+    r_errors.clear();
+    Vector<IslandPlacement> result;
+    if (p_world.is_null()) { r_errors.push_back("world: island_world_missing"); return result; }
+    const Dictionary metadata = p_world->get_metadata();
+    if (!metadata.has("islands")) { return result; }
+    const Variant manifest_value = metadata["islands"];
+    if (manifest_value.get_type() != Variant::ARRAY) { r_errors.push_back("islands: island_manifest_type"); return result; }
+    const Array manifest = manifest_value;
+    HashMap<String, int> names;
+    // Count before placing anything: neither occurrence of a duplicate may create a node.
+    for (const Variant &value : manifest) {
+        if (value.get_type() != Variant::DICTIONARY) { continue; }
+        const Dictionary entry = value;
+        const Variant name = entry.get("name", Variant());
+        if (name.get_type() == Variant::STRING) { ++names[String(name)]; }
+    }
+    for (int i = 0; i < manifest.size(); ++i) {
+        IslandPlacement island;
+        island.index = i;
+        if (manifest[i].get_type() != Variant::DICTIONARY) {
+            r_errors.push_back(_island_error(island, "island_entry_type"));
+            continue;
+        }
+        const Dictionary entry = manifest[i];
+        const Variant name = entry.get("name", Variant());
+        if (name.get_type() == Variant::STRING) { island.name = name; }
+        String reason;
+        if (name.get_type() != Variant::STRING) { reason = "island_name"; }
+        else if (names[island.name] > 1) { reason = "island_duplicate_name"; }
+        else { reason = _island_entry(entry, p_world->get_path(), island); }
+        if (!reason.is_empty()) { r_errors.push_back(_island_error(island, reason)); continue; }
+        result.push_back(island);
+    }
+    return result;
+}
+
+static Error _load_island_asset(const String &p_path, Ref<GaussianSplatAsset> &r_asset) {
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error error = OK;
+    const Ref<GaussianSplatWorld> island_world = loader.load_resident(p_path, &error);
+    if (error != OK || island_world.is_null()) { return error != OK ? error : ERR_INVALID_DATA; }
+    const Ref<::GaussianData> data = island_world->get_gaussian_data();
+    if (data.is_null() || data->get_count() == 0) { return ERR_INVALID_DATA; }
+    if (!data->all_render_fields_finite()) { return ERR_INVALID_DATA; }
+    // GaussianSplatAsset's existing semantic side schema is named gs_ply_semantics
+    // for its first producer. Populate that same schema from the v3 payload so the
+    // normal asset/node path retains the word, including after scene serialization.
+    PackedInt32Array words;
+    if (words.resize(data->get_count()) != OK) { return ERR_OUT_OF_MEMORY; }
+    for (int i = 0; i < data->get_count(); ++i) { words.set(i, int32_t(data->get_gaussian(i).semantic)); }
+    Dictionary side;
+    side["semantic_words"] = words;
+    data->set_meta("gs_ply_semantics", side);
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+    error = asset->populate_from_gaussian_data(data);
+    if (error != OK) { return error; }
+    Dictionary import_metadata = asset->get_import_metadata();
+    const Dictionary island_metadata = island_world->get_metadata();
+    if (island_metadata.has("regions")) { import_metadata["regions"] = island_metadata["regions"]; }
+    asset->set_import_metadata(import_metadata);
+    r_asset = asset;
+    return OK;
+}
+
 } // namespace
 
-GaussianSplatWorld3D::GaussianSplatWorld3D() = default;
+GaussianSplatWorld3D::GaussianSplatWorld3D() { region_overrides.instantiate(); }
 GaussianSplatWorld3D::~GaussianSplatWorld3D() = default;
 
 Ref<GaussianSplatRenderer> GaussianSplatWorld3D::get_renderer() const {
     return renderer;
 }
 
+PackedStringArray GaussianSplatWorld3D::get_island_names() {
+    const Vector<IslandPlacement> islands = _read_island_manifest(world, island_errors);
+    PackedStringArray names;
+    for (const IslandPlacement &island : islands) { names.push_back(island.name); }
+    return names;
+}
+
+Array GaussianSplatWorld3D::create_island_nodes(Node *p_parent) {
+    Array created;
+    ERR_FAIL_COND_V_MSG(!Thread::is_main_thread(), created, "Island nodes must be created on the main thread.");
+    const Vector<IslandPlacement> islands = _read_island_manifest(world, island_errors);
+    Node *parent = p_parent ? p_parent : this;
+    for (const IslandPlacement &island : islands) {
+        bool exists = false;
+        for (int i = 0; i < parent->get_child_count(true); ++i) {
+            if (parent->get_child(i, true)->get_name() == StringName(island.name)) { exists = true; break; }
+        }
+        if (exists) { continue; } // Idempotent; never rename, modify or replace a pre-existing child.
+        if (!FileAccess::exists(island.asset_path)) {
+            island_errors.push_back(_island_error(island, "island_asset_missing: " + island.asset_path));
+            continue;
+        }
+        Ref<GaussianSplatAsset> asset;
+        const Error error = _load_island_asset(island.asset_path, asset);
+        if (error != OK) {
+            island_errors.push_back(_island_error(island, vformat("island_asset_unreadable: %s (Error %d)", island.asset_path, int(error))));
+            continue;
+        }
+        GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+        node->set_name(island.name);
+        node->set_transform(island.rest_transform);
+        node->set_splat_asset(asset);
+        // The ordinary node enter-tree path owns instance-tail registration and ledger admission.
+        parent->add_child(node);
+        if (node->get_parent() != parent) {
+            island_errors.push_back(_island_error(island, "island_parent_rejected"));
+            memdelete(node);
+            continue;
+        }
+        created.push_back(node);
+    }
+    return created;
+}
+
 void GaussianSplatWorld3D::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("get_region_id", "name"), &GaussianSplatWorld3D::get_region_id);
+    ClassDB::bind_method(D_METHOD("get_region_names"), &GaussianSplatWorld3D::get_region_names);
+    ClassDB::bind_method(D_METHOD("set_region_override", "region", "override"), &GaussianSplatWorld3D::set_region_override);
+    ClassDB::bind_method(D_METHOD("clear_region_override", "region"), &GaussianSplatWorld3D::clear_region_override);
+    ClassDB::bind_method(D_METHOD("clear_all_region_overrides"), &GaussianSplatWorld3D::clear_all_region_overrides);
+    ClassDB::bind_method(D_METHOD("set_tint", "color", "strength"), &GaussianSplatWorld3D::set_tint);
+    ClassDB::bind_method(D_METHOD("set_emissive", "color"), &GaussianSplatWorld3D::set_emissive);
+    ClassDB::bind_method(D_METHOD("set_hidden", "hidden"), &GaussianSplatWorld3D::set_hidden);
+
     ClassDB::bind_method(D_METHOD("set_world", "world"), &GaussianSplatWorld3D::set_world);
     ClassDB::bind_method(D_METHOD("get_world"), &GaussianSplatWorld3D::get_world);
     ClassDB::bind_method(D_METHOD("set_auto_apply_on_ready", "enabled"), &GaussianSplatWorld3D::set_auto_apply_on_ready);
     ClassDB::bind_method(D_METHOD("is_auto_apply_on_ready"), &GaussianSplatWorld3D::is_auto_apply_on_ready);
     ClassDB::bind_method(D_METHOD("set_cast_shadow", "enabled"), &GaussianSplatWorld3D::set_cast_shadow);
     ClassDB::bind_method(D_METHOD("is_cast_shadow"), &GaussianSplatWorld3D::is_cast_shadow);
-    ClassDB::bind_method(D_METHOD("set_wind_enabled", "enabled"), &GaussianSplatWorld3D::set_wind_enabled);
-    ClassDB::bind_method(D_METHOD("is_wind_enabled"), &GaussianSplatWorld3D::is_wind_enabled);
+    ClassDB::bind_method(D_METHOD("set_wind_mode", "mode"), &GaussianSplatWorld3D::set_wind_mode);
+    ClassDB::bind_method(D_METHOD("get_wind_mode"), &GaussianSplatWorld3D::get_wind_mode);
+    BIND_ENUM_CONSTANT(WIND_MODE_AUTO);
+    BIND_ENUM_CONSTANT(WIND_MODE_ON);
+    BIND_ENUM_CONSTANT(WIND_MODE_OFF);
     ClassDB::bind_method(D_METHOD("set_wind_intensity", "intensity"), &GaussianSplatWorld3D::set_wind_intensity);
     ClassDB::bind_method(D_METHOD("get_wind_intensity"), &GaussianSplatWorld3D::get_wind_intensity);
     ClassDB::bind_method(D_METHOD("set_effectors_enabled", "enabled"), &GaussianSplatWorld3D::set_effectors_enabled);
@@ -67,13 +269,16 @@ void GaussianSplatWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_opacity"), &GaussianSplatWorld3D::get_opacity);
     ClassDB::bind_method(D_METHOD("apply_world"), &GaussianSplatWorld3D::apply_world);
     ClassDB::bind_method(D_METHOD("clear_world"), &GaussianSplatWorld3D::clear_world);
+    ClassDB::bind_method(D_METHOD("create_island_nodes", "parent"), &GaussianSplatWorld3D::create_island_nodes, DEFVAL(Variant()));
+    ClassDB::bind_method(D_METHOD("get_island_names"), &GaussianSplatWorld3D::get_island_names);
+    ClassDB::bind_method(D_METHOD("get_island_errors"), &GaussianSplatWorld3D::get_island_errors);
     ClassDB::bind_method(D_METHOD("get_renderer"), &GaussianSplatWorld3D::get_renderer);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "world", PROPERTY_HINT_RESOURCE_TYPE, "GaussianSplatWorld"),
             "set_world", "get_world");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_apply_on_ready"), "set_auto_apply_on_ready", "is_auto_apply_on_ready");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cast_shadow"), "set_cast_shadow", "is_cast_shadow");
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, gs::settings::WORLD_WIND_ENABLED_PROPERTY), "set_wind_enabled", "is_wind_enabled");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, gs::settings::WORLD_WIND_MODE_PROPERTY, PROPERTY_HINT_ENUM, "Auto,On,Off"), "set_wind_mode", "get_wind_mode");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, gs::settings::WORLD_WIND_INTENSITY_PROPERTY, PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"),
             "set_wind_intensity", "get_wind_intensity");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "effectors_enabled"), "set_effectors_enabled", "is_effectors_enabled");
@@ -383,10 +588,18 @@ void GaussianSplatWorld3D::_on_world_resource_changed() {
     // KNOWN GAP, not covered by this: get_metadata() hands script the resource's
     // own Dictionary, so mutating it in place emits nothing and the director keeps
     // the previous metadata until something else re-registers.
+    // Detached resource inspection can run without scene services. Do not arm
+    // the coalescing latch when there is no queue to clear it later. A later
+    // apply_world() captures the resource's current metadata. This callback can
+    // run on a loader thread, so leave scene-tree inspection to the flush.
+    CallQueue *queue = MessageQueue::get_main_singleton();
+    if (!queue) {
+        return;
+    }
     if (world_resource_resubmit_pending.exchange(true)) {
         return;
     }
-    MessageQueue::get_main_singleton()->push_callable(
+    queue->push_callable(
             callable_mp(this, &GaussianSplatWorld3D::_flush_world_resource_resubmit));
 }
 
@@ -441,9 +654,10 @@ void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {
     _resubmit_world_submission_if_registered();
 }
 
-void GaussianSplatWorld3D::set_wind_enabled(bool p_enabled) {
-    if (wind_enabled == p_enabled) { return; }
-    wind_enabled = p_enabled;
+void GaussianSplatWorld3D::set_wind_mode(WindMode p_mode) {
+    ERR_FAIL_COND(p_mode < WIND_MODE_AUTO || p_mode > WIND_MODE_OFF);
+    if (wind_mode == p_mode) { return; }
+    wind_mode = p_mode;
     _resubmit_world_submission_if_registered();
 }
 
@@ -724,12 +938,13 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
         return;
     }
 
+    region_overrides->set_manifest(world->get_metadata());
     GaussianSplatSceneDirector::WorldSubmission submission;
+    submission.region_overrides = region_overrides;
     submission.owner_id = get_instance_id();
     submission.casts_shadow = cast_shadow; // Row 0 of the HLOD shadow casters (#1095); see set_cast_shadow().
     submission.wind_intensity = wind_intensity;
-    submission.wind_mode = wind_enabled ? GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT :
-            GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED;
+    submission.wind_mode = _world_row_wind_mode(wind_mode);
     submission.scene_effectors_enabled = effectors_enabled;
     submission.scenario = get_world_3d().is_valid() ? get_world_3d()->get_scenario() : RID();
     // Refresh the cached scenario so PREDELETE can teardown even after the
@@ -937,8 +1152,7 @@ void GaussianSplatWorld3D::_update_deformation_visibility_margin() {
     if (!rs || !is_inside_tree() || !render_instance.is_valid()) { return; }
     InstanceDataGPU row = {};
     row.params[2] = wind_intensity;
-    row.params[3] = float(wind_enabled ? GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT :
-            GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+    row.params[3] = float(_world_row_wind_mode(wind_mode));
     row.effect_params[0] = effectors_enabled ? 1.0f : 0.0f;
     const double scene_margin = GaussianSplatSceneDirector::deformation_visibility_margin_for_renderer(renderer.ptr(), row);
     const real_t local_margin = gs_wind::local_visibility_margin(scene_margin, get_global_transform().basis);
@@ -1039,3 +1253,19 @@ void GaussianSplatWorld3D::set_hlod_tau_px(float p_tau) {
     hlod_tau_px = p_tau;
     _resubmit_world_submission_if_registered();
 }
+
+int GaussianSplatWorld3D::get_region_id(const StringName &p_name) const { return GSRegionOverrideState::region_id(world.is_valid() ? world->get_metadata() : Dictionary(), p_name); }
+PackedStringArray GaussianSplatWorld3D::get_region_names() const { return GSRegionOverrideState::region_names(world.is_valid() ? world->get_metadata() : Dictionary()); }
+void GaussianSplatWorld3D::_sync_region_overrides() {
+    region_overrides->set_manifest(world.is_valid() ? world->get_metadata() : Dictionary());
+    if (auto *director = GaussianSplatSceneDirector::get_singleton()) { director->update_region_overrides(get_instance_id(), region_overrides); }
+}
+void GaussianSplatWorld3D::set_region_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override) {
+    ERR_FAIL_COND(p_region < 0 || p_region > 65535 || p_override.is_null());
+    region_overrides->set_override(p_region, p_override); _sync_region_overrides();
+}
+void GaussianSplatWorld3D::clear_region_override(int p_region) { region_overrides->clear_override(p_region); _sync_region_overrides(); }
+void GaussianSplatWorld3D::clear_all_region_overrides() { region_overrides->clear_all(); _sync_region_overrides(); }
+void GaussianSplatWorld3D::set_tint(const Color &p_color, float p_strength) { auto whole = region_overrides->whole_asset(); whole->set_tint(p_color); whole->set_tint_strength(p_strength); _sync_region_overrides(); }
+void GaussianSplatWorld3D::set_emissive(const Color &p_color) { region_overrides->whole_asset()->set_emissive(p_color); _sync_region_overrides(); }
+void GaussianSplatWorld3D::set_hidden(bool p_hidden) { region_overrides->set_hidden(p_hidden); _sync_region_overrides(); }

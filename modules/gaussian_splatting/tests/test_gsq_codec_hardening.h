@@ -392,7 +392,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] golden digests: fixed integer-built
 		const Fixture src = make_golden_fixture(g.count, g.degree, g.extent_m, g.normals, g.seed);
 		LocalVector<uint8_t> page;
 		String reason;
-		if (encode(src, page, &reason) != OK) {
+		EncodeParams legacy_params;
+		legacy_params.codec_id = 1u;
+		if (encode_page(src.gaussians.ptr(), src.sh_high.ptr(), src.gaussians.size(), src.degree, legacy_params, page, reason) != OK) {
 			FAIL("encode refused: ", reason);
 			continue;
 		}
@@ -406,7 +408,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] golden digests: fixed integer-built
 			continue;
 		}
 		uint8_t digest[kDigestBytes];
-		decoded_digest(out.gaussians.ptr(), out.sh_high.ptr(), out.gaussians.size(), out.degree, digest);
+		decoded_digest(out.gaussians.ptr(), out.sh_high.ptr(), out.gaussians.size(), out.degree, digest, 1u);
 		const String decoded_hex = digest_hex(digest);
 		const String stored_hex = digest_hex(info.stored_digest);
 		// Printed on every run, so a re-pin and a cross-compiler comparison read them from the log.

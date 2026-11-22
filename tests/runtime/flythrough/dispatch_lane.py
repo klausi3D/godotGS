@@ -136,7 +136,7 @@ ENCODING = "plain_v3_uncompressed"
 ENCODING_GSQ = "plain_v3_gsq"
 ENCODINGS = (ENCODING, ENCODING_GSQ)
 #: The writer codec id each encoding's manifest must name (`writer.codec.codec_id`).
-CODEC_ID_FOR_ENCODING: Dict[str, int] = {ENCODING: 0, ENCODING_GSQ: 1}
+CODEC_ID_FOR_ENCODING: Dict[str, int] = {ENCODING: 0, ENCODING_GSQ: 2}
 #: ADR section 5.3 runner table, "Steady from M1c: A plain GSQ ... 7.6" (decimal GB).
 WORLD_BUDGET_GSQ_BYTES: Dict[str, int] = {
     "A": int(7.6 * GB),
@@ -1682,7 +1682,7 @@ def _auto_build(
                 or report.get("input_file_sha256") != sidecar.get("input_file_sha256")
                 or sidecar.get("content_generation") != report.get("content_generation")
                 or sidecar.get("codec", {}).get("codec") != job["codec"]
-                or sidecar.get("codec", {}).get("codec_id") != 1
+                or sidecar.get("codec", {}).get("codec_id") != 2
                 or sidecar.get("build_params", {}).get("max_tile_splats") != job["max_tile_splats"]):
             raise LaneError(f"{tag}: recomputed build identity disagrees with report/sidecar/request")
         w13 = report.get("w13", {})
@@ -1872,7 +1872,7 @@ def auto_tree_cache_check(
                     sidecar = _read_auto_json((key / WORLD_FILE_NAME).with_suffix(".manifest.json"))
                     if (sidecar.get("source_fingerprint") != fingerprint or sidecar.get("input_file_sha256") != digest
                             or sidecar.get("codec", {}).get("codec") != "gsq"
-                            or sidecar.get("codec", {}).get("codec_id") != 1):
+                            or sidecar.get("codec", {}).get("codec_id") != 2):
                         raise wc.CacheError("cache_stale: verified sidecar inputs differ from the key/checkout",
                                             EXIT_NOT_RUN, "cache_stale")
                 wc.drop_from_page_cache(wc.world_files(key), fadvise)

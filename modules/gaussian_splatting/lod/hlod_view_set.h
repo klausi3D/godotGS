@@ -265,6 +265,19 @@ public:
 	// Number of node-key rank tables computed so far (O(n log n) each); admissions of unchanged content reuse one.
 	uint64_t tie_rank_builds() const { return rank_builds; }
 
+#ifdef TESTS_ENABLED
+	// Read-only seam for the exact metadata consumed by displaced selection.
+	const GaussianSplatHlodRuntimeData *test_displacement_data(uint64_t p_view_key, uint64_t p_instance_key) const {
+		for (const auto &view : views) {
+			if (view.view_key != p_view_key) { continue; }
+			for (const auto &slot : view.slots) {
+				if (slot.instance_key == p_instance_key) { return slot.displacement_data.ptr(); }
+			}
+		}
+		return nullptr;
+	}
+#endif
+
 private:
 	struct InstanceSlot {
 		uint64_t instance_key = 0;

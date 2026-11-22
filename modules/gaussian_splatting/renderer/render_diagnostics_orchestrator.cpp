@@ -6,6 +6,7 @@
 #include "render_debug_state_orchestrator.h"
 #include "pipeline_feature_set.h"
 #include "sh_config.h"
+#include "splat_identity.h"
 
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -367,6 +368,10 @@ static void _append_production_gpu_metrics(Dictionary &r_metrics,
 		r_metrics["gpu_coherent_frame_serial"] = static_cast<int64_t>(pt.coherent_frame_serial);
 		r_metrics["gpu_coherent_pass_mask"] = static_cast<int64_t>(pt.coherent_pass_mask);
 		r_metrics["gpu_coherent_total_ms"] = pt.coherent_total_ms;
+#ifdef TESTS_ENABLED
+        r_metrics["gs_game_1_submission_frame"] = int64_t(current_frame_serial());
+        r_metrics["gs_game_1_coherent_valid"] = pt.all_route_passes_coherent();
+#endif
 	}
 	r_metrics["gpu_prefix_ms"] = p_perf.gpu_tile_prefix_time_ms;
 	r_metrics["gpu_prefix_valid"] = p_perf.gpu_tile_prefix_time_valid;
@@ -1797,6 +1802,12 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
     stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
+    // Current submitted world's tie layout; no world means no folding. The
+    // full baked node ID remains available to history and quantized addressing.
+    const auto world_tie = resource_state.hlod_snapshot.is_valid()
+            ? gs_splat_identity::world_layout(resource_state.hlod_snapshot->nodes.size(), resource_state.hlod_snapshot->max_node_payload_count)
+            : gs_splat_identity::WorldLayout{};
+    world_tie.append_stats(stats);
     stats["hlod_auto_route_demotions"] = int64_t(resource_state.hlod_auto_route_demotions);
     stats["hlod_auto_route_demotion_cause"] = resource_state.hlod_auto_route_demotion.cause;
     stats["hlod_owned_byte_upper_bound"] = int64_t(ledger_snapshot.admitted_device_bytes);

@@ -1,12 +1,17 @@
 #[compute]
 
 #version 450
+#define GS_GAME_1_CAPTURE_BINDING 13
+#include "../shaders/includes/gs_game_1_capture.glsl"
 
 #VERSION_DEFINES
 
 #include "../shaders/includes/gs_instance_layout.glsl"
+#define GS_REGION_BINDING 12
+#include "../shaders/includes/gs_region_override.glsl"
 #include "../shaders/includes/gs_camera_relative.glsl"
 #include "../shaders/includes/gs_sort_key.glsl"
+#include "../shaders/includes/gs_splat_identity.glsl"
 #include "../shaders/includes/gs_deformation.glsl"
 #include "../shaders/includes/quantization_dequant.glsl"
 
@@ -25,7 +30,7 @@ struct PackedGaussian {
     vec3 position;
     float opacity;
     vec3 scale;
-    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
+    uint semantic;  // std430 keeps rotation at offset 32; was `area` (never read)
     vec4 rotation;
     vec4 sh_dc;
     uint sh_encoded[24];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
@@ -202,6 +207,15 @@ void main() {
 #endif
 
     InstanceDataGPU instance = instance_buffer.instances[visible_chunk.instance_id];
+    RegionOverrideGPU region_override = gs_region_resolve(instance, gaussian.semantic, atlas_index);
+    vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
+    bool reject_region = (region_override.flags & GS_REGION_HIDE) != 0u || region_emissive_opacity.w == 0.0 ||
+            ((instance.ids.y & GS_INSTANCE_FLAG_SHADOW_PASS) != 0u && (region_override.flags & GS_REGION_NO_SHADOW) != 0u);
+#ifdef GS_TEST_REGION_CONTROLS
+    // Negative control R3: hiding only during raster must leave depth records.
+    if ((instance.ids.y & GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER) != 0u) { reject_region = false; }
+#endif
+    if (reject_region) { return; }
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
@@ -231,9 +245,16 @@ void main() {
 #else
     uint wind_level = 0u;
 #endif
+    #ifdef GS_GAME_1_CAPTURE
+    if (visible_chunk.instance_id == 0u && (gs_game_1.header.w >> 16u) != 0u && wind_level + 1u != (gs_game_1.header.w >> 16u)) { return; }
+#endif
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_ADDRESS_WIND_PHASE)
+    gs_test_wind_atlas_address = atlas_index;
+#endif
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             gaussian.opacity,
+            gs_region_wind_semantic(gaussian.semantic, region_override.flags),
             instance_intensity,
             instance_wind_mode,
             instance.wind_params,
@@ -297,14 +318,25 @@ void main() {
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
     hlod_draw_entry_buffer.draw_entries[write_index] = visible_chunk_index;
 #endif
+#ifdef GS_GAME_1_CAPTURE
+    if ((gaussian.semantic & GS_SEMANTIC_REGION_MASK) == (gs_game_1.header.w & 65535u)) { atomicAdd(gs_game_1.header.z, 1u); }
+#endif
     splat_ref_buffer.splat_refs[write_index].instance_id = visible_chunk.instance_id;
     // Registered chunks are shared by every instance of an asset, so the SH limit also
     // follows this instance's resolved LOD; the per-chunk limit still caps it.
     uint instance_sh_limit = gs_instance_sh_limit(uint(params.cull_frustum_radius.w + 0.5), instance.lod.x);
     splat_ref_buffer.splat_refs[write_index].atlas_index =
             gs_pack_splat_ref_atlas_index(atlas_index, min(chunk.sh_limit, instance_sh_limit));
-    // Favor atlas index for tie-break to improve cache locality when depths are similar.
-    uint tie_break = atlas_index;
+    uint sort_prefix = instance.ids.y & GS_INSTANCE_SORT_PREFIX_MASK;
+    uint local_bits = chunk.reserved_node_z & 255u;
+    if (sort_prefix != 0u) {
+        local_bits = (instance.ids.y & GS_INSTANCE_SORT_LOCAL_MASK) >> GS_INSTANCE_SORT_LOCAL_SHIFT;
+    }
+    bool canonical_single = (instance.ids.y & GS_INSTANCE_SORT_SINGLE_CHUNK) != 0u ||
+            (sort_prefix == 0u && (chunk.reserved_node_z & 256u) != 0u);
+    uint stable_key = gs_splat_composite_key(chunk.reserved_node_y, splat_index_in_chunk,
+            sort_prefix, local_bits, atlas_index, canonical_single);
+    uint tie_break = gs_identity_tie_break(stable_key, atlas_index);
     sort_key_buffer.keys[write_index] = gs_pack_sort_key64(depth, tie_break);
     sort_value_buffer.values[write_index] = write_index;
 }

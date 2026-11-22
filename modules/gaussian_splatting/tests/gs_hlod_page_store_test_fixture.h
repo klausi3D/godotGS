@@ -195,7 +195,7 @@ struct Fixture {
 		const float edge = float(1u << (p_depth + 2u));
 		spec.bounds = AABB(Vector3(), Vector3(edge, edge, edge));
 		gs_world_writer::WriterV4 writer;
-		if (writer.begin_paged(path, scratch, spec, gsq ? gs_world_writer::gsq_v1_codec_params() :
+		if (writer.begin_paged(path, scratch, spec, gsq ? gs_world_writer::gsq_v2_codec_params() :
 					gs_world_writer::CodecParams(), gs_world_writer::Limits::unbounded()) != OK) {
 			FAIL("D3-2 production V4 writer begin failed: ", writer.get_report().reason.utf8().get_data());
 			return false;

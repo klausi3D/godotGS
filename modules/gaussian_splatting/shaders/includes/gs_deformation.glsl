@@ -20,11 +20,24 @@ float gs_wind_lattice_value(ivec2 cell) {
     return float(value & 0x00FFFFFFu) / 16777215.0;
 }
 
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_ADDRESS_WIND_PHASE
+// GS-GAME-1 W1 control only: the atlas address the restored address-keyed phase uses.
+uint gs_test_wind_atlas_address = 0u;
+#endif
+#endif
+
 // W-S world field: 32 m XZ lattice with smooth interpolation. Both world and
 // instance rows sample scene-space REST positions after rigid placement. Thus
 // a parent and its children, or different objects at the same point, see one
 // coherent gust field; atlas repacking and LOD replacement add no flutter.
 float gs_wind_phase_noise(vec3 scene_rest_position) {
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_ADDRESS_WIND_PHASE
+    // W1 negative control: restore the address phase removed by PR1.
+    return float(gs_wind_hash_u32(gs_test_wind_atlas_address) & 0x00ffffffu) * (6.28318530718 / 16777215.0);
+#endif
+#endif
     vec2 lattice = scene_rest_position.xz * (1.0 / 32.0);
     vec2 cell = floor(lattice);
     vec2 f = lattice - cell;
@@ -42,6 +55,11 @@ float gs_wind_phase_noise(vec3 scene_rest_position) {
 // 0 (leaf) has full weight, height >=4 has zero. Object rows have no HLOD
 // height and pass 0. This fade changes amplitude only, never the rest field.
 float gs_wind_distance_level_fade(vec3 rest_from_camera, uint level) {
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_COARSE_FADE_OFF
+    if (level > 0u) { return 1.0; } // ADR §7 W2 forcing control only.
+#endif
+#endif
     float distance_to_camera = sqrt(rest_from_camera.x * rest_from_camera.x +
             rest_from_camera.y * rest_from_camera.y + rest_from_camera.z * rest_from_camera.z);
     float distance_weight = clamp((128.0 - distance_to_camera) / 64.0, 0.0, 1.0);
@@ -53,21 +71,38 @@ float gs_wind_displacement_bound(float strength, float row_intensity, float effe
     return max(strength, 0.0) * max(row_intensity, 0.0) * (1.0 + max(effector_max_push, 0.0));
 }
 
+// Decode the per-row wind mode from the packed float value.
+uint gs_decode_instance_wind_mode(float encoded_mode) {
+    return uint(clamp(floor(encoded_mode + 0.5), 0.0, float(GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT)));
+}
+
+// W-F: one decoding rule for depth, colour and casters, raw and quantized.
+// Row intensity and effector position response are applied by their callers.
+float gs_splat_wind_weight(uint semantic, float opacity, float encoded_mode) {
+    float legacy_weight = 0.2 + 0.8 * clamp(1.0 - opacity, 0.0, 1.0);
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_LEGACY_WIND_WEIGHT
+    // W4 forcing control: ignored unless the shader is explicitly a test variant.
+    return legacy_weight;
+#endif
+#endif
+    if ((semantic & GS_SEMANTIC_VALID_MASK) != 0u) {
+        return float((semantic & GS_SEMANTIC_WIND_MASK) >> GS_SEMANTIC_WIND_SHIFT) / 255.0;
+    }
+    if (gs_decode_instance_wind_mode(encoded_mode) == GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT) {
+        return 0.0;
+    }
+    return legacy_weight;
+}
+
 // Shared scalar kernel used by colour, depth and shadow casters. Keeping the
 // kernel independent of identities/buffers also permits host evaluation of
 // the actual GLSL expression in the deterministic shader-numerics lane.
 float gs_wind_displacement(vec3 scene_rest_position, float time_seconds, float temporal_frequency,
-        float spatial_frequency, float strength, float opacity, float row_intensity, float deformation_fade) {
-    float opacity_resistance = clamp(1.0 - opacity, 0.0, 1.0);
-    float resistance = 0.2 + 0.8 * opacity_resistance;
+        float spatial_frequency, float strength, float splat_weight, float row_intensity, float deformation_fade) {
     float phase = (scene_rest_position.x + scene_rest_position.z) * spatial_frequency + time_seconds * temporal_frequency +
             gs_wind_phase_noise(scene_rest_position);
-    return sin(phase) * strength * resistance * max(row_intensity, 0.0) * clamp(deformation_fade, 0.0, 1.0);
-}
-
-// Decode the per-instance wind mode from the packed float value.
-uint gs_decode_instance_wind_mode(float encoded_mode) {
-    return uint(clamp(floor(encoded_mode + 0.5), 0.0, float(GS_INSTANCE_WIND_MODE_FORCE_ENABLED)));
+    return sin(phase) * strength * splat_weight * max(row_intensity, 0.0) * clamp(deformation_fade, 0.0, 1.0);
 }
 
 struct GSDeformationResult {
@@ -143,7 +178,7 @@ float gs_row_deformation_bound(float encoded_mode, float row_intensity, vec4 ins
 // correlated (coherent travelling wave across the sphere) instead of
 // per-splat random phases that visually read as noise. The spatial
 // coefficient is scaled by 1/radius so one full wavelength is comparable
-// to the effector diameter — large enough that the whole influence region
+// to the effector diameter â€” large enough that the whole influence region
 // pulses together, small enough that there's still visible motion across
 // the volume.
 float gs_compute_sphere_effector_weight(vec3 world_position, vec4 effector_sphere, vec4 effector_config,
@@ -170,7 +205,7 @@ float gs_compute_sphere_effector_weight(vec3 world_position, vec4 effector_spher
     float influence = pow(normalized, falloff);
     float anim_freq = effector_config.w > 0.0 ? effector_config.w : 2.0;
     // Spatial phase anchored to the effector center. Coefficient 1/radius
-    // gives wavelength ≈ 2π·radius, so a travelling wave crosses the
+    // gives wavelength â‰ˆ 2Ï€Â·radius, so a travelling wave crosses the
     // sphere every few oscillations rather than standing-waving inside.
     float spatial_phase = dot(delta, vec3(1.0 / max(radius, 1e-3)));
     float anim_phase = time_seconds * anim_freq * 6.28318530718 + spatial_phase + rest_position_phase;
@@ -191,7 +226,8 @@ GSDeformationResult gs_apply_sphere_effectors(vec3 world_position,
         vec4 effector_opacity_configs[GS_MAX_SPHERE_EFFECTORS],
         float time_seconds,
         vec3 frame_anchor,
-        float deformation_fade) {
+        float deformation_fade,
+        float splat_weight) {
     GSDeformationResult result;
     result.position = world_position;
     result.opacity = clamp(base_opacity, 0.0, 1.0);
@@ -201,7 +237,7 @@ GSDeformationResult gs_apply_sphere_effectors(vec3 world_position,
         return result;
     }
 
-    float position_scale = max(instance_effect_config.x, 0.0) * clamp(deformation_fade, 0.0, 1.0);
+    float position_scale = max(instance_effect_config.x, 0.0) * clamp(deformation_fade, 0.0, 1.0) * splat_weight;
     float opacity_scale = max(instance_effect_config.y, 0.0);
     uint instance_effector_mask = gs_decode_instance_scene_effector_mask(instance_effect_config, effector_meta);
     vec3 total_position_delta = vec3(0.0);
@@ -257,6 +293,7 @@ GSDeformationResult gs_apply_sphere_effectors(vec3 world_position,
 
 GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
         float opacity,
+        uint semantic,
         float instance_intensity,
         float instance_wind_mode,
         vec4 instance_wind_config,
@@ -270,10 +307,11 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
         vec3 frame_anchor,
         float deformation_fade) {
     float time_seconds = wind_time_config.x;
+    float splat_weight = gs_splat_wind_weight(semantic, opacity, instance_wind_mode);
     bool wind_enabled = gs_is_wind_enabled_for_instance(instance_wind_mode, wind_time_config);
     if (!wind_enabled) {
         return gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade);
+                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade, splat_weight);
     }
 
     vec3 direction = wind_dir_strength.xyz;
@@ -287,7 +325,7 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
     // on the node) bypasses the global enable gate but, without these fallbacks,
     // is still muted by zero project-level wind_strength / wind_frequency. Since
     // wind_dir_strength.w is a pass-global uniform, we can't merge a per-instance
-    // value into it on the CPU for mixed scenes — instead, when the instance
+    // value into it on the CPU for mixed scenes â€” instead, when the instance
     // explicitly forces wind on and the global base is unset, fall back to unit
     // strength / frequency here so the instance's own wind_strength (multiplied
     // into instance_intensity) and wind_frequency (instance_wind_config.w)
@@ -303,7 +341,7 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
     }
     if (direction_len <= 1e-6 || strength <= 0.0) {
         return gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade);
+                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade, splat_weight);
     }
 
     float instance_frequency_scale = instance_wind_config.w > 0.0 ? instance_wind_config.w : 1.0;
@@ -312,17 +350,16 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
     float clamped_intensity = max(instance_intensity, 0.0);
     if (clamped_intensity <= 0.0) {
         return gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade);
+                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade, splat_weight);
     }
 
-    // Reuse opacity as a rough stiffness signal until semantic weights exist.
     // The kernel samples the scene rest frame, including camera translation.
     float displacement = gs_wind_displacement(world_position + frame_anchor, time_seconds, temporal_frequency,
-            spatial_frequency, strength, opacity, clamped_intensity, deformation_fade);
+            spatial_frequency, strength, splat_weight, clamped_intensity, deformation_fade);
 
     // Effector influence and phase use rest, never the wind-displaced point.
     GSDeformationResult result = gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-            effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade);
+            effector_spheres, effector_configs, effector_opacity_configs, time_seconds, frame_anchor, deformation_fade, splat_weight);
     result.position += (direction / direction_len) * displacement;
     return result;
 }

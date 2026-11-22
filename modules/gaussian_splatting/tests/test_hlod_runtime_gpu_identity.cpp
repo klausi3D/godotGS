@@ -5,9 +5,11 @@
 #include "../renderer/gs_shadow_caster.h"
 #include "../lod/hlod_page_pool.h"
 #include "../shaders/gs_shadow_caster.glsl.gen.h"
+#include "../shaders/tile_binning.glsl.gen.h"
 #include "../renderer/tile_renderer.h"
 #include "../renderer/instance_pipeline_contract.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/gs_region_override_buffer.h"
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
@@ -15,6 +17,7 @@
 #include "../renderer/splat_ref_encoding.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
+#include "../renderer/splat_identity_test_control.h"
 #include "core/config/project_settings.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
@@ -28,6 +31,106 @@
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.h"
 #include <cmath>
 #include <cstring>
+
+TEST_CASE("[GaussianSplatting][HLOD] stable splat identity survives scattered page relocation and row reorder") {
+	using namespace GSSplatIdentityTestControl;
+	set_force_address_keying(false);
+	const auto first = keys(7, 1029, 0x123456789ULL, 3 * 1024 + 5, 65521, 1);
+	const auto relocated = keys(7, 1029, 0x123456789ULL, 19 * 1024 + 5, 65521, 19);
+	CHECK(first.tie_break == relocated.tie_break);
+	CHECK(first.history_slot == 3077u);
+	CHECK(relocated.history_slot == 19461u);
+	CHECK(first.history_key == relocated.history_key);
+	CHECK(first.tie_break == ((7u << 14u) | 1029u)); // Same vector is executed from the GLSL in Python.
+	CHECK(first.history_slot == 3077u);
+	CHECK(first.history_key == 133501757u);
+	for (const auto other : { keys(8, 1029, 0x123456789ULL, 3 * 1024 + 5, 65521),
+			keys(7, 1030, 0x123456789ULL, 3 * 1024 + 5, 65521),
+			keys(7, 1029, 0x223456789ULL, 3 * 1024 + 5, 65521) }) {
+		CHECK(first.history_slot == other.history_slot);
+		CHECK(first.history_key != other.history_key);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] address identity forcing control is observable and discriminates relocation") {
+	using namespace GSSplatIdentityTestControl;
+	struct Restore { ~Restore() { set_force_address_keying(false); } } restore;
+	CHECK_FALSE(get_force_address_keying());
+	set_force_address_keying(true);
+	CHECK(get_force_address_keying());
+	const auto first = keys(7, 1029, 17, 3 * 1024 + 5, 65521);
+	const auto relocated = keys(7, 1029, 17, 19 * 1024 + 5, 65521);
+	CHECK(first.tie_break != relocated.tie_break);
+	CHECK(first.history_slot != relocated.history_slot);
+	CHECK(first.history_key != relocated.history_key);
+	set_force_address_keying(false);
+	const auto stable = keys(7, 1029, 17, 3 * 1024 + 5, 65521);
+	CHECK(stable.tie_break != first.tie_break);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] A2 split tie budgets fit Tier A and refuse exact overflow with named dimensions") {
+    using namespace GSSplatIdentityTestControl;
+    CHECK(world_layout_refusal(24290, 16384).is_empty()); // Tier A: 1+15+14=30.
+    CHECK(world_layout_refusal(131072, 16384).is_empty()); // 1+17+14=32.
+    CHECK(world_layout_refusal(131073, 16384).contains("splat_identity_world_tie_overflow:N=18,L=14"));
+    CHECK(layout_refusal(32, 1, 1516).is_empty()); // GS-GAME-1: 1+6+0+14=21.
+    CHECK(layout_refusal(33, 1, 1516).is_empty()); // t=10 spawn keeps R=6.
+    CHECK(layout_refusal(32767, 1, 65536).is_empty()); // 1 + R15 + C0 + L16 = 32.
+    const String reason = layout_refusal(32768, 1, 65536);
+    CHECK(reason.contains("splat_identity_instance_tie_overflow"));
+    CHECK(reason.contains("R=16"));
+    CHECK(reason.contains("C=0"));
+    CHECK(reason.contains("L=16"));
+    CHECK(keys(24289, 16383, 0, 5, 65521).tie_break == ((24289u << 14u) | 16383u));
+    CHECK(keys(0, 0, 1, 0, 65521, 0, 0x80004000u).tie_break == 0x80004000u);
+    CHECK(keys(0, 16383, 1, 16383, 65521, 0, 0x80004000u).tie_break == 0x80007fffu);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] A2 world tie node folding preserves local bits and reports only overflowing worlds") {
+    for (const uint32_t splats : { 16384u, 65536u, 0x40000001u }) {
+        const uint32_t bits = gs_splat_identity::world_local_bits(splats);
+        const uint32_t capacity = 1u << (31u - bits);
+        const auto exact = gs_splat_identity::world_layout(capacity, splats);
+        CHECK(exact.fits());
+        CHECK(exact.refusal().is_empty());
+        CHECK_FALSE(exact.node_id_folded);
+        Dictionary stats;
+        exact.append_stats(stats);
+        CHECK(stats.has("tie_world_node_folded"));
+        CHECK_FALSE(bool(stats["tie_world_node_folded"]));
+        for (const uint32_t local : { 0u, (1u << bits) - 1u }) {
+            for (const uint32_t node : { 0u, capacity - 1u }) {
+                CHECK(exact.sort_key(node, local) == ((node << bits) | local));
+            }
+            const auto folded = gs_splat_identity::world_layout(capacity + 1u, splats);
+            CHECK(folded.fits());
+            CHECK(folded.refusal().is_empty()); // Node count never refuses an otherwise valid world.
+            CHECK(folded.node_id_folded);
+            folded.append_stats(stats);
+            CHECK(bool(stats["tie_world_node_folded"]));
+            CHECK(folded.sort_key(capacity, local) == local);
+            CHECK(folded.sort_key(capacity, local) == gs_splat_identity::world_layout(capacity + 2u, splats).sort_key(capacity, local));
+            CHECK((folded.sort_key(0xffffffffu, local) & 0x80000000u) == 0u);
+            CHECK((folded.sort_key(0xffffffffu, local) & ((1u << bits) - 1u)) == local);
+        }
+        // Reporting an exact or absent world clears a previously true value.
+        exact.append_stats(stats);
+        CHECK_FALSE(bool(stats["tie_world_node_folded"]));
+        gs_splat_identity::world_layout(0, splats).append_stats(stats);
+        CHECK_FALSE(bool(stats["tie_world_node_folded"]));
+    }
+    const auto tier_a = gs_splat_identity::world_layout(24290, 16384);
+    CHECK_FALSE(tier_a.node_id_folded);
+    CHECK(tier_a.sort_key(24289, 16383) == ((24289u << 14u) | 16383u));
+    const auto large = gs_splat_identity::world_layout(262144, 16384);
+    CHECK(large.node_id_folded);
+    CHECK(large.sort_key(7, 1029) == ((7u << 14u) | 1029u));
+    CHECK(large.sort_key(7u + (1u << 17u), 1029) == large.sort_key(7, 1029));
+    const auto invalid_local = gs_splat_identity::world_layout(2, 0x80000001u);
+    CHECK_FALSE(invalid_local.fits());
+    CHECK_FALSE(invalid_local.node_id_folded);
+    CHECK(invalid_local.refusal().contains("splat_identity_world_local_tie_overflow:L=32"));
+}
 
 extern "C" int test_hlod_runtime_gpu_identity_cpp_force_link() { return 0; }
 
@@ -161,7 +264,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         }
         return rid;
     };
-    PackedGaussian splats[2] = {};
+    PackedGaussian splats[4] = {};
     ChunkMetaGPU chunks[2] = {};
     for (uint32_t i = 0; i < 2; ++i) {
         splats[i].position[0] = -16.0f;
@@ -171,6 +274,8 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         for (uint32_t axis = 0; axis < 3; ++axis) { splats[i].scale[axis] = 0.125f; }
         chunks[i].atlas_base = i;
         chunks[i].splat_count = 1;
+        chunks[i].reserved_node_y = i;
+        chunks[i].reserved_node_z = 14;
     }
     InstanceDataGPU instance = {};
     instance.rotation[3] = instance.inv_rotation[3] = instance.translation_scale[3] = 1.0f;
@@ -199,10 +304,26 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
     buffers.hlod_draw_count = buffers.max_visible_chunks = buffers.dispatch_chunk_count = 2;
     buffers.max_visible_splats = buffers.atlas_gaussian_count = 2;
     buffers.instance_count = buffers.max_chunk_splats = 1;
+    buffers.atlas_gaussian_count = 4;
     buffers.world_submission_active = true;
     renderer->get_subsystem_state().gpu_culler->get_state().culled_indices.clear();
-    // Same camera and storage on both passes: HLOD reuse must remain disabled.
-    for (uint32_t pass = 0; pass < 2; ++pass) {
+    // Same camera, relocated payload. Compare actual GPU key words, then repeat
+    // with the observable address-keying variant as the negative control.
+    struct RestoreIdentity { ~RestoreIdentity() { GSSplatIdentityTestControl::set_force_address_keying(false); } } restore_identity;
+    uint32_t first_ties[2] = {};
+    for (uint32_t pass = 0; pass < 4; ++pass) {
+        const bool forced = pass >= 2;
+        GSSplatIdentityTestControl::set_force_address_keying(forced);
+        CHECK(GSSplatIdentityTestControl::get_force_address_keying() == forced);
+        const uint32_t placement = (pass & 1u) * 2u;
+        for (uint32_t node = 0; node < 2; ++node) {
+            splats[placement + node] = splats[node];
+            chunks[node].atlas_base = placement + node;
+        }
+        if (rd->buffer_update(buffers.atlas_gaussian_buffer, 0, sizeof(splats), splats) != OK ||
+                rd->buffer_update(buffers.chunk_meta_buffer, 0, sizeof(chunks), chunks) != OK) {
+            FAIL("identity relocation upload failed"); return;
+        }
         if (rd->buffer_update(buffers.counter_buffer, 0, sizeof(counters), counters) != OK) {
             FAIL("cut counter upload failed"); return;
         }
@@ -221,13 +342,15 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         }
         const auto result = renderer->test_sort_for_view(Transform3D(), GaussianRenderState::IndexDomain::CHUNK_REF);
         CHECK(result.did_execute);
+        CHECK(pipeline->_test_uses_address_identity() == forced);
         CHECK(renderer->get_debug_state().sort_route_uid == String(RenderRouteUID::INSTANCE_SORT_GPU));
         const Vector<uint8_t> count_bytes = rd->buffer_get_data(buffers.instance_count_buffer);
         const Vector<uint8_t> sorted_bytes = rd->buffer_get_data(pipeline->get_sort_indices_buffer(), 0, 2 * sizeof(uint32_t));
         const Vector<uint8_t> ref_bytes = rd->buffer_get_data(buffers.splat_ref_buffer, 0, 2 * sizeof(SplatRefGPU));
         const Vector<uint8_t> sidecar_bytes = rd->buffer_get_data(buffers.hlod_draw_entry_buffer, 0, 2 * sizeof(uint32_t));
+        const Vector<uint8_t> key_bytes = rd->buffer_get_data(buffers.sort_key_buffer, 0, 4 * sizeof(uint32_t));
         if (count_bytes.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout)) ||
-                sorted_bytes.size() != 8 || ref_bytes.size() != 16 || sidecar_bytes.size() != 8) {
+                sorted_bytes.size() != 8 || ref_bytes.size() != 16 || sidecar_bytes.size() != 8 || key_bytes.size() != 16) {
             FAIL("complete GPU output required"); return;
         }
         GaussianSplatting::IndirectDispatchLayout count_header = {};
@@ -241,11 +364,22 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         const auto *sorted = reinterpret_cast<const uint32_t *>(sorted_bytes.ptr());
         const auto *refs = reinterpret_cast<const SplatRefGPU *>(ref_bytes.ptr());
         const auto *entries = reinterpret_cast<const uint32_t *>(sidecar_bytes.ptr());
+        uint32_t key_words[4] = {};
+        std::memcpy(key_words, key_bytes.ptr(), sizeof(key_words));
+        // Depths are distinct, so sorted key order identifies node 0 then node 1.
+        // Neither word's value is inferred from whether a dispatch was attempted.
         for (uint32_t i = 0; i < 2; ++i) {
             CHECK(sorted[i] < 2);
             if (sorted[i] >= 2) { continue; }
-            CHECK(gs_splat_ref::gs_splat_ref_atlas_index(refs[sorted[i]].atlas_index) == i);
+            CHECK(gs_splat_ref::gs_splat_ref_atlas_index(refs[sorted[i]].atlas_index) == placement + i);
             CHECK(entries[sorted[i]] == i);
+            const uint32_t tie = key_words[2 * i];
+            if (pass == 0) { first_ties[i] = tie; CHECK(tie == (i << 14u)); }
+            if (pass == 1) { CHECK(tie == first_ties[i]); }
+            if (forced) {
+                CHECK(tie == placement + i);
+                if (placement != 0 || i != 0) { CHECK(tie != first_ties[i]); }
+            }
         }
     }
     pipeline.unref();
@@ -1004,15 +1138,17 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         deformation.wind_time_config[2] = 0.1f;
         deformation.wind_time_config[3] = pass == 3 || pass == 4 ? 1.0f : 0.0f;
         if (pass >= 5) { deformation.frame_anchor[0] = previous_camera_x; }
-        const RID inputs[7] = {
+        const RegionOverrideGPU neutral_region = GSRegionOverrideBuffer::neutral();
+        const RID inputs[8] = {
             resources.buffer(uint32_t(atlas.size()) * sizeof(PackedGaussian), atlas.ptr()),
             resources.buffer(sizeof(rows), rows), resources.buffer(sizeof(meta), &meta),
             resources.buffer(sizeof(drawn), &drawn), resources.buffer(sizeof(casts), &casts),
             resources.buffer(uint32_t(forward.size()) * sizeof(uint32_t), forward.ptr()),
-            resources.buffer(sizeof(deformation), &deformation)
+            resources.buffer(sizeof(deformation), &deformation),
+            resources.buffer(sizeof(RegionOverrideGPU), &neutral_region)
         };
         Vector<RD::Uniform> uniforms;
-        for (uint32_t binding = 0; binding < 7; ++binding) {
+        for (uint32_t binding = 0; binding < 8; ++binding) {
             if (!inputs[binding].is_valid()) { FAIL("page-table draw input unavailable"); return; }
             RD::Uniform u;
             u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
@@ -1083,3 +1219,126 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
     CHECK(std::abs(centroids[2] - previous_world_x) <= 1.0); // row 0 keeps the previous list's world centre.
 }
 }
+
+namespace TestA2History {
+struct Resources {
+    RenderingDevice *rd;
+    LocalVector<RID> owned;
+    ~Resources() { for (uint32_t i = owned.size(); i-- > 0;) { rd->free(owned[i]); } }
+    RID keep(RID rid) { if (rid.is_valid()) { owned.push_back(rid); } return rid; }
+    RID buffer(uint32_t bytes) { return keep(rd->storage_buffer_create(bytes)); }
+    RID set(RID shader, RID a, RID b = RID()) {
+        Vector<RD::Uniform> uniforms;
+        for (uint32_t i = 0; i < (b.is_valid() ? 2u : 1u); ++i) {
+            RD::Uniform u; u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER; u.binding = i;
+            u.append_id(i == 0 ? a : b); uniforms.push_back(u);
+        }
+        return keep(rd->uniform_set_create(uniforms, shader, 0));
+    }
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] A2 frozen colliding identities keep identical history under opposite EMIT orders") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GpuSorting RD required for A2 history collision readback"); return; }
+    Resources resources{ rd, {} };
+    TileBinningShaderRD production;
+    Vector<String> variants; variants.push_back(String()); production.initialize(variants);
+    const RID version = production.version_create();
+    if (!version.is_valid()) { FAIL("A2 production binning source unavailable"); return; }
+    const Vector<String> stages = production.version_build_variant_stage_sources(version, 0);
+    production.version_free(version);
+    if (stages.size() <= RD::SHADER_STAGE_COMPUTE) { FAIL("A2 production compute stage missing"); return; }
+    const String body = stages[RD::SHADER_STAGE_COMPUTE];
+    int first = body.find("    uint history_idx =");
+    if (first < 0) { FAIL("A2 history expression missing from real binning shader"); return; }
+    const String conditional = "#if defined(GS_HLOD_RELATIVE_PAYLOAD)\n";
+    const int preceding = body.rfind(conditional, first);
+    if (preceding >= 0 && body.substr(preceding + conditional.length(), first - preceding - conditional.length()).strip_edges().is_empty()) {
+        first = preceding;
+    }
+    const int last = body.find("    uint history_packed =", first);
+    if (last <= first) { FAIL("A2 history expression end missing"); return; }
+    // Execute the actual production slot/key expressions. One invocation at a
+    // time forces both legal last-writer orders, so red does not depend on GPU scheduling.
+    const String source = String("#version 450\n#define GS_HLOD_RELATIVE_PAYLOAD 1\n") +
+            "layout(local_size_x=1) in;\nlayout(set=0,binding=0,std430) buffer H { uint entries[]; } history;\n" +
+            "layout(push_constant,std430) uniform P { uvec4 v; } p;\nvoid main() {\n" +
+            "uint gaussian_idx=p.v.x; uint identity_hash=p.v.y; uint history_size=17u;\n" +
+            body.substr(first, last - first) +
+            "atomicExchange(history.entries[history_idx], (history_key << 1u) | 1u); }\n";
+    String error;
+    const RID shader = resources.keep(ShaderCompilationHelper::compile_shader_on_device(rd, source, "a2_history_collision", Vector<String>(), &error));
+    if (!shader.is_valid()) { FAIL("A2 collision shader failed: ", error.utf8().get_data()); return; }
+    const RID pipeline = resources.keep(rd->compute_pipeline_create(shader));
+    const RID history = resources.buffer(17 * sizeof(uint32_t));
+    const RID set = resources.set(shader, history);
+    if (!pipeline.is_valid() || !history.is_valid() || !set.is_valid()) { FAIL("A2 collision resources missing"); return; }
+    Vector<uint8_t> frames[2];
+    for (uint32_t pass = 0; pass < 2; ++pass) {
+        if (rd->buffer_clear(history, 0, 17 * sizeof(uint32_t)) != OK) { FAIL("A2 history reset failed"); return; }
+        for (uint32_t step = 0; step < 2; ++step) {
+            const bool second = (step ^ pass) != 0;
+            // 1 and 18 collide under identity_hash % 17, despite distinct atlas records.
+            const uint32_t push[4] = { second ? 6u : 2u, second ? 18u : 1u, 0u, 0u };
+            const RD::ComputeListID list = rd->compute_list_begin();
+            rd->compute_list_bind_compute_pipeline(list, pipeline);
+            rd->compute_list_bind_uniform_set(list, set, 0);
+            rd->compute_list_set_push_constant(list, push, sizeof(push));
+            rd->compute_list_dispatch(list, 1, 1, 1);
+            rd->compute_list_end();
+        }
+        frames[pass] = rd->buffer_get_data(history);
+        if (frames[pass].size() != 17 * int(sizeof(uint32_t))) { FAIL("A2 full history readback required"); return; }
+    }
+    CHECK(frames[0] == frames[1]);
+    uint32_t a = 0, b = 0;
+    memcpy(&a, frames[0].ptr() + 2 * sizeof(uint32_t), sizeof(a));
+    memcpy(&b, frames[0].ptr() + 6 * sizeof(uint32_t), sizeof(b));
+    CHECK(a == 3u); CHECK(b == 37u);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] A2 reassigned range is cleared before same-frame history READ and EMIT") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GpuSorting RD required for A2 reassignment ordering readback"); return; }
+    Ref<TileRenderer> tile; tile.instantiate();
+    if (tile->initialize(rd, Vector2i(16, 16)) != OK) { FAIL("A2 tile renderer initialization failed"); return; }
+    const RID history = tile->_test_subpixel_history(17);
+    if (!history.is_valid()) { FAIL("A2 real history allocation failed"); return; }
+    const Vector<uint8_t> initial = rd->buffer_get_data(history);
+    if (initial.size() != 17 * int(sizeof(uint32_t))) { FAIL("A2 initial history readback missing"); return; }
+    for (int i = 0; i < initial.size(); ++i) { CHECK(initial[i] == 0); }
+    Resources resources{ rd, {} };
+    const String source = "#version 450\nlayout(local_size_x=1) in;\n"
+            "layout(set=0,binding=0,std430) buffer H { uint entries[]; } h;\n"
+            "layout(set=0,binding=1,std430) buffer O { uint entries[]; } o;\n"
+            "void main() { uint i=gl_GlobalInvocationID.x; uint packed=h.entries[i];\n"
+            "o.entries[i]=uint((packed & 1u)!=0u && (packed >> 1u)==0u);\n"
+            "atomicExchange(h.entries[i], 2u); }\n";
+    String error;
+    const RID shader = resources.keep(ShaderCompilationHelper::compile_shader_on_device(rd, source, "a2_history_clear_order", Vector<String>(), &error));
+    if (!shader.is_valid()) { FAIL("A2 ordering shader failed: ", error.utf8().get_data()); return; }
+    const RID pipeline = resources.keep(rd->compute_pipeline_create(shader));
+    const RID observed = resources.buffer(17 * sizeof(uint32_t));
+    const RID set = resources.set(shader, history, observed);
+    if (!pipeline.is_valid() || !observed.is_valid() || !set.is_valid()) { FAIL("A2 ordering resources missing"); return; }
+    for (uint32_t pass = 0; pass < 2; ++pass) {
+        uint32_t old[17]; for (auto &v : old) { v = 1u; }
+        if (rd->buffer_update(history, 0, sizeof(old), old) != OK) { FAIL("A2 old tenant setup failed"); return; }
+        // Pass 0 is the forcing control: omit the actual range hook, exposing
+        // inherited was_visible even when the 31-bit tenant key collides.
+        if (pass == 1) { tile->invalidate_sh_color_cache_range(3, 2); }
+        // No readback/sync/submission boundary between clear and first READ/EMIT.
+        const RD::ComputeListID list = rd->compute_list_begin();
+        rd->compute_list_bind_compute_pipeline(list, pipeline);
+        rd->compute_list_bind_uniform_set(list, set, 0);
+        rd->compute_list_dispatch(list, 17, 1, 1);
+        rd->compute_list_end();
+        const Vector<uint8_t> bytes = rd->buffer_get_data(observed);
+        if (bytes.size() != int(sizeof(old))) { FAIL("A2 full ordered readback required"); return; }
+        for (uint32_t i = 0; i < 17; ++i) {
+            uint32_t visible = 0; memcpy(&visible, bytes.ptr() + i * sizeof(uint32_t), sizeof(visible));
+            CHECK(visible == ((pass == 1 && i >= 3 && i < 5) ? 0u : 1u));
+        }
+    }
+}
+} // namespace TestA2History

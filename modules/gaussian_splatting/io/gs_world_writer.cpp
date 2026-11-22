@@ -80,6 +80,12 @@ bool _add_u64(uint64_t p_a, uint64_t p_b, uint64_t &r_out) {
 
 } // namespace
 
+CodecParams gsq_v2_codec_params() {
+	CodecParams codec = gsq_v1_codec_params();
+	codec.codec_id = kCodecGsqV2;
+	return codec;
+}
+
 CodecParams gsq_v1_codec_params() {
 	const gs_gsq::EncodeParams defaults;
 	CodecParams codec;
@@ -94,11 +100,12 @@ CodecParams gsq_v1_codec_params() {
 }
 
 Error gsq_encode_params(const CodecParams &p_codec, gs_gsq::EncodeParams &r_params, String &r_reason) {
-	if (p_codec.codec_id != kCodecGsqV1) {
+	if (!is_gsq_codec(p_codec.codec_id)) {
 		r_reason = vformat("gsq_invalid_params: codec_id %d is not GSQ v1", p_codec.codec_id);
 		return ERR_INVALID_PARAMETER;
 	}
 	gs_gsq::EncodeParams params;
+	params.codec_id = p_codec.codec_id;
 	for (int i = 0; i < 3; i++) {
 		params.sh_bits[i] = p_codec.sh_bits[i];
 	}
@@ -359,7 +366,7 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 		return _fail(ERR_INVALID_PARAMETER, vformat("limits_unset: %s is 0 (0 refuses; use Limits::kUnbounded for no cap)", unset));
 	}
 	gs_gsq::EncodeParams gsq_params;
-	if (p_codec.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(p_codec.codec_id)) {
 		String reason;
 		if (gsq_encode_params(p_codec, gsq_params, reason) != OK) {
 			return _fail(ERR_INVALID_PARAMETER, "invalid_spec: " + reason);

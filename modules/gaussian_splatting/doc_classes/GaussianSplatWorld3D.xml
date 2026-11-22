@@ -10,6 +10,69 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+        <method name="get_region_id" qualifiers="const">
+            <return type="int" />
+            <param index="0" name="name" type="StringName" />
+            <description>Returns the region ID recorded under [param name] in the baked [code]regions[][/code] manifest, or -1 if unknown. Volume region IDs are NOT stable across edits. Game code must resolve regions by name with this method after loading or rebaking, never use a hard-coded numeric ID.</description>
+        </method>
+        <method name="get_region_names" qualifiers="const">
+            <return type="PackedStringArray" />
+            <description>Returns region names from the baked manifest, in manifest order. Resolve each name through [method get_region_id]; volume IDs can change when volumes are added, removed, or renamed.</description>
+        </method>
+        <method name="set_region_override">
+            <return type="void" />
+            <param index="0" name="region" type="int" />
+            <param index="1" name="override" type="GaussianSplatRegionOverride" />
+            <description>Assigns a runtime override to a baked region (0 to 65535). Resolve [param region] by name with [method get_region_id]. Region 0 supplies the whole-asset default; explicit regions replace that default. Updates made before rendering are uploaded before that frame's shadow and main passes and survive HLOD eviction. The override is specific to this node, including when several nodes share an asset.</description>
+        </method>
+        <method name="clear_region_override">
+            <return type="void" />
+            <param index="0" name="region" type="int" />
+            <description>Clears this region's explicit override. It inherits the whole-asset default again.</description>
+        </method>
+        <method name="clear_all_region_overrides">
+            <return type="void" />
+            <description>Clears all overrides, including the whole-asset default and the state set by [method set_hidden].</description>
+        </method>
+        <method name="set_tint">
+            <return type="void" />
+            <param index="0" name="color" type="Color" />
+            <param index="1" name="strength" type="float" />
+            <description>Sets the whole-asset default tint and strength (clamped to 0 to 1). Strength 1 replaces the SH color with [param color]. Tint is applied after the SH cache and before lighting. Explicit region overrides replace this default.</description>
+        </method>
+        <method name="set_emissive">
+            <return type="void" />
+            <param index="0" name="color" type="Color" />
+            <description>Sets the whole-asset default emission, added after lighting. Components are clamped to 0 to 65504 during GPU upload. Explicit region overrides replace this default.</description>
+        </method>
+        <method name="set_hidden">
+            <return type="void" />
+            <param index="0" name="hidden" type="bool" />
+            <description>Hides every region, including explicit overrides, before sort records are allocated, and suppresses its shadows. This is distinct from [member Node3D.visible]: the instance remains registered. Passing false restores the authored per-region opacity and overrides.</description>
+        </method>
+
+		<method name="create_island_nodes">
+			<return type="Array" />
+			<param index="0" name="parent" type="Node" default="null" />
+			<description>
+				Loads the assigned world's [code]islands[][/code] manifest and creates one [GaussianSplatNode3D] per valid entry. Returns only newly created nodes, in manifest order. A [code]null[/code] [param parent] uses this world node. Each node has the island's exact name and its [code]rest_transform[/code] as a local transform relative to the chosen parent. The serialized transform is a row-major 3 by 3 basis followed by the three origin coordinates. B2 currently writes identity rest transforms and always writes plain v3 island assets (no V4 size threshold exists).
+				Calls are idempotent for a given parent: an existing direct child with the same name, of any type, is left unchanged and is not returned, reloaded or duplicated. Duplicate names within the manifest reject every occurrence, including the first. Invalid entries, missing or unreadable assets create no node for that entry; other valid entries can still succeed. Inspect [method get_island_errors] after the call, since an empty return can mean either nothing new or a failure.
+				Relative [code]asset_path[/code] values resolve from the world resource's file directory and require a world resource path. Absolute filesystem, [code]res://[/code] and [code]user://[/code] paths are accepted, matching B2's output-directory convention. Paths containing a [code]..[/code] component are refused. Names must be valid node names; bounds and the twelve transform numbers must be finite and correctly typed, and bounds sizes must be nonnegative.
+				Created nodes use the ordinary instance path and count against the instance tail and shared ledger. Their asset payload, including baked semantic words, is loaded synchronously. The parent owns their lifetime; scene ownership is not assigned automatically (use [method Node.set_owner] if saving them into a scene). Call on the main thread.
+			</description>
+		</method>
+		<method name="get_island_names">
+			<return type="PackedStringArray" />
+			<description>
+				Returns names of structurally valid, uniquely named island entries in manifest order. Validates names, bounds, rest transforms and path resolution without reading assets or creating nodes. Asset existence and readability are checked by [method create_island_nodes]. Replaces the diagnostics returned by [method get_island_errors].
+			</description>
+		</method>
+		<method name="get_island_errors" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns diagnostics from the most recent [method create_island_nodes] or [method get_island_names] call. Each entry failure includes its [code]islands[index][/code], name when available, and a reason: [code]island_entry_type[/code], [code]island_name[/code], [code]island_duplicate_name[/code], [code]island_bounds[/code], [code]island_rest_transform[/code], [code]island_asset_path[/code], [code]island_asset_path_escape[/code], [code]island_world_path_missing[/code], [code]island_asset_missing[/code], [code]island_asset_unreadable[/code] (including path and error code), or [code]island_parent_rejected[/code]. Whole-manifest failures use [code]island_world_missing[/code] or [code]island_manifest_type[/code]. A world without an islands manifest and a call that only finds existing children both produce no errors.
+			</description>
+		</method>
 		<method name="set_world">
 			<return type="void" />
 			<param index="0" name="world" type="GaussianSplatWorld" />
@@ -56,14 +119,14 @@
 				Enables or disables level-of-detail culling for the world's splats.
 			</description>
 		</method>
-		<method name="set_wind_enabled">
+		<method name="set_wind_mode">
 			<return type="void" />
-			<param index="0" name="enabled" type="bool" />
-			<description>Sets [member wind_enabled].</description>
+			<param index="0" name="mode" type="int" enum="GaussianSplatWorld3D.WindMode" />
+			<description>Sets [member wind_mode].</description>
 		</method>
-		<method name="is_wind_enabled">
-			<return type="bool" />
-			<description>Returns [member wind_enabled].</description>
+		<method name="get_wind_mode" qualifiers="const">
+			<return type="int" enum="GaussianSplatWorld3D.WindMode" />
+			<description>Returns [member wind_mode].</description>
 		</method>
 		<method name="set_wind_intensity">
 			<return type="void" />
@@ -207,14 +270,14 @@
 		<member name="cast_shadow" type="bool" setter="set_cast_shadow" getter="is_cast_shadow" default="false">
 			Enables shadow casting from this world node.
 		</member>
-		<member name="wind_enabled" type="bool" setter="set_wind_enabled" getter="is_wind_enabled" default="false">
-			Opts this world into project wind, including on the streamed HLOD route. The project setting [code]rendering/gaussian_splatting/animation/wind_enabled[/code] must also be enabled. Legacy worlds have no baked semantic wind weights, so they remain still by default even when project wind is active. An opted-in world uses [member wind_intensity] multiplied by the opacity stiffness heuristic. The rest-position phase uses a smoothly interpolated 32-metre lattice in world XZ space. Wind has full weight through 64 metres from the camera, smoothly reaches zero at 128 metres, and fades from full weight at leaf height 0 to zero at HLOD height 4. These are explicit shader constants; instance rows without an HLOD level use height 0. [GaussianSplatNode3D] instances keep their own wind modes independently of this property.
+		<member name="wind_mode" type="int" setter="set_wind_mode" getter="get_wind_mode" enum="GaussianSplatWorld3D.WindMode" default="0">
+			Controls how this world inherits project wind, including on the streamed HLOD route. The project setting [code]rendering/gaussian_splatting/animation/wind_enabled[/code] must also be enabled. [constant WIND_MODE_AUTO] uses baked weights only on splats with valid semantic data; legacy splats stay still. [constant WIND_MODE_ON] also opts legacy splats into the opacity stiffness heuristic. [constant WIND_MODE_OFF] disables wind even on semantic splats. Semantic content with no authored wind input has weight zero and stays still. The rest-position phase uses a smoothly interpolated 32-metre lattice in world XZ space. Wind has full weight through 64 metres from the camera, smoothly reaches zero at 128 metres, and fades from full weight at leaf height 0 to zero at HLOD height 4. These are explicit shader constants; instance rows without an HLOD level use height 0. Sphere effectors are controlled independently by [member effectors_enabled]. [GaussianSplatNode3D] instances keep their own wind modes independently of this property.
 		</member>
 		<member name="wind_intensity" type="float" setter="set_wind_intensity" getter="get_wind_intensity" default="1.0">
-			Nonnegative wind weight for this world's row. Multiplies project wind strength and the legacy opacity stiffness heuristic when [member wind_enabled] is enabled. Zero disables wind displacement for this world. Does not change instance row weights.
+			Nonnegative wind weight for this world's row. Multiplies project wind strength and the per-splat wind weight selected by [member wind_mode]. Zero disables wind displacement for this world. Does not change instance row weights.
 		</member>
 		<member name="effectors_enabled" type="bool" setter="set_effectors_enabled" getter="is_effectors_enabled" default="false">
-			Opts this world's row into position and opacity effects from world-scope scene sphere effectors, or the project sphere-effector fallback when no scene payload exists. Independent of [member wind_enabled]. Disabled by default for legacy worlds without baked semantics. Instance rows retain their own effector masks and scope filters.
+			Opts this world's row into position and opacity effects from world-scope scene sphere effectors, or the project sphere-effector fallback when no scene payload exists. Independent of [member wind_mode]. Disabled by default for legacy worlds without baked semantics. Instance rows retain their own effector masks and scope filters.
 		</member>
 		<member name="quality/lod_enabled" type="bool" setter="set_lod_enabled" getter="is_lod_enabled" default="true">
 			Enables level-of-detail culling.
@@ -241,4 +304,15 @@
 			Global opacity for all splats.
 		</member>
 	</members>
+	<constants>
+		<constant name="WIND_MODE_AUTO" value="0" enum="WindMode">
+			Default. Inherits enabled project wind per splat using its baked wind weight when semantic data is valid. Legacy splats have zero wind weight, so a world without semantic data stays still.
+		</constant>
+		<constant name="WIND_MODE_ON" value="1" enum="WindMode">
+			Inherits enabled project wind, using baked weights for semantic splats and the opacity stiffness heuristic for legacy splats. This does not force project wind on.
+		</constant>
+		<constant name="WIND_MODE_OFF" value="2" enum="WindMode">
+			Disables wind for this world, including splats with valid semantic data. Sphere effector enablement remains independent.
+		</constant>
+	</constants>
 </class>

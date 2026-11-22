@@ -1,4 +1,5 @@
 #include "tile_renderer.h"
+#include "splat_identity_test_control.h"
 
 #include "../core/gs_vector_alloc.h"
 #include "overlap_bootstrap_policy.h"
@@ -1975,6 +1976,7 @@ Error TileRenderer::initialize(RenderingDevice *p_rendering_device, const Vector
 }
 
 void TileRenderer::cleanup() {
+    neutral_region_overrides.clear();
 	clear_output_resource_tracking();
 	clear_adaptive_overlap_budget_runtime_state();
 	async_readback.overflow_state = TileAsyncReadback::AsyncOverflowState();
@@ -2394,6 +2396,10 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_X %d\n", config_state.tile_size));
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_Y %d\n", config_state.tile_size));
 #ifdef TESTS_ENABLED
+    defines.push_back("#define GS_TESTS_ENABLED 1\n#define GS_TEST_REGION_CONTROLS 1\n");
+	{
+		defines.push_back(GSSplatIdentityTestControl::shader_defines());
+	}
 	if (p_include_dispatch_group && debug_stats.membership_enabled()) {
 		defines.push_back("#define GS_RECORD_LOSS_CAPTURE 1\n");
 	}
@@ -2750,7 +2756,17 @@ Error TileRenderer::_compile_raster_shaders(RenderingDevice *p_device, bool p_wa
 
 Error TileRenderer::_compile_tile_shaders() {
 	ERR_FAIL_NULL_V(shader_compilation_manager, ERR_UNCONFIGURED);
-	return shader_compilation_manager->compile_all_shaders(device_context.resource_rd);
+#ifdef TESTS_ENABLED
+	const bool force_address = GSSplatIdentityTestControl::get_force_address_keying();
+	if (test_address_identity_enabled != force_address || test_game_shader_variant != GSSplatIdentityTestControl::shader_variant()) {
+		_release_compiled_shaders();
+	}
+#endif
+	const Error result = shader_compilation_manager->compile_all_shaders(device_context.resource_rd);
+#ifdef TESTS_ENABLED
+	if (result == OK) { test_address_identity_enabled = force_address; test_game_shader_variant = GSSplatIdentityTestControl::shader_variant(); }
+#endif
+	return result;
 }
 
 uint64_t TileRenderer::_compute_shader_defines_hash() const {
@@ -3464,7 +3480,8 @@ bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBin
             p_bindings.hlod_content_generation != p_params.hlod_content_generation ||
             p_bindings.hlod_origin_revision != p_params.hlod_origin_revision ||
             p_bindings.instance_buffer != p_params.instance_buffer ||
-			p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
+			p_bindings.region_override_buffer != p_params.region_override_buffer ||
+            p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
 			p_bindings.splat_ref_buffer != p_params.splat_ref_buffer ||
 			p_bindings.chunk_meta_buffer != p_params.chunk_meta_buffer ||
 			p_bindings.quantization_buffer != p_params.quantization_buffer ||
@@ -3484,6 +3501,7 @@ void TileRenderer::_assign_instance_pipeline_bindings(InstancePipelineBindings &
     r_bindings.hlod_origin_revision = p_params.hlod_origin_revision;
 	r_bindings.instance_buffer = p_params.instance_buffer;
 	r_bindings.instance_grading_buffer = p_params.instance_grading_buffer;
+    r_bindings.region_override_buffer = p_params.region_override_buffer;
 	r_bindings.splat_ref_buffer = p_params.splat_ref_buffer;
 	r_bindings.chunk_meta_buffer = p_params.chunk_meta_buffer;
 	r_bindings.quantization_buffer = p_params.quantization_buffer;
@@ -4067,6 +4085,11 @@ bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_h
 }
 
 void TileRenderer::invalidate_sh_color_cache_range(uint32_t p_first_record, uint32_t p_record_count) {
+    // The streamer's synchronous content-range hook runs before the upload and
+    // metadata publication. Both clears precede the new tenant's first COUNT
+    // read and EMIT write in this same RD command graph.
+    ERR_FAIL_COND_MSG(!subpixel_history_buffers.clear_history_range(_get_resource_device(), p_first_record, p_record_count),
+            "[TileRenderer] Failed to invalidate subpixel history content range");
     ERR_FAIL_COND_MSG(!sh_cache_buffers.clear_color_cache_range(_get_resource_device(), p_first_record, p_record_count),
             "[TileRenderer] Failed to invalidate SH color cache content range");
 }

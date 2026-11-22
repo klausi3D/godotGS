@@ -51,10 +51,12 @@ namespace TestGaussianSplatting {
 
 static_assert(GS_RENDER_PARAMS_LAYOUT_VERSION == 20, "Render params layout version mismatch");
 
-static_assert(sizeof(InstanceDataGPU) == 112, "InstanceDataGPU size contract changed");
+static_assert(sizeof(InstanceDataGPU) == 128, "InstanceDataGPU size contract changed");
 static_assert(offsetof(InstanceDataGPU, lod) == 72, "InstanceDataGPU.lod offset contract changed");
 static_assert(offsetof(InstanceDataGPU, wind_params) == 80, "InstanceDataGPU.wind_params offset contract changed");
 static_assert(offsetof(InstanceDataGPU, effect_params) == 96, "InstanceDataGPU.effect_params offset contract changed");
+static_assert(offsetof(InstanceDataGPU, placement_key) == 112, "InstanceDataGPU.placement_key offset contract changed");
+static_assert(offsetof(InstanceDataGPU, placement_pad) == 120, "InstanceDataGPU.placement_pad offset contract changed");
 static_assert(sizeof(AssetMetaGPU) == 112, "AssetMetaGPU size contract changed");
 static_assert(offsetof(AssetMetaGPU, lod_ranges) == 48, "AssetMetaGPU.lod_ranges offset contract changed");
 static_assert(sizeof(ChunkMetaGPU) == 64, "ChunkMetaGPU size contract changed");
@@ -941,8 +943,10 @@ TEST_CASE("[GaussianSplatting] pack_gaussian leaves no byte of PackedGaussian in
 
 TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
     CHECK(GS_RENDER_PARAMS_LAYOUT_VERSION == 20u);
-    CHECK(sizeof(InstanceDataGPU) == size_t(112));
+    CHECK(sizeof(InstanceDataGPU) == size_t(128));
     CHECK(offsetof(InstanceDataGPU, effect_params) == size_t(96));
+    CHECK(offsetof(InstanceDataGPU, placement_key) == size_t(112));
+    CHECK(offsetof(InstanceDataGPU, placement_pad) == size_t(120));
     CHECK(sizeof(AssetMetaGPU) == size_t(112));
     CHECK(sizeof(ChunkMetaGPU) == size_t(64));
     CHECK(sizeof(SplatRefGPU) == size_t(8));
@@ -5775,6 +5779,20 @@ inline bool reuse_granted(uint64_t p_cached_signature, uint64_t p_frame_signatur
 }
 
 } // namespace TestRasterParamsSignature
+
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse refuses an uploaded region override edit at a static camera") {
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    renderer->test_set_region_override_revision(1);
+    const uint64_t before = TestRasterParamsSignature::signature_of(renderer);
+    CHECK(TestRasterParamsSignature::signature_of(renderer) == before);
+    CHECK(TestRasterParamsSignature::reuse_granted(before, before));
+    renderer->test_set_region_override_revision(2);
+    const uint64_t after = TestRasterParamsSignature::signature_of(renderer);
+    CHECK(after != before);
+    CHECK_FALSE(TestRasterParamsSignature::reuse_granted(before, after));
+    CHECK(TestRasterParamsSignature::reuse_granted(after, after));
+}
 
 TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused after a painterly edge_threshold edit (#1162)") {
     Ref<GaussianSplatRenderer> renderer;

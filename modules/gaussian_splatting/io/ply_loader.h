@@ -91,6 +91,7 @@ private:
     Error parse_header(Ref<FileAccess> file);
     Error parse_ascii_data(Ref<FileAccess> file);
     Error parse_binary_data(Ref<FileAccess> file);
+    Error parse_semantic_properties(Ref<FileAccess> file);
     bool try_load_cache(const String &p_source_path, uint64_t p_source_size, uint64_t p_source_mtime);
     void write_cache(const String &p_source_path, uint64_t p_source_size, uint64_t p_source_mtime) const;
 

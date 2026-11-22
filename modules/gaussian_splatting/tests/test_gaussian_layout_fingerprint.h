@@ -146,6 +146,7 @@ static void check_same_splats(const Ref<GaussianData> &p_got, const Ref<Gaussian
 		CHECK(got.sh_dc.is_equal_approx(want.sh_dc));
 		CHECK_EQ(got.painterly_meta, want.painterly_meta);
 		CHECK_EQ(got.render_meta, want.render_meta);
+		CHECK_EQ(got.semantic, want.semantic);
 	}
 }
 

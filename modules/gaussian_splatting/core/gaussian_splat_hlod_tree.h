@@ -79,7 +79,11 @@ static constexpr uint32_t kNodeFlagSplitByIndex = 1u << 2u;
 static constexpr uint32_t kNodeFlagGroupedLeaf = 1u << 3u;
 // The root is the origin-centred cube described at the top of this file (root only).
 static constexpr uint32_t kNodeFlagOriginCentredRoot = 1u << 4u;
-static constexpr uint32_t kNodeFlagKnownMask = kNodeFlagKindMask | kNodeFlagSplitByIndex | kNodeFlagGroupedLeaf | kNodeFlagOriginCentredRoot;
+// AND of semantic_valid across this node's own payload. A valid rigid node is
+// distinguishable from legacy content even when max_wind_weight is zero.
+static constexpr uint32_t kNodeFlagSemanticValid = 1u << 5u;
+static constexpr uint32_t kNodeFlagKnownMask = kNodeFlagKindMask | kNodeFlagSplitByIndex | kNodeFlagGroupedLeaf | kNodeFlagOriginCentredRoot | kNodeFlagSemanticValid;
+static_assert((kNodeFlagKnownMask & ~0x3fu) == 0, "Remaining topology flags are reserved zero");
 
 static constexpr uint64_t kNodeRecordBytes = 128u;
 static constexpr uint64_t kInstanceRecordBytes = 128u;
@@ -123,6 +127,8 @@ struct GaussianSplatHlodNode {
 	uint32_t flags = 0u;
 	// Per-node overlap footprint (§6.5); reserved in S1a, filled by S2a. Written as 0.
 	float overlap_footprint = 0.0f;
+	uint8_t max_wind_weight = 0; // V4 byte 120; B2 supplies the bound.
+	bool is_semantic_valid() const { return (flags & gs_hlod::kNodeFlagSemanticValid) != 0; }
 
 	gs_hlod::NodeKind get_kind() const { return gs_hlod::NodeKind(flags & gs_hlod::kNodeFlagKindMask); }
 	bool is_leaf() const { return child_count == 0u; }
@@ -145,6 +151,8 @@ struct GaussianSplatHlodBakeStats {
 	double order_ms = 0.0;
 	double total_ms = 0.0;
 	uint32_t index_split_groups = 0u;
+	uint64_t region_keyed_interior_bytes = 0;
+	uint64_t single_region_interior_bytes = 0;
 };
 
 struct GaussianSplatHlodTree {
@@ -174,6 +182,7 @@ struct GaussianSplatHlodTree {
 	LocalVector<Vector3> interior_sh_high_order;
 	String interior_file_path;
 	uint64_t interior_gaussian_offset = 0u;
+	uint32_t interior_gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION;
 	uint64_t interior_sh_offset = 0u;
 
 	bool is_empty() const { return nodes.is_empty(); }

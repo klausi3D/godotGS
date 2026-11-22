@@ -176,7 +176,7 @@ def content_references(plain: Path, source: dict, derived: dict, w13: dict) -> d
         # verifier: page_count precedes alignment; the table offset follows it.
         extension = struct.unpack_from("<I4BfiIIQ", header, vm.PREFIX_BYTES)
         count, alignment, offset = extension[-3:]
-        if (extension[0] != vm.CODEC_GSQ_V1 or alignment != vm.PAGE_ALIGNMENT
+        if (extension[0] not in vm.GSQ_CODECS or extension[0] != codec.get("codec_id") or alignment != vm.PAGE_ALIGNMENT
                 or type(codec.get("page_count")) is not int or count != codec["page_count"] or count <= 0
                 or offset < len(header) or offset + count * vm.PAGED_PAGE_RECORD_BYTES > plain.stat().st_size):
             raise ValueError("content reference GSQ page directory invalid")

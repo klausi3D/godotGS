@@ -127,7 +127,9 @@ static FrameViolation check_frame(const LocalVector<DrawRecord> &p_drawn, const 
             if ((uint64_t(page) + 1u) * sizeof(uint32_t) > uint64_t(p_owners.size())) { return RESIDENT_METADATA; }
             uint32_t owner = UINT32_MAX;
             memcpy(&owner, p_owners.ptr() + uint64_t(page) * sizeof(uint32_t), sizeof(owner));
-            if (owner != node) { return RESIDENT_METADATA; }
+            // Reverse GPU entries name the absolute forward slot, allowing
+            // shaders to recover the local page independently of atlas address.
+            if (owner != meta.page_table_ref - 1u + first / page_splats) { return RESIDENT_METADATA; }
             const uint64_t offset = uint64_t(page) * page_splats * sizeof(PackedGaussian);
             const uint64_t bytes = uint64_t(MIN(page_splats, meta.splat_count - first)) * sizeof(PackedGaussian);
             if (offset > uint64_t(p_atlas.size()) || bytes > uint64_t(p_atlas.size()) - offset) { return RESIDENT_METADATA; }

@@ -875,6 +875,32 @@ public:
     // Render-thread test owner only, before starting payload jobs; inert by default.
     Error _test_set_payload_telemetry_delays(const Dictionary &p_delays);
     Error _test_set_shared_layers_saturation(bool p_hold_uploads);
+    Dictionary _test_gs_game_1_control(const String &p_control);
+    Dictionary _test_gs_game_1_capture(const Array &p_probes, int p_target_region, int p_level);
+    int64_t _test_gs_game_1_arm_capture();
+    Dictionary _test_gs_game_1_image_request(const Array &p_absent_nodes, const Transform3D &p_pose);
+    Dictionary _test_gs_game_1_image_poll();
+    void _test_gs_game_1_publish_image(const RasterStageOutput &p_output);
+    Dictionary _test_gs_game_1_observe();
+    bool _test_gs_game_1_expected_regions(bool p_enabled);
+    void _test_gs_game_1_clear();
+    void _test_gs_game_1_clear_resources();
+    class GameImageObservation : public RefCounted {
+        GDCLASS(GameImageObservation, RefCounted);
+        static void _bind_methods() {}
+    public:
+        Mutex mutex;
+        bool cancelled = false;
+        bool submitted = false;
+        Dictionary result;
+        Array absent_nodes;
+        Transform3D pose;
+        static void readback(const Vector<uint8_t> &p_bytes, const Ref<GameImageObservation> &p_box);
+    };
+    Ref<GameImageObservation> test_game_image;
+    RID test_game_capture_buffer;
+    GaussianSplatting::BufferOwnership test_game_capture_owner;
+    uint32_t test_game_capture_epoch = 0;
 #endif
     uint64_t get_instance_pipeline_content_generation() const { return get_resource_state().instance_pipeline_content_generation; }
     TestDataState &get_test_data_state() { return test_data_state; }
@@ -1056,6 +1082,17 @@ public:
             const LocalVector<uint64_t> *p_submission_asset_ids = nullptr);
     // Upload the per-instance color grading SSBO. Called alongside update_instance_buffer
     // from both the resident and streaming contract-publish paths.
+    bool sync_region_overrides();
+#ifdef TESTS_ENABLED
+    // Local GPU tests record frames without advancing the live compositor.
+    void test_begin_region_override_frame() { get_resource_state().region_override_server_frame = UINT64_MAX; }
+    void test_defer_region_override_upload(bool p_enabled) { get_resource_state().region_override_buffer.test_defer_one_frame(p_enabled); }
+    bool test_region_override_upload_is_deferred() const { return get_resource_state().region_override_buffer.test_is_deferred(); }
+    void test_set_region_override_revision(uint64_t p_revision) { get_resource_state().region_override_buffer.test_set_revision(p_revision); }
+#endif
+    bool prepare_region_override_rows(LocalVector<InstanceDataGPU> &p_rows);
+    uint64_t get_region_override_revision() const { return get_resource_state().region_override_buffer.revision(); }
+    RID get_region_override_buffer() const { return get_resource_state().region_override_buffer.get(); }
     bool update_instance_grading_buffer(const LocalVector<InstanceGradingGPU> &p_gradings);
 
     bool ensure_rendering_device(const char *p_context) { return _ensure_rendering_device(p_context); }

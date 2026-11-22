@@ -10,8 +10,12 @@
 #[vertex]
 
 #version 450
+#define GS_GAME_1_CAPTURE_BINDING 8
+#include "includes/gs_game_1_capture.glsl"
 
 #include "includes/gs_instance_layout.glsl"
+#define GS_REGION_BINDING 7
+#include "includes/gs_region_override.glsl"
 #include "includes/gs_camera_relative.glsl"
 #include "includes/gs_deformation.glsl"
 
@@ -20,7 +24,7 @@ struct CasterGaussian {
     vec3 position;
     float opacity;
     vec3 scale;
-    uint _pad_rotation_align;
+    uint semantic;
     vec4 rotation;
     vec4 sh_dc;
     uint sh_encoded[24];
@@ -180,6 +184,16 @@ void main() {
     // exactly as tile_binning.glsl scales it (clamped to [0, 1] there too), before both the threshold test and the
     // support radius: a faded node or world casts what it shows.
     InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
+    RegionOverrideGPU region_override = gs_region_resolve(instance, atlas_gaussian_buffer.gaussians[atlas_index].semantic, atlas_index);
+    vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
+    uint reject_flags = GS_REGION_HIDE | GS_REGION_NO_SHADOW;
+#ifdef GS_TEST_REGION_CONTROLS
+    if ((instance.ids.y & GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER) != 0u) {
+        reject_flags = GS_REGION_NO_SHADOW;
+        if ((region_override.flags & GS_REGION_HIDE) != 0u) { region_emissive_opacity.w = 1.0; }
+    }
+#endif
+    if ((region_override.flags & reject_flags) != 0u || region_emissive_opacity.w == 0.0) { gs_caster_reject(); return; }
     float opacity_multiplier = uintBitsToFloat(params.counts.w);
     vec3 local_position = atlas_gaussian_buffer.gaussians[atlas_index].position;
     vec3 local_scale = atlas_gaussian_buffer.gaussians[atlas_index].scale;
@@ -197,15 +211,29 @@ void main() {
             uniform_scale, gs_caster_camera_offset(drawn.instance_id, drawn.camera_offset.xyz,
                     instance.translation_scale.xyz, deformation_params.frame_anchor.xyz));
     uint wind_level = drawn.level == GS_DRAWN_NODE_LEVEL_NONE ? 0u : drawn.level;
+#ifdef GS_GAME_1_CAPTURE
+    if (drawn.instance_id == 0u && (gs_game_1.header.w >> 16u) != 0u && wind_level + 1u != (gs_game_1.header.w >> 16u)) { gs_caster_reject(); return; }
+#endif
+#ifdef GS_GAME_1_CAPTURE
+    vec3 game_rest_position = frame_position + deformation_params.frame_anchor.xyz;
+#endif
     float deformation_fade = gs_wind_distance_level_fade(frame_position, wind_level);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_ADDRESS_WIND_PHASE)
+    gs_test_wind_atlas_address = atlas_index;
+#endif
     GSDeformationResult deformation = gs_apply_wind_deformation(frame_position,
             atlas_gaussian_buffer.gaussians[atlas_index].opacity,
+            gs_region_wind_semantic(atlas_gaussian_buffer.gaussians[atlas_index].semantic, region_override.flags),
             max(instance.params.z, 0.0), instance.params.w, instance.wind_params, instance.effect_params,
             deformation_params.wind_dir_strength, deformation_params.wind_time_config, deformation_params.effector_meta,
             deformation_params.effector_spheres, deformation_params.effector_configs, deformation_params.effector_opacity_configs,
             deformation_params.frame_anchor.xyz, deformation_fade);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_CASTER_WITHOUT_DEFORMATION)
+    deformation.position = frame_position;
+    deformation.opacity = atlas_gaussian_buffer.gaussians[atlas_index].opacity;
+#endif
     frame_position = deformation.position;
-    float opacity = clamp(deformation.opacity * instance.params.x * opacity_multiplier, 0.0, 1.0);
+    float opacity = clamp(deformation.opacity * region_emissive_opacity.w * instance.params.x * opacity_multiplier, 0.0, 1.0);
     float threshold = params.viewport.z;
     // A splat whose peak alpha is below the threshold occludes nowhere.
     if (!(opacity >= threshold) || threshold <= 0.0) {
@@ -312,6 +340,21 @@ void main() {
         plane_cap = sigma_extent * sqrt(max(dot(jz, cjz), 0.0));
         plane_dz = dot(g, offset_texels);
     }
+#ifdef GS_GAME_1_CAPTURE
+    if ((gl_VertexIndex % 6) == 0) {
+        uint game_slot = gs_game_1_slot(drawn.chunk_id, local_index, drawn.instance_id);
+        if (game_slot != 0xffffffffu && gs_game_1.header.y != 0u && gs_game_1.samples[game_slot].meta.y == 0u) {
+            gs_game_1.samples[game_slot].shadow = vec4(frame_position + deformation_params.frame_anchor.xyz, 1.0);
+            gs_game_1.samples[game_slot].shadow_anchor = vec4(deformation_params.frame_anchor.xyz, uintBitsToFloat(gs_game_1.samples[1].key.w));
+            gs_game_1.samples[game_slot].light_0 = params.light_from_frame[0];
+            gs_game_1.samples[game_slot].light_1 = params.light_from_frame[1];
+            gs_game_1.samples[game_slot].light_2 = params.light_from_frame[2];
+            gs_game_1.samples[game_slot].light_3 = params.light_from_frame[3];
+            gs_game_1.samples[game_slot].viewport = params.viewport;
+            gs_game_1.samples[game_slot].meta.y = gs_game_1.header.y;
+        }
+    }
+#endif
     gl_Position = vec4(ndc.xy + offset_texels / half_size, depth, 1.0);
     v_sigma_uv = corner * sigma_extent;
     v_opacity = opacity;

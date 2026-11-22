@@ -335,8 +335,11 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 - The decision becomes per row:
   - The world row and every instance row carry their own `wind_mode`. The existing field is
     `InstanceDataGPU.params.w` (`gs_instance_layout.glsl:33`) [V].
-  - The world row defaults to **inherit only when the world has valid semantic data**, otherwise
-    off; a world opts in explicitly (O4, decided).
+  - `GaussianSplatWorld3D.wind_mode` is **AUTO** by default: the internal row mode
+    `SEMANTIC_INHERIT` inherits project wind for each splat with `semantic_valid`, using its baked
+    weight; legacy splats have `W = 0`. Thus mixed payloads are handled per splat and a legacy world
+    stays still (O4). **ON** maps to `INHERIT`, opting legacy splats into the opacity heuristic;
+    **OFF** maps to `FORCE_DISABLED`, disabling wind even on semantic splats. No bool alias is kept.
 - Effectors carry a row mask; the existing `effect_params.z` is the "scene effector mask bits"
   (`gs_instance_layout.glsl:37-38`) [V].
 - One-route §4.6 ("each domain is lifted in its own PR (F5)") [ADR]: this is that PR for wind and
@@ -350,6 +353,9 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 - **Without the format step:** every node of a wind-enabled row gets `D_max` added to its AABB
   for frustum culling and for the cut's screen-size and record estimates.
 - **With the format step:** the inflation is `D_max × max_wind_weight(node) / 255`.
+  Only topology flag bit 5 (the payload's semantic-valid AND) permits this reduction; legacy or
+  mixed payloads retain full `D_max`, including when the stored wind byte is zero. After scaling
+  each own-payload envelope, ancestor bounds still enclose displaced children for safe traversal.
 - When `D_max` changes, it changes the cut input. This is acceptable, because the cut already
   reacts to the camera every frame [I].
 - **Cost [I]:** slightly more overlap records and conservative culling. It must be measured in
@@ -374,13 +380,21 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 ### 6.4 Runtime recolour, tint, emissive and hide (D4)
 
 **Table [P]:**
-- An SSBO `RegionOverrideGPU[]` of 32 B entries: `tint.rgb`, `tint_strength`, `emissive.rgb`,
-  `opacity_mul`, `flags` (HIDE, NO_WIND, HIGHLIGHT, NO_SHADOW) and 4 bytes of padding.
-- Each asset gets a segment. The instance row's reserved `lod.y` (`gs_instance_layout.glsl:35`)
+- An SSBO `RegionOverrideGPU[]` of exactly **32 B** entries (binding owner decision):
+  bytes 0–15: fp32 `vec4 tint = (tint.rgb, tint_strength)`;
+  bytes 16–23: `uvec2 emissive_opacity = (packHalf2x16(emissive.rg), packHalf2x16(emissive.b, opacity_mul))`;
+  bytes 24–27: `uint flags` (HIDE, NO_WIND, HIGHLIGHT, NO_SHADOW);
+  bytes 28–31: zero `uint padding`. CPU/Resource values remain floats. On upload emissive is
+  clamped to [0, 65504] and opacity to [0, 1]. A full 65,536-entry segment uses **2 MiB** (65,536 × 32 B).
+- Each asset gets a segment. The instance row's `lod.y` (`gs_instance_layout.glsl`)
   [V] holds the segment base, with `0xFFFFFFFF` for none. The splat's entry is
-  `table[base + min(region_id, segment_len - 1)]`; entry 0 of a segment is the "whole asset" entry.
+  `table[base + (region_id < segment_len ? region_id : 0)]`; out-of-range ids use entry 0, the whole-asset default.
+  CPU upload materializes that default in every region without an explicit override. Separate placements
+  have independent segments even when they share an asset. `placement_pad.x` stores `segment_len` and
+  `placement_pad.y` retains the dense-remap generation formerly written in `lod.y`. This uses existing
+  tail words and keeps the instance ABI at 128 B; no params or push-constant block grows.
 - Uploads go as dirty ranges from the CPU and take effect in the **same** frame they are set,
-  before the main view is recorded.
+  before the shadow passes and main view are recorded. The table and rows are frozen together for the server frame.
 
 **Application points [P]:**
 
@@ -389,7 +403,7 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 | `HIDE`, `opacity_mul == 0` | `compute/depth_compute.glsl`, before the sort-key write (`:268-273`) [V for the location] | Hidden splats cost no sort records (acceptance row R3). |
 | `opacity_mul` | `tile_binning.glsl` base opacity (`:1423-1424`) [V] | The same spot as the instance opacity. |
 | tint and highlight | after the SH cache read and next to `apply_color_grading_binning` (`tile_binning.glsl:1468-1469`) [V] | The cached SH colour is ungraded by design (comment `:1459`) [V], so the override acts without SH-cache latency. |
-| emissive | added after lighting, not before (so lights do not modulate it) | where exactly is [I]; to be located in the lighting applier |
+| emissive | added after lighting, not before (so lights do not modulate it) | `tile_binning.glsl`, after the direct/ambient lighting block and before finite-color rejection and projected-color packing |
 | `HIDE`, `NO_SHADOW` | caster | the shadow of a hidden region disappears too |
 | `NO_WIND` | `W(splat) = 0` | freezes a region, for example a wrecked tree |
 
@@ -422,7 +436,7 @@ func set_hidden(hidden: bool) -> void                # distinct from Node3D.visi
 - `GaussianSplatRegionOverride` is a `Resource` with `tint`, `tint_strength`, `emissive`,
   `opacity`, `wind_enabled`, `cast_shadow` and `highlight`.
 - Region names come from bake metadata: a `regions[]` manifest in the V4 metadata JSON and in
-  plain-v3 metadata.
+  plain-v3 metadata. Volume IDs are NOT stable across edits: game code resolves names with `get_region_id(name)`, never hard-coded numbers.
 - Picking (#1312) later returns `{instance, region_id}` from a per-pixel ID output. It is listed,
   not designed here.
 - **Authoring of regions [P]:** region volumes at bake (`GaussianSplatRegionVolume3D`, a named
@@ -497,7 +511,7 @@ func set_hidden(hidden: bool) -> void                # distinct from Node3D.visi
     keying was rejected: there is no dense identity index.
 - **Identity values do not use the address.**
   - Wind and effectors use rest position (§6.3.1).
-  - The sort tie-break becomes `hash(node_stable_index, local_index)`, where
+  - The sort tie-break becomes a stable composite key (world: node, local; above 131,072 nodes at L=14, fold node IDs with `node & ((1 << (31-L)) - 1)` and report `tie_world_node_folded`; instances: ObjectID rank, chunk, local); pairwise order between surviving instances never changes, where
     `local_index = atlas_index − node.first_record`. The node index is in `DrawnNodeGPU.chunk_id`
     (`gs_instance_layout.glsl:122`) [V]. The node's first record comes from the chunk meta [I].
     For instance rows the hash adds the instance's stable placement key [ADR §14.1].
@@ -671,8 +685,9 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 | Item | From | To | Old files |
 | --- | --- | --- | --- |
 | `GAUSSIAN_STRUCT_LAYOUT_VERSION` | 1 | 2 (`_padding` → `uint32_t semantic`) | Layout 1 loads with the word forced to 0. |
+| GSF canonical payload schema | 1 (132-byte records) | 2 (136-byte records carrying `semantic`) | Schema 1 loads with semantic forced to 0. |
 | GSQ codec id | 1 | 2 (adds semantic planes) | v1 decodes with the word = 0. |
-| V4 node record | reserved word = 0 | `max_wind_weight` | 0 = no wind bound needed. |
+| V4 node record | reserved word = 0; topology flag bit 5 = 0 | `max_wind_weight` in byte 120; flag bit 5 = AND of payload `semantic_valid` | A valid rigid node has flag bit 5 set and wind byte 0; legacy nodes have the flag clear. Remaining reserved bits stay zero. |
 | Auto-tree `tree_sha` | codec v1 | codec v2 | Stale by key; rebuilt. |
 | World cache (CI) | sources as today | changed generator and tree sources | Invalidated once (`world_cache.py:84-120`) [V]. |
 

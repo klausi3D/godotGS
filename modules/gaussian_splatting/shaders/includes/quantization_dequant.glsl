@@ -47,7 +47,8 @@ struct GaussianQuantized {
     uint sh_encoded[24];    // 96 bytes @48: signed SH1–4 words
     uint normal_xy;         // 4 bytes @144: packHalf2x16(nx, ny)
     uint normal_z_stroke;   // 4 bytes @148: packHalf2x16(nz, stroke_age)
-    uint _tail_padding[2];  // 8 bytes @152: explicit std430 stride
+    uint semantic;
+    uint _tail_padding;  // 8 bytes @152: explicit std430 stride
     // Total: 160 bytes (matches C++)
 };
 

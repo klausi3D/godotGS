@@ -117,11 +117,13 @@ struct alignas(16) InstanceDataGPU {
     float inv_rotation[4];       // quat inverse
     float translation_scale[4];  // xyz = translation, w = uniform_scale
     float params[4];             // x = opacity, y = lod_bias, z = wind_intensity, w = wind_mode
-    uint32_t ids[2];             // x = asset_id, y = flags
-    uint32_t lod[2];             // x = resolved_lod_level, y = reserved
+    uint32_t ids[2];             // x = asset_id, y = flags plus cached A2 sort metadata
+    uint32_t lod[2];             // x = resolved_lod_level, y = region override segment base (0xFFFFFFFF = none)
     float wind_params[4];        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     float effect_params[4];      // x = position response scale, y = opacity response scale,
                                  // z = scene effector mask bits, w = bound scene effector count snapshot
+    uint32_t placement_key[2];   // low/high halves of the stable placement ObjectID; world row = 0
+    uint32_t placement_pad[2];   // x = region segment length, y = dense-remap generation
 };
 
 // Instance flag bits (ids[1]).
@@ -136,14 +138,25 @@ static constexpr uint32_t GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3;
 // GaussianSplatNode3D::_get_instance_flags() and the nodeless instances use
 // gs::settings::get_antialiased_compensation_default().
 static constexpr uint32_t GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4;
+static constexpr uint32_t GS_INSTANCE_FLAG_SHADOW_PASS = 1u << 5;
+// A2 sort metadata in previously unused flag bits; InstanceDataGPU stays 128 B.
+static constexpr uint32_t GS_INSTANCE_FLAGS_MASK = 0x3fu;
+static constexpr uint32_t GS_INSTANCE_SORT_LOCAL_SHIFT = 6u;
+static constexpr uint32_t GS_INSTANCE_SORT_LOCAL_MASK = 0x7c0u;
+static constexpr uint32_t GS_INSTANCE_SORT_SINGLE_CHUNK = 0x800u;
+static constexpr uint32_t GS_INSTANCE_SORT_PREFIX_MASK = 0xffffc000u;
+static constexpr uint32_t GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS = 1u << 12u;
+static constexpr uint32_t GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER = 1u << 13u;
+
 
 // Instance wind override modes (InstanceDataGPU.params.w).
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_INHERIT = 0u;
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_FORCE_DISABLED = 1u;
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_FORCE_ENABLED = 2u;
+static constexpr uint32_t GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT = 3u;
 
 static_assert(alignof(InstanceDataGPU) == 16, "InstanceDataGPU must be 16-byte aligned");
-static_assert(sizeof(InstanceDataGPU) == 112, "InstanceDataGPU must be 112 bytes");
+static_assert(sizeof(InstanceDataGPU) == 128, "InstanceDataGPU must be 128 bytes");
 static_assert(offsetof(InstanceDataGPU, rotation) == 0, "InstanceDataGPU.rotation offset mismatch");
 static_assert(offsetof(InstanceDataGPU, inv_rotation) == 16, "InstanceDataGPU.inv_rotation offset mismatch");
 static_assert(offsetof(InstanceDataGPU, translation_scale) == 32, "InstanceDataGPU.translation_scale offset mismatch");
@@ -152,6 +165,8 @@ static_assert(offsetof(InstanceDataGPU, ids) == 64, "InstanceDataGPU.ids offset 
 static_assert(offsetof(InstanceDataGPU, lod) == 72, "InstanceDataGPU.lod offset mismatch");
 static_assert(offsetof(InstanceDataGPU, wind_params) == 80, "InstanceDataGPU.wind_params offset mismatch");
 static_assert(offsetof(InstanceDataGPU, effect_params) == 96, "InstanceDataGPU.effect_params offset mismatch");
+static_assert(offsetof(InstanceDataGPU, placement_key) == 112, "InstanceDataGPU.placement_key offset mismatch");
+static_assert(offsetof(InstanceDataGPU, placement_pad) == 120, "InstanceDataGPU.placement_pad offset mismatch");
 
 struct alignas(16) SphereEffectorGPU {
     float sphere[4];         // xyz = center (world), w = radius
@@ -164,6 +179,24 @@ static_assert(sizeof(SphereEffectorGPU) == 48, "SphereEffectorGPU must be 48 byt
 static_assert(offsetof(SphereEffectorGPU, sphere) == 0, "SphereEffectorGPU.sphere offset mismatch");
 static_assert(offsetof(SphereEffectorGPU, config) == 16, "SphereEffectorGPU.config offset mismatch");
 static_assert(offsetof(SphereEffectorGPU, opacity_config) == 32, "SphereEffectorGPU.opacity_config offset mismatch");
+
+// Runtime semantic override, std430. Float API values are packed on upload.
+struct alignas(16) RegionOverrideGPU {
+    float tint[4];
+    uint32_t emissive_opacity[2];
+    uint32_t flags;
+    uint32_t padding;
+};
+static_assert(sizeof(RegionOverrideGPU) == 32, "RegionOverrideGPU must be 32 bytes");
+static_assert(alignof(RegionOverrideGPU) == 16, "RegionOverrideGPU alignment mismatch");
+static_assert(offsetof(RegionOverrideGPU, tint) == 0, "RegionOverrideGPU.tint offset mismatch");
+static_assert(offsetof(RegionOverrideGPU, emissive_opacity) == 16, "RegionOverrideGPU.emissive_opacity offset mismatch");
+static_assert(offsetof(RegionOverrideGPU, flags) == 24, "RegionOverrideGPU.flags offset mismatch");
+static_assert(offsetof(RegionOverrideGPU, padding) == 28, "RegionOverrideGPU.padding offset mismatch");
+static constexpr uint32_t GS_REGION_HIDE = 1u;
+static constexpr uint32_t GS_REGION_NO_WIND = 2u;
+static constexpr uint32_t GS_REGION_HIGHLIGHT = 4u;
+static constexpr uint32_t GS_REGION_NO_SHADOW = 8u;
 
 // Per-instance color grading (std430). Indexed by SplatRefGPU.instance_id, parallel to
 // InstanceDataGPU. Populated by GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer.
@@ -231,8 +264,8 @@ struct alignas(16) ChunkMetaGPU {
     uint32_t flags;
     uint32_t sh_limit;           // per-chunk SH band limit (optional)
     uint32_t page_table_ref;     // 0: contiguous; otherwise forward-table base + 1.
-    uint32_t reserved_node_y;
-    uint32_t reserved_node_z;
+    uint32_t reserved_node_y; // Baked node id (world) / asset-local chunk id (instances).
+    uint32_t reserved_node_z; // World local-index bit width; bit 8 = canonical singleton.
 };
 
 static_assert(alignof(ChunkMetaGPU) == 16, "ChunkMetaGPU must be 16-byte aligned");
@@ -347,11 +380,9 @@ struct alignas(16) PackedGaussian {
     float opacity;
 
     float scale[3];
-    // Explicit padding, NOT a data lane. std430 gives vec3 a 16-byte alignment,
-    // so the GLSL mirror places `rotation` at offset 32 regardless. This field
-    // holds the C++ layout to the same offset. It previously carried `area`,
-    // which no shader ever read -- the lane was serving as padding in practice.
-    uint32_t _pad_rotation_align;
+    // ADR dynamics semantic word in the former alignment slot. Rotation stays
+    // at offset 32 on both host and GLSL; wind consumption belongs to B3.
+    uint32_t semantic;
 
     float rotation[4];
 
@@ -368,7 +399,7 @@ static_assert(offsetof(PackedGaussian, scale) == 16, "PackedGaussian.scale offse
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset mismatch");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset mismatch");
 static_assert(offsetof(PackedGaussian, normal) == 160, "PackedGaussian.normal offset mismatch");
-static_assert(offsetof(PackedGaussian, _pad_rotation_align) == 28, "PackedGaussian rotation-alignment padding moved");
+static_assert(offsetof(PackedGaussian, semantic) == 28, "PackedGaussian semantic offset mismatch");
 static_assert(offsetof(PackedGaussian, sh_metadata) == 172, "PackedGaussian.sh_metadata offset mismatch");
 
 /**
@@ -407,9 +438,11 @@ struct alignas(16) PackedGaussianQuantized {
 
     uint32_t normal_xy;             // 4 bytes @144 - packHalf2x16(nx, ny)
     uint32_t normal_z_stroke;       // 4 bytes @148 - packHalf2x16(nz, stroke_age)
-    uint32_t _tail_padding[2];      // 8 bytes @152 - explicit std430 stride padding
+    uint32_t semantic;          // 4 bytes @152 - identical to authoring semantic
+    uint32_t _tail_padding;      // 4 bytes @156 - explicit std430 stride padding
 };
 
+static_assert(offsetof(PackedGaussianQuantized, semantic) == 152, "Quantized semantic offset mismatch");
 static_assert(sizeof(PackedGaussianQuantized) == 160, "PackedGaussianQuantized must be 160 bytes");
 static_assert(sizeof(PackedGaussianQuantized) % 16 == 0, "PackedGaussianQuantized must be 16-byte aligned");
 static_assert(offsetof(PackedGaussianQuantized, chunk_id) == 6, "PackedGaussianQuantized.chunk_id offset mismatch");

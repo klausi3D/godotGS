@@ -1,0 +1,18 @@
+; Hand-written dispatch project. Generated worlds stay outside res://.
+config_version=5
+
+[application]
+config/name="GodotGS GS-GAME-1"
+
+[display]
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/vsync/vsync_mode=0
+
+[physics]
+common/physics_ticks_per_second=60
+
+[rendering]
+anti_aliasing/quality/msaa_3d=0
+anti_aliasing/quality/use_taa=false
+anti_aliasing/quality/screen_space_aa=0

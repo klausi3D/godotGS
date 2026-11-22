@@ -1,4 +1,5 @@
 #include "gaussian_splat_hlod_merge.h"
+#include "gaussian_splat_hlod_tree.h"
 
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
@@ -11,6 +12,17 @@
 #include <cstring>
 
 namespace gs_hlod {
+
+void set_node_payload_semantics(GaussianSplatHlodNode &r_node, const SplatSpan &p_payload) {
+	r_node.max_wind_weight = 0;
+	bool valid = p_payload.count > 0;
+	for (uint32_t i = 0; i < p_payload.count; ++i) {
+		const uint32_t word = p_payload.gaussians[i].semantic;
+		valid &= gaussian_semantic_valid(word);
+		r_node.max_wind_weight = MAX(r_node.max_wind_weight, gaussian_semantic_wind_weight(word));
+	}
+	r_node.flags = (r_node.flags & ~kNodeFlagSemanticValid) | (valid ? kNodeFlagSemanticValid : 0u);
+}
 
 namespace {
 
@@ -238,6 +250,7 @@ Error bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps
 		const uint64_t encoding = gaussian_get_dc_encoding(p_rep.gaussians[i].render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB ? 1u : 0u;
 		r_entries[w].key = (encoding << 63u) | (cx << (2u * kCellCoordBits)) | (cy << kCellCoordBits) | cz;
 		r_entries[w].index = i;
+		r_entries[w].region_id = gaussian_semantic_region(p_rep.gaussians[i].semantic);
 		w++;
 	}
 	std::sort(r_entries.ptr(), r_entries.ptr() + r_entries.size());
@@ -360,6 +373,9 @@ void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t 
 	double weight_sum = 0.0;
 	double mean[3] = { 0.0, 0.0, 0.0 };
 	double best_w = -1.0;
+	double wind_sum = 0.0;
+	double class_weights[16] = {};
+	bool semantic_valid = true;
 	uint32_t best = p_members[0];
 	for (uint32_t m = 0; m < p_member_count; m++) {
 		const Gaussian &g = p_rep.gaussians[p_members[m]];
@@ -367,6 +383,9 @@ void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t 
 		sorted_sigmas(g, s_max, s_mid);
 		const double w = double(clamp01(g.opacity)) * double(s_max) * double(s_mid) + kWeightEpsilon;
 		weight_sum += w;
+		wind_sum += w * gaussian_semantic_wind_weight(g.semantic);
+		class_weights[(g.semantic & GS_SEMANTIC_CLASS_MASK) >> GS_SEMANTIC_CLASS_SHIFT] += w;
+		semantic_valid &= gaussian_semantic_valid(g.semantic);
 		mean[0] += w * double(g.position.x);
 		mean[1] += w * double(g.position.y);
 		mean[2] += w * double(g.position.z);
@@ -465,6 +484,15 @@ void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t 
 	}
 
 	r_out = p_rep.gaussians[best];
+	uint32_t wind_class = (p_rep.gaussians[p_members[0]].semantic & GS_SEMANTIC_CLASS_MASK) >> GS_SEMANTIC_CLASS_SHIFT;
+	for (uint32_t m = 1; m < p_member_count; ++m) {
+		const uint32_t candidate = (p_rep.gaussians[p_members[m]].semantic & GS_SEMANTIC_CLASS_MASK) >> GS_SEMANTIC_CLASS_SHIFT;
+		if (class_weights[candidate] > class_weights[wind_class]) {
+			wind_class = candidate;
+		}
+	}
+	r_out.semantic = gaussian_pack_semantic(gaussian_semantic_region(r_out.semantic),
+			uint8_t(std::floor(wind_sum / weight_sum + 0.5)), semantic_valid) | (wind_class << GS_SEMANTIC_CLASS_SHIFT);
 	r_out.position = Vector3(real_t(mean[0]), real_t(mean[1]), real_t(mean[2]));
 	r_out.scale = Vector3(real_t(std::sqrt(lam[0])), real_t(std::sqrt(lam[1])), real_t(std::sqrt(lam[2])));
 	r_out.rotation = matrix_to_quat(vec);
@@ -514,7 +542,7 @@ uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, do
 		count += r_scratch.pass_through[i];
 	}
 	for (uint32_t i = 0; i < entries.size(); i++) {
-		if (i == 0u || entries[i].key != entries[i - 1u].key) {
+		if (i == 0u || !entries[i].same_cell(entries[i - 1u])) {
 			count++;
 		}
 	}
@@ -535,7 +563,7 @@ Error merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps
 
 	uint32_t cell_count = 0u;
 	for (uint32_t i = 0; i < entries.size(); i++) {
-		if (i == 0u || entries[i].key != entries[i - 1u].key) {
+		if (i == 0u || !entries[i].same_cell(entries[i - 1u])) {
 			cell_count++;
 		}
 	}
@@ -568,7 +596,7 @@ Error merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps
 	LocalVector<uint32_t> &members = r_scratch.members;
 	uint32_t run_start = 0u;
 	for (uint32_t i = 1; i <= entries.size(); i++) {
-		if (i < entries.size() && entries[i].key == entries[run_start].key) {
+		if (i < entries.size() && entries[i].same_cell(entries[run_start])) {
 			continue;
 		}
 		if (!fallible_resize(members, i - run_start, "gs_hlod::merge_at_eps members")) {
@@ -628,6 +656,22 @@ bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 	}
 	const uint32_t target = uint32_t(MIN<uint64_t>(p_params.node_max_splats,
 			MAX<uint64_t>(1u, uint64_t(std::ceil(double(rep_span.count) / p_params.reduction)))));
+	// The reduction target and node/record budgets remain frozen. If region/DC
+	// purity makes that target impossible, refuse explicitly instead of looping
+	// through ever larger cells or mixing labels to meet it.
+	uint8_t region_encodings[65536] = {};
+	uint32_t region_floor = 0;
+	for (uint32_t i = 0; i < rep_span.count; ++i) {
+		const Gaussian &g = rep_span.gaussians[i];
+		const uint16_t region = gaussian_semantic_region(g.semantic);
+		const uint8_t encoding = gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB ? 2 : 1;
+		if ((region_encodings[region] & encoding) == 0) { region_encodings[region] |= encoding; ++region_floor; }
+	}
+	if (region_floor > target) {
+		if (r_error) { *r_error = "hlod_region_encoding_merge_target_exceeded"; }
+		if (r_code) { *r_code = ERR_INVALID_DATA; }
+		return false;
+	}
 	uint32_t steps = 0u;
 	while (true) {
 		Error count_code = OK;
@@ -683,6 +727,26 @@ bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 	r_result.eps_steps = steps;
 	r_result.merge_usec = t_merged - t_start;
 	r_result.order_usec = t_end - t_merged;
+	r_result.region_keyed_interior_bytes = 0;
+	r_result.single_region_interior_bytes = 0;
+	if (p_params.measure_region_compression) {
+		// Same concatenated children, frame, eps start and target. Only the region key differs.
+		for (Gaussian &g : rep.gaussians) {
+			g.semantic &= ~GS_SEMANTIC_REGION_MASK;
+		}
+		InteriorBakeParams reference_params = p_params;
+		reference_params.measure_region_compression = false;
+		InteriorBakeScratch reference_scratch;
+		InteriorBakeResult reference_result;
+		const SplatSpan reference_span = rep.span();
+		if (!bake_interior_node(&reference_span, 1, p_grid_origin, p_cell_edge, p_max_child_error,
+				reference_params, reference_scratch, reference_result, r_error, r_code)) {
+			return false;
+		}
+		const uint64_t stride = sizeof(Gaussian) + uint64_t(sh_count) * sizeof(Vector3);
+		r_result.region_keyed_interior_bytes = uint64_t(r_result.payload.size()) * stride;
+		r_result.single_region_interior_bytes = uint64_t(reference_result.payload.size()) * stride;
+	}
 	return true;
 }
 

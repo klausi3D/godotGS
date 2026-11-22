@@ -85,6 +85,7 @@ struct NodeMetrics {
 
 // Shared V4 serialization. Callers validate layout/counts before encoding.
 struct HeaderFields {
+	uint32_t gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION;
 	uint32_t flags = 0u;
 	uint32_t leaf = 0u;
 	uint32_t interior = 0u;
@@ -149,6 +150,7 @@ public:
 		bool is_leaf = false;
 	};
 	struct Info {
+		uint32_t gaussian_layout_version = 0;
 		uint32_t codec_id = UINT32_MAX; // Unopened sentinel; only a parsed, explicit zero means none.
 		uint32_t leaf_splat_count = 0u;
 		uint32_t interior_splat_count = 0u;

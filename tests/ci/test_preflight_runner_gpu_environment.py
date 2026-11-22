@@ -101,6 +101,7 @@ BUILD_MARKER = "python -m SCons"
 # with nothing to order against passes for the wrong reason, which is exactly the
 # shape this guard exists to prevent.
 GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
+    ("gs_game_1.yml", "gs-game-1-gpu"): "tests/runtime/gs_game_1_lane.py",
     # Runs the exported binary (a live RenderingDevice and a window read-back).
     ("release_builds.yml", "export_smoke_windows"): "tests/runtime/run_export_smoke.py",
     ("release_builds.yml", "export_smoke_linux"): "tests/runtime/run_export_smoke.py",

@@ -141,6 +141,7 @@ Error bake_tile(Worker &p_worker) {
 	input.sh_high_order_count = context.info.sh_high_order_count;
 	input.sh_first_order_count = context.info.sh_first_order_count;
 	BakeParams params;
+	params.interior.measure_region_compression = context.params.measure_region_compression;
 	const bool origin_centred = (node.record.flags & kNodeFlagOriginCentredRoot) != 0u;
 	if (origin_centred && node.input_count > kMaxNodeSplats) {
 		return context.fail(ERR_INVALID_DATA);
@@ -256,7 +257,7 @@ Error bake_tiles(Context &p_context) {
 				p_context.fail(ERR_OUT_OF_MEMORY);
 				break;
 			}
-			const uint64_t reserved = envelope.reserved + extra;
+			const uint64_t reserved = envelope.reserved * (p_context.params.measure_region_compression ? 2u : 1u) + extra;
 			if (count > 0u && (p_context.live_reserved > p_context.params.limits.max_ram_bytes ||
 					reserved > p_context.params.limits.max_ram_bytes - p_context.live_reserved)) {
 				break; // A smaller admitted batch may still make progress.
@@ -310,6 +311,8 @@ Error bake_tiles(Context &p_context) {
 		for (uint32_t i = 0; i < count; ++i) {
 			Worker &worker = workers[i];
 			const BakeResult &tile = p_context.plan[worker.node].tile;
+			p_context.report.region_keyed_interior_bytes += tile.tree.bake_stats.region_keyed_interior_bytes;
+			p_context.report.single_region_interior_bytes += tile.tree.bake_stats.single_region_interior_bytes;
 			const uint64_t retained =
 					(uint64_t(tile.leaf_gaussians.get_capacity()) + tile.tree.interior_gaussians.get_capacity()) * sizeof(Gaussian) +
 					(uint64_t(tile.leaf_sh_high_order.get_capacity()) + tile.tree.interior_sh_high_order.get_capacity()) * sizeof(Vector3) +

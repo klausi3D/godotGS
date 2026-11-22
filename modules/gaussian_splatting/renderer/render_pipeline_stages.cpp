@@ -803,6 +803,8 @@ uint64_t RenderPipelineStages::compute_raster_params_signature(const GaussianSpl
 	// features) never call invalidate_cached_render().
 	uint64_t seed = HASH_MURMUR3_SEED;
 	seed = _hash_u64(static_cast<uint64_t>(p_viewport_format), seed);
+	// Overrides alter raster content independently of instance transforms/content generation.
+	seed = _hash_u64(p_renderer.get_region_override_revision(), seed);
 	if (!p_renderer.get_instance_pipeline_buffers().hlod_relative && !p_renderer.is_shadow_instance_filter_enabled()) {
 		// A hint must reach the next chunk raster, even when its pose is unchanged.
 		seed = _hash_u64(p_renderer.get_camera_cut_hint_generation(), seed);
@@ -1826,6 +1828,7 @@ struct RenderPipelineStages::SortStage {
 					instance_inputs.atlas_gaussian_buffer = buffers.atlas_gaussian_buffer;
 					instance_inputs.quantization_buffer = buffers.quantization_required ? buffers.quantization_buffer : RID();
 					instance_inputs.instance_buffer = buffers.instance_buffer;
+                    instance_inputs.region_override_buffer = renderer->get_region_override_buffer();
 					instance_inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;
 					instance_inputs.visible_chunk_buffer = buffers.visible_chunk_buffer;
 					instance_inputs.splat_ref_buffer = buffers.splat_ref_buffer;
@@ -2463,6 +2466,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	if (instance_buffers_ready) {
 		render_params.instance_buffer = instance_buffers.instance_buffer;
 		render_params.instance_grading_buffer = instance_buffers.instance_grading_buffer;
+        render_params.region_override_buffer = renderer->get_region_override_buffer();
         render_params.hlod_relative = instance_buffers.hlod_relative;
 		render_params.current_cpu_draw_domain_count = instance_buffers.hlod_relative ? 0u : instance_buffers.current_cpu_draw_domain_count;
         render_params.hlod_draw_entry_buffer = instance_buffers.hlod_draw_entry_buffer;
@@ -3043,8 +3047,12 @@ bool RenderPipelineStages::execute_raster_composite_pipeline(const GaussianSplat
 		StageResult &r_raster_result, StageResult &r_composite_result, float &r_composite_time_ms,
 		bool &r_composite_executed) {
 	ERR_FAIL_NULL_V(raster_composite_stage.get(), false);
-	return raster_composite_stage->execute(p_context, p_frame_start_usec, r_raster_output, r_raster_result,
+	const bool executed = raster_composite_stage->execute(p_context, p_frame_start_usec, r_raster_output, r_raster_result,
 			r_composite_result, r_composite_time_ms, r_composite_executed);
+#ifdef TESTS_ENABLED
+    if (executed) { renderer->_test_gs_game_1_publish_image(r_raster_output); }
+#endif
+    return executed;
 }
 
 void RenderPipelineStages::render_sorted_splats_with_context(const GaussianSplatRenderer::RenderFrameContext &p_context) {

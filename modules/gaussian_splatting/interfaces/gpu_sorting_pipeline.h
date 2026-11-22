@@ -1,6 +1,7 @@
 #ifndef GS_GPU_SORTING_PIPELINE_H
 #define GS_GPU_SORTING_PIPELINE_H
 
+#include "../renderer/gs_region_override_buffer.h"
 #include "gpu_sorting_pipeline_interfaces.h"
 #include "splat_count_sample.h"
 #include "render_device_manager.h"
@@ -23,6 +24,7 @@ public:
         RID atlas_gaussian_buffer;
         RID quantization_buffer;
         RID instance_buffer;
+        RID region_override_buffer;
         RID chunk_meta_buffer;
         RID visible_chunk_buffer;
         RID splat_ref_buffer;
@@ -117,6 +119,7 @@ public:
         last_instance_count.source_valid = p_valid;
     }
     bool _test_get_last_instance_visible_splat_count_valid() const { return last_instance_count.valid; }
+    bool _test_uses_address_identity() const { return depth_compute_shader.is_valid() && depth_address_identity_enabled; }
     uint32_t _test_get_last_instance_visible_splat_count_frame() const { return last_instance_count.frame; }
 #endif
     String get_last_compute_error() const { return last_compute_error; }
@@ -168,6 +171,7 @@ protected:
     static void _bind_methods();
 
 private:
+    GSRegionOverrideBuffer neutral_region_overrides;
     // State
     bool initialized = false;
     RenderingDevice *rd = nullptr;
@@ -222,6 +226,10 @@ private:
     bool depth_submission_requires_wait = false;
     bool depth_quantization_enabled = false;
     bool depth_hlod_relative_enabled = false;
+#ifdef TESTS_ENABLED
+    bool depth_address_identity_enabled = false;
+    uint32_t depth_game_shader_variant = 0;
+#endif
     RID instance_param_buffer = RID();
     RenderingDevice *instance_resource_device = nullptr;
 

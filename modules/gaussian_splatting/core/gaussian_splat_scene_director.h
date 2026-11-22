@@ -1,6 +1,7 @@
 #ifndef GAUSSIAN_SPLAT_SCENE_DIRECTOR_H
 #define GAUSSIAN_SPLAT_SCENE_DIRECTOR_H
 
+#include "../resources/gaussian_splat_region_override.h"
 #include "core/object/object.h"
 #include "core/object/object_id.h"
 #include "core/os/mutex.h"
@@ -41,6 +42,7 @@ public:
         INSTANCE_WIND_INHERIT = 0u,
         INSTANCE_WIND_FORCE_DISABLED = 1u,
         INSTANCE_WIND_FORCE_ENABLED = 2u,
+        INSTANCE_WIND_SEMANTIC_INHERIT = 3u,
     };
 
     enum SubmissionResidencyHint : int32_t {
@@ -72,6 +74,7 @@ public:
     };
 
     struct WorldSubmission {
+        Ref<GSRegionOverrideState> region_overrides;
         Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
         String hlod_reason;
         float hlod_tau_px = 0.0f;
@@ -92,7 +95,7 @@ public:
         // W-S / O4: no baked semantics exist yet, so legacy worlds explicitly opt in. These fields are copied into
         // the submission record under world_mutex; row 0 never inherits a node instance's wind or effector policy.
         float wind_intensity = 1.0f;
-        uint32_t wind_mode = INSTANCE_WIND_FORCE_DISABLED;
+        uint32_t wind_mode = INSTANCE_WIND_SEMANTIC_INHERIT;
         bool scene_effectors_enabled = false;
         // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
         // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted. The
@@ -170,6 +173,9 @@ public:
 	void unregister_instance(ObjectID p_node_id);
     void update_instance_lods_for_renderer(const GaussianSplatRenderer *p_renderer, const Vector3 &p_camera_pos,
             const LODConfig &p_lod_config, float p_hysteresis_zone);
+    void update_region_overrides(ObjectID p_owner, const Ref<GSRegionOverrideState> &p_state);
+    struct RegionOverrideSource { uint64_t placement; Ref<GSRegionOverrideState> state; };
+    void collect_region_overrides(const GaussianSplatRenderer *p_renderer, LocalVector<RegionOverrideSource> &r_sources) const;
     void build_instance_buffer(LocalVector<InstanceDataGPU> &out) const;
 	// Builds the per-instance GPU rows. When r_submission_asset_ids is non-null it is
 	// filled parallel to `out` with each instance's FULL 64-bit submission asset

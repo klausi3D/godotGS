@@ -6,6 +6,12 @@
 #ifdef TESTS_ENABLED
 #include "../io/gs_payload_page_store.h"
 #include "hlod_node_streamer.h"
+#include "splat_identity_test_control.h"
+#include "gpu_pass_timing.h"
+#include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering/renderer_compositor.h"
+#include "servers/rendering_server.h"
+#include <cstring>
 
 Error GaussianSplatRenderer::_test_set_payload_telemetry_delays(const Dictionary &p_delays) {
 	auto &state = get_resource_state();
@@ -25,6 +31,274 @@ Error GaussianSplatRenderer::_test_set_shared_layers_saturation(bool p_hold_uplo
 	if (!state.hlod_streaming || state.hlod_streamer.is_null()) { return ERR_UNAVAILABLE; }
 	return state.hlod_streamer->_test_set_upload_hold(p_hold_uploads);
 }
+// GS-GAME-1 owns no production API. Each call is confined to the render thread.
+// Buffer lifetime is the renderer's; descriptors borrow it and teardown clears
+// the global borrowed RID before freeing it. Async readbacks own their staging.
+Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_control) {
+    Dictionary result;
+    auto *server = RenderingServer::get_singleton();
+    if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
+    static const char *names[] = { "none", "P1", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3", "S1", "O2" };
+    bool known = false;
+    for (const char *name : names) { known |= p_control == name; }
+    if (!known) { result["error"] = "unknown_control"; return result; }
+    using namespace GSSplatIdentityTestControl;
+    set_force_address_keying(p_control == "W1");
+    set_force_address_wind_phase(p_control == "W1");
+    force_coarse_fade_off.store(p_control == "W2");
+    force_caster_without_deformation.store(p_control == "W3");
+    force_legacy_wind_weight.store(p_control == "W4");
+    force_nonresident_draw.store(p_control == "H1");
+    disable_cache_invalidation.store(p_control == "C1");
+    override_by_address.store(p_control == "R1");
+    hide_only_in_raster.store(p_control == "R3");
+    asset_set_reset.store(p_control == "S1");
+    rows_after_shadow.store(p_control == "O2");
+    expected_region_key.store(false);
+    // Fault bits are packed into rows; force an honest repack on a switch change.
+    get_resource_state().hlod_instance_generation = UINT64_MAX;
+    test_defer_region_override_upload(p_control == "R2");
+    // Tightens only: DeviceVramLedger::configure preserves any lower limit.
+    test_set_hlod_route_limit_override(8000000000LL);
+    result["control"] = p_control;
+    result["tests_enabled"] = true;
+    result["shader_variant"] = shader_variant();
+    result["address_phase"] = get_force_address_wind_phase();
+    result["address_tie_break"] = get_force_address_keying();
+    result["region_upload_deferred"] = test_region_override_upload_is_deferred();
+    Dictionary switches;
+    switches["H1"] = force_nonresident_draw.load();
+    switches["W1"] = get_force_address_keying() && get_force_address_wind_phase();
+    switches["W2"] = force_coarse_fade_off.load();
+    switches["W3"] = force_caster_without_deformation.load();
+    switches["W4"] = force_legacy_wind_weight.load();
+    switches["C1"] = disable_cache_invalidation.load();
+    switches["R1"] = override_by_address.load();
+    switches["R2"] = test_region_override_upload_is_deferred();
+    switches["R3"] = hide_only_in_raster.load();
+    switches["S1"] = asset_set_reset.load();
+    switches["O2"] = rows_after_shadow.load();
+    result["switches"] = switches;
+    // P1 executes its workload through RD only after observing this test-only bridge.
+    result["switch_observed"] = p_control == "P1" || p_control == "none" || bool(switches.get(p_control, false));
+    return result;
+}
+
+Dictionary GaussianSplatRenderer::_test_gs_game_1_capture(const Array &p_probes, int p_target_region, int p_level) {
+    Dictionary result;
+    auto *server = RenderingServer::get_singleton();
+    RenderingDevice *rd = get_device_state().rd;
+    if (!server || !server->is_on_render_thread() || !rd || rd != server->get_rendering_device() ||
+            p_probes.is_empty() || p_probes.size() > 64 || p_target_region < 0 || p_target_region > 65535 || p_level < -1 || p_level > 65534) {
+        result["error"] = "render_thread_live_device_and_1_to_64_keys_required"; return result;
+    }
+    using namespace GSSplatIdentityTestControl;
+    if (capture_buffer.is_valid() && capture_buffer != test_game_capture_buffer) {
+        result["error"] = "another_capture_owner"; return result;
+    }
+    // std430: 16-byte header; each sample is 14 vec4/uvec4 words (224 B).
+    constexpr uint32_t stride = sizeof(GSGame1Sample);
+    Vector<uint8_t> bytes;
+    if (bytes.resize(capture_header_bytes + capture_max_samples * stride) != OK) { result["error"] = "capture_allocation_failed"; return result; }
+    bytes.fill(0);
+    ++test_game_capture_epoch;
+    // Unarmed while scripts author inputs. The arm call establishes the first subsequent draw.
+    uint32_t header[4] = { uint32_t(p_probes.size()), 0u, 0u, uint32_t(p_target_region) | (uint32_t(p_level + 1) << 16) };
+    memcpy(bytes.ptrw(), header, sizeof(header));
+    for (int i = 0; i < p_probes.size(); ++i) {
+        if (p_probes[i].get_type() != Variant::DICTIONARY) { result["error"] = "probe_type"; return result; }
+        Dictionary key = p_probes[i];
+        uint32_t words[4] = {};
+        const char *fields[] = { "node", "local", "row" };
+        for (int k = 0; k < 3; ++k) {
+            const Variant value = key.get(fields[k], Variant());
+            if (value.get_type() != Variant::INT || int64_t(value) < 0 || int64_t(value) > UINT32_MAX) {
+                result["error"] = "probe_key_range"; return result;
+            }
+            words[k] = uint32_t(int64_t(value));
+        }
+        memcpy(bytes.ptrw() + capture_header_bytes + i * stride, words, sizeof(words));
+    }
+    if (test_game_capture_buffer.is_valid() && !test_game_capture_owner.matches(rd)) { _test_gs_game_1_clear(); }
+    if (!test_game_capture_buffer.is_valid()) {
+        test_game_capture_buffer = rd->storage_buffer_create(bytes.size(), bytes);
+        if (!test_game_capture_buffer.is_valid()) { result["error"] = "capture_buffer_failed"; return result; }
+        test_game_capture_owner.set(rd);
+    } else if (rd->buffer_update(test_game_capture_buffer, 0, bytes.size(), bytes.ptr()) != OK) {
+        _test_gs_game_1_clear(); result["error"] = "capture_upload_failed"; return result;
+    }
+    capture_buffer = test_game_capture_buffer;
+    capture_device_id = rd->get_device_instance_id();
+    capture_enabled.store(true);
+    result["epoch"] = test_game_capture_epoch;
+    result["buffer"] = test_game_capture_buffer;
+    result["bytes"] = bytes.size();
+    result["stride"] = stride;
+    return result;
+}
+
+int64_t GaussianSplatRenderer::_test_gs_game_1_arm_capture() {
+    auto *server = RenderingServer::get_singleton();
+    RenderingDevice *rd = get_device_state().rd;
+    if (!server || !server->is_on_render_thread() || !rd || !test_game_capture_owner.matches(rd) ||
+            !rd->buffer_is_valid(test_game_capture_buffer)) { return -1; }
+    if (rd->buffer_update(test_game_capture_buffer, 4, 4, &test_game_capture_epoch) != OK) { return -1; }
+    invalidate_cached_render();
+    return RSG::rasterizer ? int64_t(RSG::rasterizer->get_frame_number() + 1) : -1;
+}
+
+void GaussianSplatRenderer::GameImageObservation::readback(const Vector<uint8_t> &p_bytes, const Ref<GameImageObservation> &p_box) {
+    if (p_box.is_null()) { return; }
+    MutexLock lock(p_box->mutex);
+    if (p_box->cancelled) { return; }
+    p_box->result["bytes"] = p_bytes;
+    p_box->result["complete"] = !p_bytes.is_empty();
+}
+
+Dictionary GaussianSplatRenderer::_test_gs_game_1_image_request(const Array &p_absent_nodes, const Transform3D &p_pose) {
+    Dictionary result;
+    auto *server = RenderingServer::get_singleton();
+    if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
+    if (test_game_image.is_valid()) { MutexLock lock(test_game_image->mutex); test_game_image->cancelled = true; }
+    test_game_image.instantiate();
+    test_game_image->pose = p_pose;
+    const auto &state = get_resource_state();
+    if (state.hlod_streamer.is_null()) { test_game_image.unref(); result["error"] = "streamer_absent"; return result; }
+    for (int i = 0; i < p_absent_nodes.size(); ++i) {
+        const uint32_t id = uint32_t(int64_t(p_absent_nodes[i]));
+        if (state.hlod_prepared_snapshot.is_null() || id >= uint32_t(state.hlod_prepared_snapshot->nodes.size()) ||
+                state.hlod_streamer->get_residency().state(id) == gs_hlod_runtime::NodeResidency::RESIDENT) {
+            test_game_image.unref(); result["error"] = "readmission_target_not_absent"; return result;
+        }
+    }
+    test_game_image->absent_nodes = p_absent_nodes.duplicate();
+    invalidate_cached_render();
+    result["armed"] = true;
+    return result;
+}
+
+void GaussianSplatRenderer::_test_gs_game_1_publish_image(const RasterStageOutput &p_output) {
+    if (test_game_image.is_null()) { return; }
+    Ref<GameImageObservation> box = test_game_image;
+    RenderingDevice *rd = get_device_state().rd;
+    {
+        MutexLock lock(box->mutex);
+        if (box->cancelled || box->submitted || !rd || p_output.reused_cached_render || p_output.rastered_splat_count == 0 ||
+                !p_output.color.is_valid() || !get_camera_transform().is_equal_approx(box->pose)) { return; }
+        const Dictionary stats = get_render_stats();
+        const Array drawn = stats.get("hlod_drawn_node_ids", Array());
+        Array admitted;
+        for (int i = 0; i < box->absent_nodes.size(); ++i) {
+            if (drawn.has(box->absent_nodes[i])) { admitted.push_back(box->absent_nodes[i]); }
+        }
+        if (!box->absent_nodes.is_empty() && admitted.is_empty()) { return; }
+        box->submitted = true; // One shot, before scheduling the copy. Later frames cannot replace it.
+        box->result["frame"] = int64_t(GaussianSplatting::GpuPassTiming::current_frame_serial());
+        box->result["drawn_digest"] = stats.get("hlod_drawn_node_digest", Variant());
+        box->result["drawn_nodes"] = drawn.duplicate();
+        box->result["absent_at_arm"] = box->absent_nodes.duplicate();
+        box->result["first_readmitted_nodes"] = admitted;
+        box->result["width"] = p_output.internal_size.x;
+        box->result["height"] = p_output.internal_size.y;
+        box->result["format"] = int(rd->texture_get_format(p_output.color).format);
+    }
+    const Error error = rd->texture_get_data_async(p_output.color, 0,
+            callable_mp_static(&GameImageObservation::readback).bind(box));
+    if (error != OK) { MutexLock lock(box->mutex); box->result["error"] = "image_readback_submission_failed"; }
+}
+
+Dictionary GaussianSplatRenderer::_test_gs_game_1_image_poll() {
+    auto *server = RenderingServer::get_singleton();
+    if (!server || !server->is_on_render_thread() || test_game_image.is_null()) { return Dictionary(); }
+    MutexLock lock(test_game_image->mutex);
+    return test_game_image->result.duplicate(true);
+}
+
+Dictionary GaussianSplatRenderer::_test_gs_game_1_observe() {
+    Dictionary result;
+    auto *server = RenderingServer::get_singleton();
+    if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
+    const auto &state = get_resource_state();
+    result["stats"] = get_render_stats().duplicate(true);
+    result["frame"] = int64_t(get_frame_state().frame_counter);
+    result["capture_buffer"] = test_game_capture_buffer;
+    result["capture_epoch"] = test_game_capture_epoch;
+    result["shader_variant"] = GSSplatIdentityTestControl::shader_variant();
+    result["atlas_buffer"] = state.hlod_relative.buffers.atlas_gaussian_buffer;
+    result["raw_stride"] = int(sizeof(PackedGaussian));
+    result["raw_payload"] = !state.hlod_relative.buffers.quantization_required;
+    Array row_keys;
+    for (uint64_t key : state.hlod_instance_row_keys) { row_keys.push_back(int64_t(key)); }
+    result["row_keys"] = row_keys;
+    Array instance_probes;
+    for (const auto &draw : state.hlod_instance_draws) {
+        Dictionary key;
+        key["node"] = draw.chunk_id; key["local"] = 0; key["row"] = draw.instance_id;
+        instance_probes.push_back(key);
+    }
+    result["instance_probes"] = instance_probes;
+    Array nodes;
+    if (state.hlod_prepared_snapshot.is_valid() && state.hlod_streamer.is_valid()) {
+        const auto &source = *state.hlod_prepared_snapshot.ptr();
+        const auto &residency = state.hlod_streamer->get_residency();
+        for (uint32_t node = 0; node < uint32_t(source.nodes.size()); ++node) {
+            Dictionary entry;
+            entry["node"] = node;
+            entry["level"] = source.nodes[node].topology.height;
+            entry["parent"] = source.nodes[node].topology.parent;
+            entry["first_child"] = source.nodes[node].topology.first_child;
+            entry["child_count"] = source.nodes[node].topology.child_count;
+            entry["splats"] = source.nodes[node].topology.payload_count;
+            entry["eps"] = source.nodes[node].topology.geometric_error;
+            entry["edge"] = Math::pow(2.0, source.nodes[node].topology.cell.e) *
+                    ((source.nodes[node].topology.flags & gs_hlod::kNodeFlagOriginCentredRoot) ? 2.0 : 1.0);
+            const Vector3 center = source.nodes[node].payload_center;
+            Array origin;
+            origin.push_back(center.x); origin.push_back(center.y); origin.push_back(center.z);
+            entry["center"] = origin;
+            entry["resident"] = residency.state(node) == gs_hlod_runtime::NodeResidency::RESIDENT;
+            Vector<uint32_t> pages;
+            uint32_t base = 0;
+            Array page_values;
+            if (residency.page_allocation(node, pages, base)) { for (uint32_t page : pages) { page_values.push_back(page); } }
+            entry["pages"] = page_values;
+            nodes.push_back(entry);
+        }
+    }
+    result["nodes"] = nodes;
+    return result;
+}
+
+bool GaussianSplatRenderer::_test_gs_game_1_expected_regions(bool p_enabled) {
+    auto *server = RenderingServer::get_singleton();
+    if (!server || !server->is_on_render_thread()) { return false; }
+    GSSplatIdentityTestControl::expected_region_key.store(p_enabled);
+    return true;
+}
+
+void GaussianSplatRenderer::_test_gs_game_1_clear() {
+    auto *server = RenderingServer::get_singleton();
+    ERR_FAIL_COND(!server || !server->is_on_render_thread());
+    _test_gs_game_1_clear_resources();
+}
+
+void GaussianSplatRenderer::_test_gs_game_1_clear_resources() {
+    using namespace GSSplatIdentityTestControl;
+    if (test_game_image.is_valid()) { MutexLock lock(test_game_image->mutex); test_game_image->cancelled = true; }
+    test_game_image.unref();
+    expected_region_key.store(false);
+    if (capture_buffer == test_game_capture_buffer) {
+        capture_enabled.store(false);
+        capture_buffer = RID();
+        capture_device_id = 0;
+    }
+    if (test_game_capture_buffer.is_valid() && test_game_capture_owner.device) {
+        test_game_capture_owner.device->free(test_game_capture_buffer);
+    }
+    test_game_capture_buffer = RID();
+    test_game_capture_owner.clear();
+}
+
 #endif
 #ifdef TESTS_ENABLED
 #include "../resources/color_grading_resource.h"
@@ -34,6 +308,14 @@ void GaussianSplatRenderer::_bind_methods() {
 #ifdef TESTS_ENABLED
     ClassDB::bind_method(D_METHOD("_test_set_payload_telemetry_delays", "delays"), &GaussianSplatRenderer::_test_set_payload_telemetry_delays);
     ClassDB::bind_method(D_METHOD("_test_set_shared_layers_saturation", "hold_uploads"), &GaussianSplatRenderer::_test_set_shared_layers_saturation);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_control", "control"), &GaussianSplatRenderer::_test_gs_game_1_control);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_capture", "probes", "target_region", "level"), &GaussianSplatRenderer::_test_gs_game_1_capture);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_arm_capture"), &GaussianSplatRenderer::_test_gs_game_1_arm_capture);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_image_request", "absent_nodes", "pose"), &GaussianSplatRenderer::_test_gs_game_1_image_request);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_image_poll"), &GaussianSplatRenderer::_test_gs_game_1_image_poll);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_observe"), &GaussianSplatRenderer::_test_gs_game_1_observe);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_expected_regions", "enabled"), &GaussianSplatRenderer::_test_gs_game_1_expected_regions);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_clear"), &GaussianSplatRenderer::_test_gs_game_1_clear);
 #endif
     // Initialization
     ClassDB::bind_method(D_METHOD("initialize"), &GaussianSplatRenderer::initialize);

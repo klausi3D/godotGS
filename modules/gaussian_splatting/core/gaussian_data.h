@@ -152,10 +152,13 @@ constexpr GaussianDCEncoding gaussian_get_dc_encoding(uint32_t p_render_meta) {
 // about, so a member without one silently inherits whatever occupied that
 // storage: area and stroke_age are range-checked by
 // GaussianData::_validate_gpu_payload_locked() and a garbage value makes
-// create_gpu_buffer() return a null RID, while painterly_meta and _padding are
-// not validated at all and reach the GPU or the serialized payload verbatim.
+// create_gpu_buffer() return a null RID, while painterly_meta and the former _padding were
+// not validated at all and reached the GPU or serialized payload verbatim.
+// That old padding is now semantic; layout-1 readers must always overwrite it.
 // Godot's Vector2/Vector3/Quaternion/Color zero themselves through their own
 // union initializers, so only the scalars and arrays need one here. See #687.
+#include "gaussian_semantic.h"
+
 struct Gaussian {
     Vector3 position;
     float opacity = 0.0f;
@@ -174,7 +177,7 @@ struct Gaussian {
     float stroke_age = 0.0f;
 
     // Padding for alignment
-    float _padding = 0.0f; // Ensures brush_axes is 8-byte aligned
+    uint32_t semantic = 0; // ADR dynamics §6.2.1; brush_axes stays 8-byte aligned
 
     // Painterly rendering extensions (packed for GPU alignment)
     Vector2 brush_axes;
@@ -186,7 +189,7 @@ struct Gaussian {
 };
 
 // NOTE: 144 is this AUTHORING struct's size. It is deliberately no longer the
-// GPU layout size -- `PackedGaussian` is 128 bytes and is the only thing a
+// GPU layout size -- `PackedGaussian` is 176 bytes and is the only thing a
 // shader reads. The two were equal by coincidence, never by contract: even
 // while both were 144 the field layouts differed (`Vector3 sh_1[3]` here, 36
 // bytes, against `sh_encoded[12]` there, 48), so this struct was never safe to
@@ -200,7 +203,8 @@ static_assert(offsetof(Gaussian, brush_axes) % 8 == 0, "Gaussian::brush_axes mus
 // Persisted layout fingerprint (#1172).
 //
 // `.gsplatworld` (and the `.gsplatcache` PLY sidecar, which is a .gsplatworld)
-// and the GSF GAUSSIAN_DATA chunk store this struct as raw bytes. The size
+// and legacy GSF v1/v2 GAUSSIAN_DATA chunks store this struct as raw bytes.
+// Canonical GSF payloads have their own schema and explicit field encoding. The size
 // assert above cannot see a same-size change -- swapping painterly_meta and
 // render_meta, or repurposing a padding slot as happened when render_meta took
 // part of _padding2 -- and such a change would misdecode every existing file
@@ -213,18 +217,41 @@ static_assert(offsetof(Gaussian, brush_axes) % 8 == 0, "Gaussian::brush_axes mus
 // GAUSSIAN_STRUCT_LAYOUT_VERSION, update the asserts, and decide what happens
 // to files written under the old layout (they are rejected by default). Do not
 // edit the asserts without the bump.
-static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION = 1u;
+static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION = 2u;
 
 // Files written before the layout word existed (.gsplatworld v1 and HLOD v2, GSF headers
 // whose layout word is 0) were all written with layout 1. They resolve to that
-// version, so they keep loading today and are rejected as soon as the layout
-// version moves on. Never change this value.
+// version. Readers migrate their former padding to semantic = 0.
+// Never change this value.
 static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED = 1u;
 
 // Layout a persisted payload is decoded with: the recorded word, or the legacy
 // layout when the writer predates the word (0).
 constexpr uint32_t gaussian_resolve_persisted_layout_version(uint32_t p_recorded) {
     return p_recorded == 0u ? GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED : p_recorded;
+}
+
+constexpr bool gaussian_persisted_layout_supported(uint32_t p_layout) {
+    return p_layout == 1u || p_layout == GAUSSIAN_STRUCT_LAYOUT_VERSION;
+}
+
+// Never inspect layout-1 padding: before #687 it could contain arbitrary bytes.
+// Validate the whole payload before publishing; callers discard it on failure.
+inline bool gaussian_prepare_persisted_payload(Gaussian *p_gaussians, uint32_t p_count,
+        uint32_t p_layout, String *r_reason = nullptr) {
+    if (!gaussian_persisted_layout_supported(p_layout)) {
+        if (r_reason) { *r_reason = "gaussian_layout_unsupported"; }
+        return false;
+    }
+    for (uint32_t i = 0; i < p_count; ++i) {
+        if (gaussian_resolve_persisted_layout_version(p_layout) == 1u) {
+            p_gaussians[i].semantic = 0;
+        } else if (!gaussian_semantic_validate(p_gaussians[i].semantic)) {
+            if (r_reason) { *r_reason = GAUSSIAN_SEMANTIC_RESERVED_REASON; }
+            return false;
+        }
+    }
+    return true;
 }
 
 #define GS_PIN_GAUSSIAN_FIELD(m_field, m_type, m_offset) \
@@ -241,7 +268,7 @@ GS_PIN_GAUSSIAN_FIELD(sh_dc, Color, 48);
 GS_PIN_GAUSSIAN_FIELD(sh_1, Vector3[3], 64);
 GS_PIN_GAUSSIAN_FIELD(normal, Vector3, 100);
 GS_PIN_GAUSSIAN_FIELD(stroke_age, float, 112);
-GS_PIN_GAUSSIAN_FIELD(_padding, float, 116);
+GS_PIN_GAUSSIAN_FIELD(semantic, uint32_t, 116);
 GS_PIN_GAUSSIAN_FIELD(brush_axes, Vector2, 120);
 GS_PIN_GAUSSIAN_FIELD(painterly_meta, uint32_t, 128);
 GS_PIN_GAUSSIAN_FIELD(render_meta, uint32_t, 132);

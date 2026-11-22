@@ -268,7 +268,7 @@ public:
 	uint32_t get_count() const override { return splat_count; }
 	uint32_t get_sh_degree() const override { return sh_degree; }
 	AABB get_bounds() const override { return bounds; }
-	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0 && gaussian_layout_version == GAUSSIAN_STRUCT_LAYOUT_VERSION; }
+	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0 && gaussian_persisted_layout_supported(gaussian_layout_version); }
 
 	const String &get_file_path() const { return file_path; }
 	uint64_t get_bytes_requested() const;

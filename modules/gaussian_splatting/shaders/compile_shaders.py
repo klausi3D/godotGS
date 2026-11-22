@@ -154,6 +154,17 @@ TILE_SORT_KEY32_DEFINES = (
 TILE_DIAGNOSTICS_OFF = ("GS_DEBUG_COUNTERS_DISABLED=1",)
 
 
+# Dispatch lane controls are runtime-selectable only in TESTS_ENABLED binaries.
+GAME_TEST_VARIANTS = (
+    ("capture", ()),
+    ("address_phase", ("GS_TEST_ADDRESS_IDENTITY=1", "GS_TEST_ADDRESS_WIND_PHASE=1")),
+    ("coarse_fade_off", ("GS_TEST_COARSE_FADE_OFF=1",)),
+    ("caster_rest", ("GS_TEST_CASTER_WITHOUT_DEFORMATION=1",)),
+    ("legacy_weight", ("GS_TEST_LEGACY_WIND_WEIGHT=1",)),
+    ("expected_region", ("GS_GAME_1_EXPECTED_REGION_KEY=1",)),
+)
+GAME_TEST_COMMON = ("GS_TESTS_ENABLED=1", "GS_TEST_REGION_CONTROLS=1", "GS_GAME_1_CAPTURE=1")
+
 RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
     ShaderMatrixEntry(
         key="tile_binning",
@@ -161,12 +172,28 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318", "#1324"),
         variants=(
+            *(Variant(f"game_{mode}_{storage}_{name}", _merge_defines(
+                TILE_COMMON_DEFINES, TILE_SORT_TIE_DEFINES, TILE_DIAGNOSTICS_OFF, GAME_TEST_COMMON, fault,
+                ("GS_DISPATCH_LOCAL_SIZE_X=256", "GS_HLOD_RELATIVE_PAYLOAD=1", f"GS_TILE_GLOBAL_SORT_{mode.upper()}_PASS=1"),
+                ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else ()))
+                for mode in ("count", "emit") for storage in ("raw", "quantized") for name, fault in GAME_TEST_VARIANTS),
             *(Variant(f"hlod_{mode}_{storage}{capture}", _merge_defines(
                 TILE_COMMON_DEFINES, TILE_SORT_TIE_DEFINES, TILE_DIAGNOSTICS_OFF,
                 ("GS_DISPATCH_LOCAL_SIZE_X=256", "GS_HLOD_RELATIVE_PAYLOAD=1", f"GS_TILE_GLOBAL_SORT_{mode.upper()}_PASS=1"),
                 ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else (),
                 ("GS_RECORD_LOSS_CAPTURE=1",) if capture else ()), ("#1131",))
                 for mode in ("count", "emit") for storage in ("raw", "quantized") for capture in ("", "_capture")),
+            *(Variant(f"hlod_{mode}_{storage}_address_control", _merge_defines(
+                TILE_COMMON_DEFINES, TILE_SORT_TIE_DEFINES, TILE_DIAGNOSTICS_OFF,
+                ("GS_DISPATCH_LOCAL_SIZE_X=256", "GS_HLOD_RELATIVE_PAYLOAD=1", f"GS_TILE_GLOBAL_SORT_{mode.upper()}_PASS=1",
+                 "GS_TESTS_ENABLED=1", "GS_TEST_ADDRESS_IDENTITY=1"),
+                ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else ()), ("#1131",))
+                for mode in ("count", "emit") for storage in ("raw", "quantized")),
+            *(Variant(f"hlod_{mode}_{storage}_region_control", _merge_defines(
+                TILE_COMMON_DEFINES, TILE_SORT_TIE_DEFINES, TILE_DIAGNOSTICS_OFF,
+                ("GS_DISPATCH_LOCAL_SIZE_X=256", "GS_HLOD_RELATIVE_PAYLOAD=1", f"GS_TILE_GLOBAL_SORT_{mode.upper()}_PASS=1", "GS_TESTS_ENABLED=1", "GS_TEST_REGION_CONTROLS=1"),
+                ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else ()), ("#1131",))
+                for mode in ("count", "emit") for storage in ("raw", "quantized")),
             Variant(
                 "emit_prod",
                 _merge_defines(
@@ -638,7 +665,9 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         source=SHADERS_DIR / "gs_shadow_caster.glsl",
         stages=("vertex", "fragment"),
         issue_ids=("#1095",),
-        variants=(Variant("default", (), ("#1095",)),),
+        variants=(*(Variant("game_" + name, GAME_TEST_COMMON + fault) for name, fault in GAME_TEST_VARIANTS),
+                  Variant("default", (), ("#1095",)),
+                  Variant("legacy_wind_weight_control", ("GS_TESTS_ENABLED=1", "GS_TEST_LEGACY_WIND_WEIGHT=1"))),
     ),
     ShaderMatrixEntry(
         key="sobel_outline",
@@ -688,8 +717,15 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318"),
         variants=(
+            *(Variant("game_" + storage + "_" + name, _merge_defines(GAME_TEST_COMMON, fault,
+                ("GS_HLOD_RELATIVE_PAYLOAD=1",), ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else ()))
+                for storage in ("raw", "quantized") for name, fault in GAME_TEST_VARIANTS),
             Variant("hlod_raw", ("GS_HLOD_RELATIVE_PAYLOAD=1",), ("#1131",)),
             Variant("hlod_quantized", ("GS_HLOD_RELATIVE_PAYLOAD=1", "USE_QUANTIZED_GAUSSIANS=1"), ("#1131",)),
+            Variant("region_controls", ("GS_TESTS_ENABLED=1", "GS_TEST_REGION_CONTROLS=1")),
+            Variant("hlod_quantized_region_controls", ("GS_HLOD_RELATIVE_PAYLOAD=1", "USE_QUANTIZED_GAUSSIANS=1", "GS_TESTS_ENABLED=1", "GS_TEST_REGION_CONTROLS=1")),
+            Variant("hlod_raw_address_control", ("GS_HLOD_RELATIVE_PAYLOAD=1", "GS_TESTS_ENABLED=1", "GS_TEST_ADDRESS_IDENTITY=1"), ("#1131",)),
+            Variant("hlod_quantized_address_control", ("GS_HLOD_RELATIVE_PAYLOAD=1", "USE_QUANTIZED_GAUSSIANS=1", "GS_TESTS_ENABLED=1", "GS_TEST_ADDRESS_IDENTITY=1"), ("#1131",)),
             Variant("default", (), ("#1318",)),
             Variant("quantized", ("USE_QUANTIZED_GAUSSIANS=1",), ("#1318",)),
         ),

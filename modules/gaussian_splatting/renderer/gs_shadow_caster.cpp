@@ -1,3 +1,6 @@
+#include "splat_identity_test_control.h"
+#include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering/renderer_compositor.h"
 #include "gs_shadow_caster.h"
 
 #include "hlod_shadow_caster_plan.h"
@@ -137,6 +140,10 @@ bool GsSplatShadowCaster::_upload_deformation(RenderingDevice *p_device, const D
 }
 
 bool GsSplatShadowCaster::_ensure_shader(RenderingDevice *p_device, String &r_error) {
+#ifdef TESTS_ENABLED
+    if (test_game_shader_variant != GSSplatIdentityTestControl::shader_variant()) { clear(); }
+    test_game_shader_variant = GSSplatIdentityTestControl::shader_variant();
+#endif
 	if (shader.is_valid() && !shader_owner.matches(p_device)) {
 		clear();
 	}
@@ -163,9 +170,13 @@ bool GsSplatShadowCaster::_ensure_shader(RenderingDevice *p_device, String &r_er
 		r_error = "shadow caster shader stages missing";
 		return false;
 	}
-	String compile_error;
+	Vector<String> test_defines;
+#ifdef TESTS_ENABLED
+    test_defines.push_back(GSSplatIdentityTestControl::shader_defines());
+#endif
+    String compile_error;
 	shader = ShaderCompilationHelper::compile_graphics_shader_on_device(p_device, stage_sources[RD::SHADER_STAGE_VERTEX],
-			stage_sources[RD::SHADER_STAGE_FRAGMENT], "gs_shadow_caster", Vector<String>(), &compile_error);
+			stage_sources[RD::SHADER_STAGE_FRAGMENT], "gs_shadow_caster", test_defines, &compile_error);
 	if (!shader.is_valid()) {
 		r_error = "shadow caster shader compile failed: " + compile_error;
 		return false;
@@ -196,8 +207,8 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 		r_error = "empty caster draw";
 		return false;
 	}
-	const RID buffers[5] = { p_inputs.atlas_gaussian_buffer, p_inputs.instance_buffer, p_inputs.chunk_meta_buffer,
-		p_inputs.draw_list_buffer, p_inputs.page_table_buffer };
+	const RID buffers[6] = { p_inputs.atlas_gaussian_buffer, p_inputs.instance_buffer, p_inputs.chunk_meta_buffer,
+		p_inputs.draw_list_buffer, p_inputs.page_table_buffer, p_inputs.region_override_buffer };
 	for (const RID &buffer : buffers) {
 		if (!buffer.is_valid() || !p_device->buffer_is_valid(buffer)) {
 			r_error = "caster input buffer invalid on the shadow device";
@@ -222,9 +233,25 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 		r_error = "uniform set cache unavailable";
 		return false;
 	}
-	const RID uniform_set = uniform_set_cache->get_cache(shader, 0, storage_uniform(0, buffers[0]),
-			storage_uniform(1, buffers[1]), storage_uniform(2, buffers[2]), storage_uniform(3, buffers[3]),
-			storage_uniform(4, row_cast_buffer), storage_uniform(5, buffers[4]), storage_uniform(6, deformation_buffer));
+    LocalVector<RD::Uniform> uniforms;
+    uniforms.push_back(storage_uniform(0, buffers[0]));
+    uniforms.push_back(storage_uniform(1, buffers[1]));
+    uniforms.push_back(storage_uniform(2, buffers[2]));
+    uniforms.push_back(storage_uniform(3, buffers[3]));
+    uniforms.push_back(storage_uniform(4, row_cast_buffer));
+    uniforms.push_back(storage_uniform(5, buffers[4]));
+    uniforms.push_back(storage_uniform(6, deformation_buffer));
+    uniforms.push_back(storage_uniform(7, buffers[5]));
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::capture_enabled.load()) {
+        if (GSSplatIdentityTestControl::capture_device_id != p_device->get_device_instance_id() ||
+                !p_device->buffer_is_valid(GSSplatIdentityTestControl::capture_buffer)) {
+            r_error = "GS-GAME-1 capture owner/device mismatch"; return false;
+        }
+        uniforms.push_back(storage_uniform(8, GSSplatIdentityTestControl::capture_buffer));
+    }
+#endif
+    const RID uniform_set = uniform_set_cache->get_cache_vec(shader, 0, uniforms);
 	if (!uniform_set.is_valid()) {
 		_free_deformation_buffer();
 		r_error = "caster uniform set unavailable";
@@ -237,6 +264,12 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 		return false;
 	}
 
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::capture_enabled.load()) {
+        const uint32_t frame = RSG::rasterizer ? uint32_t(RSG::rasterizer->get_frame_number()) : 0u;
+        p_device->buffer_update(GSSplatIdentityTestControl::capture_buffer, GSSplatIdentityTestControl::capture_shadow_frame_offset, sizeof(frame), &frame);
+    }
+#endif
 	ShadowCasterPushConstant push{};
 	for (int c = 0; c < 4; ++c) {
 		for (int r = 0; r < 4; ++r) {

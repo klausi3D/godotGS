@@ -71,6 +71,15 @@ static void _collect_scene_tree_ancestor_ids(const Node *p_node, LocalVector<Obj
 } // namespace
 
 void GaussianSplatNode3D::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("get_region_id", "name"), &GaussianSplatNode3D::get_region_id);
+    ClassDB::bind_method(D_METHOD("get_region_names"), &GaussianSplatNode3D::get_region_names);
+    ClassDB::bind_method(D_METHOD("set_region_override", "region", "override"), &GaussianSplatNode3D::set_region_override);
+    ClassDB::bind_method(D_METHOD("clear_region_override", "region"), &GaussianSplatNode3D::clear_region_override);
+    ClassDB::bind_method(D_METHOD("clear_all_region_overrides"), &GaussianSplatNode3D::clear_all_region_overrides);
+    ClassDB::bind_method(D_METHOD("set_tint", "color", "strength"), &GaussianSplatNode3D::set_tint);
+    ClassDB::bind_method(D_METHOD("set_emissive", "color"), &GaussianSplatNode3D::set_emissive);
+    ClassDB::bind_method(D_METHOD("set_hidden", "hidden"), &GaussianSplatNode3D::set_hidden);
+
     // Asset management
     ADD_GROUP("Asset", "");
     ClassDB::bind_method(D_METHOD("set_splat_asset", "asset"), &GaussianSplatNode3D::set_splat_asset);
@@ -349,6 +358,7 @@ GaussianSplatNode3D::GaussianSplatNode3D() :
         quality_helper(*this),
         visibility_helper(*this),
         renderer_helper(*this) {
+    region_overrides.instantiate();
     set_notify_transform(true);
 
     // Initialize default bounds
@@ -2835,6 +2845,7 @@ void GaussianSplatNode3D::_register_instance_in_director() {
     // the earlier setter/signal attempts that fired before registration were
     // lost (director returned NO WORLD) and the record stayed at null grading.
     director->update_instance_color_grading(get_instance_id(), color_grading);
+    _sync_region_overrides();
 
     // Seed the cached scene-effector filter state. The render thread reads this
     // from the InstanceRecord instead of the live Node3D, so it must be fresh
@@ -3473,3 +3484,19 @@ void GaussianSplatNode3D::_drop_data_fw(const Point2 &p_point, const Variant &p_
     }
 }
 #endif
+
+int GaussianSplatNode3D::get_region_id(const StringName &p_name) const { return GSRegionOverrideState::region_id(splat_asset.is_valid() ? splat_asset->get_import_metadata() : Dictionary(), p_name); }
+PackedStringArray GaussianSplatNode3D::get_region_names() const { return GSRegionOverrideState::region_names(splat_asset.is_valid() ? splat_asset->get_import_metadata() : Dictionary()); }
+void GaussianSplatNode3D::_sync_region_overrides() {
+    region_overrides->set_manifest(splat_asset.is_valid() ? splat_asset->get_import_metadata() : Dictionary());
+    if (auto *director = GaussianSplatSceneDirector::get_singleton()) { director->update_region_overrides(get_instance_id(), region_overrides); }
+}
+void GaussianSplatNode3D::set_region_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override) {
+    ERR_FAIL_COND(p_region < 0 || p_region > 65535 || p_override.is_null());
+    region_overrides->set_override(p_region, p_override); _sync_region_overrides();
+}
+void GaussianSplatNode3D::clear_region_override(int p_region) { region_overrides->clear_override(p_region); _sync_region_overrides(); }
+void GaussianSplatNode3D::clear_all_region_overrides() { region_overrides->clear_all(); _sync_region_overrides(); }
+void GaussianSplatNode3D::set_tint(const Color &p_color, float p_strength) { auto whole = region_overrides->whole_asset(); whole->set_tint(p_color); whole->set_tint_strength(p_strength); _sync_region_overrides(); }
+void GaussianSplatNode3D::set_emissive(const Color &p_color) { region_overrides->whole_asset()->set_emissive(p_color); _sync_region_overrides(); }
+void GaussianSplatNode3D::set_hidden(bool p_hidden) { region_overrides->set_hidden(p_hidden); _sync_region_overrides(); }

@@ -36,6 +36,121 @@ _spec.loader.exec_module(glsl)
 # ---------------------------------------------------------------------------
 
 
+class CRegionOverrideNumerics(unittest.TestCase):
+    def test_detached_world_resource_change_checks_queue_before_latching(self):
+        source = (SHADERS_DIR.parent / "nodes/gaussian_splat_world_3d.cpp").read_text(encoding="utf-8")
+        body = source[source.index("void GaussianSplatWorld3D::_on_world_resource_changed()"):
+                      source.index("void GaussianSplatWorld3D::_flush_world_resource_resubmit()")]
+        queue_check = "CallQueue *queue = MessageQueue::get_main_singleton();"
+        guard_check = "if (!queue) {\n        return;\n    }"
+        self.assertIn(queue_check, body)
+        self.assertIn(guard_check, body)
+        queue = body.index(queue_check)
+        guard = body.index(guard_check)
+        latch = body.index("world_resource_resubmit_pending.exchange(true)")
+        self.assertLess(queue, guard)
+        self.assertLess(guard, latch)
+        self.assertGreater(body.index("queue->push_callable("), latch)
+        self.assertNotIn("MessageQueue::get_main_singleton()->", body)
+
+    def test_row_abi_and_segment_lookup(self):
+        module = SHADERS_DIR.parent
+        host = (module / "renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        streaming = (module / "core/gaussian_streaming.cpp").read_text(encoding="utf-8")
+        lookup = (INCLUDES_DIR / "gs_region_override.glsl").read_text(encoding="utf-8")
+        self.assertIn("p_instances[i].placement_pad[1] = published_generation;", host)
+        self.assertIn("row.lod[1] = segment ? uint32_t(*segment) : UINT32_MAX;", host)
+        self.assertIn("row.placement_pad[0] = segment ? uint32_t(*segment >> 32) : 0;", host)
+        self.assertIn(".placement_pad[1]", streaming)
+        self.assertNotIn(".lod[1]", streaming)
+        self.assertIn("uint base = instance.lod.y;", lookup)
+        self.assertIn("uint segment_len = instance.placement_pad.x;", lookup)
+        self.assertIn("segment_len > count - base", lookup)
+        self.assertNotIn("min(region, segment_len - 1u)", lookup)
+
+    def test_out_of_segment_region_uses_whole_asset_default(self):
+        source = (INCLUDES_DIR / "gs_region_override.glsl").read_text(encoding="utf-8")
+        expression = re.search(r"return region_override_buffer\.entries\[([^\]]+)\];", source)
+        self.assertIsNotNone(expression, "production region lookup must be evaluated")
+        # Execute the actual shader index expression, not a host lookup mirror.
+        program = glsl.GlslProgram("uint lookup(uint base, uint region, uint segment_len) { return "
+                                   + expression.group(1) + "; }")
+        lookup = program.fn("lookup")
+        for base in (0, 7):
+            entries = ["whole_asset", "region_1_override"]
+            for region in (0, 1, 2, 65535):
+                with self.subTest(base=base, region=region):
+                    index = int(lookup(glsl.U32(base), glsl.U32(region), glsl.U32(2))) - base
+                    self.assertEqual(entries[index], "region_1_override" if region == 1 else "whole_asset")
+            self.assertEqual(int(lookup(glsl.U32(base), glsl.U32(2), glsl.U32(3))), base + 2)
+            self.assertEqual(int(lookup(glsl.U32(base), glsl.U32(1), glsl.U32(1))), base)
+
+    def test_raster_reuse_signature_tracks_uploaded_override_revision(self):
+        source = (SHADERS_DIR.parent / "renderer/render_pipeline_stages.cpp").read_text(encoding="utf-8")
+        signature = source.split("uint64_t RenderPipelineStages::compute_raster_params_signature(", 1)[1]
+        signature = signature.split("\nnamespace {", 1)[0]
+        self.assertRegex(signature, r"seed = _hash_u64\(p_renderer\.get_region_override_revision\(\), seed\);")
+        self.assertIn("raster_input.raster_params_signature = RenderPipelineStages::compute_raster_params_signature(", source)
+        self.assertIn("p_input.raster_params_signature", source)
+
+    def test_application_and_upload_wiring(self):
+        module = SHADERS_DIR.parent
+        depth = (module / "compute/depth_compute.glsl").read_text(encoding="utf-8")
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text(encoding="utf-8")
+        caster = (SHADERS_DIR / "gs_shadow_caster.glsl").read_text(encoding="utf-8")
+        host = (module / "renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        for source in (depth, binning, caster):
+            self.assertIn("gs_region_resolve(instance,", source)
+            self.assertIn("gs_region_wind_semantic(", source)
+            self.assertIn("GS_REGION_HIDE", source)
+        self.assertLess(depth.index("if (reject_region) { return; }"), depth.index("atomicAdd(counters.visible_splat_count"))
+        tint = "sh_color = gs_region_tint(sh_color, region_override.tint, region_override.flags);"
+        self.assertIn(tint, binning)
+        self.assertGreater(binning.index(tint), binning.rindex("apply_color_grading_binning(sh_color, splat_ref.instance_id)"))
+        self.assertLess(binning.index(tint), binning.index("vec3 sh_albedo"))
+        self.assertGreater(binning.index("final_color += region_emissive_opacity.rgb"), binning.index("final_color += ambient"))
+        self.assertLess(binning.index("final_color += region_emissive_opacity.rgb"), binning.index("if (!gs_color_is_finite(final_color))"))
+        self.assertIn("GS_REGION_NO_SHADOW", caster)
+        self.assertNotIn("USE_QUANTIZED_GAUSSIANS", caster)
+        plan = (module / "renderer/hlod_shadow_caster_plan.h").read_text(encoding="utf-8")
+        self.assertIn("} else if (p_record.quantized) {\n\t\tplan.refusal = Refusal::QUANTIZED_PAYLOAD;", plan)
+        refresh = host[host.index("gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows()"):
+                       host.index("void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(")]
+        self.assertLess(refresh.index("sync_region_overrides()"), refresh.index("hlod_shadow_rows_latched()"))
+        upload = (module / "renderer/gs_region_override_buffer.h").read_text(encoding="utf-8")
+        self.assertIn("p_rd->buffer_update(buffer, first * sizeof(RegionOverrideGPU), (end - first) * sizeof(RegionOverrideGPU)", upload)
+
+    def test_packed_emissive_opacity_round_trip(self):
+        program = glsl.GlslProgram((INCLUDES_DIR / "gs_semantic.glsl").read_text() + (INCLUDES_DIR / "gs_region_override.glsl").read_text().replace('#include "gs_semantic.glsl"', ""))
+        uvec2 = program.namespace["uvec2"]
+        for emission in (0., 1., 1000., 65504., 70000.):
+            for opacity in (0., .5, 1.):
+                expected = min(emission, 65504.)
+                half = struct.unpack("<H", struct.pack("<e", expected))[0]
+                alpha = struct.unpack("<H", struct.pack("<e", opacity))[0]
+                got = program.fn("gs_region_emissive_opacity")(uvec2(half | half << 16, half | alpha << 16))
+                for component in (got.x, got.y, got.z):
+                    self.assertAlmostEqual(component, expected, delta=max(expected / 1024., 1.e-6))
+                self.assertAlmostEqual(got.w, opacity, delta=.0005)
+
+    def test_tint_coverage_has_exact_neutral_and_full_strength_endpoints(self):
+        program = glsl.GlslProgram((INCLUDES_DIR / "gs_semantic.glsl").read_text() + (INCLUDES_DIR / "gs_region_override.glsl").read_text().replace('#include "gs_semantic.glsl"', ""))
+        vec3, vec4 = program.namespace["vec3"], program.namespace["vec4"]
+        for color in (vec3(.2, .4, .6), vec3(1., 0., 0.)):
+            got = program.fn("gs_region_tint")(color, vec4(0., 1., 0., 1.), glsl.U32(0))
+            self.assertEqual(tuple(got), (0., 1., 0.))
+            neutral = program.fn("gs_region_tint")(color, vec4(0., 1., 0., 0.), glsl.U32(0))
+            self.assertEqual(tuple(neutral), tuple(color))
+
+    def test_no_wind_preserves_region_and_forces_a_valid_zero_weight(self):
+        program = glsl.GlslProgram((INCLUDES_DIR / "gs_semantic.glsl").read_text() + (INCLUDES_DIR / "gs_region_override.glsl").read_text().replace('#include "gs_semantic.glsl"', ""))
+        for semantic in (0, 0x80ff0007, 0x8f8000ff):
+            got = int(program.fn("gs_region_wind_semantic")(glsl.U32(semantic), glsl.U32(2)))
+            self.assertEqual(got & 0xffff, semantic & 0xffff)
+            self.assertEqual(got & 0xff0000, 0)
+            self.assertEqual(got & 0x80000000, 0x80000000)
+
+
 class GlslHostEvalSelfTests(unittest.TestCase):
     def test_half_conversion_matches_ieee_round_to_nearest_even(self) -> None:
         values = [0.0, -0.0, 1.0, 0.1, 1.0 / 3.0, 65504.0, 65519.0, 6.1e-5, 5.96e-8, 2.98e-8,
@@ -821,7 +936,7 @@ class HlodPositionalRefreshTests(unittest.TestCase):
                          "effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,",
                          "pack_deformation_effectors", "owner.bounds.grow_by",
                          "frame_displacement_bound(wind, &rows[row], 1, effector_push",
-                         "index.rebuild(state.hlod_shadow_content, record, rows, row_margins, row_animated)",
+                         "index.rebuild(region_content, record, rows, row_margins, row_animated)",
                          "owner.content = &index", "indexed_renderers.has(renderer_key)", "indexed_renderers.insert(renderer_key)",
                          "owner.owner = renderer_key", "gs_shadow_refresh::enclosing_merge(owner.bounds, index.cells[0].bounds)"):
             self.assertIn(required, collect)
@@ -874,7 +989,8 @@ class HlodPositionalRefreshTests(unittest.TestCase):
         self.assertIn("cells[child].add(records[i])", self.source)
         self.assertIn("bounds = enclosing_merge(bounds, p_record.bounds)", self.source)
         self.assertIn("row.ids[0] = 0;", self.source)
-        self.assertIn("row.lod[0] = row.lod[1] = 0;", self.source)
+        self.assertIn("row.lod[0] = 0;", self.source)
+        self.assertNotIn("row.lod[1] = 0;", self.source)
         self.assertNotIn("p_content", query) # No whole-list fallback in the per-light query.
         rebuild = self.source[self.source.index("inline void ContentIndex::rebuild("):self.source.index("inline bool needs_refresh(")]
         self.assertIn("if (row >= p_rows.size() || !p_record.row_casts[row]) { continue; }", rebuild)
@@ -923,9 +1039,11 @@ class HlodWindFieldTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
-        cls.program = glsl.GlslProgram(cls.source, defines={
+        semantic = (INCLUDES_DIR / "gs_semantic.glsl").read_text(encoding="utf-8")
+        cls.program = glsl.GlslProgram(semantic + "\n" + cls.source, defines={
             "GS_INSTANCE_WIND_MODE_FORCE_ENABLED": "2u",
             "GS_INSTANCE_WIND_MODE_FORCE_DISABLED": "1u",
+            "GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT": "3u",
         })
         # Standard GLSL scalar sin, evaluated in double as the rest of this harness.
         cls.program.namespace["sin"] = math.sin
@@ -976,12 +1094,13 @@ class HlodWindFieldTests(unittest.TestCase):
         displacement = self.program.fn("gs_wind_displacement")
         vec3 = self.program.namespace["vec3"]
         rest = vec3(1.25, 0.5, -4.0)
-        previous = displacement(rest, 0.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
-        colour = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
-        caster = displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 1.0)
+        weight = self.program.fn("gs_splat_wind_weight")(glsl.U32(0), 0.75, 0.0)
+        previous = displacement(rest, 0.1, 1.0, 0.1, 2.0, weight, 1.0, 1.0)
+        colour = displacement(rest, 1.1, 1.0, 0.1, 2.0, weight, 1.0, 1.0)
+        caster = displacement(rest, 1.1, 1.0, 0.1, 2.0, weight, 1.0, 1.0)
         self.assertEqual(caster, colour)
         self.assertGreater(abs(caster - previous), 0.01)
-        self.assertEqual(displacement(rest, 1.1, 1.0, 0.1, 2.0, 0.75, 1.0, 0.0), 0.0)
+        self.assertEqual(displacement(rest, 1.1, 1.0, 0.1, 2.0, weight, 1.0, 0.0), 0.0)
 
     def test_depth_inflation_retains_wind_reachable_edge_splat(self) -> None:
         # Execute the actual GPU frustum helper and actual displacement bound,
@@ -1014,7 +1133,7 @@ class HlodWindFieldTests(unittest.TestCase):
                 self.assertIn(field, source, path)
         caster = paths[2].read_text(encoding="utf-8")
         self.assertLess(caster.index("GSDeformationResult deformation"), caster.index("params.light_from_frame * vec4(frame_position"))
-        self.assertIn("deformation.opacity * instance.params.x", caster)
+        self.assertIn("deformation.opacity * region_emissive_opacity.w * instance.params.x", caster)
         self.assertIn("frame_position = deformation.position", caster)
         host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
         start = host.index("bool GaussianSplatRenderer::_render_hlod_shadow_casters(")
@@ -1051,6 +1170,372 @@ class HlodWindFieldTests(unittest.TestCase):
         self.assertEqual(sum(extent * 16 for _, extent in shader_fields), 256)
         self.assertIn("storage_uniform(6, deformation_buffer)", host)
         self.assertIn("_free_deformation_buffer();", host)
+
+
+class B3WindWeightTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
+        cls.semantic = (INCLUDES_DIR / "gs_semantic.glsl").read_text(encoding="utf-8")
+        cls.defines = {"GS_INSTANCE_WIND_MODE_FORCE_ENABLED": "2u",
+                       "GS_INSTANCE_WIND_MODE_FORCE_DISABLED": "1u",
+                       "GS_INSTANCE_WIND_MODE_SEMANTIC_INHERIT": "3u"}
+        cls.program = cls.make_program()
+
+    @classmethod
+    def make_program(cls, extra=None):
+        program = glsl.GlslProgram(cls.semantic + "\n" + cls.source, defines=cls.defines | (extra or {}))
+        program.namespace["sin"] = math.sin
+        return program
+
+    def weight(self, word, opacity=0.75, mode=3, program=None):
+        return (program or self.program).fn("gs_splat_wind_weight")(glsl.U32(word), opacity, float(mode))
+
+    def test_w4_rigid_zero_and_tests_only_legacy_forcing_control(self):
+        rigid = 0x80000007
+        self.assertEqual(self.weight(rigid), 0.0)
+        forced = self.make_program({"GS_TESTS_ENABLED": "1", "GS_TEST_LEGACY_WIND_WEIGHT": "1"})
+        self.assertAlmostEqual(self.weight(rigid, program=forced), 0.4)
+        shipping = self.make_program({"GS_TEST_LEGACY_WIND_WEIGHT": "1"})
+        self.assertEqual(self.weight(rigid, program=shipping), 0.0, "forcing define alone cannot alter production")
+        # The GPU fixture must deliver its control to the final graphics compiler.
+        # ShaderRD variant defines alone do nothing without #VERSION_DEFINES in
+        # the caster template. Read the defines actually passed at this call site.
+        fixture = (ROOT / "modules/gaussian_splatting/tests/test_b3_wind_gpu.h").read_text()
+        compiler = re.search(r'"b3_wind_pixels",\s*(\w+),\s*&error,\s*&processed_vertex', fixture)
+        self.assertIsNotNone(compiler, "W4 control defines must reach ShaderCompilationHelper, with processed-source readback")
+        define_literals = re.findall(r'\b' + re.escape(compiler.group(1)) + r'\.push_back\("([^"\n]+)"\)', fixture)
+        actual_defines = dict(re.findall(r"#define\s+(\w+)\s+(\d+)", "\n".join(define_literals).replace("\\n", "\n")))
+        self.assertEqual(actual_defines.get("GS_TESTS_ENABLED"), "1")
+        self.assertEqual(actual_defines.get("GS_TEST_LEGACY_WIND_WEIGHT"), "1")
+        self.assertAlmostEqual(self.weight(rigid, opacity=1.0, program=self.make_program(actual_defines)), 0.2)
+
+    def test_full_half_weights_replace_opacity_and_keep_row_intensity(self):
+        p = self.program
+        rest = p.namespace["vec3"](1.25, 0.5, -4.0)
+        phase = (1.25 - 4.0) * 0.1 + 1.1 + p.fn("gs_wind_phase_noise")(rest)
+        oracle = math.sin(phase) * 2.0 * 0.7
+        self.assertGreater(abs(oracle), 0.01)
+        for opacity in (0.0, 0.1, 0.75, 1.0):
+            for weight in (0, 128, 255):
+                actual_weight = self.weight(0x80000009 | (weight << 16), opacity)
+                self.assertEqual(actual_weight, weight / 255.0)
+                actual = p.fn("gs_wind_displacement")(rest, 1.1, 1.0, 0.1, 2.0, actual_weight, 0.7, 1.0)
+                self.assertAlmostEqual(actual, oracle * weight / 255.0)
+
+    def test_o4_auto_legacy_on_legacy_and_instance_legacy(self):
+        self.assertEqual(self.weight(0), 0.0)
+        self.assertEqual(self.weight(0x00ff0000), 0.0, "valid bit, not nonzero wind byte, enables semantics")
+        for opacity in (-0.1, 0.0, 0.75, 1.0, 1.1):
+            expected = 0.2 + 0.8 * min(1.0, max(0.0, 1.0 - opacity))
+            self.assertAlmostEqual(self.weight(0, opacity, 0), expected)  # ON world and default instance.
+        self.assertEqual(self.weight(0x80000001), 0.0, "semantic world with no wind input")
+        enabled = self.program.fn("gs_is_wind_enabled_for_instance")
+        vec4 = self.program.namespace["vec4"]
+        self.assertFalse(enabled(1.0, vec4(1, 1, 1, 1)), "OFF must disable semantic wind too")
+        self.assertTrue(enabled(3.0, vec4(1, 1, 1, 1)))
+        self.assertFalse(enabled(3.0, vec4(1, 1, 1, 0)))
+
+    def test_w2_parent_tracks_weighted_children_below_fade_and_coarse_control_moves(self):
+        p = self.program
+        vec3 = p.namespace["vec3"]
+        displacement = p.fn("gs_wind_displacement")
+        self.assertEqual(self.weight(0x80800000), 128.0 / 255.0)
+        def move(rest, byte, fade=1.0):
+            return displacement(rest, 1.1, 1.0, 0.1, 0.5, self.weight(0x80000000 | (byte << 16)), 1.0, fade)
+        parent = vec3(0, 0, -8)
+        children = (vec3(-0.005, 0, -8), vec3(0.005, 0, -8))
+        pixels_per_unit = 1080.0 / (2.0 * math.tan(math.radians(35.0)) * 8.0)
+        child_mean = (move(children[0], 0) + move(children[1], 255)) / 2.0
+        self.assertLessEqual(abs(move(parent, 128) - child_mean) * pixels_per_unit, 0.5)
+        fade = p.fn("gs_wind_distance_level_fade")(parent, glsl.U32(4))
+        self.assertEqual(move(parent, 128, fade), 0.0)
+        self.assertGreater(abs(move(parent, 128, 1.0)) * pixels_per_unit, 0.5, "coarse fade forcing must be observable")
+
+    def test_every_payload_route_passes_semantic_to_the_shared_helper(self):
+        paths = ("compute/depth_compute.glsl", "shaders/tile_binning.glsl", "shaders/gs_shadow_caster.glsl")
+        for name in paths:
+            source = (ROOT / "modules/gaussian_splatting" / name).read_text()
+            call = source[source.index("GSDeformationResult deformation ="):]
+            call = call[:call.index(");")]
+            self.assertRegex(call, r"(?:gaussian|g|gaussians\[atlas_index\])\.semantic", name)
+            self.assertIn("gs_apply_wind_deformation(", call)
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text()
+        self.assertIn("g.semantic = src.semantic;", binning, "quantized colour must copy the semantic word")
+        self.assertIn("gs_splat_wind_weight(semantic, opacity, instance_wind_mode)", self.source)
+        self.assertIn("* splat_weight", self.source, "position effectors must share W(splat)")
+        self.assertNotIn("opacity_scale = max(instance_effect_config.y, 0.0) * splat_weight", self.source)
+
+    def test_effector_position_uses_same_weight_and_opacity_remains_independent(self):
+        # Execute the production scalar expressions without modelling buffer loops or result structs.
+        for field, expected in (("position_scale", 0.0), ("opacity_scale", 0.7)):
+            expression = re.search(r"float " + field + r" = ([^;]+);", self.source).group(1)
+            program = glsl.GlslProgram("float sample(vec4 instance_effect_config, float deformation_fade, float splat_weight) { return " + expression + "; }")
+            fn = program.fn("sample")
+            config = program.namespace["vec4"](2.0, 0.7, 0.0, 0.0)
+            self.assertEqual(fn(config, 1.0, 0.0), expected)
+            if field == "position_scale":
+                self.assertEqual(fn(config, 1.0, 128.0 / 255.0), 2.0 * 128.0 / 255.0)
+                self.assertEqual(fn(config, 1.0, 1.0), 2.0)
+
+    def test_node_cut_cull_and_record_estimates_use_bit5_scaled_margin(self):
+        source = (ROOT / "modules/gaussian_splatting/lod/hlod_view_set.cpp").read_text()
+        body = source.split("bool ViewSet::prepare_displacement_bounds(", 1)[1].split("ViewSet::AdmitResult", 1)[0]
+        self.assertIn("gs_wind::node_displacement_bound(local_margin, node.topology.max_wind_weight, node.topology.is_semantic_valid())", body)
+        for expression in ("std::sqrt(3.0) * node_margin", "aabb_min[axis]) - node_margin", "aabb_max[axis]) + node_margin",
+                           "node.footprint = original.footprint * ratio * ratio"):
+            self.assertIn(expression, body)
+        header = (ROOT / "modules/gaussian_splatting/renderer/gs_wind_bounds.h").read_text()
+        self.assertIn("p_semantic_valid ? double(p_weight) / 255.0 : 1.0", header)
+
+    def test_auto_on_off_api_and_required_gpu_wiring_are_present(self):
+        module = ROOT / "modules/gaussian_splatting"
+        node = (module / "nodes/gaussian_splat_world_3d.cpp").read_text()
+        header = (module / "nodes/gaussian_splat_world_3d.h").read_text()
+        self.assertNotIn("set_wind_enabled", node)
+        self.assertNotIn("is_wind_enabled", header)
+        for mode in ("AUTO", "ON", "OFF"):
+            self.assertIn("BIND_ENUM_CONSTANT(WIND_MODE_" + mode + ")", node)
+        self.assertIn("WORLD_WIND_MODE_PROPERTY", node)
+        self.assertIn('PROPERTY_HINT_ENUM, "Auto,On,Off"', node)
+        self.assertIn("WindMode wind_mode = WIND_MODE_AUTO", header)
+        for name in ("test_b3_wind.h", "test_b3_wind_gpu.h"):
+            self.assertIn('#include "' + name + '"', (module / "tests/test_gaussian_splatting.h").read_text())
+        gpu = (module / "tests/test_b3_wind_gpu.h").read_text()
+        self.assertIn("[Sort][RequiresGPU][B3]", gpu)
+        self.assertIn("rd->texture_get_data(target, 0)", gpu)
+        self.assertIn("GS_TESTS_ENABLED 1", gpu)
+        self.assertIn("GS_TEST_LEGACY_WIND_WEIGHT 1", gpu)
+
+
+class StableSplatIdentityTests(unittest.TestCase):
+    """WP1: execute the real sort/history expressions, including the address control."""
+
+    def evaluate(self, node=7, local=1029, placement=0x123456789, atlas=3077,
+                 row=0, forced=False, tests_enabled=True, prefix=0, bits=14,
+                 canonical=False, single=False, history_size=65521):
+        depth = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text(encoding="utf-8")
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text(encoding="utf-8")
+        shared = (INCLUDES_DIR / "gs_splat_identity.glsl").read_text(encoding="utf-8")
+        culling = (INCLUDES_DIR / "gs_culling_utils.glsl").read_text(encoding="utf-8")
+        tie = re.search(r"uint tie_break = ([^;]+);", depth)
+        self.assertIsNotNone(tie)
+        start = binning.index("    uint history_idx =")
+        conditional = binning.rfind("\n#if", 0, start)
+        if binning[conditional:start].strip() == "#if defined(GS_HLOD_RELATIVE_PAYLOAD)":
+            start = conditional
+        end = binning.index("    uint history_packed =", start)
+        signature = "uint node, uint local, uvec2 placement, uint atlas_index, uint prefix, uint bits, bool single"
+        helper = "uint identity_hash = gs_splat_identity_hash(node, local, placement);"
+        # Execute the complete production packing/decoding block, including the
+        # flags and metadata fields uploaded by the host. Parent has the hash block.
+        begin = depth.index("    uint sort_prefix =" if "    uint sort_prefix =" in depth else "    uint identity_hash =")
+        end_tie = depth.index("    sort_key_buffer.keys[", begin)
+        constants = "\n".join(line for line in (INCLUDES_DIR / "gs_instance_layout.glsl").read_text().splitlines()
+                              if line.startswith("const uint GS_INSTANCE_SORT_"))
+        source = shared + culling + constants + f"\nuint tie({signature}) {{ uint splat_index_in_chunk = local;\n"
+        source += depth[begin:end_tie] + "return tie_break; }\n"
+        source += f"uvec2 history({signature}) {{ {helper} uint gaussian_idx = atlas_index; uint history_size = {history_size}u;\n"
+        source += binning[start:end] + "return uvec2(history_idx, history_key); }\n"
+        defines = {} if canonical else {"GS_HLOD_RELATIVE_PAYLOAD": "1"}
+        if tests_enabled:
+            defines["GS_TESTS_ENABLED"] = "1"
+        if forced:
+            defines["GS_TEST_ADDRESS_IDENTITY"] = "1"
+        program = glsl.GlslProgram(source, defines=defines)
+        program.namespace["chunk"] = SimpleNamespace(reserved_node_y=glsl.U32(node), reserved_node_z=glsl.U32(bits | (256 if single else 0)))
+        flags = prefix | (bits << 6) | (0x800 if single else 0)
+        program.namespace["instance"] = SimpleNamespace(ids=program.namespace["uvec2"](0, flags),
+                                                        placement_key=program.namespace["uvec2"](placement & 0xffffffff, placement >> 32))
+        program.namespace["visible_chunk"] = SimpleNamespace(chunk_id=glsl.U32(node))
+        program.namespace["splat_ref"] = SimpleNamespace(instance_id=glsl.U32(row))
+        args = (glsl.U32(node), glsl.U32(local), program.namespace["uvec2"](placement & 0xffffffff, placement >> 32),
+                glsl.U32(atlas), glsl.U32(prefix), glsl.U32(bits), single)
+        history = program.fn("history")(*args)
+        return int(program.fn("tie")(*args)), int(history.x), int(history.y)
+
+    def test_single_chunk_resident_key_equals_global_index_bit_for_bit(self):
+        for prefix in (0, 0x80004000):
+            for index in (0, 1, 2, 65535, 0x7fffffff, 0xffffffff):
+                self.assertEqual(self.evaluate(node=0, local=index, atlas=index, prefix=prefix, canonical=True, single=True)[0], index)
+
+    def test_world_node_tie_fold_preserves_local_prefix_and_full_history_identity(self):
+        for bits in (14, 16, 31):
+            capacity = 1 << (31 - bits)
+            for local in (0, (1 << bits) - 1):
+                for node in (0, capacity - 1):
+                    self.assertEqual(self.evaluate(node=node, local=local, bits=bits)[0],
+                                     (node << bits) | local)
+                for node in (capacity, capacity + 1, 0xffffffff):
+                    expected = ((node & (capacity - 1)) << bits) | local
+                    self.assertEqual(self.evaluate(node=node, local=local, bits=bits)[0], expected)
+                    self.assertEqual(self.evaluate(node=node, local=local, bits=bits, atlas=19461)[0], expected)
+                    self.assertEqual(expected >> 31, 0, "world prefix must stay zero")
+        first = self.evaluate(node=7, local=16383)
+        folded = self.evaluate(node=7 + (1 << 17), local=16383)
+        self.assertEqual(first[0], folded[0], "L=14 folds node IDs modulo 131,072")
+        self.assertNotEqual(first[2], folded[2], "history must retain the full baked node ID")
+        self.assertEqual(self.evaluate(node=7, local=16383, prefix=0x80040000)[0],
+                         0x80040000 | (7 << 14) | 16383)
+
+    def test_world_node_tie_fold_telemetry_and_admission_are_wired(self):
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        stats = (renderer / "render_diagnostics_orchestrator.cpp").read_text(encoding="utf-8")
+        self.assertRegex(stats, r"world_layout\(\s*resource_state\.hlod_snapshot->nodes\.size\(\),\s*"
+                               r"resource_state\.hlod_snapshot->max_node_payload_count\)")
+        self.assertIn("world_tie.append_stats(stats);", stats)
+        self.assertIn("resource_state.hlod_snapshot.is_valid()", stats)
+        for name in ("hlod_node_pack.cpp", "resident_instance_contract_publisher.cpp"):
+            source = (renderer / name).read_text(encoding="utf-8")
+            self.assertIn("gs_splat_identity::world_layout(", source)
+            self.assertNotIn("gs_splat_identity::world_refusal(", source)
+
+    def test_same_identity_survives_noncontiguous_page_relocation_and_row_reorder(self):
+        for placement in (0, 0x123456789):
+            first = self.evaluate(placement=placement, row=0)
+            relocated = self.evaluate(placement=placement, atlas=19461, row=19)
+            self.assertEqual(first[0], relocated[0])
+            self.assertEqual(first[2], relocated[2])
+            self.assertEqual((first[1], relocated[1]), (3077, 19461))
+
+    def test_composite_is_ascending_and_distinct_in_node_and_placement(self):
+        self.assertEqual(self.evaluate()[0], (7 << 14) | 1029)
+        for local in (0, 1, 1029, 16382):
+            self.assertLess(self.evaluate(local=local)[0], self.evaluate(local=local + 1)[0])
+        self.assertLess(self.evaluate(node=7, local=16383)[0], self.evaluate(node=8, local=0)[0])
+        self.assertLess(self.evaluate(node=0, prefix=0x80004000)[0], self.evaluate(node=0, prefix=0x80008000)[0])
+        first = self.evaluate()
+        for changed in ({"node": 8}, {"local": 1030}, {"placement": 0x223456789}):
+            self.assertNotEqual(first[2], self.evaluate(**changed)[2])
+
+    def test_frozen_colliding_identities_have_order_independent_history(self):
+        # Find a real collision using the executed production GLSL, not a hash reimplementation.
+        by_slot = {}
+        collision = None
+        for node in range(17):
+            value = self.evaluate(node=node, atlas=node, history_size=17)
+            if value[1] in by_slot:
+                collision = (by_slot[value[1]], (node, value))
+                break
+            by_slot[value[1]] = (node, value)
+        if collision is None:
+            # Atlas slots are injective on this legal range. Compare two distinct
+            # identities in opposite EMIT orders as a positive control.
+            collision = ((0, self.evaluate(node=0, atlas=2, history_size=17)),
+                         (1, self.evaluate(node=1, atlas=6, history_size=17)))
+        (node_a, a), (node_b, b) = collision
+        # A legal atlas has one slot per record; avoid the sentinel atlas index 17.
+        if node_a == 17 or node_b == 17:
+            self.fail("history must use the in-range atlas index without modulo collisions")
+        frames = []
+        for order in ((a, b), (b, a)):
+            frame = [0] * 17
+            for _, slot, key in order:
+                frame[slot] = (key << 1) | 1
+            frames.append(frame)
+        self.assertEqual(frames[0], frames[1], "frozen EMIT order must not change stored history keys")
+        self.assertNotEqual(a[1], b[1])
+
+    def test_address_forcing_control_discriminates_relocation(self):
+        for row in (0, 19):
+            first = self.evaluate(forced=True, row=row)
+            relocated = self.evaluate(forced=True, atlas=19461, row=row)
+            self.assertEqual(first[0], 3077)
+            self.assertEqual(relocated[0], 19461)
+            self.assertNotEqual(first[2], relocated[2])
+            self.assertNotEqual(first[0], self.evaluate(row=row)[0])
+
+    def test_address_forcing_define_is_inert_without_test_build_define(self):
+        first = self.evaluate(tests_enabled=False)
+        other = self.evaluate(forced=True, tests_enabled=False, atlas=19461)
+        self.assertEqual((first[0], first[2]), (other[0], other[2]))
+
+    def test_identity_is_wired_to_baked_node_local_index_and_registration_layout(self):
+        depth = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text()
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text()
+        self.assertIn("gs_splat_composite_key(", depth)
+        self.assertIn("chunk.reserved_node_y", depth)
+        self.assertIn("gs_splat_identity_hash(selected_node.reserved_node_y, local_splat_index, instance.placement_key)", binning)
+        self.assertIn("gs_hlod_local_splat_index(", binning)
+        self.assertIn("atomicExchange(subpixel_history.entries[history_idx]", binning)
+        self.assertIn("uint history_idx = gaussian_idx;", binning)
+        self.assertIn("gaussian_idx >= history_size", binning)
+        layout = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text()
+        self.assertRegex(layout, r"GS_INSTANCE_DATA_GPU_SIZE\s*=\s*128u;")
+
+    def test_reassignment_clears_history_before_read_and_emit(self):
+        tile = (ROOT / "modules/gaussian_splatting/renderer/tile_renderer.cpp").read_text()
+        begin = tile.index("void TileRenderer::invalidate_sh_color_cache_range(")
+        end = tile.index("\n}", begin)
+        self.assertIn("subpixel_history_buffers.clear_history_range(", tile[begin:end])
+        resources = (ROOT / "modules/gaussian_splatting/renderer/tile_render_resources.cpp").read_text()
+        self.assertIn("bool TileSubpixelHistoryBuffers::clear_history_range(", resources)
+        streamer = (ROOT / "modules/gaussian_splatting/renderer/hlod_node_streamer.cpp").read_text()
+        begin = streamer.index("Error HlodNodeStreamer::write_atlas(")
+        end = streamer.index("void HlodNodeStreamer::record_upload_slice", begin)
+        body = streamer[begin:end]
+        self.assertLess(body.index("p_buffers.invalidate_content_range("), body.index("p_device->buffer_update("))
+        # This Godot records COPY_TO against the SAME resource tracker used by the
+        # binning SSBO; the graph inserts the copy -> compute dependency automatically.
+        graph = (ROOT / "servers/rendering/rendering_device_graph.cpp").read_text()
+        begin = graph.index("void RenderingDeviceGraph::add_buffer_clear(")
+        end = graph.index("void RenderingDeviceGraph::add_buffer_copy(", begin)
+        self.assertIn("RESOURCE_USAGE_COPY_TO", graph[begin:end])
+        self.assertIn("_add_command_to_graph(&p_dst_tracker", graph[begin:end])
+
+    def test_registration_cache_is_wired_and_flag_fields_match_the_host(self):
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_gpu_layout.h").read_text()
+        shader = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text()
+        pattern = r"(GS_INSTANCE_(?:SORT_[A-Z_]+|TEST_[A-Z_]+|FLAGS_MASK))\s*=\s*([^;]+);"
+        self.assertEqual(dict(re.findall(pattern, host)), dict(re.findall(pattern, shader)))
+        director = (ROOT / "modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp").read_text()
+        begin = director.index("void GaussianSplatSceneDirector::register_instance(")
+        end = director.index("void GaussianSplatSceneDirector::update_instance_transform(", begin)
+        self.assertIn("world->instance_store.rebuild_sort_identity();", director[begin:end])
+        begin = director.index("void GaussianSplatSceneDirector::unregister_instance(")
+        end = director.index("void GaussianSplatSceneDirector::register_instance_submission(", begin)
+        self.assertIn("world->instance_store.rebuild_sort_identity();", director[begin:end])
+        begin = director.index("void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(")
+        end = director.index("String GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node", begin)
+        self.assertNotIn("rebuild_sort_identity(", director[begin:end])
+        self.assertIn("sort_identity_refusal.is_empty()", director[begin:end])
+        self.assertIn("record.sort_identity_flags", director)
+
+    def test_reverse_slot_recovers_local_page_and_rejects_foreign_pages_and_padding(self):
+        path = INCLUDES_DIR / "gs_splat_identity.glsl"
+        self.assertTrue(path.is_file(), "the identity decoder must exist")
+        if not path.is_file():
+            return
+        source = (INCLUDES_DIR / "gs_hlod_page_constants.glsl").read_text(encoding="utf-8") + path.read_text(encoding="utf-8")
+        program = glsl.GlslProgram(source)
+        decode = program.fn("gs_hlod_local_splat_index")
+        def run(atlas, reverse_slot, table_ref=18, base=0, count=1030):
+            valid, local = decode(*(glsl.U32(v) for v in (atlas, reverse_slot, table_ref, base, count, 0)))
+            return int(local) if valid else 0xffffffff
+        # The second logical page moved from physical page 3 to physical page 19.
+        self.assertEqual(run(3077, 18), 1029)
+        self.assertEqual(run(19461, 18), 1029)
+        for reverse_slot in (0xffffffff, 16, 19, 0xfffffffe):
+            self.assertEqual(run(3077, reverse_slot), 0xffffffff)
+        self.assertEqual(run(3078, 18), 0xffffffff, "last-page padding is not a splat")
+        self.assertEqual(run(3077, 18, count=0), 0xffffffff)
+        self.assertEqual(run(1034, 0xffffffff, table_ref=0, base=1029, count=6), 5)
+        self.assertEqual(run(1028, 0xffffffff, table_ref=0, base=1029, count=6), 0xffffffff)
+        self.assertEqual(run(1035, 0xffffffff, table_ref=0, base=1029, count=6), 0xffffffff)
+        self.assertEqual(run(0xfffffffe, 4194303, table_ref=1, count=0xffffffff), 0xfffffffe)
+        self.assertEqual(run(0xffffffff, 4194303, table_ref=1, count=0xffffffff), 0xffffffff)
+
+    def test_shader_control_has_host_wiring_and_cache_invalidation(self):
+        pipeline = (ROOT / "modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp").read_text(encoding="utf-8")
+        tile = (ROOT / "modules/gaussian_splatting/renderer/tile_renderer.cpp").read_text(encoding="utf-8")
+        control = (ROOT / "modules/gaussian_splatting/renderer/splat_identity_test_control.h").read_text(encoding="utf-8")
+        for source in (pipeline, tile):
+            self.assertIn("GSSplatIdentityTestControl::shader_defines()", source)
+            self.assertIn("GSSplatIdentityTestControl::get_force_address_keying()", source)
+        self.assertIn("identity_variant_changed", pipeline)
+        self.assertIn("test_address_identity_enabled != force_address", tile)
+        self.assertIn("#ifdef TESTS_ENABLED", control)
+        self.assertIn("force_address_keying{ false }", control)
 
 
 if __name__ == "__main__":

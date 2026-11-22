@@ -59,7 +59,7 @@ TEST_CASE("[GaussianSplatting][HLOD] automatic route: the plan over tree x paylo
 						in.route_policy_streaming = streaming;
 						in.domain_refusal = domain;
 						const WorldPlan plan = plan_world(in);
-						const String what = vformat("kind=%d cut=%d streaming=%d identity=%d domain=%s", kind, cut, streaming, identity, domain ? domain : "none");
+						const String what = vformat("kind=%d cut=%d streaming=%d identity=%d domain=%s", kind, int(cut), int(streaming), int(identity), domain ? domain : "none");
 						if (kind == 0 || kind == 3 || !cut) {
 							// No snapshot-capable tree, or the opt-out: exactly the routing from before (no snapshot, no reason,
 							// route_policy decides). A file-backed tree cannot be snapshotted, so it is not an HLOD-route world.
@@ -195,6 +195,7 @@ struct RouteCase {
 	bool mixed_dc = false; // the tree's node mixes DC encodings
 	bool quantized = false; // per-chunk quantization on (g_quantization_config) while the world submits
 	bool wind = false;
+	GaussianSplatWorld3D::WindMode wind_mode = GaussianSplatWorld3D::WIND_MODE_AUTO;
 	bool effectors = false;
 	String demote_cause; // non-empty: then call the submission's demotion callback with it, as the renderer's request does
 };
@@ -254,6 +255,7 @@ static RouteResult run_case(const RouteCase &p_case) {
 		}
 		world_node = memnew(GaussianSplatWorld3D);
 		world_node->set_auto_apply_on_ready(false);
+		world_node->set_wind_mode(p_case.wind_mode);
 		world_node->set_lod_enabled(!p_case.lod_disabled);
 		world_node->set_world(world);
 		if (p_case.moved) { world_node->set_position(Vector3(1.0f, 0.0f, 0.0f)); }
@@ -359,18 +361,18 @@ TEST_CASE("[GaussianSplatting][HLOD] publisher allows wind and effectors but sti
 }
 
 // New public API: compile-error red on pre-P2 (the row default assertion elsewhere does not require this API).
-TEST_CASE("[GaussianSplatting][HLOD] legacy World3D wind and effectors default off and opt in independently") {
+TEST_CASE("[GaussianSplatting][HLOD] World3D AUTO ON OFF wind and effectors remain independent") {
 	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
-	CHECK_FALSE(node->is_wind_enabled());
+	CHECK(node->get_wind_mode() == GaussianSplatWorld3D::WIND_MODE_AUTO);
 	CHECK_FALSE(node->is_effectors_enabled());
 	CHECK(node->get_wind_intensity() == doctest::Approx(1.0f));
-	node->set_wind_enabled(true);
-	CHECK(node->is_wind_enabled());
+	node->set_wind_mode(GaussianSplatWorld3D::WIND_MODE_ON);
+	CHECK(node->get_wind_mode() == GaussianSplatWorld3D::WIND_MODE_ON);
 	CHECK_FALSE(node->is_effectors_enabled());
 	node->set_effectors_enabled(true);
 	CHECK(node->is_effectors_enabled());
-	node->set_wind_enabled(false);
-	CHECK_FALSE(node->is_wind_enabled());
+	node->set_wind_mode(GaussianSplatWorld3D::WIND_MODE_OFF);
+	CHECK(node->get_wind_mode() == GaussianSplatWorld3D::WIND_MODE_OFF);
 	CHECK(node->is_effectors_enabled());
 	node->set_wind_intensity(-0.25f);
 	CHECK(node->get_wind_intensity() == 0.0f);
@@ -423,6 +425,29 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: 
 					CHECK_MESSAGE(r.world_count > 0, what);
 					CHECK_MESSAGE((s.gaussian_data.is_valid() && s.gaussian_data->get_count() > 0), what);
 				}
+			}
+		}
+	}
+	// Verify the public enum reaches the submitted row mode on the resident,
+	// resident HLOD and paged HLOD routes, with project wind active.
+	for (Tree tree : { Tree::NONE, Tree::RESIDENT, Tree::PAGED }) {
+		for (const auto mode : { GaussianSplatWorld3D::WIND_MODE_AUTO, GaussianSplatWorld3D::WIND_MODE_ON, GaussianSplatWorld3D::WIND_MODE_OFF }) {
+			RouteCase c;
+			c.tree = tree;
+			c.wind = true;
+			c.wind_mode = mode;
+			const RouteResult r = run_case(c);
+			if (!r.ok) { FAIL("wind-mode route fixture: ", r.failure); return; }
+			switch (mode) {
+				case GaussianSplatWorld3D::WIND_MODE_AUTO:
+					CHECK(r.submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_SEMANTIC_INHERIT);
+					break;
+				case GaussianSplatWorld3D::WIND_MODE_ON:
+					CHECK(r.submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT);
+					break;
+				case GaussianSplatWorld3D::WIND_MODE_OFF:
+					CHECK(r.submission.wind_mode == GaussianSplatSceneDirector::INSTANCE_WIND_FORCE_DISABLED);
+					break;
 			}
 		}
 	}

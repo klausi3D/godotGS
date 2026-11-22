@@ -1,3 +1,5 @@
+#include "splat_identity_test_control.h"
+#include "splat_identity.h"
 #include "../lod/hlod_edit.h"
 #include "resident_instance_contract_publisher.h"
 
@@ -481,16 +483,16 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	// resolve to distinct dense atlas slots instead of aliasing.
 	LocalVector<uint64_t> instance_submission_asset_ids;
 	// Director "owns" this renderer's instance set when there's a world
-	// submission for it. In that case an empty `instances` result is
+	// submission or registered placements for it. In that case an empty `instances` result is
 	// intentional — e.g. a shadow-filtered pass that legitimately produced
-	// no shadow casters, or a frame where every instance was visibility-
+	// no shadow casters, a named tie-layout refusal, or a frame where every instance was visibility-
 	// culled — and we must NOT fabricate a primary identity instance.
 	// Doing so would draw the entire submission asset into shadow maps or
 	// resurrect culled scenes. The bootstrap below is only for standalone
 	// direct-data renderers (tests, tools, editor preview that bind raw
 	// `set_gaussian_data()` with no world submission).
 	const bool director_owns_instance_set = director != nullptr &&
-			director->has_world_submission_for_renderer(p_renderer);
+			(director->has_world_submission_for_renderer(p_renderer) || director->get_instance_count_for_renderer(p_renderer) != 0u);
 	if (director != nullptr) {
 		director->build_instance_buffer_for_renderer(p_renderer, instances,
 				p_renderer->is_shadow_instance_filter_enabled(), &instance_submission_asset_ids);
@@ -862,6 +864,8 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 				chunk_meta.lod_level = 0;
 				chunk_meta.flags = asset_meta.flags;
 				chunk_meta.sh_limit = CLAMP(asset.data->get_sh_degree(), 0u, 4u);
+                chunk_meta.reserved_node_y = chunk_index;
+                chunk_meta.reserved_node_z = gs_splat_identity::world_local_bits(GaussianStreamingSystem::CHUNK_SIZE);
 				chunk_meta_cpu.push_back(chunk_meta);
 
 				AssetChunkIndexGPU chunk_index_gpu = {};
@@ -1414,6 +1418,8 @@ bool hlod_pack_instance_assets(const LocalVector<InstanceAssetRegistration> &p_r
             }
             chunk_meta.atlas_base = uint32_t(base);
             chunk_meta.splat_count = chunk.count;
+            chunk_meta.reserved_node_y = asset.chunk_count; // Asset-local, independent of other assets' table offsets.
+            chunk_meta.reserved_node_z = gs_splat_identity::world_local_bits(GaussianStreamingSystem::CHUNK_SIZE);
             const Vector3 chunk_center = chunk.bounds.get_center();
             for (int a = 0; a < 3; ++a) { chunk_meta.bounds_center_local[a] = chunk_center[a]; }
             chunk_meta.bounds_radius_local = (chunk.bounds.size * 0.5f).length();
@@ -1478,6 +1484,9 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
 void hlod_invalidate_content_range(void *p_context, uint32_t p_first_record, uint32_t p_record_count) {
     auto *renderer = static_cast<GaussianSplatRenderer *>(p_context);
     if (!renderer) { return; }
+#ifdef TESTS_ENABLED
+    if (GSSplatIdentityTestControl::disable_cache_invalidation.load()) { return; }
+#endif
     Ref<TileRenderer> tile = renderer->get_tile_renderer();
     if (tile.is_valid() && tile->get_active_device() == renderer->get_device_state().rd) {
         tile->invalidate_sh_color_cache_range(p_first_record, p_record_count);
@@ -1500,8 +1509,10 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     const uint32_t row_count = p_rows.count();
     LocalVector<InstanceDataGPU> packed_rows;
     gs_hlod_bundle::pack_instance_rows(p_rows, region, packed_rows);
+    if (!p_renderer->prepare_region_override_rows(packed_rows)) { return false; }
     const uint32_t visible_chunks = uint32_t(gs_hlod_bundle::visible_chunk_capacity(p_data.nodes.size(), p_relative, region));
     auto &b = r_bundle.buffers;
+    b.region_override_buffer = p_renderer->get_region_override_buffer();
     const uint32_t node_count = p_data.nodes.size();
     const uint32_t records = p_streaming ? p_atlas_records : p_data.leaf_count + (p_relative ? p_data.parent_count : 0);
     // The instance region follows the world: chunk tables [node_count, +chunk_count), atlas [records, +region.records).
@@ -1859,6 +1870,9 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
                     hlod_owned_cap_for(streaming, limit));
     if (!fits) { return resources_changed(); }
     if (change.prepared_asset_generation != change.asset_generation) {
+#ifdef TESTS_ENABLED
+        if (GSSplatIdentityTestControl::asset_set_reset.load()) { return resources_changed(); }
+#endif
         if (!streaming || region.reserved_records == 0) { return resources_changed(); }
         const uint32_t page = state.hlod_streamer->get_residency().config().page_splats;
         const uint64_t records = hlod_instance_records(director, this);
@@ -2127,7 +2141,11 @@ uint64_t GaussianSplatRenderer::hlod_row_generation(const GaussianSplatSceneDire
 
 bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal *r_shadow_refusal) {
     auto &state = get_resource_state();
+#ifdef TESTS_ENABLED
+    if (hlod_shadow_rows_latched() && !(GSSplatIdentityTestControl::rows_after_shadow.load() && !r_shadow_refusal)) { return true; }
+#else
     if (hlod_shadow_rows_latched()) { return true; } // Colour and idle restores reuse the pre-shadow snapshot.
+#endif
     auto refuse = [&](gs_shadow_caster::Refusal p_reason) {
         if (r_shadow_refusal) { *r_shadow_refusal = p_reason; }
         return false;
@@ -2166,6 +2184,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal
     }
     LocalVector<InstanceDataGPU> packed;
     gs_hlod_bundle::pack_instance_rows(rows, state.hlod_instance_region, packed);
+    if (!prepare_region_override_rows(packed)) { return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT); }
     for (bool relative : { false, true }) {
         if (state.hlod_streaming && !relative) { continue; } // A streamed world has no canonical bundle.
         const auto &b = (relative ? state.hlod_relative : state.hlod_canonical).buffers;
@@ -2285,7 +2304,8 @@ static void report_hlod_ledger_categories(GaussianRenderFacadeState::ResourceSta
     const uint64_t overlap_per_record = p_tile.get_hlod_overlap_bytes_per_record();
     ledger.report(DeviceVramLedger::POOL, pool_bytes);
     ledger.report(DeviceVramLedger::INSTANCE_REGION, region_bytes);
-    ledger.report(DeviceVramLedger::VIEW, bundle_bytes > atlas_bytes ? bundle_bytes - atlas_bytes : 0u);
+    ledger.report(DeviceVramLedger::VIEW, (bundle_bytes > atlas_bytes ? bundle_bytes - atlas_bytes : 0u) +
+            p_state.region_override_buffer.bytes() + p_tile.get_region_override_neutral_bytes());
     ledger.report(DeviceVramLedger::OVERLAP, uint64_t(p_tile.get_allocated_overlap_capacity()) * overlap_per_record);
     // One sort record costs one overlap record without the sorter's alternate buffer (same key width).
     ledger.report(DeviceVramLedger::SORT, uint64_t(p_sort.capacity) * (overlap_per_record / 2u));
@@ -2383,6 +2403,17 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     if (hlod_edit_committed_here()) { state.hlod_reason = "hlod_publish_failed"; }
     auto *director = GaussianSplatSceneDirector::get_singleton();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
+    if (input.is_valid()) {
+        const String refusal = gs_splat_identity::world_layout(input->nodes.size(), input->max_node_payload_count).refusal();
+        if (!refusal.is_empty()) {
+            state.hlod_last_refusal_reason = refusal;
+            state.hlod_reason = refusal;
+            r_reason = refusal;
+            ++state.hlod_refused_views;
+            clear_instance_pipeline_buffers();
+            return -1;
+        }
+    }
     if (state.hlod_prepared_snapshot.is_valid()) {
         const auto change = hlod_prepared_contract_change();
         if (hlod_shadow_colour_refused() || (hlod_shadow_rows_latched() && change.action != gs_hlod_bundle::ContractChangeAction::ROWS_ONLY)) {
@@ -3474,12 +3505,29 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (selected_count > world_nodes || uint64_t(selected_count) + instance_records > uint64_t(bundle.draw_entries.size())) {
         return fallback("hlod_view_failed");
     }
+    uint32_t test_nonresident_node = UINT32_MAX;
+#ifdef TESTS_ENABLED
+    if (state.hlod_streaming && selected_count > 0 && GSSplatIdentityTestControl::force_nonresident_draw.load()) {
+        for (uint32_t node = 1; node < world_nodes; ++node) {
+            if (state.hlod_streamer->get_residency().state(node) != gs_hlod_runtime::NodeResidency::ABSENT) { continue; }
+            const ChunkMetaGPU cleared = {};
+            if (get_device_state().rd->buffer_update(bundle.buffers.chunk_meta_buffer, node * sizeof(ChunkMetaGPU), sizeof(cleared), &cleared) == OK) {
+                test_nonresident_node = node;
+            }
+            break;
+        }
+    }
+#endif
+    auto actual_draw_node = [&](uint32_t i) { return i == 0 && test_nonresident_node != UINT32_MAX ? test_nonresident_node : outcome.records[i].node; };
     if (state.hlod_streaming) {
         // Absence of a signal is not a pass: re-check that every drawn node is resident-ready before its record
         // reaches the GPU. The selector only sees resident nodes, so a miss here is a contract violation.
         for (uint32_t i = 0; i < selected_count; ++i) {
-            if (state.hlod_streamer->get_residency().state(outcome.records[i].node) != gs_hlod_runtime::NodeResidency::RESIDENT) {
+            if (state.hlod_streamer->get_residency().state(actual_draw_node(i)) != gs_hlod_runtime::NodeResidency::RESIDENT) {
                 ++state.hlod_stream_nonresident_drawn;
+#ifdef TESTS_ENABLED
+                if (actual_draw_node(i) == test_nonresident_node) { continue; }
+#endif
                 return fallback("hlod_stream_drawn_node_not_resident");
             }
         }
@@ -3489,7 +3537,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     for (uint32_t i = 0; i < selected_count; ++i) {
         world_shadow_versions[i] = gs_shadow_refresh::hash_value(outcome.records[i].version.content_revision,
                 outcome.records[i].version.bake_rule_revision);
-        const uint32_t node = outcome.records[i].node;
+        const uint32_t node = actual_draw_node(i);
         // The ViewSet formed camera_offset in double for snapshot.origin_revision; every world record names the
         // world's row (row 0, identity-placed). BV-04b: the record carries the node's HLOD level (height) so the
         // emit pass can count records per splat per level.
@@ -3774,20 +3822,24 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
             result["error"] = "current_hlod_rows_unpackable"; return result;
         }
         gs_hlod_bundle::pack_instance_rows(hlod_rows, state.hlod_instance_region, instances);
+        if (!prepare_region_override_rows(instances)) { return Dictionary(); }
         grading = hlod_rows.grading;
     } else {
         director->build_instance_buffer_for_renderer(this, instances, false);
+        // Mirror update_instance_buffer(): the region-override segment base (lod.y)
+        // is written before upload on this route too (package C).
+        if (!prepare_region_override_rows(instances)) { return Dictionary(); }
         director->build_instance_grading_buffer_for_renderer(this, grading, false);
     }
     if (instance_contract_shape != "hlod_canonical") {
-        // Ordinary resident publication adds its remap generation in lod[1].
+        // Ordinary resident publication adds its remap generation in placement_pad[1].
         // This is not source payload and is intentionally different from the
         // direct HLOD identity shim; compare each route's complete actual ABI.
         if (!instance_asset_remap.valid || instances.size() != 1) {
             result["error"] = "current_resident_remap_missing"; return result;
         }
         instances[0].ids[0] = 0u;
-        instances[0].lod[1] = instance_asset_remap.generation == 0 ? 1u : uint32_t(instance_asset_remap.generation & uint64_t(UINT32_MAX));
+        instances[0].placement_pad[1] = instance_asset_remap.generation == 0 ? 1u : uint32_t(instance_asset_remap.generation & uint64_t(UINT32_MAX));
     }
     result["expected_instance_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(instances.ptr()), instances.size() * sizeof(InstanceDataGPU));
     result["expected_grading_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(grading.ptr()), grading.size() * sizeof(InstanceGradingGPU));

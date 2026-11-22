@@ -102,7 +102,7 @@ inline uint32_t fixed_width_bytes(const PageInfo &p_info) {
 	const uint32_t position = p_info.position_bits == 21u ? 9u : 6u;
 	const uint32_t sh = p_info.sh_degree == 0u ? 0u : 3u * ((p_info.sh_degree + 1u) * (p_info.sh_degree + 1u) - 1u);
 	return position + 4u /* scale */ + 4u /* rotation */ + 2u /* opacity */ + 4u /* DC */ + sh +
-			(p_info.has_normals ? 6u : 0u);
+			(p_info.has_normals ? 6u : 0u) + (p_info.codec_id == 2u ? 4u : 0u);
 }
 
 // Encodes one page, then decodes and packs it p_set.reps times on this thread.

@@ -4131,13 +4131,13 @@ inline bool hlod_cut_bits(const T &p_a, const T &p_b)
 inline bool hlod_cut_semantics(const Gaussian &p_a, const Gaussian &p_b)
 {
 	// check_gaussian_layout_sync.py derives coverage from Gaussian's declaration;
-	// only the exact _padding and _padding2 storage slots are excluded.
+	// only the exact _padding2 storage slot is excluded.
 	return hlod_cut_bits(p_a.position, p_b.position) && hlod_cut_bits(p_a.opacity, p_b.opacity) &&
 	       hlod_cut_bits(p_a.scale, p_b.scale) && hlod_cut_bits(p_a.area, p_b.area) &&
 	       hlod_cut_bits(p_a.rotation, p_b.rotation) && hlod_cut_bits(p_a.sh_dc, p_b.sh_dc) &&
 	       hlod_cut_bits(p_a.sh_1, p_b.sh_1) && hlod_cut_bits(p_a.normal, p_b.normal) &&
 	       hlod_cut_bits(p_a.stroke_age, p_b.stroke_age) && hlod_cut_bits(p_a.brush_axes, p_b.brush_axes) &&
-	       p_a.painterly_meta == p_b.painterly_meta && p_a.render_meta == p_b.render_meta;
+	       p_a.semantic == p_b.semantic && p_a.painterly_meta == p_b.painterly_meta && p_a.render_meta == p_b.render_meta;
 }
 
 inline bool hlod_cut_snapshot_equal(const GaussianData::SaveSnapshot &p_a, const GaussianData::SaveSnapshot &p_b)

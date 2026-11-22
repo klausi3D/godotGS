@@ -9,7 +9,7 @@ namespace GaussianSplatting {
 namespace ScenePayload {
 
 constexpr uint32_t PREFIX_SIZE = 32;
-constexpr uint32_t RECORD_SIZE = 132;
+constexpr uint32_t RECORD_SIZE = 136;
 constexpr uint32_t MAX_HIGH_ORDER = 21;
 
 inline uint32_t degree_for_layout(uint32_t p_first, uint32_t p_high) {
@@ -40,9 +40,10 @@ inline void encode_record(const Gaussian &g, uint8_t *r_bytes) {
     }
     encode_uint32(g.painterly_meta, r_bytes + 124);
     encode_uint32(g.render_meta, r_bytes + 128);
+    encode_uint32(g.semantic, r_bytes + 132);
 }
 
-inline Gaussian decode_record(const uint8_t *p_bytes) {
+inline Gaussian decode_record(const uint8_t *p_bytes, uint32_t p_schema = 2) {
     float fields[31];
     for (uint32_t i = 0; i < 31; i++) {
         fields[i] = decode_float(p_bytes + i * 4);
@@ -62,6 +63,7 @@ inline Gaussian decode_record(const uint8_t *p_bytes) {
     g.brush_axes = Vector2(fields[29], fields[30]);
     g.painterly_meta = decode_uint32(p_bytes + 124);
     g.render_meta = decode_uint32(p_bytes + 128);
+    g.semantic = p_schema == 1 ? 0u : decode_uint32(p_bytes + 132);
     return g;
 }
 
@@ -80,7 +82,7 @@ inline Error encode(const ::GaussianData::SaveSnapshot &p_snapshot, PackedByteAr
     }
     uint8_t *w = r_payload.ptrw();
     encode_uint32(gaussians.size(), w);
-    encode_uint32(1, w + 4);
+    encode_uint32(2, w + 4);
     encode_uint32(RECORD_SIZE, w + 8);
     encode_uint32(p_snapshot.get_sh_degree(), w + 12);
     encode_uint32(first, w + 16);
@@ -89,6 +91,7 @@ inline Error encode(const ::GaussianData::SaveSnapshot &p_snapshot, PackedByteAr
     encode_uint32(0, w + 28);
     uint64_t offset = PREFIX_SIZE;
     for (int i = 0; i < gaussians.size(); i++) {
+        ERR_FAIL_COND_V_MSG(!gaussian_semantic_validate(gaussians[i].semantic), ERR_INVALID_DATA, GAUSSIAN_SEMANTIC_RESERVED_REASON);
         encode_record(gaussians[i], w + offset);
         offset += RECORD_SIZE;
     }
@@ -109,15 +112,17 @@ inline Error decode(const PackedByteArray &p_payload, uint32_t p_declared_count,
     ERR_FAIL_COND_V(p_payload.size() < PREFIX_SIZE, ERR_FILE_CORRUPT);
     const uint8_t *r = p_payload.ptr();
     const uint32_t count = decode_uint32(r);
+    const uint32_t schema = decode_uint32(r + 4);
+    const uint32_t record_size = decode_uint32(r + 8);
     const uint32_t degree = decode_uint32(r + 12);
     const uint32_t first = decode_uint32(r + 16);
     const uint32_t high = decode_uint32(r + 20);
     const uint32_t flags = decode_uint32(r + 24);
-    ERR_FAIL_COND_V(count != p_declared_count || decode_uint32(r + 4) != 1 || decode_uint32(r + 8) != RECORD_SIZE, ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(count != p_declared_count || (schema != 1 && schema != 2) || record_size != (schema == 1 ? 132u : RECORD_SIZE), ERR_FILE_CORRUPT);
     ERR_FAIL_COND_V(first > 3 || high > MAX_HIGH_ORDER || degree > 4 || degree != degree_for_layout(first, high), ERR_FILE_CORRUPT);
     ERR_FAIL_COND_V((flags & ~3u) != 0 || decode_uint32(r + 28) != 0, ERR_FILE_CORRUPT);
     const uint64_t high_elements = uint64_t(count) * high;
-    const uint64_t expected_size = PREFIX_SIZE + uint64_t(count) * RECORD_SIZE + high_elements * 12;
+    const uint64_t expected_size = PREFIX_SIZE + uint64_t(count) * record_size + high_elements * 12;
     ERR_FAIL_COND_V(expected_size != uint64_t(p_payload.size()), ERR_FILE_CORRUPT);
     // Canonical float32 records are smaller than the in-memory Gaussian ABI.
     // Bound staging independently so the decode buffer plus staging remain <= 2B.
@@ -127,8 +132,9 @@ inline Error decode(const PackedByteArray &p_payload, uint32_t p_declared_count,
     r_high_order.resize(high_elements);
     uint64_t offset = PREFIX_SIZE;
     for (uint32_t i = 0; i < count; i++) {
-        r_gaussians[i] = decode_record(r + offset);
-        offset += RECORD_SIZE;
+        r_gaussians[i] = decode_record(r + offset, schema);
+        ERR_FAIL_COND_V_MSG(!gaussian_semantic_validate(r_gaussians[i].semantic), ERR_FILE_CORRUPT, GAUSSIAN_SEMANTIC_RESERVED_REASON);
+        offset += record_size;
     }
     for (uint32_t i = 0; i < r_high_order.size(); i++) {
         r_high_order[i] = Vector3(decode_float(r + offset), decode_float(r + offset + 4), decode_float(r + offset + 8));

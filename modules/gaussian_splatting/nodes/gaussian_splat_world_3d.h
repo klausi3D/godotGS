@@ -2,6 +2,7 @@
 #define GAUSSIAN_SPLAT_WORLD_3D_H
 
 #include "scene/3d/node_3d.h"
+#include "../resources/gaussian_splat_region_override.h"
 #include "core/math/aabb.h"
 
 #include "../core/gaussian_splat_world.h"
@@ -14,6 +15,11 @@ class GaussianSplatRenderer;
 
 class GaussianSplatWorld3D : public Node3D {
     GDCLASS(GaussianSplatWorld3D, Node3D);
+    Ref<GSRegionOverrideState> region_overrides;
+    void _sync_region_overrides();
+
+public:
+    enum WindMode { WIND_MODE_AUTO, WIND_MODE_ON, WIND_MODE_OFF };
 
 private:
     Ref<GaussianSplatWorld> world;
@@ -34,8 +40,8 @@ private:
 
     bool auto_apply_on_ready = true;
     bool cast_shadow = false;
-    // No baked wind semantics exist in W-S. Legacy worlds opt in independently of project wind and instance rows.
-    bool wind_enabled = false;
+    // AUTO inherits project wind only for splats with baked semantics; legacy worlds opt in with ON.
+    WindMode wind_mode = WIND_MODE_AUTO;
     float wind_intensity = 1.0f;
     bool effectors_enabled = false;
     bool bounds_dirty = true;
@@ -97,6 +103,8 @@ private:
 
     AABB local_aabb;
     AABB world_aabb;
+    // Main-thread diagnostics from the most recent island manifest query or placement.
+    PackedStringArray island_errors;
 
     // Renderer parity settings (matches the core controls on GaussianSplatNode3D).
     bool lod_enabled = true;
@@ -168,8 +176,8 @@ public:
     void set_cast_shadow(bool p_enabled);
     bool is_cast_shadow() const { return cast_shadow; }
 
-    void set_wind_enabled(bool p_enabled);
-    bool is_wind_enabled() const { return wind_enabled; }
+    void set_wind_mode(WindMode p_mode);
+    WindMode get_wind_mode() const { return wind_mode; }
     void set_wind_intensity(float p_intensity);
     float get_wind_intensity() const { return wind_intensity; }
     void set_effectors_enabled(bool p_enabled);
@@ -195,11 +203,24 @@ public:
     void set_async_upload_enabled(bool p_enabled);
     bool is_async_upload_enabled() const { return async_upload_enabled; }
 
+    int get_region_id(const StringName &p_name) const;
+    PackedStringArray get_region_names() const;
+    void set_region_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override);
+    void clear_region_override(int p_region);
+    void clear_all_region_overrides();
+    void set_tint(const Color &p_color, float p_strength);
+    void set_emissive(const Color &p_color);
+    void set_hidden(bool p_hidden);
+
     void set_opacity(float p_opacity);
     float get_opacity() const { return opacity; }
 
     void apply_world();
     void clear_world();
+
+    Array create_island_nodes(Node *p_parent = nullptr);
+    PackedStringArray get_island_names();
+    PackedStringArray get_island_errors() const { return island_errors; }
 
     Ref<GaussianSplatRenderer> get_renderer() const;
 
@@ -210,5 +231,7 @@ public:
     }
 #endif
 };
+
+VARIANT_ENUM_CAST(GaussianSplatWorld3D::WindMode);
 
 #endif // GAUSSIAN_SPLAT_WORLD_3D_H

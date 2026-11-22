@@ -122,7 +122,8 @@ class QuantizedStorageWiringTests(unittest.TestCase):
             self.assertEqual(expected_size, 160)
             self.assertEqual(actual_size, 160)
             self.assertIn(guard.FlatField("sh_encoded", "uint", 24), fields)
-            self.assertIn(guard.FlatField("_tail_padding", "uint", 2), fields)
+            self.assertIn(guard.FlatField("semantic", "uint", 1), fields)
+            self.assertIn(guard.FlatField("_tail_padding", "uint", 1), fields)
 
 
 class HlodCutSemanticCoverageTests(unittest.TestCase):
@@ -184,7 +185,7 @@ class HlodCutSemanticCoverageTests(unittest.TestCase):
     def test_same_size_padding_repurpose_requires_comparison(self) -> None:
         for name in ("semantic_value", "_padding_future"):
             with self.subTest(name=name):
-                declaration = self.declaration.replace("float _padding = 0.0f;", f"float {name} = 0.0f;")
+                declaration = self.declaration.replace("uint32_t semantic = 0;", f"uint32_t {name} = 0;")
                 result, output = self._run_sources(declaration, self.oracle)
                 self.assertEqual(result, 1, output)
                 self.assertIn(f"Gaussian.{name} is not compared", output)
@@ -213,6 +214,7 @@ class HlodCutSemanticCoverageTests(unittest.TestCase):
         for expression, name in (
             ("hlod_cut_bits(p_a.area, p_b.area) &&", "area"),
             ("p_a.painterly_meta == p_b.painterly_meta &&", "painterly_meta"),
+            ("p_a.semantic == p_b.semantic &&", "semantic"),
         ):
             with self.subTest(name=name):
                 oracle = self.oracle.replace(expression, f"/* {expression} */")
@@ -224,7 +226,7 @@ class HlodCutSemanticCoverageTests(unittest.TestCase):
         for declaration, oracle in (
             (self.declaration, self.oracle.replace("p_a.area, p_b.area", "p_a.area, p_a.area")),
             (self.declaration, self.oracle.replace("p_a.area, p_b.area)", "p_a.area, p_b.area) || true")),
-            (self.declaration.replace("float _padding =", "uint32_t _padding ="), self.oracle),
+            (self.declaration.replace("float _padding2[2]", "uint32_t _padding2[2]"), self.oracle),
             (self.declaration.replace("Vector3 position;", "Vector3 position, added_position;"), self.oracle),
             (self.declaration, self.oracle.replace("inline bool hlod_cut_semantics(", "inline bool removed_comparator(")),
         ):

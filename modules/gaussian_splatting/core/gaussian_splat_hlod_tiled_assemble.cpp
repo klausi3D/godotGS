@@ -11,6 +11,7 @@ namespace tiled_bake {
 
 void finish_metrics(GaussianSplatHlodNode &r_node, const SplatSpan &p_own,
 		const GaussianSplatHlodNode *const *p_children, uint32_t p_child_count) {
+	set_node_payload_semantics(r_node, p_own);
 	// bake_world uses the zero-origin world lattice for every tile and the stitch.
 	const GaussianSplatHlodTree frame;
 	double center[3];
@@ -89,7 +90,8 @@ const GaussianSplatHlodNode &referenced_record(const Context &p_context, const N
 
 Error stitch_node(Context &p_context, uint32_t id) {
 	const GaussianSplatHlodTree frame;
-	const InteriorBakeParams params;
+	InteriorBakeParams params;
+	params.measure_region_compression = p_context.params.measure_region_compression;
 	if (p_context.check() != OK) {
 		return p_context.check();
 	}
@@ -115,8 +117,8 @@ Error stitch_node(Context &p_context, uint32_t id) {
 	// 128-byte input term covers cells (24), entries (16), pass flags (1),
 	// member indices (4), old+new growth/probes; 64*candidate covers sorting.
 	const uint64_t candidate = MIN((input_count + 3u) / 4u, uint64_t(kMaxNodeSplats));
-	const uint64_t bytes = (2u * input_count + 3u * candidate) * p_context.payload_bytes +
-			input_count * 128u + candidate * 64u + (uint64_t(1) << 20u);
+	const uint64_t bytes = ((2u * input_count + 3u * candidate) * p_context.payload_bytes +
+			input_count * 128u + candidate * 64u + (uint64_t(1) << 20u)) * (params.measure_region_compression ? 2u : 1u);
 	if (!p_context.reserve(bytes)) {
 		return p_context.fail(ERR_OUT_OF_MEMORY);
 	}
@@ -216,6 +218,8 @@ Error stitch_node(Context &p_context, uint32_t id) {
 		node.geometric_error = MAX(node.geometric_error, children[c]->geometric_error);
 	}
 	node.payload_count = result.payload.size();
+	p_context.report.region_keyed_interior_bytes += result.region_keyed_interior_bytes;
+	p_context.report.single_region_interior_bytes += result.single_region_interior_bytes;
 	node.flags = (node.flags & ~kNodeFlagKindMask) | NODE_KIND_MERGED;
 	finish_metrics(node, result.payload.span(), children, node.child_count);
 	const Error emitted = p_context.sink.append_node(id, node, plan.depth, result.payload.span(), nullptr, true);

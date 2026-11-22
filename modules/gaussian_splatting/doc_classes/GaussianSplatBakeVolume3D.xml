@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatBakeVolume3D" inherits="Node3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Base for semantic bake volumes.</brief_description>
+	<description>Boxes use [member volume_size] in local coordinates. A nonempty [member hull_points] supplies a closed convex hull instead. The bake tests splat centres. Call [method get_bake_descriptor] and pass its dictionary in the [code]volumes[/code] array to [method GaussianSplatWorld.bake_hlod] or [method GaussianSplatHlodAutoTree.build]. The resource has no scene ownership, so descriptors are supplied explicitly. The first matching volume per field in sorted node-path order wins. A matching volume overrides the corresponding PLY property; the report counts disagreements per field.</description>
+	<tutorials></tutorials>
+	<methods>
+		<method name="get_bake_descriptor" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="bake_from_world" type="Transform3D" default="Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)" />
+			<description>Returns the volume kind, node path, semantic name, shape, wind weight and transform into the splat payload's bake coordinates. For a transformed world node, pass its inverse global transform. JSON jobs use size and hull points as number arrays and the transform as nine row-major basis numbers followed by three origin numbers.</description>
+		</method>
+	</methods>
+	<members>
+		<member name="volume_size" type="Vector3" setter="set_volume_size" getter="get_volume_size" default="Vector3(1, 1, 1)">Positive local box dimensions; used when hull_points is empty.</member>
+		<member name="hull_points" type="PackedVector3Array" setter="set_hull_points" getter="get_hull_points" default="PackedVector3Array()">Local points defining a convex hull. At least four noncoplanar points are required; invalid hulls fail the bake.</member>
+	</members>
+</class>

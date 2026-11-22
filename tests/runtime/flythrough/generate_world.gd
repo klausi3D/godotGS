@@ -5,7 +5,7 @@ extends SceneTree
 #   godot --headless --script tests/runtime/flythrough/generate_world.gd -- \
 #       --tier <T0|A|A-mini|T-smoke> --out <abs path>/world.gsplatworld \
 #       [--seed N] [--overrides <json file>] [--select <json file with a chunk id array>] \
-#       [--codec <none|gsq_v1>] [--plan-only] [--verify-only] [--report <json file>]
+#       [--codec <none|gsq_v2>] [--plan-only] [--verify-only] [--report <json file>]
 #
 # Exit codes: 0 OK, 1 generation or verification failed, 2 usage error.
 # Generated worlds never enter res:// (ADR D-2); --out must be an absolute path.

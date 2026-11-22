@@ -111,6 +111,7 @@ inline float step_tolerance(float p_lo, float p_hi, float p_steps) {
 } // namespace
 
 Error validate_encode_params(const EncodeParams &p_params, String &r_reason) {
+	if (!supported_codec(p_params.codec_id)) { r_reason = "gsq_bad_codec"; return ERR_INVALID_PARAMETER; }
 	for (uint8_t bits : p_params.sh_bits) {
 		if (bits < 2u || bits > 8u) {
 			r_reason = vformat("gsq_invalid_params: sh_bits %d outside [2, 8]", bits);
@@ -330,6 +331,7 @@ Error PageBuilder::_validate_page(const uint8_t *p_page, uint32_t p_page_bytes, 
 		const Gaussian &s = p_source[i];
 		const Gaussian &d = decoded_gaussians[i];
 		const char *field = nullptr;
+        if (d.semantic != s.semantic) { field = "semantic"; }
 		const float decoded_floats[] = { d.position.x, d.position.y, d.position.z, d.opacity, d.scale.x, d.scale.y, d.scale.z,
 			d.rotation.x, d.rotation.y, d.rotation.z, d.rotation.w, d.sh_dc.r, d.sh_dc.g, d.sh_dc.b, d.normal.x, d.normal.y, d.normal.z };
 		for (float value : decoded_floats) {
@@ -396,7 +398,7 @@ Error PageBuilder::_validate_page(const uint8_t *p_page, uint32_t p_page_bytes, 
 	// 5. W15.
 	r_record.stored_bytes = info.stored_bytes;
 	memcpy(r_record.stored_digest, info.stored_digest, kDigestBytes);
-	decoded_digest(decoded_gaussians.ptr(), decoded_high, p_count, sh_degree, r_record.decoded_digest);
+	decoded_digest(decoded_gaussians.ptr(), decoded_high, p_count, sh_degree, r_record.decoded_digest, params.codec_id);
 	return OK;
 }
 

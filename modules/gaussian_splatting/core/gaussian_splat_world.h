@@ -43,7 +43,7 @@ private:
     Error _capture_hlod_paged_snapshot(const Ref<GaussianSplatHlodPagedSource> &p_source,
             Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const;
     void _assign_gaussian_data_locked(const Ref<GaussianData> &p_data, bool p_keep_hlod);
-    Error _bake_hlod(bool p_quality_selection);
+    Error _bake_hlod(bool p_quality_selection, const Dictionary &p_options = Dictionary());
 
 protected:
     static void _bind_methods();
@@ -123,7 +123,7 @@ public:
     // HLOD (slice S1a). bake_hlod() bakes the tree from a resident or file-backed payload,
     // reorders the payload into leaf order and replaces the chunks with
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
-    Error bake_hlod();
+    Error bake_hlod(const Dictionary &p_options = Dictionary());
 	// Prepares a separate candidate, leaving this resource unchanged on success and failure.
 	// Process/host/disk admission and final publication belong to the offline CLI supervisor.
 	Dictionary bake_hlod_offline(const Dictionary &p_limits, const String &p_candidate_path) const;

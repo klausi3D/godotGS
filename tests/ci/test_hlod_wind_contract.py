@@ -22,6 +22,24 @@ def body(text, name):
 
 
 class HlodWindContract(unittest.TestCase):
+    def test_nonpaged_wind_metadata_is_restored_before_selection_inflation(self):
+        source = (MODULE / "lod/hlod_view_set.cpp").read_text(encoding="utf-8")
+        self.assertTrue("static void restore_nonpaged_wind_metadata(" in source,
+                        "v3 topology has no persisted wind byte; restore it from resident payload")
+        restore = body(source, "static void restore_nonpaged_wind_metadata(")
+        self.assertIn("if (p_source.is_paged()) { return; }", restore)
+        self.assertIn("r_node.flags &= ~gs_hlod::kNodeFlagSemanticValid;", restore)
+        self.assertIn("r_node.max_wind_weight = 0;", restore)
+        self.assertIn("p_source.leaves.get_gaussians()", restore)
+        self.assertIn("p_source.parents", restore)
+        self.assertIn("p_source.find_edited(p_node)", restore)
+        self.assertIn("gs_hlod::set_node_payload_semantics(r_node, payload);", restore)
+        inflate = body(source, "bool ViewSet::prepare_displacement_bounds(")
+        repair = inflate.index("restore_nonpaged_wind_metadata(source, i, node.topology);")
+        margin = inflate.index("gs_wind::node_displacement_bound(")
+        self.assertLess(repair, margin, "restoration must be wired into the actual selector input")
+        self.assertIn("node.topology.max_wind_weight, node.topology.is_semantic_valid()", inflate[margin:])
+
     def test_wind_does_not_refuse_either_publish_or_frame_route(self):
         source = (MODULE / "renderer/resident_instance_contract_publisher.cpp").read_text()
         predicate = body(source, "GaussianSplatRenderer::hlod_streaming_unsupported_reason(")
@@ -51,9 +69,12 @@ class HlodWindContract(unittest.TestCase):
         self.assertIn("await _run_streamed_wind_proof_body()", wrapper)
         self.assertIn("get_root().size = previous_size", wrapper)
         proof = body_gd(scenario, "_run_streamed_wind_proof_body")
-        for signal in ("has_hlod_paged_source", "wind_enabled", "get_data()", "wind_off_identical",
+        for signal in ("has_hlod_paged_source", "wind_mode", "get_data()", "wind_off_identical",
                        "legacy_static", "wind_on_moved"):
             self.assertIn(signal, proof)
+        for mode in ("AUTO", "ON", "OFF"):
+            self.assertIn("GaussianSplatWorld3D.WIND_MODE_" + mode, proof)
+        self.assertNotIn("_node.wind_enabled", proof)
         runner = (ROOT / "tests/runtime/run_runtime_validation.py").read_text()
         self.assertIn('"Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd"', runner)
 

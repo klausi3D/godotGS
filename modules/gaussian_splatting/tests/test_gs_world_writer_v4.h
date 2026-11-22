@@ -428,7 +428,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] deferred counts
 				}
 			}
 			WriterV4 writer;
-			const CodecParams codec = gsq ? gsq_v1_codec_params() : CodecParams();
+			const CodecParams codec = gsq ? gsq_v2_codec_params() : CodecParams();
 			if (!begin(writer, paths, fixture, codec) || !append_all(writer, fixture, paths, original)) {
 				return;
 			}
@@ -565,7 +565,7 @@ static void check_leaf_metrics_position_round_trip(bool p_gsq, bool p_exact, boo
 		spec.origin[a] = tree.origin[a];
 	}
 	spec.bounds = tree.node_world_aabb(tree.nodes[0]);
-	const CodecParams codec = p_gsq ? gsq_v1_codec_params() : CodecParams();
+	const CodecParams codec = p_gsq ? gsq_v2_codec_params() : CodecParams();
 	// Prove both modes retain the triggering position before serialization.
 	Gaussian decoded = input[1];
 	if (p_gsq) {
@@ -785,7 +785,7 @@ static void check_reconstructed_support_inside_bounds(bool p_gsq) {
 	spec.interior_splat_count = 1;
 	spec.bounds = tree.node_world_aabb(tree.nodes[0]);
 	WriterV4 writer;
-	if (writer.begin_paged(paths.final_path, paths.scratch, spec, p_gsq ? gsq_v1_codec_params() : CodecParams(), Limits::unbounded()) != OK) {
+	if (writer.begin_paged(paths.final_path, paths.scratch, spec, p_gsq ? gsq_v2_codec_params() : CodecParams(), Limits::unbounded()) != OK) {
 		FAIL("Codex candidate begin failed: ", writer.get_report().reason.utf8().get_data());
 		return;
 	}
@@ -854,7 +854,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] GSQ spill metrics and eve
 		return;
 	}
 	WriterV4 writer;
-	const CodecParams codec = gsq_v1_codec_params();
+	const CodecParams codec = gsq_v2_codec_params();
 	if (!begin(writer, paths, fixture, codec) || !append_all(writer, fixture, paths)) {
 		return;
 	}
@@ -1128,7 +1128,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] two open spill handles pr
 			}
 			WriterV4 writer;
 			writer.set_max_open_segments_for_test(2);
-			const CodecParams codec = gsq ? gsq_v1_codec_params() : CodecParams();
+			const CodecParams codec = gsq ? gsq_v2_codec_params() : CodecParams();
 			if (!begin(writer, paths, fixture, codec)) {
 				return;
 			}
@@ -1539,7 +1539,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] runtime digest 
 			return;
 		}
 		WriterV4 writer;
-		if (!begin(writer, paths, fixture, gsq ? gsq_v1_codec_params() : CodecParams()) || !append_all(writer, fixture, paths)) {
+		if (!begin(writer, paths, fixture, gsq ? gsq_v2_codec_params() : CodecParams()) || !append_all(writer, fixture, paths)) {
 			return;
 		}
 		if (writer.finalize(fixture.nodes) != OK) {
@@ -1594,7 +1594,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] compact GSQ spi
 				return;
 			}
 			fixture.spec.compact_gsq_spill = compact;
-			const CodecParams codec = gsq ? gsq_v1_codec_params() : CodecParams();
+			const CodecParams codec = gsq ? gsq_v2_codec_params() : CodecParams();
 			WriterV4 writer;
 			if (!begin(writer, paths, fixture, codec) || !append_all(writer, fixture, paths)) {
 				return;
@@ -1655,7 +1655,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] compact GSQ per
 	fixture.spec.compact_gsq_spill = true;
 	WriterV4 writer;
 	writer.set_max_open_segments_for_test(1); // Evicts the first leaf's segment before mutation, including on Windows.
-	if (!begin(writer, paths, fixture, gsq_v1_codec_params()) || !append_all(writer, fixture, paths, original)) {
+	if (!begin(writer, paths, fixture, gsq_v2_codec_params()) || !append_all(writer, fixture, paths, original)) {
 		return;
 	}
 	if (fixture.nodes.size() != kNodes) {

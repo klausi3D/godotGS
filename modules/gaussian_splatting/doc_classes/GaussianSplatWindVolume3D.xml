@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatWindVolume3D" inherits="GaussianSplatBakeVolume3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Assigns baked wind weights to splats.</brief_description>
+	<description>Assigns [member wind_weight] to matching splat centres, rounded to the nearest unorm8. The first match in sorted node-path order wins. A matching volume overrides a PLY wind_weight property. Outside all matching wind volumes, PLY wind data is retained if supplied; otherwise the weight is zero. Any semantic input without wind input produces valid semantics with weight zero and does NOT sway. Legacy input without any semantic properties or volumes keeps semantic word zero.</description>
+	<tutorials></tutorials>
+	<methods>
+	</methods>
+	<members>
+		<member name="wind_weight" type="float" setter="set_wind_weight" getter="get_wind_weight" default="0.0">Wind strength from zero (rigid) to one (full sway).</member>
+	</members>
+</class>

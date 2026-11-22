@@ -998,7 +998,7 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 		}
 	}
 	String reason;
-	if (p_codec.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(p_codec.codec_id)) {
 		Error err = gsq_encode_params(p_codec, impl->encode_params, reason);
 		if (err != OK) {
 			return _fail(err, reason);
@@ -1122,7 +1122,7 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	}
 	LocalVector<uint8_t> page;
 	String reason;
-	if (impl->codec.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(impl->codec.codec_id)) {
 		err = gs_gsq::encode_page(p_gaussians, p_sh_high, p_count, impl->spec.sh_degree, impl->encode_params, page, reason);
 		if (err != OK) {
 			return _fail(err, reason);
@@ -1156,7 +1156,7 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	Impl::Spill spill;
 	spill.record.desc = p_desc;
 	spill.record.splat_count = p_count;
-	if (impl->codec.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(impl->codec.codec_id)) {
 		spill.record.stored_bytes = page.size();
 		hash_bytes(page.ptr(), page.size(), spill.record.stored_digest);
 	} else {
@@ -1182,13 +1182,13 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	if (!spill.record.metrics.center_exact) {
 		return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
 	}
-	if (impl->codec.codec_id != kCodecGsqV1) {
+	if (!is_gsq_codec(impl->codec.codec_id)) {
 		// Codec none writes exactly the relative bytes hashed into
 		// output_body_digest above; decoded now holds the reader's runtime form.
 		hash_body(decoded.ptr(), sh.ptr(), p_count, high, spill.record.runtime_digest);
 	}
 	LocalVector<uint8_t> output_page;
-	if (impl->codec.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(impl->codec.codec_id)) {
 		Vector<Gaussian> original_relative;
 		if (p_desc.is_leaf) {
 			if (!gs_resize_or_fail(original_relative, p_count, "V4 GSQ relative source")) {
@@ -1269,7 +1269,7 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	report.segments[spill.segment].path = segment->file.get_path();
 	spill.record.segment_path = segment->file.get_path();
 	spill.record.offset = segment->file.get_size();
-	if (impl->codec.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(impl->codec.codec_id)) {
 		spill.output_offset = spill.record.offset;
 		const LocalVector<uint8_t> &stored_page = impl->spec.compact_gsq_spill && p_desc.is_leaf ? output_page : page;
 		err = _write(stored_page.ptr(), stored_page.size(), spill.segment);
@@ -1485,7 +1485,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (!record_stored_bytes(spill.splat_count, header.sh_high_order, g_bytes, sh_bytes, record.stored_bytes)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
-		if (header.codec_id == kCodecGsqV1) {
+		if (is_gsq_codec(header.codec_id)) {
 			if (!add_checked(kPayloadRecordHeaderBytes, impl->spills[spill_indices[i]].output_stored_bytes, record.stored_bytes) ||
 					record.stored_bytes > gsq_record_stored_bytes_limit(spill.splat_count, header.sh_degree)) {
 				return _fail(ERR_INVALID_DATA, "v4_payload_record_size_inconsistent");
@@ -1500,7 +1500,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
 	}
-	if (header.codec_id == kCodecGsqV1) {
+	if (is_gsq_codec(header.codec_id)) {
 		// Finalize bounds BEFORE emitting any record or computing identity/hash
 		// bytes. Reverse BFS propagates decoded support through every ancestor.
 		// Only one output page and decoded node are live; these are a subset of
@@ -1601,7 +1601,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 	generation.update(header_page, kHeaderBytes - 32);
 	for (uint32_t i = 0; i < count; ++i) {
 		const Impl::Spill &spill = impl->spills[spill_indices[i]];
-		generation.update(header.codec_id == kCodecGsqV1 ? spill.output_stored_digest : spill.record.output_body_digest, 32);
+		generation.update(is_gsq_codec(header.codec_id) ? spill.output_stored_digest : spill.record.output_body_digest, 32);
 	}
 	uint8_t digest[32];
 	generation.finish(digest);
@@ -1646,7 +1646,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 			return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
 		}
 		Vector<uint8_t> encoded;
-		if (impl->codec.codec_id == kCodecGsqV1) {
+		if (is_gsq_codec(impl->codec.codec_id)) {
 			if (!gs_resize_or_fail(encoded, spill.stored_bytes, "V4 assembly GSQ page")) {
 				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
 			}
@@ -1672,14 +1672,14 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 				return _fail(ERR_FILE_CORRUPT, "v4_spill_digest_mismatch");
 			}
 		}
-		if (header.codec_id != kCodecGsqV1 || !impl->spec.compact_gsq_spill) {
+		if (!is_gsq_codec(header.codec_id) || !impl->spec.compact_gsq_spill) {
 			make_relative(body.ptrw(), spill.splat_count, spill.desc);
 		}
 		hash_body(body.ptr(), sh.ptr(), spill.splat_count, header.sh_high_order, digest);
 		if (memcmp(digest, spill.output_body_digest, sizeof(digest)) != 0) {
 			return _fail(ERR_FILE_CORRUPT, "v4_output_body_digest_mismatch");
 		}
-		if (header.codec_id == kCodecGsqV1) {
+		if (is_gsq_codec(header.codec_id)) {
 			if (!gs_resize_or_fail(encoded, entry.output_stored_bytes, "V4 output GSQ page")) {
 				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
 			}
@@ -1734,7 +1734,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		CryptoCore::SHA256Context record_hash;
 		record_hash.start();
 		record_hash.update(record_header, sizeof(record_header));
-		if (header.codec_id == kCodecGsqV1) {
+		if (is_gsq_codec(header.codec_id)) {
 			record_hash.update(encoded.ptr(), encoded.size());
 		} else {
 			record_hash.update(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes);
@@ -1746,7 +1746,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if ((err = _write(record_header, sizeof(record_header))) != OK) {
 			return err;
 		}
-		if (header.codec_id == kCodecGsqV1) {
+		if (is_gsq_codec(header.codec_id)) {
 			err = _write(encoded.ptr(), encoded.size());
 		} else {
 			err = _write(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes);

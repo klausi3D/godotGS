@@ -16,11 +16,11 @@ PayloadReadService::~PayloadReadService() {
 }
 
 Error PayloadReadService::start(const Config &p_config) {
-	ERR_FAIL_COND_V(state != SERVICE_NEW, ERR_ALREADY_IN_USE);
+	ERR_FAIL_COND_V(state != READ_SERVICE_NEW, ERR_ALREADY_IN_USE);
 	ERR_FAIL_COND_V(p_config.reader_count == 0 || p_config.max_bytes_in_flight == 0, ERR_INVALID_PARAMETER);
 
 	config = p_config;
-	state = SERVICE_RUNNING;
+	state = READ_SERVICE_RUNNING;
 	readers.reserve(config.reader_count);
 	for (uint32_t i = 0; i < config.reader_count; i++) {
 		Thread *reader = memnew(Thread);
@@ -37,13 +37,13 @@ Error PayloadReadService::start(const Config &p_config) {
 void PayloadReadService::shutdown() {
 	{
 		MutexLock lock(mutex);
-		if (state != SERVICE_RUNNING) {
-			if (state == SERVICE_NEW) {
-				state = SERVICE_STOPPED;
+		if (state != READ_SERVICE_RUNNING) {
+			if (state == READ_SERVICE_NEW) {
+				state = READ_SERVICE_STOPPED;
 			}
 			return;
 		}
-		state = SERVICE_STOPPING;
+		state = READ_SERVICE_STOPPING;
 		stopping.set();
 		work_cv.notify_all();
 		ready_cv.notify_all();
@@ -85,7 +85,7 @@ void PayloadReadService::shutdown() {
 		counters.ready_bytes = 0;
 		counters.bytes_in_flight = 0;
 		counters.open_handles = 0;
-		state = SERVICE_STOPPED;
+		state = READ_SERVICE_STOPPED;
 	}
 }
 
@@ -97,7 +97,7 @@ PayloadReadService::SubmitResult PayloadReadService::submit(const String &p_file
 	}
 
 	MutexLock lock(mutex);
-	if (state != SERVICE_RUNNING) {
+	if (state != READ_SERVICE_RUNNING) {
 		return SUBMIT_NOT_RUNNING;
 	}
 	if (p_length > config.max_bytes_in_flight) {
@@ -225,10 +225,10 @@ bool PayloadReadService::poll_completion(Completion &r_completion) {
 bool PayloadReadService::wait_completion(Completion &r_completion) {
 	MutexLock lock(mutex);
 	waiters++;
-	while (state == SERVICE_RUNNING && ready.first() == nullptr) {
+	while (state == READ_SERVICE_RUNNING && ready.first() == nullptr) {
 		ready_cv.wait(lock);
 	}
-	const bool taken = state == SERVICE_RUNNING;
+	const bool taken = state == READ_SERVICE_RUNNING;
 	if (taken) {
 		_take_ready_locked(r_completion);
 	}
@@ -242,11 +242,11 @@ bool PayloadReadService::wait_completion(Completion &r_completion) {
 bool PayloadReadService::wait_ready(uint64_t p_watch_ticket) {
 	MutexLock lock(mutex);
 	waiters++;
-	while (state == SERVICE_RUNNING && ready.first() == nullptr &&
+	while (state == READ_SERVICE_RUNNING && ready.first() == nullptr &&
 			(p_watch_ticket == 0 || tickets.has(p_watch_ticket))) {
 		ready_cv.wait(lock);
 	}
-	const bool available = state == SERVICE_RUNNING && ready.first() != nullptr &&
+	const bool available = state == READ_SERVICE_RUNNING && ready.first() != nullptr &&
 			(p_watch_ticket == 0 || tickets.has(p_watch_ticket));
 	waiters--;
 	if (!available) {

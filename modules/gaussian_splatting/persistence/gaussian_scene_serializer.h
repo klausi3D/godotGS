@@ -171,7 +171,7 @@ private:
     // load_scene() (which commits) and validate_file() (which discards).
     // p_declared_splat_count comes from the already-verified scene header and
     // caps how many decompressed bytes this chunk may claim (#603a).
-    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, uint32_t p_declared_splat_count, uint16_t p_version, LoadStaging &r_staging) const;
+    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, uint32_t p_declared_splat_count, uint16_t p_version, uint32_t p_recorded_layout, LoadStaging &r_staging) const;
     Error _read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_animation_dict) const;
     Error _read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_metadata) const;
     Error _read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader& header, LocalVector<AssetReference>& r_refs) const;

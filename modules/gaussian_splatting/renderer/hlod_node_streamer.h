@@ -82,7 +82,7 @@ public:
 		RID atlas;
 		RID chunk_meta;
 		RID page_table;
-		RID page_owner;
+		RID page_owner; // GPU reverse map: physical page -> absolute forward-table slot (or FREE_PAGE).
 		RID quantization; // Invalid when not quantized.
 		// Synchronous, borrowed render-thread hook for ranges about to receive new content: invalidate content-following caches (e.g. SH colour, #1502). Caller owns context through update()/begin_frame().
 		void (*invalidate_content_range)(void *p_context, uint32_t p_first_record, uint32_t p_record_count) = nullptr;
@@ -672,7 +672,10 @@ private:
 	uint32_t shadow_transfer_count = 0; // Current/last edit; observations survive commit/cancel.
 	uint64_t staged_publication_bytes = 0;
 	uint64_t frame_written_bytes = 0; // Includes publication bytes before update() in this same frame.
-	Vector<uint32_t> published_page_table, published_page_owner; // Owner-thread mirrors of successful GPU writes.
+	// Owner-thread mirrors of successful GPU writes. Reverse entries are absolute
+	// forward-table slots (pt_base + local page), unlike residency.page_owners(),
+	// whose allocator ownership entries remain node ids.
+	Vector<uint32_t> published_page_table, published_page_owner;
 	LocalVector<uint32_t> released_pages, released_slots;
 	bool frame_edit_uploads = false, in_edit_commit = false;
 	bool next_shadow_upload = true, next_shadow_job = true;

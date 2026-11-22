@@ -282,7 +282,7 @@ void gs_world_paged::write_header(uint8_t *p_page, const HeaderFields &h) {
 	o.u32(uint32_t(kPageBytes));
 	o.u32(uint32_t(kIndexPageBytes));
 	o.u32(uint32_t(kIndexRecordBytes));
-	o.u32(GAUSSIAN_STRUCT_LAYOUT_VERSION);
+	o.u32(h.gaussian_layout_version);
 	o.u32(h.leaf);
 	o.u32(h.interior);
 	o.u32(h.node_count);
@@ -337,7 +337,7 @@ void gs_world_paged::write_index_page(uint8_t *p_page, uint32_t p_page_index,
 		o.f64(r.metrics.footprint);
 		o.u32(r.metrics.dc_encoding);
 		o.u32((r.metrics.homogeneous_dc ? kNodeHomogeneousDc : 0u) | (r.metrics.center_exact ? kNodeCenterExact : 0u));
-		o.u64(0u);
+		o.u64(r.topology.max_wind_weight); // Low byte at node offset 120; upper 56 bits stay reserved.
 		o.u64(r.offset);
 		o.u64(r.stored_bytes);
 		o.u64(r.extent_bytes);
@@ -383,7 +383,8 @@ Error parse_header(const uint8_t *p_page, uint64_t p_file_len, HeaderFields &r_h
 		return ERR_FILE_CORRUPT;
 	}
 	const uint32_t layout = in.u32();
-	if (layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+	r_h.gaussian_layout_version = layout;
+	if (!gaussian_persisted_layout_supported(layout)) {
 		r_reason = "v4_gaussian_layout_mismatch";
 		return ERR_FILE_UNRECOGNIZED;
 	}
@@ -395,7 +396,7 @@ Error parse_header(const uint8_t *p_page, uint64_t p_file_len, HeaderFields &r_h
 	r_h.sh_high_order = in.u32();
 	r_h.bake_rule = in.u32();
 	r_h.codec_id = in.u32();
-	if (r_h.codec_id != 0u && r_h.codec_id != gs_gsq::kCodecId) {
+	if (r_h.codec_id != 0u && !gs_gsq::supported_codec(r_h.codec_id)) {
 		r_reason = "v4_unsupported_codec";
 		return ERR_FILE_CORRUPT;
 	}
@@ -428,7 +429,7 @@ Error parse_header(const uint8_t *p_page, uint64_t p_file_len, HeaderFields &r_h
 		r_reason = "v4_header_field_out_of_range";
 		return ERR_FILE_CORRUPT;
 	}
-	if (r_h.codec_id == gs_gsq::kCodecId && (r_h.sh_degree > gs_gsq::kMaxShDegree ||
+	if (gs_gsq::supported_codec(r_h.codec_id) && (r_h.sh_degree > gs_gsq::kMaxShDegree ||
 			r_h.sh_high_order != gs_gsq::sh_high_order_for_degree(r_h.sh_degree) ||
 			r_h.sh_first_order != (r_h.sh_degree == 0 ? 0u : 3u))) {
 		r_reason = "v4_gsq_sh_layout_mismatch";
@@ -655,7 +656,9 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 			rec.skip_to(192);
 			rec.bytes(r.digest, 32);
 			const uint8_t *base = p + kIndexPageHeaderBytes + size_t(k) * kIndexRecordBytes;
-			if (reserved0 != 0u || !all_zero(base + 152, 40) || !all_zero(base + 224, 32) || (node_flags & ~kNodeKnownFlags) != 0u) {
+			tree.nodes[node].max_wind_weight = uint8_t(reserved0);
+			if ((reserved0 >> 8u) != 0u || ((h.codec_id == gs_gsq::kCodecV1 || h.gaussian_layout_version == 1u) &&
+					(reserved0 != 0u || tree.nodes[node].is_semantic_valid())) || !all_zero(base + 152, 40) || !all_zero(base + 224, 32) || (node_flags & ~kNodeKnownFlags) != 0u) {
 				r_reason = "v4_nonzero_reserved_node_record";
 				return ERR_FILE_CORRUPT;
 			}
@@ -765,6 +768,7 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 	// Commit.
 	info = Info();
 	info.codec_id = h.codec_id;
+	info.gaussian_layout_version = h.gaussian_layout_version;
 	info.leaf_splat_count = h.leaf;
 	info.interior_splat_count = h.interior;
 	info.node_count = h.node_count;
@@ -868,7 +872,7 @@ uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t 
 
 namespace {
 PayloadPageStore::PageDescriptor v4_page_descriptor(uint32_t p_node,
-		const GaussianSplatHlodPagedSource::NodeRecord &p_record, uint32_t p_degree) {
+		const GaussianSplatHlodPagedSource::NodeRecord &p_record, uint32_t p_degree, uint32_t p_codec = 0) {
 	PayloadPageStore::PageDescriptor page;
 	page.id = p_node;
 	page.offset = p_record.offset;
@@ -878,6 +882,7 @@ PayloadPageStore::PageDescriptor v4_page_descriptor(uint32_t p_node,
 	page.encoding = PayloadPageStore::OPAQUE_BYTES;
 	page.splat_count = p_record.topology.payload_count;
 	page.sh_degree = p_degree;
+	page.codec_params.codec_id = p_codec;
 	memcpy(page.stored_digest, p_record.digest, sizeof(page.stored_digest));
 	return page;
 }
@@ -931,7 +936,7 @@ Error GaussianSplatHlodPagedSource::install_in_page_store(PayloadPageStore &p_st
 				pages.push_back(v4_raw_window_descriptor(node, nodes[node], info.sh_degree, offset));
 			}
 		} else {
-			pages.push_back(v4_page_descriptor(node, nodes[node], info.sh_degree));
+			pages.push_back(v4_page_descriptor(node, nodes[node], info.sh_degree, info.codec_id));
 		}
 	}
 	{
@@ -1017,7 +1022,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	const NodeRecord &rec = nodes[p_node];
 	const uint32_t count = rec.topology.payload_count;
 	uint64_t g_bytes, s_bytes, stored;
-	const bool gsq = info.codec_id == gs_gsq::kCodecId;
+	const bool gsq = gs_gsq::supported_codec(info.codec_id);
 	if (!record_stored_bytes(count, record_high_order, g_bytes, s_bytes, stored) || rec.stored_bytes > UINT32_MAX ||
 			(gsq ? (rec.stored_bytes <= kPayloadRecordHeaderBytes + gs_gsq::kPageHeaderBytes ||
 						rec.stored_bytes > gsq_record_stored_bytes_limit(count, info.sh_degree)) : stored != rec.stored_bytes)) {
@@ -1066,6 +1071,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		}
 		return OK;
 	};
+	uint32_t payload_layout = 0;
 	auto validate_envelope = [&](const uint8_t *p_head) -> Error {
 		const auto verify_begin = std::chrono::steady_clock::now();
 		In in(p_head);
@@ -1078,8 +1084,12 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		const uint64_t gen = in.u64();
 		const uint64_t first = in.u64();
 		const uint32_t layout = in.u32();
+		payload_layout = layout;
+        if (gsq && info.codec_id == gs_gsq::kCodecId && layout == 1u) {
+            return fail(ERR_FILE_CORRUPT, "v4_gsq_layout_codec_mismatch");
+        }
 		if (magic != kRecordMagic || node != p_node || rcount != count || high != record_high_order || gb != g_bytes ||
-				sb != s_bytes || first != rec.topology.payload_first || layout != GAUSSIAN_STRUCT_LAYOUT_VERSION ||
+				sb != s_bytes || first != rec.topology.payload_first || layout != info.gaussian_layout_version || !gaussian_persisted_layout_supported(layout) ||
 				!all_zero(p_head + in.at, kPayloadRecordHeaderBytes - in.at)) {
 			return fail(ERR_FILE_CORRUPT, "v4_payload_record_header_mismatch");
 		}
@@ -1130,7 +1140,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	};
 	String why;
 	if (gsq) {
-		Error error = read_page(v4_page_descriptor(p_node, rec, info.sh_degree));
+		Error error = read_page(v4_page_descriptor(p_node, rec, info.sh_degree, info.codec_id));
 		if (error != OK) { return error; }
 		const uint8_t *head = page.get_bytes().ptr();
 		error = validate_envelope(head);
@@ -1202,6 +1212,12 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	// Validation sees node-relative positions; reconstruction is a required
 	// transform even when the optional semantic checks are disabled.
 	if (cancelled()) { return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled", true); }
+	if (gaussian_resolve_persisted_layout_version(payload_layout) == 1u && rec.topology.max_wind_weight != 0u) {
+        return fail(ERR_FILE_CORRUPT, "v4_nonzero_reserved_node_record");
+    }
+    if (!gaussian_prepare_persisted_payload(r_gaussians.ptrw(), count, payload_layout, &why)) {
+        return fail(ERR_FILE_CORRUPT, why);
+    }
 	if (full_validation) {
 		const auto verify_begin = std::chrono::steady_clock::now();
 		if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {
@@ -1224,7 +1240,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		}
 		add_verify_time(verify_begin);
 	}
-	p_store.record_decoded_content(p_node, r_gaussians.ptr(), r_sh.ptr(), count, info.sh_degree);
+	p_store.record_decoded_content(p_node, r_gaussians.ptr(), r_sh.ptr(), count, info.sh_degree, info.codec_id == 0 ? info.gaussian_layout_version : info.codec_id);
 	release_transport();
 	r_reason = String();
 	p_store.end_capture(true, String());
@@ -1249,7 +1265,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 	const NodeRecord &rec = nodes[p_node];
 	const uint32_t count = rec.topology.payload_count;
 	uint64_t g_bytes, s_bytes, stored;
-	const bool gsq = info.codec_id == gs_gsq::kCodecId;
+	const bool gsq = gs_gsq::supported_codec(info.codec_id);
 	if (!record_stored_bytes(count, record_high_order, g_bytes, s_bytes, stored) ||
 			(gsq ? (rec.stored_bytes <= kPayloadRecordHeaderBytes + gs_gsq::kPageHeaderBytes ||
 						rec.stored_bytes > gsq_record_stored_bytes_limit(count, info.sh_degree)) : stored != rec.stored_bytes)) {
@@ -1266,6 +1282,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 		return fail(ERR_FILE_CORRUPT, "v4_file_changed_length");
 	}
 	file->seek(rec.offset);
+	uint32_t payload_layout = 0;
 	uint8_t head[kPayloadRecordHeaderBytes];
 	Error err = read_exact(file, head, sizeof(head));
 	if (err != OK) {
@@ -1282,8 +1299,12 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 		const uint64_t gen = in.u64();
 		const uint64_t first = in.u64();
 		const uint32_t layout = in.u32();
+		payload_layout = layout;
+        if (gsq && info.codec_id == gs_gsq::kCodecId && layout == 1u) {
+            return fail(ERR_FILE_CORRUPT, "v4_gsq_layout_codec_mismatch");
+        }
 		if (magic != kRecordMagic || node != p_node || rcount != count || high != record_high_order || gb != g_bytes ||
-				sb != s_bytes || first != rec.topology.payload_first || layout != GAUSSIAN_STRUCT_LAYOUT_VERSION ||
+				sb != s_bytes || first != rec.topology.payload_first || layout != info.gaussian_layout_version || !gaussian_persisted_layout_supported(layout) ||
 				!all_zero(head + in.at, sizeof(head) - in.at)) {
 			return fail(ERR_FILE_CORRUPT, "v4_payload_record_header_mismatch");
 		}
@@ -1345,7 +1366,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 		}
 		// decode_range alone accepts a prefix. Pin the entire page to this
 		// envelope BEFORE decoding, especially the SH stride of the destination.
-		if (page_info.splat_count != count || page_info.sh_degree != info.sh_degree ||
+		if (page_info.codec_id != info.codec_id || page_info.splat_count != count || page_info.sh_degree != info.sh_degree ||
 				page_info.sh_high_order != record_high_order || page_info.stored_bytes != uint64_t(encoded.size())) {
 			return fail(ERR_FILE_CORRUPT, "v4_gsq_page_layout_mismatch");
 		}
@@ -1359,6 +1380,12 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 			return fail(err == ERR_OUT_OF_MEMORY ? err : ERR_FILE_CORRUPT, "v4_gsq_payload_invalid: " + why);
 		}
 	}
+    if (gaussian_resolve_persisted_layout_version(payload_layout) == 1u && rec.topology.max_wind_weight != 0u) {
+        return fail(ERR_FILE_CORRUPT, "v4_nonzero_reserved_node_record");
+    }
+    if (!gaussian_prepare_persisted_payload(r_gaussians.ptrw(), count, payload_layout, &why)) {
+        return fail(ERR_FILE_CORRUPT, why);
+    }
 	if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {
 		r_reason = "v4_payload_invalid: " + why;
 		r_gaussians.clear();

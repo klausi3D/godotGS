@@ -284,10 +284,11 @@ struct Planes {
 	uint32_t position_planes = 0; // per axis
 	uint32_t sh_coefficients = 0;
 	bool has_normals = false;
+	bool has_semantic = false;
 	uint32_t n = 0;
 
 	uint32_t bytes_per_splat() const {
-		return position_planes * 3u + 14u + sh_coefficients + (has_normals ? 6u : 0u);
+		return position_planes * 3u + 14u + sh_coefficients + (has_normals ? 6u : 0u) + (has_semantic ? 4u : 0u);
 	}
 	uint32_t scale() const { return position_planes * 3u * n; }
 	uint32_t rotation() const { return scale() + 4u * n; }
@@ -295,6 +296,7 @@ struct Planes {
 	uint32_t dc() const { return opacity() + 2u * n; }
 	uint32_t sh() const { return dc() + 4u * n; }
 	uint32_t normal() const { return sh() + sh_coefficients * n; }
+	uint32_t semantic() const { return normal() + (has_normals ? 6u * n : 0u); }
 };
 
 inline uint32_t sh_band(uint32_t p_coefficient) {
@@ -384,6 +386,7 @@ uint32_t zstd_library_version() {
 Error encode_page(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree,
 		const EncodeParams &p_params, LocalVector<uint8_t> &r_page, String &r_reason) {
 	r_page.clear();
+	if (!supported_codec(p_params.codec_id)) { return fail(r_reason, "gsq_bad_codec"); }
 	if (p_count == 0u || p_gaussians == nullptr) {
 		return fail(r_reason, "gsq_empty_page");
 	}
@@ -433,6 +436,8 @@ Error encode_page(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_
 	bool has_normals = false;
 	for (uint32_t i = 0u; i < p_count; i++) {
 		const Gaussian &g = p_gaussians[i];
+        if (!gaussian_semantic_validate(g.semantic)) { return fail(r_reason, GAUSSIAN_SEMANTIC_RESERVED_REASON); }
+        if (p_params.codec_id == kCodecV1 && g.semantic != 0u) { return fail(r_reason, "gsq_v1_semantic_unsupported"); }
 		if (!constants_match(first, g)) {
 			return fail(r_reason, "gsq_heterogeneous_field", vformat("splat %d differs from the page constants", i));
 		}
@@ -530,6 +535,7 @@ Error encode_page(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_
 	planes.position_planes = position_bits == 21u ? 3u : 2u;
 	planes.sh_coefficients = coefficients;
 	planes.has_normals = has_normals;
+	planes.has_semantic = p_params.codec_id == kCodecId;
 	for (uint32_t b = 0u; b < blocks; b++) {
 		bound += ZSTD_compressBound(MIN(p_count - b * kSubBlockSplats, kSubBlockSplats) * planes.bytes_per_splat());
 	}
@@ -559,6 +565,11 @@ Error encode_page(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_
 		uint32_t previous[3] = { 0u, 0u, 0u };
 		for (uint32_t i = 0u; i < n; i++) {
 			const Gaussian &g = p_gaussians[base + i];
+            if (planes.has_semantic) {
+                for (uint32_t plane = 0; plane < 4; ++plane) {
+                    out[planes.semantic() + plane * n + i] = uint8_t(g.semantic >> (8u * plane));
+                }
+            }
 			for (uint32_t axis = 0u; axis < 3u; axis++) {
 				const uint32_t q = position_map[axis].quantize(bits_to_fixed(float_bits(g.position[axis]), kFixedFrac));
 				const uint32_t delta = zigzag_delta(q, previous[axis], position_bits);
@@ -626,7 +637,7 @@ Error encode_page(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_
 
 	const uint32_t stored_bytes = uint32_t(cursor);
 	encode_uint32(kMagic, page);
-	encode_uint16(uint16_t(kCodecId), page + 4);
+	encode_uint16(uint16_t(p_params.codec_id), page + 4);
 	page[6] = uint8_t(p_sh_degree);
 	page[7] = uint8_t((position_bits == 21u ? kFlagPosition21 : 0u) | (has_normals ? kFlagNormals : 0u));
 	encode_uint32(p_count, page + 8);
@@ -665,9 +676,10 @@ Error parse_page_header(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &
 	if (decode_uint32(p_page) != kMagic) {
 		return fail(r_reason, "gsq_bad_magic");
 	}
-	if (decode_uint16(p_page + 4) != kCodecId) {
+	if (!supported_codec(decode_uint16(p_page + 4))) {
 		return fail(r_reason, "gsq_bad_codec");
 	}
+	r_info.codec_id = decode_uint16(p_page + 4);
 	const uint32_t degree = p_page[6];
 	const uint8_t flags = p_page[7];
 	const uint32_t count = decode_uint32(p_page + 8);
@@ -707,6 +719,7 @@ Error parse_page_header(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &
 	planes.position_planes = r_info.position_bits == 21u ? 3u : 2u;
 	planes.sh_coefficients = sh_coefficient_count(degree);
 	planes.has_normals = r_info.has_normals;
+	planes.has_semantic = r_info.codec_id == kCodecId;
 	uint64_t total = kPageHeaderBytes;
 	for (uint32_t b = 0u; b < kMaxSubBlocks; b++) {
 		const uint32_t frame = decode_uint32(p_page + kOffsetFrames + b * 4u);
@@ -790,7 +803,7 @@ Error verify_page(const uint8_t *p_page, uint64_t p_page_bytes, PageInfo &r_info
 }
 
 void decoded_digest(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree,
-		uint8_t r_digest[kDigestBytes]) {
+		uint8_t r_digest[kDigestBytes], uint32_t p_codec_id) {
 	CryptoCore::SHA256Context ctx;
 	ctx.start();
 	uint8_t prefix[8];
@@ -804,7 +817,7 @@ void decoded_digest(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint3
 			g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w, g.sh_dc.r, g.sh_dc.g, g.sh_dc.b, g.sh_dc.a,
 			g.sh_1[0].x, g.sh_1[0].y, g.sh_1[0].z, g.sh_1[1].x, g.sh_1[1].y, g.sh_1[1].z, g.sh_1[2].x, g.sh_1[2].y, g.sh_1[2].z,
 			g.normal.x, g.normal.y, g.normal.z, g.stroke_age, g.brush_axes.x, g.brush_axes.y };
-		uint8_t buffer[sizeof(fields) + 8u + 12u * 12u];
+		uint8_t buffer[sizeof(fields) + 12u + 12u * 12u];
 		uint32_t used = 0u;
 		for (float field : fields) {
 			put_float(buffer + used, field);
@@ -813,6 +826,7 @@ void decoded_digest(const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint3
 		encode_uint32(g.painterly_meta, buffer + used);
 		encode_uint32(g.render_meta, buffer + used + 4u);
 		used += 8u;
+        if (p_codec_id == kCodecId) { encode_uint32(g.semantic, buffer + used); used += 4u; }
 		for (uint32_t k = 0u; k < high_order; k++) {
 			const Vector3 &v = p_sh_high[uint64_t(i) * high_order + k];
 			put_float(buffer + used, v.x);
@@ -881,6 +895,7 @@ Error DecodeContext::decode_range(const uint8_t *p_page, uint64_t p_page_bytes, 
 	planes.position_planes = info.position_bits == 21u ? 3u : 2u;
 	planes.sh_coefficients = sh_coefficient_count(info.sh_degree);
 	planes.has_normals = info.has_normals;
+	planes.has_semantic = info.codec_id == kCodecId;
 
 	const uint32_t end = p_first + p_count;
 	uint64_t cursor = kPageHeaderBytes;
@@ -926,6 +941,13 @@ Error DecodeContext::decode_range(const uint8_t *p_page, uint64_t p_page_bytes, 
 			const uint32_t index = base + i - p_first;
 			Gaussian &g = r_gaussians[index];
 			g = info.constants;
+            g.semantic = 0u;
+            if (planes.has_semantic) {
+                for (uint32_t plane = 0; plane < 4; ++plane) {
+                    g.semantic |= uint32_t(in[planes.semantic() + plane * n + i]) << (8u * plane);
+                }
+                if (!gaussian_semantic_validate(g.semantic)) { return fail(r_reason, GAUSSIAN_SEMANTIC_RESERVED_REASON); }
+            }
 			for (uint32_t axis = 0u; axis < 3u; axis++) {
 				g.position[axis] = fixed_to_float(position_map[axis].dequantize(previous[axis]), kFixedFrac);
 			}

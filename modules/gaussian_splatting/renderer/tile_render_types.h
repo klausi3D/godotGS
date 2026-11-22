@@ -701,6 +701,7 @@ struct TileRenderParams {
 	// Per-instance color grading SSBO (parallel rows to instance_buffer, indexed by
 	// SplatRefGPU.instance_id). Bound at set=0, binding=20 in tile_binning.glsl.
 	RID instance_grading_buffer;
+        RID region_override_buffer;
 	RID splat_ref_buffer;
         RID hlod_draw_entry_buffer;
         RID hlod_page_owner_buffer;

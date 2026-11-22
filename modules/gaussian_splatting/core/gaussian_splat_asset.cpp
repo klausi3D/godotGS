@@ -1817,12 +1817,24 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
         staged->set_antialiased((bool)asset_metadata[StringName("gaussian_antialiased")]);
     }
     const GaussianDCEncoding staged_dc_encoding = _resolve_dc_encoding_from_metadata(asset_metadata);
+    const Variant semantic_value = asset_metadata.get("gs_ply_semantics", Dictionary());
+    ERR_FAIL_COND_V_MSG(semantic_value.get_type() != Variant::DICTIONARY, false, "semantic_ply_side_data_type");
+    const Dictionary semantic_side = semantic_value;
+    ERR_FAIL_COND_V_MSG(semantic_side.has("semantic_words") && semantic_side["semantic_words"].get_type() != Variant::PACKED_INT32_ARRAY, false, "semantic_ply_side_data_type");
+    const PackedInt32Array semantic_words = semantic_side.get("semantic_words", PackedInt32Array());
+    ERR_FAIL_COND_V_MSG(!semantic_side.is_empty() && semantic_words.size() != staged->get_count(), false,
+            "semantic_ply_side_data_count: packed importer semantic lane does not match payload.");
     for (int i = 0; i < staged->get_count(); i++) {
         Gaussian g = staged->get_gaussian(i);
+        if (!semantic_words.is_empty()) {
+            g.semantic = uint32_t(semantic_words[i]);
+            ERR_FAIL_COND_V_MSG(!gaussian_semantic_validate(g.semantic), false, "semantic_reserved_bits");
+        }
         g.render_meta = gaussian_set_dc_encoding(g.render_meta, staged_dc_encoding);
         staged->set_gaussian(i, g);
     }
     staged->set_antialiased(resolve_antialiased_from_metadata(asset_metadata));
+    if (!semantic_side.is_empty()) { staged->set_meta("gs_ply_semantics", semantic_side); }
 
     staged->set_streaming_chunk_bake(streaming_chunk_records,
             streaming_primary_source_indices,
@@ -1906,6 +1918,27 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
         GS_LOG_ERROR_DEFAULT("populate_from_gaussian_data called with invalid GaussianData reference");
         return ERR_INVALID_PARAMETER;
     }
+
+    // B2 carries PLY semantics as an explicit, persisted side lane. Other
+    // semantic exports still require a caller with a supported side-data schema.
+    const Variant semantic_value = p_gaussian_data->get_meta("gs_ply_semantics", Dictionary());
+    ERR_FAIL_COND_V_MSG(semantic_value.get_type() != Variant::DICTIONARY, ERR_INVALID_DATA, "semantic_ply_side_data_type");
+    Dictionary ply_side = semantic_value;
+    PackedInt32Array semantic_words;
+    if (!ply_side.is_empty()) {
+        if (semantic_words.resize(p_gaussian_data->get_count()) != OK) { return ERR_OUT_OF_MEMORY; }
+        ERR_FAIL_COND_V_MSG(ply_side.has("island_ids") && ply_side["island_ids"].get_type() != Variant::PACKED_INT32_ARRAY, ERR_INVALID_DATA, "semantic_ply_side_data_type");
+        const PackedInt32Array ids = ply_side.get("island_ids", PackedInt32Array());
+        ERR_FAIL_COND_V_MSG(!ids.is_empty() && ids.size() != p_gaussian_data->get_count(), ERR_INVALID_DATA, "semantic_ply_side_data_count");
+    }
+    for (int i = 0; i < p_gaussian_data->get_count(); ++i) {
+        const uint32_t word = p_gaussian_data->get_gaussian(i).semantic;
+        ERR_FAIL_COND_V_MSG(!gaussian_semantic_validate(word), ERR_INVALID_DATA, "semantic_reserved_bits");
+        ERR_FAIL_COND_V_MSG(ply_side.is_empty() && word != 0u, ERR_UNAVAILABLE,
+                "semantic_export_unsupported: packed asset lanes cannot carry semantic; use GSF or gsplatworld.");
+        if (!ply_side.is_empty()) { semantic_words.set(i, int32_t(word)); }
+    }
+    if (!ply_side.is_empty()) { ply_side["semantic_words"] = semantic_words; }
 
     // This is the one legitimate runtime-to-asset persistence writer. It
     // bypasses the public Packed setter gate because it mutates the internal
@@ -2237,6 +2270,8 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     }
 
     import_metadata[StringName("splat_count")] = count;
+    if (!ply_side.is_empty()) { import_metadata["gs_ply_semantics"] = ply_side; }
+    else { import_metadata.erase("gs_ply_semantics"); }
     import_metadata[StringName("sh_first_order_terms")] = (int)sh_first_order_terms;
     import_metadata[StringName("sh_high_order_terms")] = (int)sh_high_order_terms;
     import_metadata[StringName("sh_degree")] = (int)p_gaussian_data->get_sh_degree();
