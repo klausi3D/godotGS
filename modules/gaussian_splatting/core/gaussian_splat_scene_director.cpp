@@ -12,6 +12,9 @@
 #include "gaussian_splat_manager.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gs_wind_bounds.h"
+#include "../renderer/splat_identity.h"
+#include "gaussian_streaming.h"
+#include <algorithm>
 #include "../renderer/render_debug_state_orchestrator.h"
 #include "../resources/color_grading_resource.h"
 #include "scene/3d/node_3d.h"
@@ -753,6 +756,34 @@ void GaussianSplatSceneDirector::InstanceStore::_evict_asset_data(AssetRecord &r
 	_bump_instance_asset_generation(instance_asset_generation);
 }
 
+void GaussianSplatSceneDirector::InstanceStore::rebuild_sort_identity() {
+    // Registration topology, including invisible and software-culled records.
+    // The HLOD instance packer uses these same contiguous CHUNK_SIZE descriptors.
+    LocalVector<uint32_t> order;
+    uint32_t chunks = 1, local_splats = 1;
+    for (uint32_t i = 0; i < instances.size(); ++i) {
+        order.push_back(i);
+        const AssetRecord *asset = find_asset(instances[i].asset_id);
+        if (!asset || asset->data.is_null()) { continue; }
+        const uint64_t count = uint64_t(MAX(0, asset->data->get_count()));
+        chunks = MAX(chunks, uint32_t((count + GaussianStreamingSystem::CHUNK_SIZE - 1u) / GaussianStreamingSystem::CHUNK_SIZE));
+        local_splats = MAX(local_splats, uint32_t(MIN<uint64_t>(count, GaussianStreamingSystem::CHUNK_SIZE)));
+    }
+    if (order.size() > 1) {
+        std::sort(order.ptr(), order.ptr() + order.size(), [&](uint32_t a, uint32_t b) { return instances[a].node_id < instances[b].node_id; });
+    }
+    const auto layout = gs_splat_identity::instance_layout(instances.size(), chunks, local_splats);
+    const String reason = layout.refusal();
+    for (uint32_t i = 0; i < order.size(); ++i) {
+        auto &record = instances[order[i]];
+        if (!reason.is_empty() && record.sort_identity_refusal != reason) {
+            GS_LOG_WARN_DEFAULT(vformat("[GaussianSplatSceneDirector] instance=%s %s", String::num_uint64(uint64_t(record.node_id)), reason));
+        }
+        record.sort_identity_refusal = reason;
+        record.sort_identity_flags = reason.is_empty() ? gs_splat_identity::instance_sort_flags(i + 1u, layout, instances.size() == 1 && chunks == 1) : 0u;
+    }
+}
+
 void GaussianSplatSceneDirector::InstanceStore::bump_generation() {
 	_bump_instance_generation(instance_generation);
 }
@@ -1136,6 +1167,7 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 		if (stale_asset_id != 0) {
 			other.instance_store.release_asset(stale_asset_id);
 		}
+		other.instance_store.rebuild_sort_identity();
 		break; // an instance can only live in one SharedWorld at a time
 	}
 	// #611 PR B1: this used to call world->renderer->initialize() inline, which
@@ -1260,6 +1292,7 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 		if (asset_selection_dirty) {
 			world->instance_store.bump_asset_generation();
 		}
+		world->instance_store.rebuild_sort_identity();
 		return;
 	}
 
@@ -1288,6 +1321,7 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 	record.dirty = true;
 
 	world->instance_store.append(record);
+	world->instance_store.rebuild_sort_identity();
 	world->instance_store.bump_generation();
 	world->instance_store.bump_asset_generation();
 	GaussianSplatting::debug_trace_record_event("instance_reg",
@@ -1490,6 +1524,7 @@ void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
 		return;
 	}
 	world->instance_store.release_asset(asset_id);
+	world->instance_store.rebuild_sort_identity();
 	world->instance_store.bump_generation();
 	world->instance_store.bump_asset_generation();
 
@@ -1691,7 +1726,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 		LocalVector<SphereEffectorSelection> scene_payload;
 		_build_sorted_sphere_effector_payload(world_const_ref, scene_payload);
 		for (const InstanceRecord &record : world_const_ref.instance_store.records()) {
-			if (!record.visible) {
+			if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 				continue;
 			}
 			const AssetRecord *asset_record = world_const_ref.instance_store.find_asset(record.asset_id);
@@ -1744,7 +1779,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 			if (record.transform.origin.is_zero_approx()) {
 				flags |= GS_INSTANCE_FLAG_TRANSLATION_ZERO;
 			}
-			entry.ids[1] = flags;
+			entry.ids[1] = (flags & GS_INSTANCE_FLAGS_MASK) | record.sort_identity_flags;
 
 			entry.lod[0] = record.last_lod;
 			entry.lod[1] = UINT32_MAX;
@@ -1926,7 +1961,7 @@ void GaussianSplatSceneDirector::_fill_instance_row(const InstanceRecord &p_reco
 	if (record.transform.origin.is_zero_approx()) {
 		flags |= GS_INSTANCE_FLAG_TRANSLATION_ZERO;
 	}
-	entry.ids[1] = flags;
+	entry.ids[1] = (flags & GS_INSTANCE_FLAGS_MASK) | record.sort_identity_flags;
 
 	entry.lod[0] = record.last_lod;
 	entry.lod[1] = UINT32_MAX;
@@ -2009,7 +2044,7 @@ void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWo
 	// build_instance_buffer_for_renderer / build_instance_grading_buffer_for_renderer (no shadow-caster filter: the HLOD
 	// route refuses the shadow instance filter domain).
 	for (const InstanceRecord &record : world->instance_store.records()) {
-		if (!record.visible) {
+		if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 			continue;
 		}
 		const AssetRecord *asset_record = world->instance_store.find_asset(record.asset_id);
@@ -2035,6 +2070,8 @@ String GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node(ObjectID p
 		if (!world) {
 			return String();
 		}
+        const InstanceRecord *record = world->instance_store.find(p_node_id);
+        if (record && !record->sort_identity_refusal.is_empty()) { return record->sort_identity_refusal; }
 		renderer = world->renderer_owner.ref();
 	}
 	return renderer.is_valid() ? renderer->get_hlod_instance_refusal(uint64_t(p_node_id)) : String();
@@ -2089,7 +2126,7 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 	uint32_t traced_translation_zero = 0;
 	uint32_t traced_fully_identity = 0;
 	for (const InstanceRecord &record : world->instance_store.records()) {
-		if (!record.visible) {
+		if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 			continue;
 		}
 		if (p_shadow_casters_only && !record.casts_shadow) {
@@ -2209,7 +2246,7 @@ void GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer(cons
 
 	out.reserve(world->instance_store.instance_count());
 	for (const InstanceRecord &record : world->instance_store.records()) {
-		if (!record.visible) {
+		if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 			continue;
 		}
 		if (p_shadow_casters_only && !record.casts_shadow) {
@@ -2355,7 +2392,7 @@ uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_rendere
 		// set of gradings the shader will actually see. Without the shadow filter,
 		// grading edits on non-shadow-caster nodes would spuriously bust the shadow
 		// sort/raster cache.
-		if (!record.visible) {
+		if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 			continue;
 		}
 		if (p_shadow_casters_only && !record.casts_shadow) {
@@ -3212,7 +3249,7 @@ void GaussianSplatSceneDirector::collect_instance_assets_for_renderer(const Gaus
 	HashSet<uint64_t> selected_asset_ids;
 	selected_asset_ids.reserve(world->instance_store.asset_count());
 	for (const InstanceRecord &record : world->instance_store.records()) {
-		if (!record.visible) {
+		if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 			continue;
 		}
 		if (p_shadow_casters_only && !record.casts_shadow) {

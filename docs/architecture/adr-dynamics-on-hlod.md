@@ -511,7 +511,7 @@ func set_hidden(hidden: bool) -> void                # distinct from Node3D.visi
     keying was rejected: there is no dense identity index.
 - **Identity values do not use the address.**
   - Wind and effectors use rest position (§6.3.1).
-  - The sort tie-break becomes `hash(node_stable_index, local_index)`, where
+  - The sort tie-break becomes a stable composite key (world: node, local; above 131,072 nodes at L=14, fold node IDs with `node & ((1 << (31-L)) - 1)` and report `tie_world_node_folded`; instances: ObjectID rank, chunk, local); pairwise order between surviving instances never changes, where
     `local_index = atlas_index − node.first_record`. The node index is in `DrawnNodeGPU.chunk_id`
     (`gs_instance_layout.glsl:122`) [V]. The node's first record comes from the chunk meta [I].
     For instance rows the hash adds the instance's stable placement key [ADR §14.1].

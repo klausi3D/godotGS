@@ -22,7 +22,7 @@ uint gs_identity_hash_u32(uint v) {
     return v ^ (v >> 16u);
 }
 
-// chunk_id is the stable node index; placement is the full ObjectID, never a row.
+// History tag only: node is the baked node / asset-local chunk; placement is the full ObjectID.
 uint gs_splat_identity_hash(uint node, uint local, uvec2 placement) {
     uint h = gs_identity_hash_u32(node ^ 0x9e3779b9u);
     h = gs_identity_hash_u32(h ^ local);
@@ -30,11 +30,25 @@ uint gs_splat_identity_hash(uint node, uint local, uvec2 placement) {
     return gs_identity_hash_u32(h ^ placement.y);
 }
 
-uint gs_identity_tie_break(uint identity_hash, uint atlas_index) {
+// Worlds fold the baked node ID modulo 2^(31-L), preserving the zero world
+// prefix and every local bit. Below that node-count limit this is bit-identical.
+// The full node ID still tags history. Instances retain the host's 1+R+C+L
+// admission check and never fold their asset-local chunk ID.
+uint gs_splat_composite_key(uint node, uint local, uint prefix, uint local_bits,
+        uint atlas_index, bool canonical_single) {
+#ifndef GS_HLOD_RELATIVE_PAYLOAD
+    // #792: preserve the canonical singleton's exact global-index ordering.
+    if (canonical_single) { return atlas_index; }
+#endif
+    if (prefix == 0u) { node &= 0x7fffffffu >> local_bits; }
+    return prefix | (node << local_bits) | local;
+}
+
+uint gs_identity_tie_break(uint stable_key, uint atlas_index) {
 #ifdef GS_ADDRESS_IDENTITY_ACTIVE
     return atlas_index;
 #else
-    return identity_hash;
+    return stable_key;
 #endif
 }
 

@@ -3966,9 +3966,9 @@ bool GaussianSplatRenderer::prepare_region_override_rows(LocalVector<InstanceDat
         row.lod[1] = segment ? uint32_t(*segment) : UINT32_MAX;
         row.placement_pad[0] = segment ? uint32_t(*segment >> 32) : 0;
 #ifdef TESTS_ENABLED
-        row.ids[1] &= ~((1u << 30u) | (1u << 29u));
-        if (GSSplatIdentityTestControl::override_by_address.load()) { row.ids[1] |= 1u << 30u; }
-        if (GSSplatIdentityTestControl::hide_only_in_raster.load()) { row.ids[1] |= 1u << 29u; }
+        row.ids[1] &= ~(GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS | GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER);
+        if (GSSplatIdentityTestControl::override_by_address.load()) { row.ids[1] |= GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS; }
+        if (GSSplatIdentityTestControl::hide_only_in_raster.load()) { row.ids[1] |= GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER; }
 #endif
     }
     return true;

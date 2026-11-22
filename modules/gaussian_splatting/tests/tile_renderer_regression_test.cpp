@@ -4410,7 +4410,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R1 every region pixel
         if (rd->buffer_update(draws,0,sizeof(draw),&draw) != OK) { FAIL("C R1 draw level"); return; }
         ++params.hlod_content_generation;
         for (bool address_control : {false,true}) {
-            row.ids[1] = address_control ? 1u<<30 : 0;
+            row.ids[1] = address_control ? GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS : 0;
             for (auto &entry : entries) { entry = GSRegionOverrideBuffer::neutral(); }
             Vector<uint8_t> before, after;
             if (!render(before)) { FAIL("C R1 baseline pixels"); return; }

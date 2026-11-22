@@ -188,7 +188,7 @@ void main() {
     vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
     uint reject_flags = GS_REGION_HIDE | GS_REGION_NO_SHADOW;
 #ifdef GS_TEST_REGION_CONTROLS
-    if ((instance.ids.y & (1u << 29u)) != 0u) {
+    if ((instance.ids.y & GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER) != 0u) {
         reject_flags = GS_REGION_NO_SHADOW;
         if ((region_override.flags & GS_REGION_HIDE) != 0u) { region_emissive_opacity.w = 1.0; }
     }

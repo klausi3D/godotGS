@@ -86,6 +86,52 @@ TEST_CASE("[GaussianSplatting][HLOD] A2 split tie budgets fit Tier A and refuse 
     CHECK(keys(0, 16383, 1, 16383, 65521, 0, 0x80004000u).tie_break == 0x80007fffu);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] A2 world tie node folding preserves local bits and reports only overflowing worlds") {
+    for (const uint32_t splats : { 16384u, 65536u, 0x40000001u }) {
+        const uint32_t bits = gs_splat_identity::world_local_bits(splats);
+        const uint32_t capacity = 1u << (31u - bits);
+        const auto exact = gs_splat_identity::world_layout(capacity, splats);
+        CHECK(exact.fits());
+        CHECK(exact.refusal().is_empty());
+        CHECK_FALSE(exact.node_id_folded);
+        Dictionary stats;
+        exact.append_stats(stats);
+        CHECK(stats.has("tie_world_node_folded"));
+        CHECK_FALSE(bool(stats["tie_world_node_folded"]));
+        for (const uint32_t local : { 0u, (1u << bits) - 1u }) {
+            for (const uint32_t node : { 0u, capacity - 1u }) {
+                CHECK(exact.sort_key(node, local) == ((node << bits) | local));
+            }
+            const auto folded = gs_splat_identity::world_layout(capacity + 1u, splats);
+            CHECK(folded.fits());
+            CHECK(folded.refusal().is_empty()); // Node count never refuses an otherwise valid world.
+            CHECK(folded.node_id_folded);
+            folded.append_stats(stats);
+            CHECK(bool(stats["tie_world_node_folded"]));
+            CHECK(folded.sort_key(capacity, local) == local);
+            CHECK(folded.sort_key(capacity, local) == gs_splat_identity::world_layout(capacity + 2u, splats).sort_key(capacity, local));
+            CHECK((folded.sort_key(0xffffffffu, local) & 0x80000000u) == 0u);
+            CHECK((folded.sort_key(0xffffffffu, local) & ((1u << bits) - 1u)) == local);
+        }
+        // Reporting an exact or absent world clears a previously true value.
+        exact.append_stats(stats);
+        CHECK_FALSE(bool(stats["tie_world_node_folded"]));
+        gs_splat_identity::world_layout(0, splats).append_stats(stats);
+        CHECK_FALSE(bool(stats["tie_world_node_folded"]));
+    }
+    const auto tier_a = gs_splat_identity::world_layout(24290, 16384);
+    CHECK_FALSE(tier_a.node_id_folded);
+    CHECK(tier_a.sort_key(24289, 16383) == ((24289u << 14u) | 16383u));
+    const auto large = gs_splat_identity::world_layout(262144, 16384);
+    CHECK(large.node_id_folded);
+    CHECK(large.sort_key(7, 1029) == ((7u << 14u) | 1029u));
+    CHECK(large.sort_key(7u + (1u << 17u), 1029) == large.sort_key(7, 1029));
+    const auto invalid_local = gs_splat_identity::world_layout(2, 0x80000001u);
+    CHECK_FALSE(invalid_local.fits());
+    CHECK_FALSE(invalid_local.node_id_folded);
+    CHECK(invalid_local.refusal().contains("splat_identity_world_local_tie_overflow:L=32"));
+}
+
 extern "C" int test_hlod_runtime_gpu_identity_cpp_force_link() { return 0; }
 
 namespace TestHlodRuntimeGpuIdentity {

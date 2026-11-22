@@ -984,7 +984,7 @@ void main() {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
-    uint identity_hash = gs_splat_identity_hash(selected.chunk_id, local_splat_index, instance.placement_key);
+    uint identity_hash = gs_splat_identity_hash(selected_node.reserved_node_y, local_splat_index, instance.placement_key);
     vec3 hlod_camera_offset = selected.camera_offset.xyz;
 #endif
 
@@ -1229,22 +1229,19 @@ void main() {
     float enter_threshold = min_allowed_radius;
     float exit_threshold = max(MIN_SPLAT_RADIUS, min_allowed_radius * (1.0 / 3.0));
     uint history_size = min(params.total_gaussians, uint(subpixel_history.entries.length()));
-    if (history_size == 0u) {
+    if (history_size == 0u || gaussian_idx >= history_size) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
+    uint history_idx = gaussian_idx;
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
-    uint history_idx = identity_hash % history_size;
     uint history_key = identity_hash & 0x7FFFFFFFu;
 #else
-    uint history_idx = gaussian_idx % history_size;
     uint history_key = gs_hash_u32(gaussian_idx) & 0x7FFFFFFFu;
 #endif
 #ifdef GS_ADDRESS_HISTORY
-    history_idx = gaussian_idx % history_size;
     history_key = gs_hash_u32(gaussian_idx) & 0x7FFFFFFFu;
     if (splat_ref.instance_id != 0u) {
-        history_idx = gs_hash_u32(gaussian_idx ^ (splat_ref.instance_id * 0x9e3779b9u)) % history_size;
         history_key = gs_hash_u32(gaussian_idx ^ (splat_ref.instance_id * 0x85ebca6bu)) & 0x7FFFFFFFu;
     }
 #endif
@@ -1272,8 +1269,10 @@ void main() {
     // Only EMIT pass writes to history buffer to prevent COUNT/EMIT visibility mismatch.
     // If both passes write, EMIT sees COUNT's writes and may make different decisions.
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
-    // Stable hash slots can collide. Atomic writes avoid a storage-buffer data
-    // race; the key rejects another identity's last-writer entry next frame.
+    // Atlas-indexed slots are collision-free for distinct atlas records, so
+    // scheduling cannot choose another record's key as a last writer. The stable
+    // tag rejects a new tenant, and reassignment clears the range before COUNT.
+    // Shared-asset instance histories remain the separate ADR #1245 limitation.
     // EMIT uses COUNT's visibility and deliberately does not read this history.
     atomicExchange(subpixel_history.entries[history_idx], (history_key << 1u) | (is_visible ? 1u : 0u));
 #endif

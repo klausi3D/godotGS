@@ -33,7 +33,7 @@ struct InstanceDataGPU {
     vec4 inv_rotation;       // quat inverse
     vec4 translation_scale;  // xyz = translation, w = uniform_scale
     vec4 params;             // x = opacity, y = lod_bias, z = wind_intensity, w = wind_mode
-    uvec2 ids;               // x = asset_id, y = flags
+    uvec2 ids;               // x = asset_id, y = flags plus cached A2 sort metadata
     uvec2 lod;               // x = resolved_lod_level, y = region override segment base (0xFFFFFFFF = none)
     vec4 wind_params;        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     vec4 effect_params;      // x = position response scale, y = opacity response scale,
@@ -51,6 +51,15 @@ const uint GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3u;
 // Mirrors GS_INSTANCE_FLAG_ANTIALIASED in renderer/gaussian_gpu_layout.h.
 const uint GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4u;
 const uint GS_INSTANCE_FLAG_SHADOW_PASS = 1u << 5u;
+// Mirrors gaussian_gpu_layout.h; these fields do not change the 128 B stride.
+const uint GS_INSTANCE_FLAGS_MASK = 0x3fu;
+const uint GS_INSTANCE_SORT_LOCAL_SHIFT = 6u;
+const uint GS_INSTANCE_SORT_LOCAL_MASK = 0x7c0u;
+const uint GS_INSTANCE_SORT_SINGLE_CHUNK = 0x800u;
+const uint GS_INSTANCE_SORT_PREFIX_MASK = 0xffffc000u;
+const uint GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS = 1u << 12u;
+const uint GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER = 1u << 13u;
+
 
 // Asset/chunk metadata flags.
 const uint GS_ASSET_FLAG_IS_2D = 1u << 0u;
@@ -102,8 +111,8 @@ struct ChunkMetaGPU {
     uint flags;
     uint sh_limit;           // per-chunk SH band limit (optional)
     uint page_table_ref;     // 0: contiguous; otherwise forward-table base + 1.
-    uint reserved_node_y;
-    uint reserved_node_z;
+    uint reserved_node_y; // Baked node id / asset-local chunk id, independent of atlas placement.
+    uint reserved_node_z; // World local-index bit width; bit 8 = canonical singleton.
 };
 
 // Global chunk index indirection (dense).

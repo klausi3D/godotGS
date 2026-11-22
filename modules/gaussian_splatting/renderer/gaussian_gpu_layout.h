@@ -117,7 +117,7 @@ struct alignas(16) InstanceDataGPU {
     float inv_rotation[4];       // quat inverse
     float translation_scale[4];  // xyz = translation, w = uniform_scale
     float params[4];             // x = opacity, y = lod_bias, z = wind_intensity, w = wind_mode
-    uint32_t ids[2];             // x = asset_id, y = flags
+    uint32_t ids[2];             // x = asset_id, y = flags plus cached A2 sort metadata
     uint32_t lod[2];             // x = resolved_lod_level, y = region override segment base (0xFFFFFFFF = none)
     float wind_params[4];        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     float effect_params[4];      // x = position response scale, y = opacity response scale,
@@ -139,6 +139,15 @@ static constexpr uint32_t GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3;
 // gs::settings::get_antialiased_compensation_default().
 static constexpr uint32_t GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4;
 static constexpr uint32_t GS_INSTANCE_FLAG_SHADOW_PASS = 1u << 5;
+// A2 sort metadata in previously unused flag bits; InstanceDataGPU stays 128 B.
+static constexpr uint32_t GS_INSTANCE_FLAGS_MASK = 0x3fu;
+static constexpr uint32_t GS_INSTANCE_SORT_LOCAL_SHIFT = 6u;
+static constexpr uint32_t GS_INSTANCE_SORT_LOCAL_MASK = 0x7c0u;
+static constexpr uint32_t GS_INSTANCE_SORT_SINGLE_CHUNK = 0x800u;
+static constexpr uint32_t GS_INSTANCE_SORT_PREFIX_MASK = 0xffffc000u;
+static constexpr uint32_t GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS = 1u << 12u;
+static constexpr uint32_t GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER = 1u << 13u;
+
 
 // Instance wind override modes (InstanceDataGPU.params.w).
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_INHERIT = 0u;
@@ -255,8 +264,8 @@ struct alignas(16) ChunkMetaGPU {
     uint32_t flags;
     uint32_t sh_limit;           // per-chunk SH band limit (optional)
     uint32_t page_table_ref;     // 0: contiguous; otherwise forward-table base + 1.
-    uint32_t reserved_node_y;
-    uint32_t reserved_node_z;
+    uint32_t reserved_node_y; // Baked node id (world) / asset-local chunk id (instances).
+    uint32_t reserved_node_z; // World local-index bit width; bit 8 = canonical singleton.
 };
 
 static_assert(alignof(ChunkMetaGPU) == 16, "ChunkMetaGPU must be 16-byte aligned");

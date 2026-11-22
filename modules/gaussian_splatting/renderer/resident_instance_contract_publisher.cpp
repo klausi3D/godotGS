@@ -1,4 +1,5 @@
 #include "splat_identity_test_control.h"
+#include "splat_identity.h"
 #include "../lod/hlod_edit.h"
 #include "resident_instance_contract_publisher.h"
 
@@ -482,16 +483,16 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	// resolve to distinct dense atlas slots instead of aliasing.
 	LocalVector<uint64_t> instance_submission_asset_ids;
 	// Director "owns" this renderer's instance set when there's a world
-	// submission for it. In that case an empty `instances` result is
+	// submission or registered placements for it. In that case an empty `instances` result is
 	// intentional — e.g. a shadow-filtered pass that legitimately produced
-	// no shadow casters, or a frame where every instance was visibility-
+	// no shadow casters, a named tie-layout refusal, or a frame where every instance was visibility-
 	// culled — and we must NOT fabricate a primary identity instance.
 	// Doing so would draw the entire submission asset into shadow maps or
 	// resurrect culled scenes. The bootstrap below is only for standalone
 	// direct-data renderers (tests, tools, editor preview that bind raw
 	// `set_gaussian_data()` with no world submission).
 	const bool director_owns_instance_set = director != nullptr &&
-			director->has_world_submission_for_renderer(p_renderer);
+			(director->has_world_submission_for_renderer(p_renderer) || director->get_instance_count_for_renderer(p_renderer) != 0u);
 	if (director != nullptr) {
 		director->build_instance_buffer_for_renderer(p_renderer, instances,
 				p_renderer->is_shadow_instance_filter_enabled(), &instance_submission_asset_ids);
@@ -863,6 +864,8 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 				chunk_meta.lod_level = 0;
 				chunk_meta.flags = asset_meta.flags;
 				chunk_meta.sh_limit = CLAMP(asset.data->get_sh_degree(), 0u, 4u);
+                chunk_meta.reserved_node_y = chunk_index;
+                chunk_meta.reserved_node_z = gs_splat_identity::world_local_bits(GaussianStreamingSystem::CHUNK_SIZE);
 				chunk_meta_cpu.push_back(chunk_meta);
 
 				AssetChunkIndexGPU chunk_index_gpu = {};
@@ -1415,6 +1418,8 @@ bool hlod_pack_instance_assets(const LocalVector<InstanceAssetRegistration> &p_r
             }
             chunk_meta.atlas_base = uint32_t(base);
             chunk_meta.splat_count = chunk.count;
+            chunk_meta.reserved_node_y = asset.chunk_count; // Asset-local, independent of other assets' table offsets.
+            chunk_meta.reserved_node_z = gs_splat_identity::world_local_bits(GaussianStreamingSystem::CHUNK_SIZE);
             const Vector3 chunk_center = chunk.bounds.get_center();
             for (int a = 0; a < 3; ++a) { chunk_meta.bounds_center_local[a] = chunk_center[a]; }
             chunk_meta.bounds_radius_local = (chunk.bounds.size * 0.5f).length();
@@ -2398,6 +2403,17 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     if (hlod_edit_committed_here()) { state.hlod_reason = "hlod_publish_failed"; }
     auto *director = GaussianSplatSceneDirector::get_singleton();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
+    if (input.is_valid()) {
+        const String refusal = gs_splat_identity::world_layout(input->nodes.size(), input->max_node_payload_count).refusal();
+        if (!refusal.is_empty()) {
+            state.hlod_last_refusal_reason = refusal;
+            state.hlod_reason = refusal;
+            r_reason = refusal;
+            ++state.hlod_refused_views;
+            clear_instance_pipeline_buffers();
+            return -1;
+        }
+    }
     if (state.hlod_prepared_snapshot.is_valid()) {
         const auto change = hlod_prepared_contract_change();
         if (hlod_shadow_colour_refused() || (hlod_shadow_rows_latched() && change.action != gs_hlod_bundle::ContractChangeAction::ROWS_ONLY)) {

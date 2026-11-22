@@ -103,7 +103,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R3 hidden regions all
                 entries[1] = GSRegionOverrideBuffer::neutral();
                 entries[1].flags = sample == 1 || sample == 2 ? GS_REGION_HIDE : 0;
                 if (sample == 3) { entries[1].emissive_opacity[1] = 0; }
-                row.ids[1] = sample == 2 ? 1u<<29 : 0;
+                row.ids[1] = sample == 2 ? GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER : 0;
                 if (rd->buffer_update(table,0,sizeof(entries),entries) != OK || rd->buffer_update(row_buffer,0,sizeof(row),&row) != OK || rd->buffer_update(counter_buffer,0,sizeof(zeros),zeros) != OK) { FAIL("C R3 upload"); return; }
                 const auto list = rd->compute_list_begin();
                 if (list == RD::INVALID_ID) { FAIL("C R3 compute list unavailable"); return; }

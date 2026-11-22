@@ -1334,6 +1334,37 @@ class StableSplatIdentityTests(unittest.TestCase):
             for index in (0, 1, 2, 65535, 0x7fffffff, 0xffffffff):
                 self.assertEqual(self.evaluate(node=0, local=index, atlas=index, prefix=prefix, canonical=True, single=True)[0], index)
 
+    def test_world_node_tie_fold_preserves_local_prefix_and_full_history_identity(self):
+        for bits in (14, 16, 31):
+            capacity = 1 << (31 - bits)
+            for local in (0, (1 << bits) - 1):
+                for node in (0, capacity - 1):
+                    self.assertEqual(self.evaluate(node=node, local=local, bits=bits)[0],
+                                     (node << bits) | local)
+                for node in (capacity, capacity + 1, 0xffffffff):
+                    expected = ((node & (capacity - 1)) << bits) | local
+                    self.assertEqual(self.evaluate(node=node, local=local, bits=bits)[0], expected)
+                    self.assertEqual(self.evaluate(node=node, local=local, bits=bits, atlas=19461)[0], expected)
+                    self.assertEqual(expected >> 31, 0, "world prefix must stay zero")
+        first = self.evaluate(node=7, local=16383)
+        folded = self.evaluate(node=7 + (1 << 17), local=16383)
+        self.assertEqual(first[0], folded[0], "L=14 folds node IDs modulo 131,072")
+        self.assertNotEqual(first[2], folded[2], "history must retain the full baked node ID")
+        self.assertEqual(self.evaluate(node=7, local=16383, prefix=0x80040000)[0],
+                         0x80040000 | (7 << 14) | 16383)
+
+    def test_world_node_tie_fold_telemetry_and_admission_are_wired(self):
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        stats = (renderer / "render_diagnostics_orchestrator.cpp").read_text(encoding="utf-8")
+        self.assertRegex(stats, r"world_layout\(\s*resource_state\.hlod_snapshot->nodes\.size\(\),\s*"
+                               r"resource_state\.hlod_snapshot->max_node_payload_count\)")
+        self.assertIn("world_tie.append_stats(stats);", stats)
+        self.assertIn("resource_state.hlod_snapshot.is_valid()", stats)
+        for name in ("hlod_node_pack.cpp", "resident_instance_contract_publisher.cpp"):
+            source = (renderer / name).read_text(encoding="utf-8")
+            self.assertIn("gs_splat_identity::world_layout(", source)
+            self.assertNotIn("gs_splat_identity::world_refusal(", source)
+
     def test_same_identity_survives_noncontiguous_page_relocation_and_row_reorder(self):
         for placement in (0, 0x123456789):
             first = self.evaluate(placement=placement, row=0)

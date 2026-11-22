@@ -213,7 +213,7 @@ void main() {
             ((instance.ids.y & GS_INSTANCE_FLAG_SHADOW_PASS) != 0u && (region_override.flags & GS_REGION_NO_SHADOW) != 0u);
 #ifdef GS_TEST_REGION_CONTROLS
     // Negative control R3: hiding only during raster must leave depth records.
-    if ((instance.ids.y & (1u << 29u)) != 0u) { reject_region = false; }
+    if ((instance.ids.y & GS_INSTANCE_TEST_HIDE_ONLY_IN_RASTER) != 0u) { reject_region = false; }
 #endif
     if (reject_region) { return; }
     uint instance_flags = instance.ids.y;
@@ -327,8 +327,16 @@ void main() {
     uint instance_sh_limit = gs_instance_sh_limit(uint(params.cull_frustum_radius.w + 0.5), instance.lod.x);
     splat_ref_buffer.splat_refs[write_index].atlas_index =
             gs_pack_splat_ref_atlas_index(atlas_index, min(chunk.sh_limit, instance_sh_limit));
-    uint identity_hash = gs_splat_identity_hash(visible_chunk.chunk_id, splat_index_in_chunk, instance.placement_key);
-    uint tie_break = gs_identity_tie_break(identity_hash, atlas_index);
+    uint sort_prefix = instance.ids.y & GS_INSTANCE_SORT_PREFIX_MASK;
+    uint local_bits = chunk.reserved_node_z & 255u;
+    if (sort_prefix != 0u) {
+        local_bits = (instance.ids.y & GS_INSTANCE_SORT_LOCAL_MASK) >> GS_INSTANCE_SORT_LOCAL_SHIFT;
+    }
+    bool canonical_single = (instance.ids.y & GS_INSTANCE_SORT_SINGLE_CHUNK) != 0u ||
+            (sort_prefix == 0u && (chunk.reserved_node_z & 256u) != 0u);
+    uint stable_key = gs_splat_composite_key(chunk.reserved_node_y, splat_index_in_chunk,
+            sort_prefix, local_bits, atlas_index, canonical_single);
+    uint tie_break = gs_identity_tie_break(stable_key, atlas_index);
     sort_key_buffer.keys[write_index] = gs_pack_sort_key64(depth, tie_break);
     sort_value_buffer.values[write_index] = write_index;
 }

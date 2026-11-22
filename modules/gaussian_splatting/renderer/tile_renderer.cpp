@@ -4085,6 +4085,11 @@ bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_h
 }
 
 void TileRenderer::invalidate_sh_color_cache_range(uint32_t p_first_record, uint32_t p_record_count) {
+    // The streamer's synchronous content-range hook runs before the upload and
+    // metadata publication. Both clears precede the new tenant's first COUNT
+    // read and EMIT write in this same RD command graph.
+    ERR_FAIL_COND_MSG(!subpixel_history_buffers.clear_history_range(_get_resource_device(), p_first_record, p_record_count),
+            "[TileRenderer] Failed to invalidate subpixel history content range");
     ERR_FAIL_COND_MSG(!sh_cache_buffers.clear_color_cache_range(_get_resource_device(), p_first_record, p_record_count),
             "[TileRenderer] Failed to invalidate SH color cache content range");
 }

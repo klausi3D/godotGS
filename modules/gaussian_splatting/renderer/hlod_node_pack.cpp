@@ -1,4 +1,5 @@
 #include "hlod_node_pack.h"
+#include "splat_identity.h"
 
 namespace gs_hlod_pack {
 
@@ -22,6 +23,11 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 			(p_data.is_paged() && (!p_view || !p_view->gaussians || (p_data.high_order_count != 0 && !p_view->sh)))) {
 		return false;
 	}
+    const auto world_tie = gs_splat_identity::world_layout(p_data.nodes.size(), p_data.max_node_payload_count);
+    const uint32_t local_bits = world_tie.l;
+    const String refusal = world_tie.refusal();
+    ERR_FAIL_COND_V_MSG(!refusal.is_empty(), false, refusal);
+    static_assert((1u << gs_splat_identity::MIN_LOCAL_BITS) == gs_hlod::kMaxNodeSplats, "Bake/local tie width mismatch");
 	const auto &node = p_data.nodes[p_node];
 	// The payload of the node inside the runtime snapshot (leaf then interior order), not the atlas address.
 	const uint32_t first = uint32_t(node.topology.payload_first);
@@ -30,6 +36,8 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 	meta = ChunkMetaGPU{};
 	meta.atlas_base = p_atlas_base;
 	meta.splat_count = count;
+    meta.reserved_node_y = p_node; // The baked tree index, never a residency rank.
+    meta.reserved_node_z = local_bits | (p_data.nodes.size() == 1 ? 256u : 0u);
 	meta.quant_base = p_node;
 	meta.quant_count = p_params.quantized ? 1 : 0;
 	meta.sh_limit = p_data.sh_degree;

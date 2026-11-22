@@ -3,6 +3,7 @@
 
 #ifdef TESTS_ENABLED
 #include "core/string/ustring.h"
+#include "splat_identity.h"
 #include "core/templates/rid.h"
 #include <atomic>
 #include <cstdint>
@@ -91,16 +92,17 @@ inline uint32_t hash(uint32_t p_value) {
 	return p_value ^ (p_value >> 16u);
 }
 
-// Parent-compatible budget seam: A has no upload-time refusal yet.
-inline String world_layout_refusal(uint32_t, uint32_t) { return String(); }
-inline String layout_refusal(uint32_t, uint32_t, uint32_t) { return String(); }
+inline String world_layout_refusal(uint32_t p_nodes, uint32_t p_splats) { return gs_splat_identity::world_refusal(p_nodes, p_splats); }
+inline String layout_refusal(uint32_t p_rows, uint32_t p_chunks, uint32_t p_splats) {
+    return gs_splat_identity::instance_layout(p_rows, p_chunks, p_splats).refusal();
+}
 
 // Host mirror of gs_splat_identity.glsl; Python also executes the actual GLSL.
 inline Keys keys(uint32_t p_node, uint32_t p_local, uint64_t p_placement, uint32_t p_atlas, uint32_t p_history_size, uint32_t p_row = 0, uint32_t p_prefix = 0, uint32_t p_bits = 14, bool p_single = false) {
-	(void)p_prefix; (void)p_bits; (void)p_single;
-	const uint32_t size = p_history_size > 0 ? p_history_size : 1u;
+
+	(void)p_history_size; // Production rejects an out-of-range atlas slot before reading.
 	if (get_force_address_keying()) {
-		const uint32_t slot = p_row == 0 ? p_atlas % size : hash(p_atlas ^ (p_row * 0x9e3779b9u)) % size;
+		const uint32_t slot = p_atlas;
 		const uint32_t key = hash(p_atlas ^ (p_row * 0x85ebca6bu)) & 0x7fffffffu;
 		return { p_atlas, slot, key };
 	}
@@ -108,7 +110,7 @@ inline Keys keys(uint32_t p_node, uint32_t p_local, uint64_t p_placement, uint32
 	h = hash(h ^ p_local);
 	h = hash(h ^ uint32_t(p_placement));
 	h = hash(h ^ uint32_t(p_placement >> 32u));
-	return { h, h % size, h & 0x7fffffffu };
+	return { p_single ? p_atlas : (p_prefix | (p_node << p_bits) | p_local), p_atlas, h & 0x7fffffffu };
 }
 }
 #endif

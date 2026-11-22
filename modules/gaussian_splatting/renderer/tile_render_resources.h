@@ -358,6 +358,8 @@ struct TileSubpixelHistoryBuffers {
 	void release(RenderingDevice *p_default_device);
 	void reset_state();
 	bool ensure_history_buffer(uint32_t p_total_gaussians);
+    // Content-following cache: call outside lists, before publishing the new atlas tenant.
+    bool clear_history_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count);
 
 	TileRenderer &owner;
 	RID subpixel_history_buffer;

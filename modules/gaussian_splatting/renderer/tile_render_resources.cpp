@@ -907,6 +907,21 @@ void TileSubpixelHistoryBuffers::reset_state() {
 	subpixel_history_size = 0;
 }
 
+bool TileSubpixelHistoryBuffers::clear_history_range(RenderingDevice *p_default_device, uint32_t p_first_record, uint32_t p_record_count) {
+    // An absent cache has no inherited visibility; initial allocation is zeroed.
+    if (!subpixel_history_buffer.is_valid()) { return true; }
+    const TileSHCacheClearRange range = tile_compute_sh_cache_clear_range(p_first_record, p_record_count, subpixel_history_size);
+    if (!range.ok) { return false; }
+    if (range.bytes == 0) { return true; }
+    RenderingDevice *device = subpixel_history_owner.device ? subpixel_history_owner.device : p_default_device;
+    if (!device) { return false; }
+    // RD::buffer_clear records COPY_TO against this buffer's resource tracker.
+    // Binding this same RID as the binning SSBO creates the graph's copy ->
+    // compute READ_WRITE dependency, including within the current frame. No
+    // global sync/fence is needed (RenderingDeviceGraph::add_buffer_clear).
+    return device->buffer_clear(subpixel_history_buffer, range.offset, range.bytes) == OK;
+}
+
 bool TileSubpixelHistoryBuffers::ensure_history_buffer(uint32_t p_total_gaussians) {
 	RenderingDevice *device = owner._get_resource_device();
 	if (!device) {
@@ -939,7 +954,12 @@ bool TileSubpixelHistoryBuffers::ensure_history_buffer(uint32_t p_total_gaussian
 	}
 
 	Vector<uint8_t> zero_bytes;
-	zero_bytes.resize(required_bytes);
+    if (zero_bytes.resize(required_bytes) != OK) {
+        reset_state();
+        owner._invalidate_descriptor_cache();
+        return false;
+    }
+    zero_bytes.fill(0); // A range hook before first allocation must still yield cold history.
 	subpixel_history_buffer = device->storage_buffer_create(required_bytes, zero_bytes);
 	subpixel_history_size = subpixel_history_buffer.is_valid() ? required_bytes : 0;
 	if (!subpixel_history_buffer.is_valid()) {

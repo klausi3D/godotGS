@@ -31,6 +31,9 @@ struct GaussianSplatSceneDirector::InstanceRecord {
     bool dirty = true;
     Ref<ColorGradingResource> color_grading;
     Ref<GSRegionOverrideState> region_overrides;
+    // Cached only on registration/removal/asset replacement, under world_mutex.
+    uint32_t sort_identity_flags = 0;
+    String sort_identity_refusal;
 
     // Scene-effector filter state — cached on registration / setters so the
     // render thread never has to read these from the live Node3D.
@@ -133,6 +136,8 @@ public:
     // the .cpp so they can reuse the file-local saturating-increment helper.
     void bump_generation();
     void bump_asset_generation();
+
+    void rebuild_sort_identity();
 
     // --- asset retention (retain/refresh/release policy moved out of the
     // director; see the .cpp definitions) ---

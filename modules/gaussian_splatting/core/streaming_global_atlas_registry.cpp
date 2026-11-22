@@ -493,6 +493,9 @@ bool StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 	meta.lod_level = chunk.get_draw_lod();
 	meta.flags = _pack_data_gpu_flags(asset->data);
 	meta.sh_limit = sh_band_limit;
+    meta.reserved_node_y = chunk_idx;
+    meta.reserved_node_z = 16u; // ceil(log2(GaussianStreamingSystem::CHUNK_SIZE)).
+    static_assert(GaussianStreamingSystem::CHUNK_SIZE == (1u << 16), "Streaming local tie width mismatch");
 
 	// Track atlas-published chunk count delta.
 	const bool was_published = chunk_meta_cpu[global_idx].splat_count > 0;
