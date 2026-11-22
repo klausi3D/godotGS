@@ -130,12 +130,37 @@ def _tree_number(value, *, integer: bool = False):
         raise ValueError("tree_key_number_invalid") from exc
 
 
+def _tree_volume_value(value):
+    """One authored volume value as Godot's JSON parser holds it: every number is a FLOAT."""
+    if isinstance(value, dict):
+        if not value or any(type(k) is not str for k in value):
+            raise ValueError("tree_key_volumes_invalid")
+        return {k: _tree_volume_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_tree_volume_value(v) for v in value]
+    if type(value) is str:
+        return value
+    if type(value) in (int, float):
+        try:
+            return _tree_number(float(value))
+        except OverflowError as exc:
+            raise ValueError("tree_key_volumes_invalid") from exc
+    raise ValueError("tree_key_volumes_invalid")
+
+
 def compute_tree_sha(sidecar: dict) -> str:
     """Recompute the producer's key; worker count is execution metadata only."""
     params = dict(sidecar["build_params"])
     params.pop("worker_count", None)
+    # B2: the producer keys non-empty semantic volumes as received; without them
+    # the legacy key shape is unchanged.
+    volumes = params.pop("volumes", None)
     if set(params) != {"leaf_max", "max_tile_splats", "interior"}:
         raise ValueError("tree_key_build_params_invalid")
+    if volumes is not None:
+        if type(volumes) is not list or not volumes or any(type(v) is not dict for v in volumes):
+            raise ValueError("tree_key_volumes_invalid")
+        params["volumes"] = [_tree_volume_value(v) for v in volumes]
     interior = dict(params["interior"])
     integer_fields = {"merge_grid", "node_max_splats", "max_eps_steps"}
     if set(interior) != integer_fields | {"reduction", "eps_growth"}:
