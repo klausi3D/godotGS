@@ -5780,6 +5780,20 @@ inline bool reuse_granted(uint64_t p_cached_signature, uint64_t p_frame_signatur
 
 } // namespace TestRasterParamsSignature
 
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse refuses an uploaded region override edit at a static camera") {
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    renderer->test_set_region_override_revision(1);
+    const uint64_t before = TestRasterParamsSignature::signature_of(renderer);
+    CHECK(TestRasterParamsSignature::signature_of(renderer) == before);
+    CHECK(TestRasterParamsSignature::reuse_granted(before, before));
+    renderer->test_set_region_override_revision(2);
+    const uint64_t after = TestRasterParamsSignature::signature_of(renderer);
+    CHECK(after != before);
+    CHECK_FALSE(TestRasterParamsSignature::reuse_granted(before, after));
+    CHECK(TestRasterParamsSignature::reuse_granted(after, after));
+}
+
 TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused after a painterly edge_threshold edit (#1162)") {
     Ref<GaussianSplatRenderer> renderer;
     renderer.instantiate();

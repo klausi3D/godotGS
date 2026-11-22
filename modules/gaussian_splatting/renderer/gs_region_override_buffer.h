@@ -42,6 +42,7 @@ public:
 #ifdef TESTS_ENABLED
     void test_defer_one_frame(bool p_enabled) { defer_upload = p_enabled; deferred.clear(); }
     bool test_is_deferred() const { return defer_upload; }
+    void test_set_revision(uint64_t p_revision) { generation = p_revision; }
 #endif
     bool update(RenderingDevice *p_rd, const LocalVector<RegionOverrideGPU> &p_entries) {
 #ifdef TESTS_ENABLED

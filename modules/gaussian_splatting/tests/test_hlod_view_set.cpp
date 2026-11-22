@@ -1,7 +1,11 @@
 extern "C" int test_hlod_view_set_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_view_set.h"
+#include "../core/gaussian_splat_world.h"
 #include "../renderer/render_frame_context_manager.h"
+#include "../io/gaussian_splat_world_io.h"
+#include "core/io/dir_access.h"
+#include "core/os/os.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -1717,6 +1721,11 @@ TEST_CASE("[GaussianSplatting][HLOD][B3] semantic node margin drives actual cull
 			node.topology.radius = 0.5f;
 			node.topology.flags = valid ? gs_hlod::kNodeFlagSemanticValid : 0;
 			node.topology.max_wind_weight = weight;
+			node.topology.payload_first = 0;
+			node.topology.payload_count = 1;
+			tree->parent_count = 1;
+			tree->parents.resize(1);
+			tree->parents.write[0].semantic = valid ? gaussian_pack_semantic(1, weight) : 0;
 			node.topology.aabb_min = Vector3(-0.5, -0.5, -0.5);
 			node.topology.aabb_max = Vector3(0.5, 0.5, 0.5);
 			node.bounds_center = Vector3(0.9, 0, 0);
@@ -1763,8 +1772,13 @@ TEST_CASE("[GaussianSplatting][HLOD][B3] semantic node margin drives actual cull
 		node.topology.radius = 0.5f;
 		node.topology.flags = gs_hlod::kNodeFlagSemanticValid;
 		node.topology.max_wind_weight = i == 0 ? 0 : 255;
+		node.topology.payload_first = i;
+		node.topology.payload_count = 1;
 		node.topology.child_count = i == 0 ? 2 : 0;
 	}
+	tree->parent_count = 3;
+	tree->parents.resize(3);
+	for (int i = 0; i < 3; ++i) { tree->parents.write[i].semantic = gaussian_pack_semantic(1, i == 0 ? 0 : 255); }
 	auto snap = snapshot(tree);
 	snap.instances.write[0].displacement_margin = 0.25;
 	ViewSpec edge = box_view(3);
@@ -1774,6 +1788,108 @@ TEST_CASE("[GaussianSplatting][HLOD][B3] semantic node margin drives actual cull
 	Vector<ViewSet::ViewResult> results;
 	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
 	CHECK(same(nodes_of(set, 3), { 1, 2 }));
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][B3] v3 reload restores every own-payload wind maximum and V4 keeps persisted maxima") {
+	Ref<GaussianData> data;
+	data.instantiate();
+	LocalVector<Gaussian> gaussians;
+	gaussians.resize(40000);
+	for (uint32_t i = 0; i < gaussians.size(); ++i) {
+		auto &g = gaussians[i];
+		g.position = Vector3((i < 20000 ? -8.0f : 8.0f) + float(i % 40) / 32.0f, float((i / 40) % 40) / 32.0f, 0);
+		g.scale = Vector3(0.03125, 0.03125, 0.03125);
+		g.rotation = Quaternion(); g.opacity = 1; g.sh_dc = Color(0.5, 0.5, 0.5);
+		g.semantic = gaussian_pack_semantic(1, i < 20000 ? 0 : (i % 2 ? 128 : 255));
+	}
+	LocalVector<Vector3> sh;
+	data->set_gaussian_payload(gaussians, sh, 0u, 0u, false, false);
+	Ref<GaussianSplatWorld> world;
+	world.instantiate(); world->set_gaussian_data(data);
+	if (world->bake_hlod() != OK) { FAIL("semantic world bake failed"); return; }
+	Ref<GaussianSplatHlodRuntimeData> before;
+	String reason;
+	if (world->capture_hlod_runtime_snapshot(before, reason) != OK || before.is_null() || before->nodes.size() < 2) {
+		FAIL("semantic fixture needs a multi-node snapshot"); return;
+	}
+	bool rigid = false, swaying = false;
+	for (const auto &node : before->nodes) {
+		CHECK(node.topology.is_semantic_valid());
+		rigid |= node.topology.max_wind_weight == 0;
+		swaying |= node.topology.max_wind_weight > 0;
+	}
+	CHECK(rigid); CHECK(swaying);
+	for (const bool paged : { false, true }) {
+		struct TempFile {
+			String path;
+			~TempFile() { DirAccess::remove_absolute(path); }
+		} file{ OS::get_singleton()->get_temp_path().path_join(vformat("gs_wind_reload_%d_%d.gsplatworld", int(paged), int64_t(OS::get_singleton()->get_ticks_usec()))) };
+		ResourceFormatSaverGaussianSplatWorld saver;
+		const Error saved = paged ? world->save_hlod_paged(file.path) : saver.save_resident_uncompressed(world, file.path);
+		if (saved != OK) { FAIL("semantic world save failed"); return; }
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		Error error = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded;
+		if (paged) { loaded = loader.load(file.path, "", &error); }
+		else { loaded = loader.load_resident(file.path, &error); }
+		if (error != OK || loaded.is_null()) { FAIL("semantic world reload failed"); return; }
+		Ref<GaussianSplatHlodRuntimeData> after;
+		if (loaded->capture_hlod_runtime_snapshot(after, reason) != OK || after.is_null() || after->nodes.size() != before->nodes.size()) {
+			FAIL("reloaded snapshot mismatch"); return;
+		}
+		CHECK(after->is_paged() == paged);
+		auto snap = snapshot(after, 0, uint64_t(1) << 30);
+		snap.instances.write[0].displacement_margin = 0.25;
+		snap.instances.write[0].caps = caps(100000, after->nodes.size(), 1000000);
+		ViewSpec spec = perspective(1);
+		spec.caps = snap.instances[0].caps; spec.tau_pixels = 1000000;
+		snap.views.push_back(spec);
+		ViewSet set;
+		if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("reload view admission failed"); return; }
+		Vector<ViewSet::ViewResult> results;
+		CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+		const auto *bounds = set.test_displacement_data(1, 11);
+		if (!bounds || bounds->nodes.size() != before->nodes.size()) { FAIL("selection bounds missing"); return; }
+		for (int i = 0; i < before->nodes.size(); ++i) {
+			const auto &expected = before->nodes[i].topology;
+			const auto &actual = bounds->nodes[i].topology;
+			CHECK(actual.max_wind_weight == expected.max_wind_weight);
+			CHECK(actual.is_semantic_valid() == expected.is_semantic_valid());
+			const double margin = 0.25 * double(expected.max_wind_weight) / 255.0;
+			CHECK(double(actual.radius) >= double(after->nodes[i].topology.radius) + std::sqrt(3.0) * margin);
+			// The source stays immutable. V4 retains its persisted byte; v3 did not store it.
+			CHECK(after->nodes[i].topology.max_wind_weight == (paged ? expected.max_wind_weight : 0));
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][B3] missing incomplete and mixed nonpaged payloads use full wind inflation") {
+	for (int kind = 0; kind < 3; ++kind) {
+		auto tree = make_tree(IDENT);
+		tree->nodes.resize(1);
+		auto &node = tree->nodes.write[0];
+		node.topology.child_count = 0; node.topology.payload_first = 0; node.topology.payload_count = 2;
+		node.topology.radius = 0.5f; node.bounds_center = Vector3(0.9, 0, 0);
+		node.topology.flags = gs_hlod::kNodeFlagSemanticValid;
+		node.topology.max_wind_weight = 0; // Exactly the misleading v3 load state.
+		tree->parent_count = 2;
+		tree->parents.resize(kind); // 0: unavailable, 1: incomplete, 2: mixed semantic/legacy.
+		if (kind > 0) { tree->parents.write[0].semantic = gaussian_pack_semantic(1, 0); }
+		auto snap = snapshot(tree);
+		snap.instances.write[0].displacement_margin = 0.25;
+		const auto spec = box_view(1);
+		snap.views.push_back(spec);
+		ViewSet set;
+		if (set.admit_view(snap, spec).status != ViewSet::ADMITTED) { FAIL("fallback view refused"); return; }
+		Vector<ViewSet::ViewResult> results;
+		CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+		const auto *bounds = set.test_displacement_data(1, 11);
+		if (!bounds || bounds->nodes.size() != 1) { FAIL("fallback bounds missing"); return; }
+		CHECK_FALSE(bounds->nodes[0].topology.is_semantic_valid());
+		CHECK(double(bounds->nodes[0].topology.radius) >= 0.5 + std::sqrt(3.0) * 0.25);
+		CHECK(same(nodes_of(set, 1), { 0 }));
+		CHECK(tree->nodes[0].topology.is_semantic_valid());
+	}
 }
 
 TEST_CASE("[GaussianSplatting][HLOD] displaced selection tables are reserved before admission and invalid margins fail closed") {

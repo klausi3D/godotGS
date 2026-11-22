@@ -58,6 +58,17 @@ class ContractTests(unittest.TestCase):
         layout = (ROOT / "tests/ci/check_gaussian_layout_sync.py").read_text(encoding="utf-8")
         self.assertIn('"GSGame1Sample", "GSGame1Sample"', layout)
 
+    def test_image_deadline_binds_readback_acceptance_after_await(self):
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        wait = script.split("func _wait_image() -> Image:", 1)[1].split("\nfunc ", 1)[0]
+        poll = wait.index('await _native("_test_gs_game_1_image_poll")')
+        accept = wait.index('if result.get("complete") == true:')
+        # A readback can complete during an await that ends past the bound.
+        # The loop-entry check alone cannot reject that late success.
+        self.assertRegex(wait[poll:accept],
+                         r"\n\t\tif Time\.get_ticks_msec\(\) > deadline:\s*\n\t\t\treturn null")
+        self.assertLess(accept, wait.index("_last_image_proof = result"))
+
     def test_constructed_arm_envelopes_reject_partial_or_stale_evidence(self):
         # These are constructed interface inputs, not claimed producer captures.
         here = ROOT / "tests/runtime"

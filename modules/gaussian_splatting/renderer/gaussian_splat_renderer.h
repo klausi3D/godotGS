@@ -1088,6 +1088,7 @@ public:
     void test_begin_region_override_frame() { get_resource_state().region_override_server_frame = UINT64_MAX; }
     void test_defer_region_override_upload(bool p_enabled) { get_resource_state().region_override_buffer.test_defer_one_frame(p_enabled); }
     bool test_region_override_upload_is_deferred() const { return get_resource_state().region_override_buffer.test_is_deferred(); }
+    void test_set_region_override_revision(uint64_t p_revision) { get_resource_state().region_override_buffer.test_set_revision(p_revision); }
 #endif
     bool prepare_region_override_rows(LocalVector<InstanceDataGPU> &p_rows);
     uint64_t get_region_override_revision() const { return get_resource_state().region_override_buffer.revision(); }

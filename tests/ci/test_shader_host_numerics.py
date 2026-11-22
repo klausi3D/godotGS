@@ -66,7 +66,32 @@ class CRegionOverrideNumerics(unittest.TestCase):
         self.assertIn("uint base = instance.lod.y;", lookup)
         self.assertIn("uint segment_len = instance.placement_pad.x;", lookup)
         self.assertIn("segment_len > count - base", lookup)
-        self.assertIn("base + min(region, segment_len - 1u)", lookup)
+        self.assertNotIn("min(region, segment_len - 1u)", lookup)
+
+    def test_out_of_segment_region_uses_whole_asset_default(self):
+        source = (INCLUDES_DIR / "gs_region_override.glsl").read_text(encoding="utf-8")
+        expression = re.search(r"return region_override_buffer\.entries\[([^\]]+)\];", source)
+        self.assertIsNotNone(expression, "production region lookup must be evaluated")
+        # Execute the actual shader index expression, not a host lookup mirror.
+        program = glsl.GlslProgram("uint lookup(uint base, uint region, uint segment_len) { return "
+                                   + expression.group(1) + "; }")
+        lookup = program.fn("lookup")
+        for base in (0, 7):
+            entries = ["whole_asset", "region_1_override"]
+            for region in (0, 1, 2, 65535):
+                with self.subTest(base=base, region=region):
+                    index = int(lookup(glsl.U32(base), glsl.U32(region), glsl.U32(2))) - base
+                    self.assertEqual(entries[index], "region_1_override" if region == 1 else "whole_asset")
+            self.assertEqual(int(lookup(glsl.U32(base), glsl.U32(2), glsl.U32(3))), base + 2)
+            self.assertEqual(int(lookup(glsl.U32(base), glsl.U32(1), glsl.U32(1))), base)
+
+    def test_raster_reuse_signature_tracks_uploaded_override_revision(self):
+        source = (SHADERS_DIR.parent / "renderer/render_pipeline_stages.cpp").read_text(encoding="utf-8")
+        signature = source.split("uint64_t RenderPipelineStages::compute_raster_params_signature(", 1)[1]
+        signature = signature.split("\nnamespace {", 1)[0]
+        self.assertRegex(signature, r"seed = _hash_u64\(p_renderer\.get_region_override_revision\(\), seed\);")
+        self.assertIn("raster_input.raster_params_signature = RenderPipelineStages::compute_raster_params_signature(", source)
+        self.assertIn("p_input.raster_params_signature", source)
 
     def test_application_and_upload_wiring(self):
         module = SHADERS_DIR.parent
@@ -1256,7 +1281,7 @@ class B3WindWeightTests(unittest.TestCase):
     def test_node_cut_cull_and_record_estimates_use_bit5_scaled_margin(self):
         source = (ROOT / "modules/gaussian_splatting/lod/hlod_view_set.cpp").read_text()
         body = source.split("bool ViewSet::prepare_displacement_bounds(", 1)[1].split("ViewSet::AdmitResult", 1)[0]
-        self.assertIn("gs_wind::node_displacement_bound(local_margin, original.topology.max_wind_weight, original.topology.is_semantic_valid())", body)
+        self.assertIn("gs_wind::node_displacement_bound(local_margin, node.topology.max_wind_weight, node.topology.is_semantic_valid())", body)
         for expression in ("std::sqrt(3.0) * node_margin", "aabb_min[axis]) - node_margin", "aabb_max[axis]) + node_margin",
                            "node.footprint = original.footprint * ratio * ratio"):
             self.assertIn(expression, body)

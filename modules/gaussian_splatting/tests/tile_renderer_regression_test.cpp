@@ -4385,9 +4385,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R1 every region pixel
     params.compute_raster_policy = GaussianSplatting::ComputeRasterPolicy::ForceOff;
     InstanceDataGPU row = {};
     row.rotation[3] = row.inv_rotation[3] = row.translation_scale[3] = 1;
-    row.params[0] = 1; row.lod[1] = 0; row.placement_pad[0] = 3;
+    row.params[0] = 1; row.lod[1] = 0; row.placement_pad[0] = 2;
     GSRegionOverrideBuffer overrides;
-    LocalVector<RegionOverrideGPU> entries; entries.resize(3);
+    // Region 2 deliberately has no explicit entry: it must use entry 0.
+    LocalVector<RegionOverrideGPU> entries; entries.resize(2);
     for (auto &entry : entries) { entry = GSRegionOverrideBuffer::neutral(); }
     auto render = [&](Vector<uint8_t> &pixels) {
         if (!overrides.update(rd, entries) || rd->buffer_update(instances.data.instance_buffer,0,sizeof(row),&row) != OK) { return false; }
