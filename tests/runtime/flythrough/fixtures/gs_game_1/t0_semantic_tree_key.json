@@ -1,0 +1,170 @@
+{
+ "capture": "Tree-key fields copied verbatim from the world.manifest.json that GaussianSplatHlodAutoTree.build wrote for the GS-GAME-1 semantic_job() on the synthetic T0 plain_v3_gsq world (Windows dev tests=yes build of 64a35e7eafc). Producer capture, not hand-authored.",
+ "source_fingerprint": "b7724425fa9dc3b8dca23614dbb152b01f09b4197c3efc096367315336f20315",
+ "input_file_sha256": "1a839c7219548bb1d9151cd5e08c6d5e983002dd64debaae5b64b0e6135ab98d",
+ "codec": {
+  "codec": "none"
+ },
+ "build_params": {
+  "interior": {
+   "eps_growth": 1.25,
+   "max_eps_steps": 1024,
+   "merge_grid": 64,
+   "node_max_splats": 16384,
+   "reduction": 4.0
+  },
+  "leaf_max": 16384,
+  "max_tile_splats": 262144,
+  "volumes": [
+   {
+    "kind": "region",
+    "name": "near",
+    "path": "/GSGame1/near/region",
+    "size": [
+     512.0,
+     128.0,
+     170.66666666666666
+    ],
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     32.0,
+     -170.66666666666666
+    ]
+   },
+   {
+    "kind": "wind",
+    "name": "near",
+    "path": "/GSGame1/near/wind",
+    "size": [
+     512.0,
+     128.0,
+     170.66666666666666
+    ],
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     32.0,
+     -170.66666666666666
+    ],
+    "wind_weight": 1.0
+   },
+   {
+    "kind": "region",
+    "name": "mid",
+    "path": "/GSGame1/mid/region",
+    "size": [
+     512.0,
+     128.0,
+     170.66666666666666
+    ],
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     32.0,
+     0.0
+    ]
+   },
+   {
+    "kind": "wind",
+    "name": "mid",
+    "path": "/GSGame1/mid/wind",
+    "size": [
+     512.0,
+     128.0,
+     170.66666666666666
+    ],
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     32.0,
+     0.0
+    ],
+    "wind_weight": 0.6
+   },
+   {
+    "kind": "region",
+    "name": "far",
+    "path": "/GSGame1/far/region",
+    "size": [
+     512.0,
+     128.0,
+     170.66666666666666
+    ],
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     32.0,
+     170.66666666666666
+    ]
+   },
+   {
+    "kind": "wind",
+    "name": "far",
+    "path": "/GSGame1/far/wind",
+    "size": [
+     512.0,
+     128.0,
+     170.66666666666666
+    ],
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     32.0,
+     170.66666666666666
+    ],
+    "wind_weight": 0.0
+   }
+  ],
+  "worker_count": 4
+ },
+ "tree_sha": "6192817f30c6349f1ef68b39f55be5803a6ba16da9f8412942c2f57949a9499b"
+}

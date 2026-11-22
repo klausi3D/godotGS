@@ -546,6 +546,26 @@ class VerifyAutoTreeV4Test(unittest.TestCase):
         manifest["build_params"]["leaf_max"] = 16384.0
         self.assertEqual(vwm.compute_tree_sha(manifest), expected)
 
+    def test_tree_key_includes_semantic_volumes_as_the_producer_keys_them(self) -> None:
+        # The producer adds non-empty volumes to build_params and to the tree key
+        # (gaussian_splat_hlod_auto_tree.cpp). The fixture is the key fields of a
+        # real GS-GAME-1 semantic_job() sidecar, so the expected sha is the
+        # producer's own, not text derived from this verifier.
+        captured = json.loads((HERE / "fixtures/gs_game_1/t0_semantic_tree_key.json").read_text(encoding="utf-8"))
+        self.assertTrue(captured["build_params"]["volumes"])
+        self.assertEqual(vwm.compute_tree_sha(captured), captured["tree_sha"])
+        # Volumes participate: any authored change is a different tree.
+        moved = json.loads(json.dumps(captured))
+        moved["build_params"]["volumes"][0]["transform"][10] += 1.0
+        self.assertNotEqual(vwm.compute_tree_sha(moved), captured["tree_sha"])
+        # Only the shapes the producer emits are keyed; anything else fails closed.
+        for bad in ([], {"kind": "region"}, [{"kind": True}], [{"size": [float("nan"), 1.0, 1.0]}], [None]):
+            with self.subTest(volumes=bad):
+                broken = json.loads(json.dumps(captured))
+                broken["build_params"]["volumes"] = bad
+                with self.assertRaises(ValueError):
+                    vwm.compute_tree_sha(broken)
+
     def test_v4_header_digest_and_aggregate_index_digest_fail_independently(self) -> None:
         original = self.world.read_bytes()
         blob = bytearray(original)
