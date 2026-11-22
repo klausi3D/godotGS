@@ -36,13 +36,20 @@ TEST_CASE("[GaussianSplatting][HLOD][C] region API resolves names again after a 
     Array volumes; volumes.push_back(box("region", "root/Z", "canopy"));
     gs_hlod::SplatList baked; Dictionary metadata, report; String reason;
     if (gs_hlod::prepare_semantic_bake(input(g), volumes, Dictionary(), "", baked, metadata, report, reason) != OK) { FAIL("C manifest bake"); return; }
-    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
-    GaussianSplatNode3D *object_node = memnew(GaussianSplatNode3D);
+    struct Nodes {
+        GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+        GaussianSplatNode3D *object_node = memnew(GaussianSplatNode3D);
+        ~Nodes() { memdelete(object_node); memdelete(world_node); }
+    } nodes;
+    GaussianSplatWorld3D *world_node = nodes.world_node;
+    GaussianSplatNode3D *object_node = nodes.object_node;
+    CHECK(!world_node->is_inside_tree());
+    CHECK(!object_node->is_inside_tree());
     Ref<GaussianSplatWorld> world; world.instantiate(); world->set_metadata(metadata); world_node->set_world(world);
     Ref<GaussianSplatAsset> asset; asset.instantiate(); asset->set_import_metadata(metadata); object_node->set_splat_asset(asset);
     int first = -1;
     for (Node *node : {static_cast<Node *>(world_node), static_cast<Node *>(object_node)}) {
-        if (!node->has_method("get_region_id") || !node->has_method("get_region_names")) { FAIL("C public region lookup must be bound"); continue; }
+        if (!node->has_method("get_region_id") || !node->has_method("get_region_names")) { FAIL("C public region lookup must be bound"); return; }
         const int id = node->call("get_region_id", StringName("canopy"));
         CHECK(id > 0); first = id;
         CHECK(int(node->call("get_region_id", StringName("missing"))) == -1);
@@ -50,15 +57,14 @@ TEST_CASE("[GaussianSplatting][HLOD][C] region API resolves names again after a 
         CHECK(names.has("canopy"));
     }
     volumes.push_back(box("region", "root/A", "extra"));
-    if (gs_hlod::prepare_semantic_bake(input(g), volumes, Dictionary(), "", baked, metadata, report, reason) != OK) { FAIL("C second manifest bake"); memdelete(object_node); memdelete(world_node); return; }
+    if (gs_hlod::prepare_semantic_bake(input(g), volumes, Dictionary(), "", baked, metadata, report, reason) != OK) { FAIL("C second manifest bake"); return; }
     world->set_metadata(metadata); asset->set_import_metadata(metadata);
     for (Node *node : {static_cast<Node *>(world_node), static_cast<Node *>(object_node)}) {
-        if (!node->has_method("get_region_id")) { continue; }
+        if (!node->has_method("get_region_id")) { FAIL("C public region lookup must remain bound after rebake"); return; }
         const int resolved = node->call("get_region_id", StringName("canopy"));
         CHECK(resolved > 0); CHECK(resolved != first);
         CHECK(resolved == GSRegionOverrideState::region_id(metadata, "canopy"));
     }
-    memdelete(object_node); memdelete(world_node);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][C] whole asset defaults explicit regions and hide remain independent") {

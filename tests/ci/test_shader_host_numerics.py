@@ -37,6 +37,22 @@ _spec.loader.exec_module(glsl)
 
 
 class CRegionOverrideNumerics(unittest.TestCase):
+    def test_detached_world_resource_change_checks_queue_before_latching(self):
+        source = (SHADERS_DIR.parent / "nodes/gaussian_splat_world_3d.cpp").read_text(encoding="utf-8")
+        body = source[source.index("void GaussianSplatWorld3D::_on_world_resource_changed()"):
+                      source.index("void GaussianSplatWorld3D::_flush_world_resource_resubmit()")]
+        queue_check = "CallQueue *queue = MessageQueue::get_main_singleton();"
+        guard_check = "if (!queue) {\n        return;\n    }"
+        self.assertIn(queue_check, body)
+        self.assertIn(guard_check, body)
+        queue = body.index(queue_check)
+        guard = body.index(guard_check)
+        latch = body.index("world_resource_resubmit_pending.exchange(true)")
+        self.assertLess(queue, guard)
+        self.assertLess(guard, latch)
+        self.assertGreater(body.index("queue->push_callable("), latch)
+        self.assertNotIn("MessageQueue::get_main_singleton()->", body)
+
     def test_row_abi_and_segment_lookup(self):
         module = SHADERS_DIR.parent
         host = (module / "renderer/gaussian_splat_renderer.cpp").read_text(encoding="utf-8")

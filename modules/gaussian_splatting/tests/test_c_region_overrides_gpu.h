@@ -3,6 +3,9 @@
 #include "../compute/depth_compute.glsl.gen.h"
 #include "../renderer/gs_region_override_buffer.h"
 #include "../renderer/gs_shadow_caster.h"
+#include "../renderer/hlod_shadow_caster_plan.h"
+#include "../renderer/shader_compilation_helper.h"
+#include "../shaders/gs_shadow_caster.glsl.gen.h"
 #include "../renderer/gpu_sorting_constants.h"
 #include "../renderer/sorting_contract.h"
 #include "../compute/compute_infrastructure.h"
@@ -112,8 +115,19 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R3 hidden regions all
                 CHECK(count == (sample == 0 || sample == 2 ? 1u : 0u));
             }
             // The dedicated HLOD caster remains raw-only (ADR 6.6.1).
-            // Quantized input is covered by the sort-counter checks above.
-            if (quantized) { continue; }
+            // Quantized input still runs every sort-counter assertion above.
+            gs_shadow_caster::FrameRecord caster_record;
+            caster_record.valid = true; caster_record.quantized = quantized;
+            caster_record.draw_count = caster_record.max_chunk_splats = 1;
+            caster_record.world_splats = 1;
+            const auto caster_plan = gs_shadow_caster::plan_pass(caster_record,true,true);
+            if (quantized) {
+                CHECK(caster_plan.refusal == gs_shadow_caster::Refusal::QUANTIZED_PAYLOAD);
+                CHECK(String(gs_shadow_caster::refusal_reason(caster_plan.refusal)) == "shadow_caster_quantized_payload_unsupported");
+                CHECK(!caster_plan.draws());
+                continue;
+            }
+            CHECK(caster_plan.draws());
             // Actual raw caster target: positive baseline, hide flags and zero opacity.
             raw.position[2] = .5f;
             if (rd->buffer_update(atlas,0,sizeof(raw),&raw) != OK) { FAIL("C R3 caster payload"); return; }
@@ -127,7 +141,49 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R3 hidden regions all
             if (!framebuffer.is_valid()) { FAIL("C R3 caster framebuffer"); return; }
             const RID draw_buffer = resources.buffer(sizeof(drawn),&drawn);
             if (!draw_buffer.is_valid()) { FAIL("C R3 caster draw buffer"); return; }
-            GsSplatShadowCaster caster; LocalVector<uint32_t> casts; casts.push_back(1);
+            // Like B3's caster readback, compile and draw the production shader
+            // directly. The RD-only harness has no compositor UniformSetCacheRD,
+            // which GsSplatShadowCaster::draw() requires in the live renderer.
+            GsShadowCasterShaderRD caster_source;
+            Vector<String> caster_variants; caster_variants.push_back(String()); caster_source.initialize(caster_variants);
+            const RID caster_version = caster_source.version_create();
+            if (!caster_version.is_valid()) { FAIL("C R3 raw caster shader version"); return; }
+            const Vector<String> caster_stages = caster_source.version_build_variant_stage_sources(caster_version,0);
+            caster_source.version_free(caster_version);
+            if (caster_stages.size() <= RD::SHADER_STAGE_FRAGMENT) { FAIL("C R3 raw caster shader stages"); return; }
+            String error, processed_vertex;
+            const RID caster_shader = resources.keep(ShaderCompilationHelper::compile_graphics_shader_on_device(rd,
+                    caster_stages[RD::SHADER_STAGE_VERTEX],caster_stages[RD::SHADER_STAGE_FRAGMENT],
+                    "c_region_caster_pixels",Vector<String>(),&error,&processed_vertex));
+            if (!caster_shader.is_valid()) { FAIL("C R3 raw caster shader compilation: ",error.utf8().get_data()); return; }
+            RD::PipelineRasterizationState raster; raster.cull_mode = RD::POLYGON_CULL_DISABLED;
+            RD::PipelineDepthStencilState depth; depth.enable_depth_test = depth.enable_depth_write = true;
+            depth.depth_compare_operator = RD::COMPARE_OP_GREATER_OR_EQUAL;
+            const RID caster_pipeline = resources.keep(rd->render_pipeline_create(caster_shader,rd->framebuffer_get_format(framebuffer),
+                    RD::INVALID_ID,RD::RENDER_PRIMITIVE_TRIANGLES,raster,RD::PipelineMultisampleState(),depth,
+                    RD::PipelineColorBlendState::create_disabled(0)));
+            if (!caster_pipeline.is_valid()) { FAIL("C R3 raw caster pipeline"); return; }
+            const uint32_t casts = 1;
+            const GsSplatShadowCaster::DeformationUniform deformation{};
+            const RID cast_buffer = resources.buffer(sizeof(casts),&casts), deformation_buffer = resources.buffer(sizeof(deformation),&deformation);
+            const RID caster_buffers[] = {atlas,row_buffer,chunk_buffer,draw_buffer,cast_buffer,pages,deformation_buffer,table};
+            Vector<RD::Uniform> caster_uniforms;
+            const bool caster_has_region_binding = processed_vertex.find("RegionOverrideBuffer") >= 0;
+            for (int binding=0;binding<(caster_has_region_binding ? 8 : 7);++binding) {
+                if (!caster_buffers[binding].is_valid()) { FAIL("C R3 raw caster input buffer"); return; }
+                RD::Uniform uniform; uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+                uniform.binding = binding; uniform.append_id(caster_buffers[binding]); caster_uniforms.push_back(uniform);
+            }
+            const RID caster_set = resources.keep(rd->uniform_set_create(caster_uniforms,caster_shader,0));
+            if (!caster_set.is_valid()) { FAIL("C R3 raw caster uniform set"); return; }
+            struct CasterPush { float matrix[16]; float viewport[4]; uint32_t counts[4]; } push{};
+            static_assert(sizeof(CasterPush) == 96, "C caster push layout");
+            static_assert(sizeof(CasterPush) % 16 == 0, "C caster push alignment");
+            for (int axis=0;axis<4;++axis) { push.matrix[axis*5] = 1; }
+            push.viewport[0] = push.viewport[1] = 64;
+            push.viewport[2] = gs_shadow_caster::kAlphaThreshold; push.viewport[3] = gs_shadow_caster::kLowPassTexels2;
+            push.counts[0] = push.counts[1] = push.counts[2] = 1;
+            const float opacity = 1; memcpy(&push.counts[3],&opacity,sizeof(opacity));
             for (int sample=0;sample<4;++sample) {
                 const uint32_t flags = sample == 1 ? GS_REGION_HIDE : sample == 2 ? GS_REGION_NO_SHADOW : 0u;
                 entries[1] = GSRegionOverrideBuffer::neutral(); entries[1].flags = flags;
@@ -136,12 +192,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R3 hidden regions all
                 const auto clear = rd->draw_list_begin(framebuffer,RD::DRAW_CLEAR_DEPTH,VectorView<Color>(),0.0f);
                 if (clear == RD::INVALID_ID) { FAIL("C R3 caster clear"); return; }
                 rd->draw_list_end();
-                GsSplatShadowCaster::Inputs inputs;
-                inputs.atlas_gaussian_buffer=atlas; inputs.instance_buffer=row_buffer; inputs.chunk_meta_buffer=chunk_buffer;
-                inputs.draw_list_buffer=draw_buffer; inputs.page_table_buffer=pages; inputs.region_override_buffer=table;
-                inputs.draw_count=inputs.slot_stride=inputs.instance_slots=1; inputs.row_casts=&casts;
-                String error;
-                if (!caster.draw(rd,framebuffer,Rect2i(0,0,64,64),Projection(),inputs,error)) { FAIL("C R3 caster draw: ",error.utf8().get_data()); return; }
+                const auto list = rd->draw_list_begin(framebuffer,RD::DRAW_DEFAULT_ALL,VectorView<Color>(),0.0f);
+                if (list == RD::INVALID_ID) { FAIL("C R3 raw caster draw list"); return; }
+                rd->draw_list_bind_render_pipeline(list,caster_pipeline); rd->draw_list_bind_uniform_set(list,caster_set,0);
+                rd->draw_list_set_push_constant(list,&push,sizeof(push)); rd->draw_list_draw(list,false,1,6); rd->draw_list_end();
                 const auto pixels = rd->texture_get_data(target,0);
                 if (pixels.size() != 64*64*int(sizeof(float))) { FAIL("C R3 caster readback"); return; }
                 int covered=0; for (int i=0;i<64*64;++i) { float z; memcpy(&z,pixels.ptr()+i*sizeof(float),sizeof(float)); covered += z>0; }
