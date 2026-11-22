@@ -1377,25 +1377,23 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		return error;
 	}
 	const auto &info = reopened->get_info();
-	bool header_bounds_match = info.bounds == spec.bounds;
-	if (gsq) {
-		if (reopened_tree.nodes.is_empty()) {
-			return refuse(r_reason, "v4_reopen_identity", ERR_FILE_CORRUPT);
-		}
-		const auto &root = reopened_tree.nodes[0];
-		double center[3];
-		reopened_tree.node_cell_center(root, center);
-		header_bounds_match = true;
-		for (int a = 0; a < 3; ++a) {
-			const double lo = double(info.bounds.position[a]);
-			const double hi = lo + double(info.bounds.size[a]);
-			// Match the loader's endpoint arithmetic. GSQ may expand the header,
-			// but it must retain spec.bounds and enclose the final inflated root.
-			header_bounds_match = header_bounds_match && Math::is_finite(lo) && Math::is_finite(hi) &&
-					Math::is_finite(info.bounds.size[a]) && info.bounds.size[a] >= 0 &&
-					lo <= double(spec.bounds.position[a]) && hi >= double(spec.bounds.position[a]) + double(spec.bounds.size[a]) &&
-					lo <= center[a] + double(root.aabb_min[a]) && hi >= center[a] + double(root.aabb_max[a]);
-		}
+	if (reopened_tree.nodes.is_empty()) {
+		return refuse(r_reason, "v4_reopen_identity", ERR_FILE_CORRUPT);
+	}
+	// Every codec: the header may expand spec.bounds, but it must retain them
+	// and enclose the final root with the resource loader's endpoint arithmetic,
+	// so a bake can never complete on a tree ResourceLoader refuses.
+	const auto &root = reopened_tree.nodes[0];
+	double center[3];
+	reopened_tree.node_cell_center(root, center);
+	bool header_bounds_match = true;
+	for (int a = 0; a < 3; ++a) {
+		const double lo = double(info.bounds.position[a]);
+		const double hi = lo + double(info.bounds.size[a]);
+		header_bounds_match = header_bounds_match && Math::is_finite(lo) && Math::is_finite(hi) &&
+				Math::is_finite(info.bounds.size[a]) && info.bounds.size[a] >= 0 &&
+				lo <= double(spec.bounds.position[a]) && hi >= double(spec.bounds.position[a]) + double(spec.bounds.size[a]) &&
+				lo <= center[a] + double(root.aabb_min[a]) && hi >= center[a] + double(root.aabb_max[a]);
 	}
 	if (info.codec_id != p_options.codec.codec_id || info.node_count != spec.node_count || info.leaf_splat_count != spec.leaf_splat_count || info.interior_splat_count != spec.interior_splat_count ||
 			info.sh_high_order != spec.sh_high_order || info.sh_first_order != spec.sh_first_order || info.bake_rule_version != spec.bake_rule_version ||
