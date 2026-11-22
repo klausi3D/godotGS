@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `199` documented functions, `30` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `201` documented functions, `37` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -468,7 +468,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     </tr>
     <tr>
       <td><pre><code>gs_decode_instance_wind_mode(float encoded_mode)</code></pre></td>
-      <td>Decode the per-instance wind mode from the packed float value.</td>
+      <td>Decode the per-row wind mode from the packed float value.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_splat_wind_weight(uint semantic, float opacity, float encoded_mode)</code></pre></td>
+      <td>W-F: one decoding rule for depth, colour and casters, raw and quantized. Row intensity and effector position response are applied by their callers.</td>
     </tr>
     <tr>
       <td><pre><code>gs_is_wind_enabled_for_instance(float encoded_mode, vec4 wind_time_config)</code></pre></td>
@@ -1116,6 +1120,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_pack_sort_key64(float depth, uint tie_break)</code></pre></td>
       <td>Pack depth and tie-break data into a 64-bit sort key.</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_splat_identity.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_splat_identity.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_splat_identity_hash(uint node, uint local, uvec2 placement)</code></pre></td>
+      <td>History tag only: node is the baked node / asset-local chunk; placement is the full ObjectID.</td>
     </tr>
   </tbody>
 </table>
