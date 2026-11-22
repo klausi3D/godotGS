@@ -20,15 +20,17 @@ float gs_wind_lattice_value(ivec2 cell) {
     return float(value & 0x00FFFFFFu) / 16777215.0;
 }
 
+#ifdef GS_TESTS_ENABLED
+#ifdef GS_TEST_ADDRESS_WIND_PHASE
+// GS-GAME-1 W1 control only: the atlas address the restored address-keyed phase uses.
+uint gs_test_wind_atlas_address = 0u;
+#endif
+#endif
+
 // W-S world field: 32 m XZ lattice with smooth interpolation. Both world and
 // instance rows sample scene-space REST positions after rigid placement. Thus
 // a parent and its children, or different objects at the same point, see one
 // coherent gust field; atlas repacking and LOD replacement add no flutter.
-#ifdef GS_TESTS_ENABLED
-#ifdef GS_TEST_ADDRESS_WIND_PHASE
-uint gs_test_wind_atlas_address = 0u;
-#endif
-#endif
 float gs_wind_phase_noise(vec3 scene_rest_position) {
 #ifdef GS_TESTS_ENABLED
 #ifdef GS_TEST_ADDRESS_WIND_PHASE
