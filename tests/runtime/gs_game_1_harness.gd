@@ -572,7 +572,10 @@ func _atlas_pages(obs: Dictionary, nodes: Array, max_local: int = 64) -> Diction
 # under the O2 forcing control); a null list is treated as no drawn nodes.
 func _drawn_ids(obs: Dictionary) -> Array:
 	var ids = obs.get("stats", {}).get("hlod_drawn_node_ids")
-	return ids if ids is Array else []
+	# Published as a packed array or an Array; anything else (null) is none.
+	if ids is Array or ids is PackedInt32Array or ids is PackedInt64Array:
+		return Array(ids)
+	return []
 
 
 func _drawn_nodes(obs: Dictionary) -> Array:

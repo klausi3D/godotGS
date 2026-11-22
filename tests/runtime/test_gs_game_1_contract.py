@@ -229,7 +229,7 @@ class ContractTests(unittest.TestCase):
         # Local O2 control arm: hlod_drawn_node_ids was null at pose A, every
         # helper iterated it ("Unable to iterate on object of type 'Nil'") and
         # W3, O2 and W4 silently disappeared.
-        self.assertIn('return ids if ids is Array else []', self._harness_function("_drawn_ids"))
+        self.assertIn('if ids is Array or ids is PackedInt32Array or ids is PackedInt64Array:', self._harness_function("_drawn_ids"))
         rows = self._harness_function("_deformation_rows")
         self.assertIn('if _drawn_ids(obs).is_empty():', rows)
         self.assertIn('for row in ["W3", "O2", "W4"]:', rows)
