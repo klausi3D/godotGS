@@ -6,6 +6,7 @@
 #include "../io/resource_importer_ply.h"
 #include "../core/gaussian_splat_asset.h"
 #include "test_hlod_d2_auto_tree.h"
+#include "test_hlod_d2_tiled_bake.h"
 #include "test_gaussian_layout_fingerprint.h"
 #include "test_gs_world_writer_v4.h"
 #include "core/object/class_db.h"
@@ -435,4 +436,54 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][B2] auto-tree filters islands befo
     CHECK(manifest.get("regions", Array()) == Variant(regions)); CHECK(manifest.get("islands", Array()) == Variant(islands));
     CHECK(tree.leaf_splat_count < input_source.get_info().splat_count);
     for (const auto &node : tree.nodes) { CHECK((node.flags & (1u << 5)) != 0); CHECK(node.max_wind_weight == 0); }
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][B2] tiled bake through region and wind volumes keeps closed chunk bounds") {
+    // GS-GAME-1 run 45026893667 follow-up: semantic_job() volumes on the T0 world
+    // failed the tiled bake with error 30 (ERR_INVALID_DATA). One chunk whose first
+    // centre is x = -170.6667 and whose last is x = 0.01: an AABB grown with
+    // expand_to stores a float32 size whose get_end() is 0.0099945 < 0.01, so the
+    // advertised closed bounds exclude a centre the chunk then returns.
+    using namespace TestB2Bake;
+    TestHlodD2TiledBake::Input in = TestHlodD2TiledBake::make_input(2048, 1);
+    const uint32_t count = in.gaussians.size();
+    for (uint32_t i = 0; i < count; ++i) {
+        in.gaussians[i].position.x = i + 1 == count ? 0.01f : -170.6667f + 170.0f * float(i) / float(count);
+    }
+    {
+        AABB grown(in.gaussians[0].position, Vector3());
+        for (uint32_t i = 1; i < count; ++i) { grown.expand_to(in.gaussians[i].position); }
+        if (!(grown.get_end().x < in.gaussians[count - 1].position.x)) { FAIL("fixture no longer exercises float32 AABB end rounding"); return; }
+    }
+    TestHlodD2TiledBake::Source plain(in, false);
+    Dictionary region = box("region", "/near/region", "near");
+    Transform3D band; band.origin = Vector3(-128, 3, 3); region["transform"] = band; region["size"] = Vector3(96, 16, 16);
+    Dictionary wind = box("wind", "/near/wind", "near", 0.6f);
+    wind["transform"] = band; wind["size"] = Vector3(96, 16, 16);
+    Array volumes; volumes.push_back(region); volumes.push_back(wind);
+    gs_hlod::SemanticBakeSource semantics;
+    if (semantics.open(plain, volumes, Dictionary(), String()) != OK) { FAIL("semantic open: ", semantics.get_reason().utf8().get_data()); return; }
+    // The TiledBakeSource contract: every returned centre lies inside the closed
+    // centre_bounds [position, get_end()] the source advertised for that chunk.
+    for (uint32_t c = 0; c < semantics.get_info().chunk_count; ++c) {
+        gs_hlod::TiledBakeChunkInfo info; gs_hlod::TiledBakeChunk chunk;
+        if (semantics.get_chunk_info(c, info, nullptr) != OK || semantics.read_chunk(c, chunk, nullptr) != OK) { FAIL("semantic chunk read"); return; }
+        const Vector3 end = info.centre_bounds.get_end();
+        bool inside = true;
+        for (const Gaussian &g : chunk.gaussians) {
+            for (int a = 0; a < 3; ++a) { inside = inside && g.position[a] >= info.centre_bounds.position[a] && g.position[a] <= end[a]; }
+        }
+        CHECK_MESSAGE(inside, "semantic chunk centre outside its advertised closed bounds");
+    }
+    gs_hlod::BakeResult result; gs_hlod::TiledBakeReport report; String reason;
+    const Error error = gs_hlod::TiledAutoTree::build(semantics, TestHlodD2TiledBake::params(), result, report, &reason);
+    if (error != OK) { FAIL("tiled bake through semantic volumes: ", reason); return; }
+    CHECK(result.tree.leaf_splat_count == count);
+    uint32_t swaying = 0, keyed = 0;
+    for (uint32_t i = 0; i < result.leaf_gaussians.size(); ++i) {
+        const uint32_t semantic = result.leaf_gaussians[i].semantic;
+        swaying += gaussian_semantic_wind_weight(semantic) != 0 ? 1u : 0u;
+        keyed += gaussian_semantic_region(semantic) != 0 ? 1u : 0u;
+    }
+    CHECK(swaying > 0); CHECK(swaying < count); CHECK(keyed == swaying);
 }
