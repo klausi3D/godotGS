@@ -96,6 +96,7 @@ $(function(){initNavTree('namespacegs__wind.html','',''); });
 Functions</h2></td></tr>
 <tr class="memitem:ae9c841a3c7d0ec3b0e1a63dc20f37d04" id="r_ae9c841a3c7d0ec3b0e1a63dc20f37d04"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae9c841a3c7d0ec3b0e1a63dc20f37d04">fill_frame_params</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, double p_animation_time, <a class="el" href="structGaussianSplatting_1_1TileRenderParams.html">GaussianSplatting::TileRenderParams</a> &amp;r_params)</td></tr>
 <tr class="memitem:a5ac3c318763c31e7ebfedfafaf28eea7" id="r_a5ac3c318763c31e7ebfedfafaf28eea7"><td class="memItemLeft" align="right" valign="top">real_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5ac3c318763c31e7ebfedfafaf28eea7">local_visibility_margin</a> (double p_scene_margin, const Basis &amp;p_basis)</td></tr>
+<tr class="memitem:ad7a43404b70ff661b684ab1a4c59dd47" id="r_ad7a43404b70ff661b684ab1a4c59dd47"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad7a43404b70ff661b684ab1a4c59dd47">node_displacement_bound</a> (double p_d_max, uint8_t p_weight, bool p_semantic_valid)</td></tr>
 <tr class="memitem:a9ec15cd459c242292de195beaf8a5dba" id="r_a9ec15cd459c242292de195beaf8a5dba"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ec15cd459c242292de195beaf8a5dba">displacement_bound</a> (double p_strength, double p_intensity, double p_push)</td></tr>
 <tr class="memitem:a99de649db1a03e75903c32bd66e6f1f1" id="r_a99de649db1a03e75903c32bd66e6f1f1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a99de649db1a03e75903c32bd66e6f1f1">row_wind_enabled</a> (const <a class="el" href="structgs_1_1settings_1_1GSWindSettings.html">gs::settings::GSWindSettings</a> &amp;p_settings, const <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &amp;p_row)</td></tr>
 <tr class="memitem:a7e6a5b670116c2422b70fb087e0c5ba8" id="r_a7e6a5b670116c2422b70fb087e0c5ba8"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7e6a5b670116c2422b70fb087e0c5ba8">wind_active_on_casting_row</a> (const <a class="el" href="structgs_1_1settings_1_1GSWindSettings.html">gs::settings::GSWindSettings</a> &amp;p_settings, const <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &amp;p_row, bool p_casts)</td></tr>
@@ -233,6 +234,40 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const Basis &amp;</td>          <td class="paramname"><span class="paramname"><em>p_basis</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad7a43404b70ff661b684ab1a4c59dd47" name="ad7a43404b70ff661b684ab1a4c59dd47"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad7a43404b70ff661b684ab1a4c59dd47">&#9670;&#160;</a></span>node_displacement_bound()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">double gs_wind::node_displacement_bound </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_d_max</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>p_weight</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_semantic_valid</em></span>&#160;)</td>
         </tr>
       </table>
   </td>

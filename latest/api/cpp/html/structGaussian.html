@@ -108,7 +108,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:aa6ab92903873493ed6755a67dbd7ca5a" id="r_aa6ab92903873493ed6755a67dbd7ca5a"><td class="memItemLeft" align="right" valign="top">Vector3&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa6ab92903873493ed6755a67dbd7ca5a">sh_1</a> [3] = {}</td></tr>
 <tr class="memitem:a66aa515b3549ef8892dbc9f2fa6b19ca" id="r_a66aa515b3549ef8892dbc9f2fa6b19ca"><td class="memItemLeft" align="right" valign="top">Vector3&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a66aa515b3549ef8892dbc9f2fa6b19ca">normal</a></td></tr>
 <tr class="memitem:a7315428323f8d78b6d3d5b20357a0b65" id="r_a7315428323f8d78b6d3d5b20357a0b65"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7315428323f8d78b6d3d5b20357a0b65">stroke_age</a> = 0.0f</td></tr>
-<tr class="memitem:afb765308d33f5a282e4d9feea509e80b" id="r_afb765308d33f5a282e4d9feea509e80b"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afb765308d33f5a282e4d9feea509e80b">_padding</a> = 0.0f</td></tr>
+<tr class="memitem:af86abc2998f52ddda7955457d2ee7820" id="r_af86abc2998f52ddda7955457d2ee7820"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af86abc2998f52ddda7955457d2ee7820">semantic</a> = 0</td></tr>
 <tr class="memitem:a188ec6841b6fbac05fe7420dbdd33157" id="r_a188ec6841b6fbac05fe7420dbdd33157"><td class="memItemLeft" align="right" valign="top">Vector2&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a188ec6841b6fbac05fe7420dbdd33157">brush_axes</a></td></tr>
 <tr class="memitem:afdba8d5121e0577b45e7bd558f421f04" id="r_afdba8d5121e0577b45e7bd558f421f04"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afdba8d5121e0577b45e7bd558f421f04">painterly_meta</a> = 0</td></tr>
 <tr class="memitem:a70302f3f7c29a5f27c916f37aa62cfe9" id="r_a70302f3f7c29a5f27c916f37aa62cfe9"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a70302f3f7c29a5f27c916f37aa62cfe9">render_meta</a> = 0</td></tr>
@@ -119,20 +119,6 @@ Public Attributes</h2></td></tr>
 <p>This struct is designed for direct GPU upload with std430 layout compatibility. It packs all per-splat data needed by the tile-based rasterizer including position, orientation, spherical harmonics, and painterly extensions.</p>
 <dl class="section user"><dt>Note: Must remain 16-byte aligned (144 bytes total). Do not reorder fields</dt><dd>without updating the corresponding GLSL struct definition. </dd></dl>
 </div><a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
-<a id="afb765308d33f5a282e4d9feea509e80b" name="afb765308d33f5a282e4d9feea509e80b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afb765308d33f5a282e4d9feea509e80b">&#9670;&#160;</a></span>_padding</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">float Gaussian::_padding = 0.0f</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="ab201ff5be83cf946b451acf41a33a51a" name="ab201ff5be83cf946b451acf41a33a51a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ab201ff5be83cf946b451acf41a33a51a">&#9670;&#160;</a></span>_padding2</h2>
 
@@ -267,6 +253,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">Vector3 Gaussian::scale</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af86abc2998f52ddda7955457d2ee7820" name="af86abc2998f52ddda7955457d2ee7820"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af86abc2998f52ddda7955457d2ee7820">&#9670;&#160;</a></span>semantic</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t Gaussian::semantic = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -215,6 +215,7 @@ var annotated_dup =
         [ "PlanNode", "structgs__hlod_1_1tiled__bake_1_1PlanNode.html", "structgs__hlod_1_1tiled__bake_1_1PlanNode" ],
         [ "Context", "structgs__hlod_1_1tiled__bake_1_1Context.html", "structgs__hlod_1_1tiled__bake_1_1Context" ]
       ] ],
+      [ "SemanticBakeSource", "classgs__hlod_1_1SemanticBakeSource.html", "classgs__hlod_1_1SemanticBakeSource" ],
       [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
       [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
       [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],
@@ -320,6 +321,10 @@ var annotated_dup =
     ] ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", [
       [ "ReadbackPolicy", "structgs__sort__policy_1_1ReadbackPolicy.html", "structgs__sort__policy_1_1ReadbackPolicy" ]
+    ] ],
+    [ "gs_splat_identity", "namespacegs__splat__identity.html", [
+      [ "Layout", "structgs__splat__identity_1_1Layout.html", "structgs__splat__identity_1_1Layout" ],
+      [ "WorldLayout", "structgs__splat__identity_1_1WorldLayout.html", "structgs__splat__identity_1_1WorldLayout" ]
     ] ],
     [ "gs_streaming_pool_growth", "namespacegs__streaming__pool__growth.html", [
       [ "GrowInputs", "structgs__streaming__pool__growth_1_1GrowInputs.html", "structgs__streaming__pool__growth_1_1GrowInputs" ]
@@ -443,10 +448,12 @@ var annotated_dup =
     [ "GaussianMemoryStream", "classGaussianMemoryStream.html", "classGaussianMemoryStream" ],
     [ "GaussianRenderingDiagnostics", "classGaussianRenderingDiagnostics.html", "classGaussianRenderingDiagnostics" ],
     [ "GaussianSplatAsset", "classGaussianSplatAsset.html", "classGaussianSplatAsset" ],
+    [ "GaussianSplatBakeVolume3D", "classGaussianSplatBakeVolume3D.html", "classGaussianSplatBakeVolume3D" ],
     [ "GaussianSplatConfigRegistry", "classGaussianSplatConfigRegistry.html", null ],
     [ "GaussianSplatContainer", "classGaussianSplatContainer.html", "classGaussianSplatContainer" ],
     [ "GaussianSplatDebugHUD", "classGaussianSplatDebugHUD.html", "classGaussianSplatDebugHUD" ],
     [ "GaussianSplatDynamicInstance3D", "classGaussianSplatDynamicInstance3D.html", "classGaussianSplatDynamicInstance3D" ],
+    [ "GaussianSplatDynamicIslandVolume3D", "classGaussianSplatDynamicIslandVolume3D.html", "classGaussianSplatDynamicIslandVolume3D" ],
     [ "GaussianSplatHlodAutoTree", "classGaussianSplatHlodAutoTree.html", null ],
     [ "GaussianSplatHlodBakeStats", "structGaussianSplatHlodBakeStats.html", "structGaussianSplatHlodBakeStats" ],
     [ "GaussianSplatHlodCell", "structGaussianSplatHlodCell.html", "structGaussianSplatHlodCell" ],
@@ -466,10 +473,13 @@ var annotated_dup =
     [ "GaussianSplatNodeViewportHelper", "classGaussianSplatNodeViewportHelper.html", "classGaussianSplatNodeViewportHelper" ],
     [ "GaussianSplatNodeVisibilityHelper", "classGaussianSplatNodeVisibilityHelper.html", "classGaussianSplatNodeVisibilityHelper" ],
     [ "GaussianSplatPerformanceOverlay", "classGaussianSplatPerformanceOverlay.html", "classGaussianSplatPerformanceOverlay" ],
+    [ "GaussianSplatRegionOverride", "classGaussianSplatRegionOverride.html", "classGaussianSplatRegionOverride" ],
+    [ "GaussianSplatRegionVolume3D", "classGaussianSplatRegionVolume3D.html", "classGaussianSplatRegionVolume3D" ],
     [ "GaussianSplatRenderer", "classGaussianSplatRenderer.html", "classGaussianSplatRenderer" ],
     [ "GaussianSplatSceneDirector", "classGaussianSplatSceneDirector.html", "classGaussianSplatSceneDirector" ],
     [ "GaussianSplatSettingsManager", "classGaussianSplatSettingsManager.html", "classGaussianSplatSettingsManager" ],
     [ "GaussianSplattingPerformanceMonitors", "classGaussianSplattingPerformanceMonitors.html", "classGaussianSplattingPerformanceMonitors" ],
+    [ "GaussianSplatWindVolume3D", "classGaussianSplatWindVolume3D.html", "classGaussianSplatWindVolume3D" ],
     [ "GaussianSplatWorld", "classGaussianSplatWorld.html", "classGaussianSplatWorld" ],
     [ "GaussianSplatWorld3D", "classGaussianSplatWorld3D.html", "classGaussianSplatWorld3D" ],
     [ "GaussianSplatWorldGenerator", "classGaussianSplatWorldGenerator.html", null ],
@@ -488,6 +498,8 @@ var annotated_dup =
     [ "GsOverlayStatsDispatcher", "classGsOverlayStatsDispatcher.html", "classGsOverlayStatsDispatcher" ],
     [ "GsqAutoTreeSource", "classGsqAutoTreeSource.html", "classGsqAutoTreeSource" ],
     [ "GsqPagedChunkPayloadSource", "classGsqPagedChunkPayloadSource.html", "classGsqPagedChunkPayloadSource" ],
+    [ "GSRegionOverrideBuffer", "classGSRegionOverrideBuffer.html", "classGSRegionOverrideBuffer" ],
+    [ "GSRegionOverrideState", "classGSRegionOverrideState.html", "classGSRegionOverrideState" ],
     [ "GSSceneDepthLinearize", "structGSSceneDepthLinearize.html", "structGSSceneDepthLinearize" ],
     [ "GsSplatShadowCaster", "classGsSplatShadowCaster.html", "classGsSplatShadowCaster" ],
     [ "GSStartupTrace", "classGSStartupTrace.html", "classGSStartupTrace" ],
@@ -573,6 +585,7 @@ var annotated_dup =
     [ "RasterPerformance", "structRasterPerformance.html", "structRasterPerformance" ],
     [ "RasterResult", "structRasterResult.html", "structRasterResult" ],
     [ "RasterStats", "structRasterStats.html", "structRasterStats" ],
+    [ "RegionOverrideGPU", "structRegionOverrideGPU.html", "structRegionOverrideGPU" ],
     [ "RenderConfigOrchestrator", "classRenderConfigOrchestrator.html", "classRenderConfigOrchestrator" ],
     [ "RenderDataOrchestrator", "classRenderDataOrchestrator.html", "classRenderDataOrchestrator" ],
     [ "RenderDebugStateOrchestrator", "classRenderDebugStateOrchestrator.html", "classRenderDebugStateOrchestrator" ],

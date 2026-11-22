@@ -820,6 +820,10 @@ Internal State Access</h2></td></tr>
 <tr class="memitem:ab57a33225397870f43dad6c28daffe0b" id="r_ab57a33225397870f43dad6c28daffe0b"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab57a33225397870f43dad6c28daffe0b">apply_world_submission_contract</a> (const <a class="el" href="#a6860e9928bfe7b996cdc5249232e90e6">WorldSubmissionContract</a> &amp;p_contract)</td></tr>
 <tr class="memitem:adc55483a7604e418ab2c0c7f1e1e6f41" id="r_adc55483a7604e418ab2c0c7f1e1e6f41"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc55483a7604e418ab2c0c7f1e1e6f41">clear_world_submission_contract</a> ()</td></tr>
 <tr class="memitem:a6b36bd0af8c431e211f882b63415b5fe" id="r_a6b36bd0af8c431e211f882b63415b5fe"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6b36bd0af8c431e211f882b63415b5fe">update_instance_buffer</a> (LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;p_instances, const <a class="el" href="#a850e05e36aa427ee0147488a340b1da9">PublishedInstanceAssetRemap</a> &amp;p_remap, const LocalVector&lt; uint64_t &gt; *p_submission_asset_ids=nullptr)</td></tr>
+<tr class="memitem:a2f35a89a5cc11e15f01fe3e698c3a7d5" id="r_a2f35a89a5cc11e15f01fe3e698c3a7d5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2f35a89a5cc11e15f01fe3e698c3a7d5">sync_region_overrides</a> ()</td></tr>
+<tr class="memitem:a0284bb38800b1d5f076582cf15f1463b" id="r_a0284bb38800b1d5f076582cf15f1463b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0284bb38800b1d5f076582cf15f1463b">prepare_region_override_rows</a> (LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;p_rows)</td></tr>
+<tr class="memitem:a9468e7cae99e794b334747a29906e3c5" id="r_a9468e7cae99e794b334747a29906e3c5"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9468e7cae99e794b334747a29906e3c5">get_region_override_revision</a> () const</td></tr>
+<tr class="memitem:a19a0a7a92a177b7f4629ae2aa4b2174a" id="r_a19a0a7a92a177b7f4629ae2aa4b2174a"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a19a0a7a92a177b7f4629ae2aa4b2174a">get_region_override_buffer</a> () const</td></tr>
 <tr class="memitem:a31d856ec0a912cf13e4b7da56f142b35" id="r_a31d856ec0a912cf13e4b7da56f142b35"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31d856ec0a912cf13e4b7da56f142b35">update_instance_grading_buffer</a> (const LocalVector&lt; <a class="el" href="structInstanceGradingGPU.html">InstanceGradingGPU</a> &gt; &amp;p_gradings)</td></tr>
 <tr class="memitem:aefaeb7dbd2c3bf88487468fb4f85a274" id="r_aefaeb7dbd2c3bf88487468fb4f85a274"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aefaeb7dbd2c3bf88487468fb4f85a274">ensure_rendering_device</a> (const char *p_context)</td></tr>
 <tr class="memitem:a68b4ef12bc5264efe14f4505cda0077b" id="r_a68b4ef12bc5264efe14f4505cda0077b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a68b4ef12bc5264efe14f4505cda0077b">ensure_submission_device</a> (const char *p_context)</td></tr>
@@ -6890,6 +6894,56 @@ Usage</h2>
 
 </div>
 </div>
+<a id="a19a0a7a92a177b7f4629ae2aa4b2174a" name="a19a0a7a92a177b7f4629ae2aa4b2174a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a19a0a7a92a177b7f4629ae2aa4b2174a">&#9670;&#160;</a></span>get_region_override_buffer()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">RID GaussianSplatRenderer::get_region_override_buffer </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9468e7cae99e794b334747a29906e3c5" name="a9468e7cae99e794b334747a29906e3c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9468e7cae99e794b334747a29906e3c5">&#9670;&#160;</a></span>get_region_override_revision()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatRenderer::get_region_override_revision </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a61beb81f94cc9b0275a7a571d772c62e" name="a61beb81f94cc9b0275a7a571d772c62e"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a61beb81f94cc9b0275a7a571d772c62e">&#9670;&#160;</a></span>get_render_config() <span class="overload">[1/2]</span></h2>
 
@@ -8675,6 +8729,23 @@ Usage</h2>
 <span class="mlabels"><span class="mlabel static">static</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0284bb38800b1d5f076582cf15f1463b" name="a0284bb38800b1d5f076582cf15f1463b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0284bb38800b1d5f076582cf15f1463b">&#9670;&#160;</a></span>prepare_region_override_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatRenderer::prepare_region_override_rows </td>
+          <td>(</td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_rows</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -11714,6 +11785,23 @@ Usage</h2>
 <span class="mlabels"><span class="mlabel static">static</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2f35a89a5cc11e15f01fe3e698c3a7d5" name="a2f35a89a5cc11e15f01fe3e698c3a7d5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2f35a89a5cc11e15f01fe3e698c3a7d5">&#9670;&#160;</a></span>sync_region_overrides()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatRenderer::sync_region_overrides </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

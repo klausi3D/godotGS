@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['zerovisiblerecoverymode_0',['ZeroVisibleRecoveryMode',['../classStreamingVisibilityController.html#aabd7df95102825eff5057879c2926d88',1,'StreamingVisibilityController']]]
+  ['windmode_0',['WindMode',['../classGaussianSplatWorld3D.html#a58bbe6ad2ae2ab36eebc4a87c5c38325',1,'GaussianSplatWorld3D']]]
 ];

@@ -25,7 +25,9 @@ digraph "painterly_manager.h"
   Node10 [id="Node000010",label="gaussian_splat_node\l_helpers.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__node__helpers_8cpp.html",tooltip=" "];
   Node2 -> Node11 [id="edge10_Node000002_Node000011",dir="back",color="steelblue1",style="solid",tooltip=" "];
   Node11 [id="Node000011",label="gaussian_splat_performance\l_overlay.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__performance__overlay_8cpp.html",tooltip=" "];
-  Node2 -> Node7 [id="edge11_Node000002_Node000007",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node12 [id="edge12_Node000001_Node000012",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node12 [id="Node000012",label="painterly_manager.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$painterly__manager_8cpp.html",tooltip=" "];
+  Node2 -> Node12 [id="edge11_Node000002_Node000012",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node12 [id="Node000012",label="gaussian_splat_world\l_3d.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__world__3d_8cpp.html",tooltip=" "];
+  Node2 -> Node7 [id="edge12_Node000002_Node000007",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node13 [id="edge13_Node000001_Node000013",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node13 [id="Node000013",label="painterly_manager.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$painterly__manager_8cpp.html",tooltip=" "];
 }

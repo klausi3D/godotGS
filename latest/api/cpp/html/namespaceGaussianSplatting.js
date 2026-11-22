@@ -3,7 +3,7 @@ var namespaceGaussianSplatting =
     [ "ComputeInfrastructure", "namespaceGaussianSplatting_1_1ComputeInfrastructure.html", "namespaceGaussianSplatting_1_1ComputeInfrastructure" ],
     [ "ScenePayload", "namespaceGaussianSplatting_1_1ScenePayload.html", [
       [ "decode", "namespaceGaussianSplatting_1_1ScenePayload.html#a7a143bdd88a3ce772d60ac16133b0313", null ],
-      [ "decode_record", "namespaceGaussianSplatting_1_1ScenePayload.html#a59ddd16a71c25074f21dcdfd5585742c", null ],
+      [ "decode_record", "namespaceGaussianSplatting_1_1ScenePayload.html#a8bc4d6f347e1d745459498cfa5737ccc", null ],
       [ "degree_for_layout", "namespaceGaussianSplatting_1_1ScenePayload.html#a888583c6e41c464e75bf2479fcb92232", null ],
       [ "encode", "namespaceGaussianSplatting_1_1ScenePayload.html#aefd30d2b1b759a0963db5c0a679388d6", null ],
       [ "encode_record", "namespaceGaussianSplatting_1_1ScenePayload.html#abfcadee9379b5fd769c53dc036a799c6", null ],

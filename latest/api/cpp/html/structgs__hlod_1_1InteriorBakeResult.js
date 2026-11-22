@@ -4,5 +4,7 @@ var structgs__hlod_1_1InteriorBakeResult =
     [ "geometric_error", "structgs__hlod_1_1InteriorBakeResult.html#a006a049e2db08aec4dd7522dcd1ca4d4", null ],
     [ "merge_usec", "structgs__hlod_1_1InteriorBakeResult.html#aecfa7404bf92078f7a239d6d5f4e2293", null ],
     [ "order_usec", "structgs__hlod_1_1InteriorBakeResult.html#a166b1c64c0e3bf2c05320b414703f37a", null ],
-    [ "payload", "structgs__hlod_1_1InteriorBakeResult.html#a0b7ea1e942431144e9aba4dbaa6d8dda", null ]
+    [ "payload", "structgs__hlod_1_1InteriorBakeResult.html#a0b7ea1e942431144e9aba4dbaa6d8dda", null ],
+    [ "region_keyed_interior_bytes", "structgs__hlod_1_1InteriorBakeResult.html#a6a5578b24701f01c52fb051ae2f1ce60", null ],
+    [ "single_region_interior_bytes", "structgs__hlod_1_1InteriorBakeResult.html#a23c7ab34461adc8016fbd015c3ca9308", null ]
 ];

@@ -7,6 +7,7 @@ var structgs__world__paged_1_1HeaderFields =
     [ "content_generation", "structgs__world__paged_1_1HeaderFields.html#af5ffd9ecbbecb05f2c1ce19f5e8f3dca", null ],
     [ "file_bytes", "structgs__world__paged_1_1HeaderFields.html#a1db3330b5dbae3c8ddb911e78a2fd46f", null ],
     [ "flags", "structgs__world__paged_1_1HeaderFields.html#a06c8a7f7a3f876b1f8341889df1318b3", null ],
+    [ "gaussian_layout_version", "structgs__world__paged_1_1HeaderFields.html#af13b522f0498b457dabc4c0591093050", null ],
     [ "index_digest", "structgs__world__paged_1_1HeaderFields.html#a4f03aad01135fadb4208c910e16a2f22", null ],
     [ "index_offset", "structgs__world__paged_1_1HeaderFields.html#aa82800b7d52aea2ffaf3e54e9da16243", null ],
     [ "index_page_count", "structgs__world__paged_1_1HeaderFields.html#abda97c5a6ab2d6e1fa9af71c36975ea1", null ],

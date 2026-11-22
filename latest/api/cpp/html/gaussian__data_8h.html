@@ -117,6 +117,7 @@ $(function(){initNavTree('gaussian__data_8h.html','',''); });
 <code>#include &lt;cstdint&gt;</code><br />
 <code>#include &lt;cstring&gt;</code><br />
 <code>#include &lt;type_traits&gt;</code><br />
+<code>#include &quot;<a class="el" href="gaussian__semantic_8h_source.html">gaussian_semantic.h</a>&quot;</code><br />
 </div><div class="textblock"><div class="dynheader">
 Include dependency graph for gaussian_data.h:</div>
 <div class="dyncontent">
@@ -162,6 +163,8 @@ Functions</h2></td></tr>
 <tr class="memitem:a69e24d569ea7bddb28c87ead23ef6dfb" id="r_a69e24d569ea7bddb28c87ead23ef6dfb"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a69e24d569ea7bddb28c87ead23ef6dfb">gaussian_set_dc_encoding</a> (uint32_t p_render_meta, <a class="el" href="#a7d43196e7d886b261b2e1e6f02485e40">GaussianDCEncoding</a> p_encoding)</td></tr>
 <tr class="memitem:a4ed09a3555bd001509f2fcc4d3d7708d" id="r_a4ed09a3555bd001509f2fcc4d3d7708d"><td class="memItemLeft" align="right" valign="top">constexpr <a class="el" href="#a7d43196e7d886b261b2e1e6f02485e40">GaussianDCEncoding</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4ed09a3555bd001509f2fcc4d3d7708d">gaussian_get_dc_encoding</a> (uint32_t p_render_meta)</td></tr>
 <tr class="memitem:a7d6a99be77503f63120a148ef821e348" id="r_a7d6a99be77503f63120a148ef821e348"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7d6a99be77503f63120a148ef821e348">gaussian_resolve_persisted_layout_version</a> (uint32_t p_recorded)</td></tr>
+<tr class="memitem:a181ebda556174924ca0476bb7da325f3" id="r_a181ebda556174924ca0476bb7da325f3"><td class="memItemLeft" align="right" valign="top">constexpr bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a181ebda556174924ca0476bb7da325f3">gaussian_persisted_layout_supported</a> (uint32_t p_layout)</td></tr>
+<tr class="memitem:a4dd8e11f1aaa191124ded32ffe43c4ea" id="r_a4dd8e11f1aaa191124ded32ffe43c4ea"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4dd8e11f1aaa191124ded32ffe43c4ea">gaussian_prepare_persisted_payload</a> (<a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, uint32_t p_count, uint32_t p_layout, String *r_reason=nullptr)</td></tr>
 <tr class="memitem:a533a7806627468395bb5245da74e9770" id="r_a533a7806627468395bb5245da74e9770"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a533a7806627468395bb5245da74e9770">GS_PIN_GAUSSIAN_FIELD</a> (position, Vector3, 0)</td></tr>
 <tr class="memitem:a8d2972fb37dd30d97c6717ee4cf4bc12" id="r_a8d2972fb37dd30d97c6717ee4cf4bc12"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8d2972fb37dd30d97c6717ee4cf4bc12">GS_PIN_GAUSSIAN_FIELD</a> (opacity, float, 12)</td></tr>
 <tr class="memitem:af21cfad033b13505fe13a8b638f7ebf7" id="r_af21cfad033b13505fe13a8b638f7ebf7"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af21cfad033b13505fe13a8b638f7ebf7">GS_PIN_GAUSSIAN_FIELD</a> (scale, Vector3, 16)</td></tr>
@@ -171,7 +174,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a5aa7d96484b5a14b81ce0ac62b842d79" id="r_a5aa7d96484b5a14b81ce0ac62b842d79"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5aa7d96484b5a14b81ce0ac62b842d79">GS_PIN_GAUSSIAN_FIELD</a> (sh_1, Vector3[3], 64)</td></tr>
 <tr class="memitem:a7ef90250ef64405b44fa2cd114bb614c" id="r_a7ef90250ef64405b44fa2cd114bb614c"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7ef90250ef64405b44fa2cd114bb614c">GS_PIN_GAUSSIAN_FIELD</a> (normal, Vector3, 100)</td></tr>
 <tr class="memitem:ae86c982b9001bcf0b2d30ab524e3ac4a" id="r_ae86c982b9001bcf0b2d30ab524e3ac4a"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae86c982b9001bcf0b2d30ab524e3ac4a">GS_PIN_GAUSSIAN_FIELD</a> (stroke_age, float, 112)</td></tr>
-<tr class="memitem:aca7c9298bdf56e2dc1d4803fc128a176" id="r_aca7c9298bdf56e2dc1d4803fc128a176"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca7c9298bdf56e2dc1d4803fc128a176">GS_PIN_GAUSSIAN_FIELD</a> (_padding, float, 116)</td></tr>
+<tr class="memitem:a54020e49131b6194209bff7fb9c7e759" id="r_a54020e49131b6194209bff7fb9c7e759"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a54020e49131b6194209bff7fb9c7e759">GS_PIN_GAUSSIAN_FIELD</a> (semantic, uint32_t, 116)</td></tr>
 <tr class="memitem:aea2bef208caa46ae297294015df3f764" id="r_aea2bef208caa46ae297294015df3f764"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aea2bef208caa46ae297294015df3f764">GS_PIN_GAUSSIAN_FIELD</a> (brush_axes, Vector2, 120)</td></tr>
 <tr class="memitem:a83fdaa9fd0ec291ff497cb447031c52d" id="r_a83fdaa9fd0ec291ff497cb447031c52d"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a83fdaa9fd0ec291ff497cb447031c52d">GS_PIN_GAUSSIAN_FIELD</a> (painterly_meta, uint32_t, 128)</td></tr>
 <tr class="memitem:a82ba510852ed8dfb2c499357e09b2d25" id="r_a82ba510852ed8dfb2c499357e09b2d25"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a82ba510852ed8dfb2c499357e09b2d25">GS_PIN_GAUSSIAN_FIELD</a> (render_meta, uint32_t, 132)</td></tr>
@@ -224,7 +227,7 @@ Functions</h2></td></tr>
 <div class="line">            <span class="stringliteral">&quot;Gaussian::&quot;</span> #m_field <span class="stringliteral">&quot; moved: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)&quot;</span>); \</div>
 <div class="line">    static_assert(std::is_same&lt;<span class="keyword">decltype</span>(Gaussian::m_field), m_type&gt;::value, \</div>
 <div class="line">            <span class="stringliteral">&quot;Gaussian::&quot;</span> #m_field <span class="stringliteral">&quot; changed type: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)&quot;</span>)</div>
-<div class="ttc" id="astructGaussian_html"><div class="ttname"><a href="structGaussian.html">Gaussian</a></div><div class="ttdoc">GPU-aligned structure for efficient splat rendering.</div><div class="ttdef"><b>Definition</b> gaussian_data.h:159</div></div>
+<div class="ttc" id="astructGaussian_html"><div class="ttname"><a href="structGaussian.html">Gaussian</a></div><div class="ttdoc">GPU-aligned structure for efficient splat rendering.</div><div class="ttdef"><b>Definition</b> gaussian_data.h:162</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -411,6 +414,70 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>Packed metadata value for <a class="el" href="structGaussian.html#afdba8d5121e0577b45e7bd558f421f04">Gaussian::painterly_meta</a>. </dd></dl>
+
+</div>
+</div>
+<a id="a181ebda556174924ca0476bb7da325f3" name="a181ebda556174924ca0476bb7da325f3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a181ebda556174924ca0476bb7da325f3">&#9670;&#160;</a></span>gaussian_persisted_layout_supported()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gaussian_persisted_layout_supported </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_layout</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4dd8e11f1aaa191124ded32ffe43c4ea" name="a4dd8e11f1aaa191124ded32ffe43c4ea"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4dd8e11f1aaa191124ded32ffe43c4ea">&#9670;&#160;</a></span>gaussian_prepare_persisted_payload()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gaussian_prepare_persisted_payload </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structGaussian.html">Gaussian</a> *</td>          <td class="paramname"><span class="paramname"><em>p_gaussians</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_layout</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">String *</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -613,34 +680,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="aca7c9298bdf56e2dc1d4803fc128a176" name="aca7c9298bdf56e2dc1d4803fc128a176"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aca7c9298bdf56e2dc1d4803fc128a176">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[1/14]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">GS_PIN_GAUSSIAN_FIELD </td>
-          <td>(</td>
-          <td class="paramtype">_padding</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">116</td>          <td class="paramname"><span class="paramname"><em></em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="ace336ddbda301dfca8280e261a814f1d" name="ace336ddbda301dfca8280e261a814f1d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ace336ddbda301dfca8280e261a814f1d">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[2/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#ace336ddbda301dfca8280e261a814f1d">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[1/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -666,7 +707,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="a3a7c6d0cedbe6493dedf01cbf6cd8a72" name="a3a7c6d0cedbe6493dedf01cbf6cd8a72"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3a7c6d0cedbe6493dedf01cbf6cd8a72">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[3/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a3a7c6d0cedbe6493dedf01cbf6cd8a72">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[2/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -692,7 +733,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="aea2bef208caa46ae297294015df3f764" name="aea2bef208caa46ae297294015df3f764"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aea2bef208caa46ae297294015df3f764">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[4/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#aea2bef208caa46ae297294015df3f764">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[3/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -718,7 +759,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="a7ef90250ef64405b44fa2cd114bb614c" name="a7ef90250ef64405b44fa2cd114bb614c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7ef90250ef64405b44fa2cd114bb614c">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[5/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a7ef90250ef64405b44fa2cd114bb614c">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[4/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -744,7 +785,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="a8d2972fb37dd30d97c6717ee4cf4bc12" name="a8d2972fb37dd30d97c6717ee4cf4bc12"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8d2972fb37dd30d97c6717ee4cf4bc12">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[6/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a8d2972fb37dd30d97c6717ee4cf4bc12">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[5/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -770,7 +811,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="a83fdaa9fd0ec291ff497cb447031c52d" name="a83fdaa9fd0ec291ff497cb447031c52d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a83fdaa9fd0ec291ff497cb447031c52d">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[7/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a83fdaa9fd0ec291ff497cb447031c52d">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[6/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -796,7 +837,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="a533a7806627468395bb5245da74e9770" name="a533a7806627468395bb5245da74e9770"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a533a7806627468395bb5245da74e9770">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[8/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a533a7806627468395bb5245da74e9770">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[7/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -822,7 +863,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="a82ba510852ed8dfb2c499357e09b2d25" name="a82ba510852ed8dfb2c499357e09b2d25"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a82ba510852ed8dfb2c499357e09b2d25">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[9/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a82ba510852ed8dfb2c499357e09b2d25">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[8/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -848,7 +889,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="acd613e95cf5f860185652837e280f877" name="acd613e95cf5f860185652837e280f877"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acd613e95cf5f860185652837e280f877">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[10/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#acd613e95cf5f860185652837e280f877">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[9/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -874,7 +915,7 @@ Functions</h2></td></tr>
 </div>
 </div>
 <a id="af21cfad033b13505fe13a8b638f7ebf7" name="af21cfad033b13505fe13a8b638f7ebf7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af21cfad033b13505fe13a8b638f7ebf7">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[11/14]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#af21cfad033b13505fe13a8b638f7ebf7">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[10/14]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -893,6 +934,32 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">16</td>          <td class="paramname"><span class="paramname"><em></em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a54020e49131b6194209bff7fb9c7e759" name="a54020e49131b6194209bff7fb9c7e759"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a54020e49131b6194209bff7fb9c7e759">&#9670;&#160;</a></span>GS_PIN_GAUSSIAN_FIELD() <span class="overload">[11/14]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">GS_PIN_GAUSSIAN_FIELD </td>
+          <td>(</td>
+          <td class="paramtype">semantic</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">116</td>          <td class="paramname"><span class="paramname"><em></em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

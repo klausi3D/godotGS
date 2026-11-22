@@ -10,7 +10,9 @@ var gs__project__settings_8h =
     ] ],
     [ "gs::settings::get_hlod_runtime_cut_enabled", "namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2", null ],
     [ "gs::settings::get_hlod_tau_px", "namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0", null ],
+    [ "gs::settings::REGION_WIND_ENABLED_PROPERTY", "namespacegs_1_1settings.html#a4f906fcb1a752c90c5d062aa4a756215", null ],
     [ "gs::settings::WIND_ENABLED_PATH", "namespacegs_1_1settings.html#aa88dc1e7b4b78333bebd3786020f8f7f", null ],
-    [ "gs::settings::WORLD_WIND_ENABLED_PROPERTY", "namespacegs_1_1settings.html#a7534176ea5847b02f5a8ba411d3333b5", null ],
-    [ "gs::settings::WORLD_WIND_INTENSITY_PROPERTY", "namespacegs_1_1settings.html#abb5e26ec48228190914e0edb88c6af6e", null ]
+    [ "gs::settings::WIND_WEIGHT_PROPERTY", "namespacegs_1_1settings.html#a50461f851713d4c8fac1bb7def85a859", null ],
+    [ "gs::settings::WORLD_WIND_INTENSITY_PROPERTY", "namespacegs_1_1settings.html#abb5e26ec48228190914e0edb88c6af6e", null ],
+    [ "gs::settings::WORLD_WIND_MODE_PROPERTY", "namespacegs_1_1settings.html#ad6779fd9bb6584d646d7eb075434f91c", null ]
 ];

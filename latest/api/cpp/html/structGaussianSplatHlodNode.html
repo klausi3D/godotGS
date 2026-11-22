@@ -101,6 +101,7 @@ Collaboration diagram for GaussianSplatHlodNode:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
+<tr class="memitem:a45f55bc8734d37fe015cf5fa7130f2a9" id="r_a45f55bc8734d37fe015cf5fa7130f2a9"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a45f55bc8734d37fe015cf5fa7130f2a9">is_semantic_valid</a> () const</td></tr>
 <tr class="memitem:ab391a07ba9403107e7de52467e609a14" id="r_ab391a07ba9403107e7de52467e609a14"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespacegs__hlod.html#a61d31a5975aafd0c45fedcf727c40262">gs_hlod::NodeKind</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab391a07ba9403107e7de52467e609a14">get_kind</a> () const</td></tr>
 <tr class="memitem:a80565b1ad094310027377654a6ae35c5" id="r_a80565b1ad094310027377654a6ae35c5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a80565b1ad094310027377654a6ae35c5">is_leaf</a> () const</td></tr>
 </table><table class="memberdecls">
@@ -121,6 +122,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a2131d58aab0d29114037c5b5b2cb6325" id="r_a2131d58aab0d29114037c5b5b2cb6325"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2131d58aab0d29114037c5b5b2cb6325">payload_count</a> = 0u</td></tr>
 <tr class="memitem:aa5cb6080edfe9a8d7ac2ecb6a2a6b5c7" id="r_aa5cb6080edfe9a8d7ac2ecb6a2a6b5c7"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa5cb6080edfe9a8d7ac2ecb6a2a6b5c7">flags</a> = 0u</td></tr>
 <tr class="memitem:a0767d32249cd26294433e6710d31c225" id="r_a0767d32249cd26294433e6710d31c225"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0767d32249cd26294433e6710d31c225">overlap_footprint</a> = 0.0f</td></tr>
+<tr class="memitem:a0f952837f443a89d6975520498007a5f" id="r_a0f952837f443a89d6975520498007a5f"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0f952837f443a89d6975520498007a5f">max_wind_weight</a> = 0</td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
 <a id="ab391a07ba9403107e7de52467e609a14" name="ab391a07ba9403107e7de52467e609a14"></a>
@@ -159,6 +161,31 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool GaussianSplatHlodNode::is_leaf </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a45f55bc8734d37fe015cf5fa7130f2a9" name="a45f55bc8734d37fe015cf5fa7130f2a9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a45f55bc8734d37fe015cf5fa7130f2a9">&#9670;&#160;</a></span>is_semantic_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatHlodNode::is_semantic_valid </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -308,6 +335,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianSplatHlodNode::height = 0u</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0f952837f443a89d6975520498007a5f" name="a0f952837f443a89d6975520498007a5f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0f952837f443a89d6975520498007a5f">&#9670;&#160;</a></span>max_wind_weight</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint8_t GaussianSplatHlodNode::max_wind_weight = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

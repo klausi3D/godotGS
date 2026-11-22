@@ -98,11 +98,16 @@ digraph "gaussian_splat_hlod_bake_bounds.cpp"
   Node34 [id="Node000034",label="cstring",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node8 -> Node35 [id="edge59_Node000008_Node000035",color="steelblue1",style="solid",tooltip=" "];
   Node35 [id="Node000035",label="type_traits",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node3 -> Node33 [id="edge60_Node000003_Node000033",color="steelblue1",style="solid",tooltip=" "];
-  Node2 -> Node36 [id="edge61_Node000002_Node000036",color="steelblue1",style="solid",tooltip=" "];
-  Node36 [id="Node000036",label="cfloat",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node37 [id="edge62_Node000001_Node000037",color="steelblue1",style="solid",tooltip=" "];
-  Node37 [id="Node000037",label="core/math/math_funcs.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node38 [id="edge63_Node000001_Node000038",color="steelblue1",style="solid",tooltip=" "];
-  Node38 [id="Node000038",label="cmath",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node8 -> Node36 [id="edge60_Node000008_Node000036",color="steelblue1",style="solid",tooltip=" "];
+  Node36 [id="Node000036",label="gaussian_semantic.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__semantic_8h.html",tooltip=" "];
+  Node36 -> Node33 [id="edge61_Node000036_Node000033",color="steelblue1",style="solid",tooltip=" "];
+  Node36 -> Node37 [id="edge62_Node000036_Node000037",color="steelblue1",style="solid",tooltip=" "];
+  Node37 [id="Node000037",label="../shaders/includes\l/gs_semantic.glsl",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node3 -> Node33 [id="edge63_Node000003_Node000033",color="steelblue1",style="solid",tooltip=" "];
+  Node2 -> Node38 [id="edge64_Node000002_Node000038",color="steelblue1",style="solid",tooltip=" "];
+  Node38 [id="Node000038",label="cfloat",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node39 [id="edge65_Node000001_Node000039",color="steelblue1",style="solid",tooltip=" "];
+  Node39 [id="Node000039",label="core/math/math_funcs.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node40 [id="edge66_Node000001_Node000040",color="steelblue1",style="solid",tooltip=" "];
+  Node40 [id="Node000040",label="cmath",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

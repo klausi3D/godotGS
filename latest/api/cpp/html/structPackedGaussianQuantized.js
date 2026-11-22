@@ -1,7 +1,7 @@
 var structPackedGaussianQuantized =
 [
     [ "_pre_sh_padding", "structPackedGaussianQuantized.html#ac44bcb5da5cd716c375f4cc2cf80ef63", null ],
-    [ "_tail_padding", "structPackedGaussianQuantized.html#a6a7576c434305f78895b4c0ea6ffadbb", null ],
+    [ "_tail_padding", "structPackedGaussianQuantized.html#af63c9d92beca143ce98794d4923f9038", null ],
     [ "area_fp16", "structPackedGaussianQuantized.html#a661fbe52eca77e599f0621adb211d3f2", null ],
     [ "chunk_id", "structPackedGaussianQuantized.html#a2ff771ae251de67092e736d4ecc2f1c2", null ],
     [ "chunk_id_hi", "structPackedGaussianQuantized.html#ab936e86ce2a20ca0dbab798da729f0be", null ],
@@ -11,6 +11,7 @@ var structPackedGaussianQuantized =
     [ "quantized_position", "structPackedGaussianQuantized.html#ae21c8d66fec1c8f228276fc69666947a", null ],
     [ "quantized_scale", "structPackedGaussianQuantized.html#aac060848632fa5a46ae5ed87275df74a", null ],
     [ "rotation", "structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d", null ],
+    [ "semantic", "structPackedGaussianQuantized.html#adc23d4344d06b9922288c732a0494a0b", null ],
     [ "sh_dc", "structPackedGaussianQuantized.html#aa62c5e8f9c0bd158e43fca6b62181d53", null ],
     [ "sh_encoded", "structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564", null ]
 ];

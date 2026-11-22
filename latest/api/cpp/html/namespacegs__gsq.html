@@ -110,13 +110,15 @@ Functions</h2></td></tr>
 <tr class="memitem:a050323740d93701ca4044876f2c39280" id="r_a050323740d93701ca4044876f2c39280"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a050323740d93701ca4044876f2c39280">encode_page</a> (const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree, const <a class="el" href="structgs__gsq_1_1EncodeParams.html">EncodeParams</a> &amp;p_params, LocalVector&lt; uint8_t &gt; &amp;r_page, String &amp;r_reason)</td></tr>
 <tr class="memitem:a3dad6e712217215b48ba27649e0f3377" id="r_a3dad6e712217215b48ba27649e0f3377"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3dad6e712217215b48ba27649e0f3377">parse_page_header</a> (const uint8_t *p_page, uint64_t p_page_bytes, <a class="el" href="structgs__gsq_1_1PageInfo.html">PageInfo</a> &amp;r_info, String &amp;r_reason)</td></tr>
 <tr class="memitem:ade26980767342bc4e2a4169e6ee40972" id="r_ade26980767342bc4e2a4169e6ee40972"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade26980767342bc4e2a4169e6ee40972">verify_page</a> (const uint8_t *p_page, uint64_t p_page_bytes, <a class="el" href="structgs__gsq_1_1PageInfo.html">PageInfo</a> &amp;r_info, String &amp;r_reason)</td></tr>
-<tr class="memitem:aec753884c93c0421f046b4efe8d62712" id="r_aec753884c93c0421f046b4efe8d62712"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec753884c93c0421f046b4efe8d62712">decoded_digest</a> (const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree, uint8_t r_digest[<a class="el" href="#a37dba5533b8fd2963deb7f0310a2c9d7">kDigestBytes</a>])</td></tr>
+<tr class="memitem:a056988cddb4d48bfd96b18044b737034" id="r_a056988cddb4d48bfd96b18044b737034"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a056988cddb4d48bfd96b18044b737034">decoded_digest</a> (const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree, uint8_t r_digest[<a class="el" href="#a37dba5533b8fd2963deb7f0310a2c9d7">kDigestBytes</a>], uint32_t p_codec_id)</td></tr>
+<tr class="memitem:a3b5fd67345c53033226d7c1afa95d112" id="r_a3b5fd67345c53033226d7c1afa95d112"><td class="memItemLeft" align="right" valign="top">constexpr bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3b5fd67345c53033226d7c1afa95d112">supported_codec</a> (uint32_t p_codec)</td></tr>
 <tr class="memitem:a9cd48d18441817c345cc8097864ff38d" id="r_a9cd48d18441817c345cc8097864ff38d"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9cd48d18441817c345cc8097864ff38d">sh_high_order_for_degree</a> (uint32_t p_degree)</td></tr>
 <tr class="memitem:ad768129b6f032c903317043a7afed7cd" id="r_ad768129b6f032c903317043a7afed7cd"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad768129b6f032c903317043a7afed7cd">validate_encode_params</a> (const <a class="el" href="structgs__gsq_1_1EncodeParams.html">EncodeParams</a> &amp;p_params, String &amp;r_reason)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
-<tr class="memitem:afeed6f983f7582f31bc9ff72cb6af1d8" id="r_afeed6f983f7582f31bc9ff72cb6af1d8"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afeed6f983f7582f31bc9ff72cb6af1d8">kCodecId</a> = 1u</td></tr>
+<tr class="memitem:a84589406965efbbc47eb69c984d8902f" id="r_a84589406965efbbc47eb69c984d8902f"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a84589406965efbbc47eb69c984d8902f">kCodecV1</a> = 1u</td></tr>
+<tr class="memitem:afeed6f983f7582f31bc9ff72cb6af1d8" id="r_afeed6f983f7582f31bc9ff72cb6af1d8"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afeed6f983f7582f31bc9ff72cb6af1d8">kCodecId</a> = 2u</td></tr>
 <tr class="memitem:a2f4ee698286efdf1aac3a0d608d474d4" id="r_a2f4ee698286efdf1aac3a0d608d474d4"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2f4ee698286efdf1aac3a0d608d474d4">kSubBlockSplats</a> = 4096u</td></tr>
 <tr class="memitem:a8cfdb1531e39ac3d01006025737ba03c" id="r_a8cfdb1531e39ac3d01006025737ba03c"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8cfdb1531e39ac3d01006025737ba03c">kMaxPageSplats</a> = 65536u</td></tr>
 <tr class="memitem:a0776313c82440280a63ee9833a921a99" id="r_a0776313c82440280a63ee9833a921a99"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0776313c82440280a63ee9833a921a99">kMaxSubBlocks</a> = 16u</td></tr>
@@ -128,8 +130,8 @@ Variables</h2></td></tr>
 <tr class="memitem:a05b56c5258926352d5ec62a37ead0a23" id="r_a05b56c5258926352d5ec62a37ead0a23"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a05b56c5258926352d5ec62a37ead0a23">kWriterPageSplats</a> = <a class="el" href="#a2f4ee698286efdf1aac3a0d608d474d4">kSubBlockSplats</a></td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
-<a id="aec753884c93c0421f046b4efe8d62712" name="aec753884c93c0421f046b4efe8d62712"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aec753884c93c0421f046b4efe8d62712">&#9670;&#160;</a></span>decoded_digest()</h2>
+<a id="a056988cddb4d48bfd96b18044b737034" name="a056988cddb4d48bfd96b18044b737034"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a056988cddb4d48bfd96b18044b737034">&#9670;&#160;</a></span>decoded_digest()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -157,7 +159,12 @@ Variables</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>r_digest</em></span>[kDigestBytes]&#160;)</td>
+          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>r_digest</em></span>[kDigestBytes], </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_codec_id</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -254,6 +261,31 @@ Variables</h2></td></tr>
           <td class="memname">uint32_t gs_gsq::sh_high_order_for_degree </td>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_degree</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3b5fd67345c53033226d7c1afa95d112" name="a3b5fd67345c53033226d7c1afa95d112"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3b5fd67345c53033226d7c1afa95d112">&#9670;&#160;</a></span>supported_codec()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_gsq::supported_codec </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_codec</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -380,7 +412,29 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t gs_gsq::kCodecId = 1u</td>
+          <td class="memname">uint32_t gs_gsq::kCodecId = 2u</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a84589406965efbbc47eb69c984d8902f" name="a84589406965efbbc47eb69c984d8902f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a84589406965efbbc47eb69c984d8902f">&#9670;&#160;</a></span>kCodecV1</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_gsq::kCodecV1 = 1u</td>
         </tr>
       </table>
   </td>

@@ -79,6 +79,7 @@ var structGaussianSplatting_1_1TileRenderParams =
     [ "perf_capture_raster_shader_counters", "structGaussianSplatting_1_1TileRenderParams.html#afbab08708a7820ff15e10127e34ef565", null ],
     [ "projection", "structGaussianSplatting_1_1TileRenderParams.html#a54e433df066adb27f87250cedc6b1467", null ],
     [ "quantization_buffer", "structGaussianSplatting_1_1TileRenderParams.html#a34d97292fa829279ac2a310b6aa7b821", null ],
+    [ "region_override_buffer", "structGaussianSplatting_1_1TileRenderParams.html#ac45c96aea3d34bcbf5d9b195ad53592f", null ],
     [ "render_projection", "structGaussianSplatting_1_1TileRenderParams.html#a5055f3e5addeceea196aaf1a63428894", null ],
     [ "request_packed_stage_data", "structGaussianSplatting_1_1TileRenderParams.html#a4634b4afe9d336d5d8e80800a2bae15c", null ],
     [ "request_sh_amortization", "structGaussianSplatting_1_1TileRenderParams.html#a76879fc4d2c5f964bc29d6e847a36818", null ],

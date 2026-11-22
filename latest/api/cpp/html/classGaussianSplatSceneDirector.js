@@ -4,6 +4,7 @@ var classGaussianSplatSceneDirector =
     [ "WorldSubmission", "structGaussianSplatSceneDirector_1_1WorldSubmission.html", "structGaussianSplatSceneDirector_1_1WorldSubmission" ],
     [ "SubmissionCounts", "structGaussianSplatSceneDirector_1_1SubmissionCounts.html", "structGaussianSplatSceneDirector_1_1SubmissionCounts" ],
     [ "SphereEffectorSelection", "structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html", "structGaussianSplatSceneDirector_1_1SphereEffectorSelection" ],
+    [ "RegionOverrideSource", "structGaussianSplatSceneDirector_1_1RegionOverrideSource.html", "structGaussianSplatSceneDirector_1_1RegionOverrideSource" ],
     [ "DeferredRendererWork", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html", "classGaussianSplatSceneDirector_1_1DeferredRendererWork" ],
     [ "RendererContractWorkQueue", "classGaussianSplatSceneDirector_1_1RendererContractWorkQueue.html", "classGaussianSplatSceneDirector_1_1RendererContractWorkQueue" ],
     [ "InstanceRecord", "structGaussianSplatSceneDirector_1_1InstanceRecord.html", "structGaussianSplatSceneDirector_1_1InstanceRecord" ],
@@ -20,7 +21,8 @@ var classGaussianSplatSceneDirector =
     [ "InstanceWindMode", "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3", [
       [ "INSTANCE_WIND_INHERIT", "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187", null ],
       [ "INSTANCE_WIND_FORCE_DISABLED", "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c", null ],
-      [ "INSTANCE_WIND_FORCE_ENABLED", "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3ac8f280577e6306fa72d504c1d9288ead", null ]
+      [ "INSTANCE_WIND_FORCE_ENABLED", "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3ac8f280577e6306fa72d504c1d9288ead", null ],
+      [ "INSTANCE_WIND_SEMANTIC_INHERIT", "classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a37b60138a2030228c44319a259c473d1", null ]
     ] ],
     [ "SphereEffectorScopeMode", "classGaussianSplatSceneDirector.html#ad72f38c3102960d3202cdff722349a94", [
       [ "SPHERE_EFFECTOR_SCOPE_WORLD", "classGaussianSplatSceneDirector.html#ad72f38c3102960d3202cdff722349a94a18a213328c50ddf3f959ce85dab417f6", null ],
@@ -42,6 +44,7 @@ var classGaussianSplatSceneDirector =
     [ "collect_hlod_shadow_caster_keys_for_renderer", "classGaussianSplatSceneDirector.html#aff0f797af7a49ee62965ad82a47fefd6", null ],
     [ "collect_instance_assets_for_renderer", "classGaussianSplatSceneDirector.html#a929144968b102f2cebde0109b39d0d6c", null ],
     [ "collect_instance_node_ids_for_renderer", "classGaussianSplatSceneDirector.html#a9388db6c7964bf5235d7e83381836630", null ],
+    [ "collect_region_overrides", "classGaussianSplatSceneDirector.html#a03424b91d2d3a5971404d9f8cac9c163", null ],
     [ "collect_registered_assets_for_renderer", "classGaussianSplatSceneDirector.html#aecc16b5a0f99046ce422f5940b43e0ea", null ],
     [ "compute_color_grading_signature_for_renderer", "classGaussianSplatSceneDirector.html#a5c03a8a51ab8cc7350b3896d64aa86c0", null ],
     [ "get_hlod_instance_refusal_for_node", "classGaussianSplatSceneDirector.html#a269970737bade9539745b40b29d85389", null ],
@@ -87,5 +90,6 @@ var classGaussianSplatSceneDirector =
     [ "update_instance_submission_params", "classGaussianSplatSceneDirector.html#afc8688c9e85a64352e3606e65f0d5b4e", null ],
     [ "update_instance_submission_transform", "classGaussianSplatSceneDirector.html#a6dcd0eeae84ca553399fcc84f22f7c83", null ],
     [ "update_instance_transform", "classGaussianSplatSceneDirector.html#a13c25f4b8129f8837bcbedb6228998bf", null ],
+    [ "update_region_overrides", "classGaussianSplatSceneDirector.html#a7d495e3467f2a35c479c1155b73c4c24", null ],
     [ "update_sphere_effector", "classGaussianSplatSceneDirector.html#a9371a63414f131f899cc0696106125af", null ]
 ];

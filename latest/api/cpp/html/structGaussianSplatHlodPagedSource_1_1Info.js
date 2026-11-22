@@ -5,6 +5,7 @@ var structGaussianSplatHlodPagedSource_1_1Info =
     [ "codec_id", "structGaussianSplatHlodPagedSource_1_1Info.html#a2ba83c75e0f13382525bee7867ae5e22", null ],
     [ "content_generation", "structGaussianSplatHlodPagedSource_1_1Info.html#af8e0f79d6b07859652f224137ebe1c77", null ],
     [ "file_bytes", "structGaussianSplatHlodPagedSource_1_1Info.html#abd819f62d0b6e4bf1a30e14c4fbe9532", null ],
+    [ "gaussian_layout_version", "structGaussianSplatHlodPagedSource_1_1Info.html#ac067e0d5b4e1209dcbbb214e05a34a6d", null ],
     [ "index_bytes", "structGaussianSplatHlodPagedSource_1_1Info.html#a5e4943eb126aac70917a316e9cca032e", null ],
     [ "interior_splat_count", "structGaussianSplatHlodPagedSource_1_1Info.html#ad3b4dfdebc82839dc8dc14cbd5b02917", null ],
     [ "is_2d", "structGaussianSplatHlodPagedSource_1_1Info.html#a9bf1c0954a1b351943da0e260c904562", null ],

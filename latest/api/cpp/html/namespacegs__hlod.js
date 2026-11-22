@@ -3,6 +3,7 @@ var namespacegs__hlod =
     [ "bake_admission", "namespacegs__hlod_1_1bake__admission.html", "namespacegs__hlod_1_1bake__admission" ],
     [ "bake_bounds", "namespacegs__hlod_1_1bake__bounds.html", "namespacegs__hlod_1_1bake__bounds" ],
     [ "tiled_bake", "namespacegs__hlod_1_1tiled__bake.html", "namespacegs__hlod_1_1tiled__bake" ],
+    [ "SemanticBakeSource", "classgs__hlod_1_1SemanticBakeSource.html", "classgs__hlod_1_1SemanticBakeSource" ],
     [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
     [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
     [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],
@@ -57,6 +58,7 @@ var namespacegs__hlod =
     [ "merged_count_at_eps", "namespacegs__hlod.html#a5febf4bb4df59dc14cc51315d8749c30", null ],
     [ "offline_job_check", "namespacegs__hlod.html#a09411da063f05a8f69f9255e873c6b89", null ],
     [ "payload_radius", "namespacegs__hlod.html#a46965cd2f920f2abd745c394775b1e3a", null ],
+    [ "prepare_semantic_bake", "namespacegs__hlod.html#a8754e1ddfa3efaba90d869fff774e81e", null ],
     [ "quality_allocation_fits", "namespacegs__hlod.html#a139177d5969985d1282310a5966ed47f", null ],
     [ "quality_allocation_header_bytes", "namespacegs__hlod.html#ace90bc87103c9426cbd698c8e0d8bd02", null ],
     [ "quality_allocation_size_max", "namespacegs__hlod.html#a83f544d96a48a7853442a70fe06305ea", null ],
@@ -74,7 +76,9 @@ var namespacegs__hlod =
     [ "round_down_offset", "namespacegs__hlod.html#a2a3fbb9e9f9bb7e22ee362e8a9fc30f0", null ],
     [ "round_up", "namespacegs__hlod.html#a75b7b7eb134ba437006840fceadf7e58", null ],
     [ "round_up_offset", "namespacegs__hlod.html#a79df4e876e377f0ee8777d1ef4707fde", null ],
+    [ "set_node_payload_semantics", "namespacegs__hlod.html#a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3", null ],
     [ "splat_covariance", "namespacegs__hlod.html#a6c4c941c850c5b77a1a807b2c051e39a", null ],
     [ "active_offline_job", "namespacegs__hlod.html#a458d6fab2c15c9901dc20d38daed9150", null ],
+    [ "kIslandHoleCellSizeM", "namespacegs__hlod.html#a249c506f5d8bac56253d9996c92c2651", null ],
     [ "offline_job_busy", "namespacegs__hlod.html#a3c7b99b9e0f03dad4b7735e88348fd6a", null ]
 ];

@@ -6,5 +6,6 @@ var gaussian__splat__hlod__merge_8cpp =
     [ "gs_hlod::merge_at_eps", "namespacegs__hlod.html#af8f4cf0c1bc1477e1885d885e00a4e3a", null ],
     [ "gs_hlod::merge_cell_sat", "namespacegs__hlod.html#a146cf01b9e5ec4025f3d9c1895486c73", null ],
     [ "gs_hlod::merged_count_at_eps", "namespacegs__hlod.html#a5febf4bb4df59dc14cc51315d8749c30", null ],
+    [ "gs_hlod::set_node_payload_semantics", "namespacegs__hlod.html#a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3", null ],
     [ "gs_hlod::splat_covariance", "namespacegs__hlod.html#a6c4c941c850c5b77a1a807b2c051e39a", null ]
 ];

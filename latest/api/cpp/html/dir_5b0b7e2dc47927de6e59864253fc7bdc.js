@@ -1,5 +1,7 @@
 var dir_5b0b7e2dc47927de6e59864253fc7bdc =
 [
+    [ "gaussian_splat_bake_volume_3d.cpp", "gaussian__splat__bake__volume__3d_8cpp.html", null ],
+    [ "gaussian_splat_bake_volume_3d.h", "gaussian__splat__bake__volume__3d_8h.html", "gaussian__splat__bake__volume__3d_8h" ],
     [ "gaussian_splat_container.cpp", "gaussian__splat__container_8cpp.html", null ],
     [ "gaussian_splat_container.h", "gaussian__splat__container_8h.html", "gaussian__splat__container_8h" ],
     [ "gaussian_splat_debug_hud.cpp", "gaussian__splat__debug__hud_8cpp.html", null ],

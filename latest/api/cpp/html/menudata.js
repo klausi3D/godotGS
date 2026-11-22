@@ -241,6 +241,7 @@ var menudata={children:[
 {text:"s",url:"functions_enum.html#index_s"},
 {text:"t",url:"functions_enum.html#index_t"},
 {text:"v",url:"functions_enum.html#index_v"},
+{text:"w",url:"functions_enum.html#index_w"},
 {text:"z",url:"functions_enum.html#index_z"}]},
 {text:"Enumerator",url:"functions_eval.html",children:[
 {text:"a",url:"functions_eval.html#index_a"},
@@ -262,7 +263,8 @@ var menudata={children:[
 {text:"s",url:"functions_eval_s.html#index_s"},
 {text:"t",url:"functions_eval_t.html#index_t"},
 {text:"u",url:"functions_eval_u.html#index_u"},
-{text:"v",url:"functions_eval_v.html#index_v"}]},
+{text:"v",url:"functions_eval_v.html#index_v"},
+{text:"w",url:"functions_eval_w.html#index_w"}]},
 {text:"Related Symbols",url:"functions_rela.html",children:[
 {text:"_",url:"functions_rela.html#index__5F"},
 {text:"d",url:"functions_rela.html#index_d"},

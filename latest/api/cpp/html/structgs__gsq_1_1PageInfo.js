@@ -1,5 +1,6 @@
 var structgs__gsq_1_1PageInfo =
 [
+    [ "codec_id", "structgs__gsq_1_1PageInfo.html#a60e98bf1e58bf81c13309b66bc5a2a7e", null ],
     [ "constants", "structgs__gsq_1_1PageInfo.html#a10eb8e8cddadd900706740ea3b82a3b2", null ],
     [ "dc_max", "structgs__gsq_1_1PageInfo.html#ac96164ceedd9f34dfd601db1b28825da", null ],
     [ "dc_min", "structgs__gsq_1_1PageInfo.html#a3126aad1abd6a133b3945b821f33be4d", null ],

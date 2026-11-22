@@ -100,6 +100,7 @@ Namespaces</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
+<tr class="memitem:SemanticBakeSource" id="r_SemanticBakeSource"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__hlod_1_1SemanticBakeSource.html">SemanticBakeSource</a></td></tr>
 <tr class="memitem:BakeParams" id="r_BakeParams"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1BakeParams.html">BakeParams</a></td></tr>
 <tr class="memitem:BakeInput" id="r_BakeInput"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1BakeInput.html">BakeInput</a></td></tr>
 <tr class="memitem:BakeResult" id="r_BakeResult"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1BakeResult.html">BakeResult</a></td></tr>
@@ -146,10 +147,12 @@ Enumerations</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:a8754e1ddfa3efaba90d869fff774e81e" id="r_a8754e1ddfa3efaba90d869fff774e81e"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8754e1ddfa3efaba90d869fff774e81e">prepare_semantic_bake</a> (const <a class="el" href="structgs__hlod_1_1BakeInput.html">BakeInput</a> &amp;p_input, const Array &amp;p_volumes, const Dictionary &amp;p_source, const String &amp;p_directory, <a class="el" href="structgs__hlod_1_1SplatList.html">SplatList</a> &amp;r_world, Dictionary &amp;r_metadata, Dictionary &amp;r_report, String &amp;r_reason, bool p_is_2d)</td></tr>
 <tr class="memitem:a8dd5ac5934d531f32a78e6aac240a9a2" id="r_a8dd5ac5934d531f32a78e6aac240a9a2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8dd5ac5934d531f32a78e6aac240a9a2">bake_allocation_probe</a> (uint64_t p_bytes, const char *p_where)</td></tr>
 <tr class="memitem:aaeb683cd5ab01edb2ebb90d8528e7ec5" id="r_aaeb683cd5ab01edb2ebb90d8528e7ec5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaeb683cd5ab01edb2ebb90d8528e7ec5">choose_root_cell</a> (const double p_origin[3], const double p_min[3], const double p_max[3], <a class="el" href="structGaussianSplatHlodCell.html">GaussianSplatHlodCell</a> &amp;r_cell, bool &amp;r_origin_centred)</td></tr>
 <tr class="memitem:adff2e145a6fd60d91ca6ee4a9b0160e7" id="r_adff2e145a6fd60d91ca6ee4a9b0160e7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adff2e145a6fd60d91ca6ee4a9b0160e7">bake_world</a> (const <a class="el" href="structgs__hlod_1_1BakeInput.html">BakeInput</a> &amp;p_input, const <a class="el" href="structgs__hlod_1_1BakeParams.html">BakeParams</a> &amp;p_params, <a class="el" href="structgs__hlod_1_1BakeResult.html">BakeResult</a> &amp;r_result, String *r_error, Error *r_code)</td></tr>
 <tr class="memitem:a09411da063f05a8f69f9255e873c6b89" id="r_a09411da063f05a8f69f9255e873c6b89"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a09411da063f05a8f69f9255e873c6b89">offline_job_check</a> ()</td></tr>
+<tr class="memitem:a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3" id="r_a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3">set_node_payload_semantics</a> (<a class="el" href="structGaussianSplatHlodNode.html">GaussianSplatHlodNode</a> &amp;r_node, const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;p_payload)</td></tr>
 <tr class="memitem:a6c4c941c850c5b77a1a807b2c051e39a" id="r_a6c4c941c850c5b77a1a807b2c051e39a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6c4c941c850c5b77a1a807b2c051e39a">splat_covariance</a> (const <a class="el" href="structGaussian.html">Gaussian</a> &amp;p_g, double r_cov[6])</td></tr>
 <tr class="memitem:a79595189b962484e5dbc9ff49c99960e" id="r_a79595189b962484e5dbc9ff49c99960e"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a79595189b962484e5dbc9ff49c99960e">importance_area</a> (const <a class="el" href="structGaussian.html">Gaussian</a> &amp;p_g)</td></tr>
 <tr class="memitem:aa665bd835f8b57e1bd2fb28617e93901" id="r_aa665bd835f8b57e1bd2fb28617e93901"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa665bd835f8b57e1bd2fb28617e93901">importance_order</a> (const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;p_span, LocalVector&lt; uint32_t &gt; &amp;r_order)</td></tr>
@@ -182,6 +185,7 @@ Functions</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
+<tr class="memitem:a249c506f5d8bac56253d9996c92c2651" id="r_a249c506f5d8bac56253d9996c92c2651"><td class="memItemLeft" align="right" valign="top">constexpr double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a249c506f5d8bac56253d9996c92c2651">kIslandHoleCellSizeM</a> = 0.25</td></tr>
 <tr class="memitem:a458d6fab2c15c9901dc20d38daed9150" id="r_a458d6fab2c15c9901dc20d38daed9150"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod_1_1OfflineJob.html">OfflineJob</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a458d6fab2c15c9901dc20d38daed9150">active_offline_job</a> = nullptr</td></tr>
 <tr class="memitem:a3c7b99b9e0f03dad4b7735e88348fd6a" id="r_a3c7b99b9e0f03dad4b7735e88348fd6a"><td class="memItemLeft" align="right" valign="top">std::atomic&lt; bool &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c7b99b9e0f03dad4b7735e88348fd6a">offline_job_busy</a> {false}</td></tr>
 </table>
@@ -619,6 +623,62 @@ template&lt;typename T&gt; </div>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const double</td>          <td class="paramname"><span class="paramname"><em>p_mid</em></span>[3]&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8754e1ddfa3efaba90d869fff774e81e" name="a8754e1ddfa3efaba90d869fff774e81e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8754e1ddfa3efaba90d869fff774e81e">&#9670;&#160;</a></span>prepare_semantic_bake()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error gs_hlod::prepare_semantic_bake </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod_1_1BakeInput.html">BakeInput</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_input</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Array &amp;</td>          <td class="paramname"><span class="paramname"><em>p_volumes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Dictionary &amp;</td>          <td class="paramname"><span class="paramname"><em>p_source</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_directory</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod_1_1SplatList.html">SplatList</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_world</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Dictionary &amp;</td>          <td class="paramname"><span class="paramname"><em>r_metadata</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Dictionary &amp;</td>          <td class="paramname"><span class="paramname"><em>r_report</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_is_2d</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1142,6 +1202,27 @@ template&lt;typename T&gt; </div>
 
 </div>
 </div>
+<a id="a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3" name="a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3a67ec2ebdfe3e2a24abf9f1c0dbd8f3">&#9670;&#160;</a></span>set_node_payload_semantics()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod::set_node_payload_semantics </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structGaussianSplatHlodNode.html">GaussianSplatHlodNode</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_node</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_payload</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a6c4c941c850c5b77a1a807b2c051e39a" name="a6c4c941c850c5b77a1a807b2c051e39a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6c4c941c850c5b77a1a807b2c051e39a">&#9670;&#160;</a></span>splat_covariance()</h2>
 
@@ -1180,6 +1261,28 @@ template&lt;typename T&gt; </div>
   </td>
   <td class="mlabels-right">
 <span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel thread_local">thread_local</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a249c506f5d8bac56253d9996c92c2651" name="a249c506f5d8bac56253d9996c92c2651"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a249c506f5d8bac56253d9996c92c2651">&#9670;&#160;</a></span>kIslandHoleCellSizeM</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">double gs_hlod::kIslandHoleCellSizeM = 0.25</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">

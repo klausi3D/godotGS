@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="PainterlyPassGraph\l::PassNode",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structPainterlyPassGraph_1_1PassNode.html",tooltip=" "];
+  Node0 [id="Node000000",label="PackedGaussianQuantized",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structPackedGaussianQuantized.html",tooltip="Per-chunk quantized Gaussian for maximum compression (Unity technique)."];
 }

@@ -27,6 +27,7 @@ var structGaussianRenderPipeline_1_1InstancePipelineBuffers =
     [ "max_visible_splats", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a1e082a5dc95855376b0db49a865bf7b5", null ],
     [ "quantization_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a2c0910a7d343ab74bcb59f8580569407", null ],
     [ "quantization_required", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5246d389abeb31d1fb8dcda00fbd24c4", null ],
+    [ "region_override_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ab8ffd2a962ef7b4e3a8f04e1bb25f558", null ],
     [ "sort_key_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a021d79e1e14d70b9d75f03e1cb744039", null ],
     [ "sort_value_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a34aaef35b03e16ae70a5d750ade3ad94", null ],
     [ "splat_ref_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afd0c111c52195b667e587f6619b60370", null ],

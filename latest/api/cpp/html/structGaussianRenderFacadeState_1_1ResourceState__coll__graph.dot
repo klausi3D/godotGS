@@ -60,4 +60,7 @@ digraph "GaussianRenderFacadeState::ResourceState"
   Node18 -> Node1 [id="edge17_Node000001_Node000018",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node18 [id="Node000018",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
+  Node19 -> Node1 [id="edge18_Node000001_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">region_override_buffer</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node19 [id="Node000019",label="GSRegionOverrideBuffer",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGSRegionOverrideBuffer.html",tooltip=" "];
 }

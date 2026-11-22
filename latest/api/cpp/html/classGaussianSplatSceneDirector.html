@@ -110,6 +110,7 @@ Classes</h2></td></tr>
 <tr class="memitem:WorldSubmission" id="r_WorldSubmission"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a></td></tr>
 <tr class="memitem:SubmissionCounts" id="r_SubmissionCounts"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatSceneDirector_1_1SubmissionCounts.html">SubmissionCounts</a></td></tr>
 <tr class="memitem:SphereEffectorSelection" id="r_SphereEffectorSelection"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html">SphereEffectorSelection</a></td></tr>
+<tr class="memitem:RegionOverrideSource" id="r_RegionOverrideSource"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatSceneDirector_1_1RegionOverrideSource.html">RegionOverrideSource</a></td></tr>
 <tr class="memitem:DeferredRendererWork" id="r_DeferredRendererWork"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatSceneDirector_1_1DeferredRendererWork.html">DeferredRendererWork</a></td></tr>
 <tr class="memitem:RendererContractWorkQueue" id="r_RendererContractWorkQueue"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatSceneDirector_1_1RendererContractWorkQueue.html">RendererContractWorkQueue</a></td></tr>
 <tr class="memitem:InstanceRecord" id="r_InstanceRecord"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatSceneDirector_1_1InstanceRecord.html">InstanceRecord</a></td></tr>
@@ -128,6 +129,7 @@ Public Types</h2></td></tr>
 <tr class="memitem:a6646213ef04729e49d868908ce2433f3" id="r_a6646213ef04729e49d868908ce2433f3"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6646213ef04729e49d868908ce2433f3">InstanceWindMode</a> : uint32_t { <a class="el" href="#a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187">INSTANCE_WIND_INHERIT</a> = 0u
 , <a class="el" href="#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c">INSTANCE_WIND_FORCE_DISABLED</a> = 1u
 , <a class="el" href="#a6646213ef04729e49d868908ce2433f3ac8f280577e6306fa72d504c1d9288ead">INSTANCE_WIND_FORCE_ENABLED</a> = 2u
+, <a class="el" href="#a6646213ef04729e49d868908ce2433f3a37b60138a2030228c44319a259c473d1">INSTANCE_WIND_SEMANTIC_INHERIT</a> = 3u
  }</td></tr>
 <tr class="memitem:a83acb3ba5b077629fb3ae92b42537dc3" id="r_a83acb3ba5b077629fb3ae92b42537dc3"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a83acb3ba5b077629fb3ae92b42537dc3">SubmissionResidencyHint</a> : int32_t { <a class="el" href="#a83acb3ba5b077629fb3ae92b42537dc3aae53012a0357a2c94c7930fcbc4080b5">SUBMISSION_RESIDENCY_HINT_RESIDENT</a> = 0
 , <a class="el" href="#a83acb3ba5b077629fb3ae92b42537dc3acf155f7064b149dad5ddda65a10478de">SUBMISSION_RESIDENCY_HINT_STREAMING</a> = 1
@@ -154,6 +156,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a5670cbca46851dc2890c3c2bc8634fee" id="r_a5670cbca46851dc2890c3c2bc8634fee"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5670cbca46851dc2890c3c2bc8634fee">update_instance_params</a> (ObjectID p_node_id, float p_opacity, float p_lod_bias, uint32_t p_flags, bool p_casts_shadow=false, float p_wind_intensity=1.0f, uint32_t p_wind_mode=<a class="el" href="#a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187">INSTANCE_WIND_INHERIT</a>, const Vector3 &amp;p_wind_direction=Vector3(), float p_wind_frequency=1.0f, bool p_visible=true, bool p_has_desired_residency_hint=false, int32_t p_desired_residency_hint=<a class="el" href="#a83acb3ba5b077629fb3ae92b42537dc3aae53012a0357a2c94c7930fcbc4080b5">SUBMISSION_RESIDENCY_HINT_RESIDENT</a>, float p_effect_position_scale=1.0f, float p_effect_opacity_scale=1.0f)</td></tr>
 <tr class="memitem:af646325716371e25ac4e4dc5afff6ae4" id="r_af646325716371e25ac4e4dc5afff6ae4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af646325716371e25ac4e4dc5afff6ae4">unregister_instance</a> (ObjectID p_node_id)</td></tr>
 <tr class="memitem:af9c19ad3c842873210461506a833cc36" id="r_af9c19ad3c842873210461506a833cc36"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af9c19ad3c842873210461506a833cc36">update_instance_lods_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, const Vector3 &amp;p_camera_pos, const <a class="el" href="structLODConfig.html">LODConfig</a> &amp;p_lod_config, float p_hysteresis_zone)</td></tr>
+<tr class="memitem:a7d495e3467f2a35c479c1155b73c4c24" id="r_a7d495e3467f2a35c479c1155b73c4c24"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7d495e3467f2a35c479c1155b73c4c24">update_region_overrides</a> (ObjectID p_owner, const Ref&lt; <a class="el" href="classGSRegionOverrideState.html">GSRegionOverrideState</a> &gt; &amp;p_state)</td></tr>
+<tr class="memitem:a03424b91d2d3a5971404d9f8cac9c163" id="r_a03424b91d2d3a5971404d9f8cac9c163"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a03424b91d2d3a5971404d9f8cac9c163">collect_region_overrides</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, LocalVector&lt; <a class="el" href="structGaussianSplatSceneDirector_1_1RegionOverrideSource.html">RegionOverrideSource</a> &gt; &amp;r_sources) const</td></tr>
 <tr class="memitem:a49bcdda8d418c0d4bbfefe3ce8579b10" id="r_a49bcdda8d418c0d4bbfefe3ce8579b10"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a49bcdda8d418c0d4bbfefe3ce8579b10">build_instance_buffer</a> (LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;out) const</td></tr>
 <tr class="memitem:afa85ee76d825bf58c59e9b1ec98eed67" id="r_afa85ee76d825bf58c59e9b1ec98eed67"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afa85ee76d825bf58c59e9b1ec98eed67">build_instance_buffer_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;out, bool p_shadow_casters_only=false, LocalVector&lt; uint64_t &gt; *r_submission_asset_ids=nullptr) const</td></tr>
 <tr class="memitem:adaac4ff4973dcd2469561ca0c169e916" id="r_adaac4ff4973dcd2469561ca0c169e916"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adaac4ff4973dcd2469561ca0c169e916">build_instance_grading_buffer_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, LocalVector&lt; <a class="el" href="structInstanceGradingGPU.html">InstanceGradingGPU</a> &gt; &amp;out, bool p_shadow_casters_only=false) const</td></tr>
@@ -243,6 +247,7 @@ Static Protected Member Functions</h2></td></tr>
 <tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187" name="a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187"></a>INSTANCE_WIND_INHERIT&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c" name="a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c"></a>INSTANCE_WIND_FORCE_DISABLED&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a6646213ef04729e49d868908ce2433f3ac8f280577e6306fa72d504c1d9288ead" name="a6646213ef04729e49d868908ce2433f3ac8f280577e6306fa72d504c1d9288ead"></a>INSTANCE_WIND_FORCE_ENABLED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a6646213ef04729e49d868908ce2433f3a37b60138a2030228c44319a259c473d1" name="a6646213ef04729e49d868908ce2433f3a37b60138a2030228c44319a259c473d1"></a>INSTANCE_WIND_SEMANTIC_INHERIT&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -560,6 +565,27 @@ Static Protected Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">LocalVector&lt; ObjectID &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_node_ids</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a03424b91d2d3a5971404d9f8cac9c163" name="a03424b91d2d3a5971404d9f8cac9c163"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a03424b91d2d3a5971404d9f8cac9c163">&#9670;&#160;</a></span>collect_region_overrides()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatSceneDirector::collect_region_overrides </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *</td>          <td class="paramname"><span class="paramname"><em>p_renderer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structGaussianSplatSceneDirector_1_1RegionOverrideSource.html">RegionOverrideSource</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_sources</em></span>&#160;) const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1968,6 +1994,27 @@ Static Protected Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const Transform3D &amp;</td>          <td class="paramname"><span class="paramname"><em>p_transform</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7d495e3467f2a35c479c1155b73c4c24" name="a7d495e3467f2a35c479c1155b73c4c24"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7d495e3467f2a35c479c1155b73c4c24">&#9670;&#160;</a></span>update_region_overrides()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatSceneDirector::update_region_overrides </td>
+          <td>(</td>
+          <td class="paramtype">ObjectID</td>          <td class="paramname"><span class="paramname"><em>p_owner</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Ref&lt; <a class="el" href="classGSRegionOverrideState.html">GSRegionOverrideState</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_state</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

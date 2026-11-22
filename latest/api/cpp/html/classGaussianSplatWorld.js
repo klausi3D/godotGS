@@ -2,7 +2,7 @@ var classGaussianSplatWorld =
 [
     [ "_get", "classGaussianSplatWorld.html#a713349167f77ca11ad95c070c36811d2", null ],
     [ "_get_property_list", "classGaussianSplatWorld.html#a6f147b2db0492ae56af3966df1784d7f", null ],
-    [ "bake_hlod", "classGaussianSplatWorld.html#a759414d234b410db3dfa189842b9a230", null ],
+    [ "bake_hlod", "classGaussianSplatWorld.html#ae937401ba22e07aca568f0b231e9831c", null ],
     [ "bake_hlod_offline", "classGaussianSplatWorld.html#a36ef3a9a8284c034f63d1e1f47d64340", null ],
     [ "capture_hlod_runtime_snapshot", "classGaussianSplatWorld.html#abd2ad5c3ef475d9c4ec20e591422f1cc", null ],
     [ "capture_render_input", "classGaussianSplatWorld.html#ad9aed3e23c79004eb6632afb1dbadc6d", null ],

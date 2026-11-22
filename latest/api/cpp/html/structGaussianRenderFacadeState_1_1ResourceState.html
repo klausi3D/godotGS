@@ -222,6 +222,10 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a650201267699a8589f93f720f7a0aa03" id="r_a650201267699a8589f93f720f7a0aa03"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGPUBufferManager.html">GPUBufferManager</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a650201267699a8589f93f720f7a0aa03">buffer_manager</a></td></tr>
 <tr class="memitem:acf4b51ce72bab928b075e28ae0e24b3e" id="r_acf4b51ce72bab928b075e28ae0e24b3e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acf4b51ce72bab928b075e28ae0e24b3e">buffer_manager_initialized</a> = false</td></tr>
 <tr class="memitem:a143088aad02c0f1116ab6247a0cf5e25" id="r_a143088aad02c0f1116ab6247a0cf5e25"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGPUBufferManager_1_1DeferredDeletionQueue.html">GPUBufferManager::DeferredDeletionQueue</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a143088aad02c0f1116ab6247a0cf5e25">deletion_queue</a></td></tr>
+<tr class="memitem:aaf3cd217acd127c2873f1043c87580df" id="r_aaf3cd217acd127c2873f1043c87580df"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGSRegionOverrideBuffer.html">GSRegionOverrideBuffer</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf3cd217acd127c2873f1043c87580df">region_override_buffer</a></td></tr>
+<tr class="memitem:aeadabea84682df11382422f2f90fe8e6" id="r_aeadabea84682df11382422f2f90fe8e6"><td class="memItemLeft" align="right" valign="top">HashMap&lt; uint64_t, uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeadabea84682df11382422f2f90fe8e6">region_override_digests</a></td></tr>
+<tr class="memitem:aa4e1c87f1c0c9317dc56e001a4033be4" id="r_aa4e1c87f1c0c9317dc56e001a4033be4"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4e1c87f1c0c9317dc56e001a4033be4">region_override_server_frame</a> = UINT64_MAX</td></tr>
+<tr class="memitem:ae56d6480ba2ae9c2fb6af753fd9fb9d4" id="r_ae56d6480ba2ae9c2fb6af753fd9fb9d4"><td class="memItemLeft" align="right" valign="top">HashMap&lt; uint64_t, uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae56d6480ba2ae9c2fb6af753fd9fb9d4">region_override_segments</a></td></tr>
 <tr class="memitem:a4216bce5f34384ec243a27ae3661a590" id="r_a4216bce5f34384ec243a27ae3661a590"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4216bce5f34384ec243a27ae3661a590">instance_buffer</a></td></tr>
 <tr class="memitem:aba8538199018637d4284035cd7f94338" id="r_aba8538199018637d4284035cd7f94338"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aba8538199018637d4284035cd7f94338">instance_buffer_capacity</a> = 0</td></tr>
 <tr class="memitem:a912282aae48abf4d00eaa014ee3fa20b" id="r_a912282aae48abf4d00eaa014ee3fa20b"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a912282aae48abf4d00eaa014ee3fa20b">instance_grading_buffer</a></td></tr>
@@ -2142,6 +2146,62 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianRenderFacadeState::ResourceState::instance_visible_chunk_capacity = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaf3cd217acd127c2873f1043c87580df" name="aaf3cd217acd127c2873f1043c87580df"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaf3cd217acd127c2873f1043c87580df">&#9670;&#160;</a></span>region_override_buffer</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classGSRegionOverrideBuffer.html">GSRegionOverrideBuffer</a> GaussianRenderFacadeState::ResourceState::region_override_buffer</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aeadabea84682df11382422f2f90fe8e6" name="aeadabea84682df11382422f2f90fe8e6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aeadabea84682df11382422f2f90fe8e6">&#9670;&#160;</a></span>region_override_digests</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">HashMap&lt;uint64_t, uint64_t&gt; GaussianRenderFacadeState::ResourceState::region_override_digests</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae56d6480ba2ae9c2fb6af753fd9fb9d4" name="ae56d6480ba2ae9c2fb6af753fd9fb9d4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae56d6480ba2ae9c2fb6af753fd9fb9d4">&#9670;&#160;</a></span>region_override_segments</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">HashMap&lt;uint64_t, uint64_t&gt; GaussianRenderFacadeState::ResourceState::region_override_segments</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa4e1c87f1c0c9317dc56e001a4033be4" name="aa4e1c87f1c0c9317dc56e001a4033be4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa4e1c87f1c0c9317dc56e001a4033be4">&#9670;&#160;</a></span>region_override_server_frame</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderFacadeState::ResourceState::region_override_server_frame = UINT64_MAX</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -109,6 +109,7 @@ var classTileRenderer =
     [ "get_raster_tile_cap", "classTileRenderer.html#a1fa399ffa9779000d4684d0f1f1c8fee", null ],
     [ "get_raster_tile_cap_drop_events", "classTileRenderer.html#afb1170ef386ce96dc26169624919a482", null ],
     [ "get_rasterization_time", "classTileRenderer.html#ae9c03593e8c01a3d56e4977fd9cd1bde", null ],
+    [ "get_region_override_neutral_bytes", "classTileRenderer.html#aa9513b7a224004e6bec8480883e90833", null ],
     [ "get_resolve_debug_mode", "classTileRenderer.html#a450527db71b9c454bde5d3ab3bf45020", null ],
     [ "get_sampled_drop_frame_serial", "classTileRenderer.html#a47fb8250c610a065e40ce255d3d08f80", null ],
     [ "get_sampled_dropped_records", "classTileRenderer.html#aceafd13c922884039dea412281117fd4", null ],

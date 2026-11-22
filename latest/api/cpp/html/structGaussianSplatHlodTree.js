@@ -13,6 +13,7 @@ var structGaussianSplatHlodTree =
     [ "has_bake_stats", "structGaussianSplatHlodTree.html#a3e2ad0eeb12c6400a7739edf57c441ff", null ],
     [ "instances", "structGaussianSplatHlodTree.html#a06aed18e58e279c32bb36aa185cb3cf1", null ],
     [ "interior_file_path", "structGaussianSplatHlodTree.html#a46392a9a2828f858fb803600adbed423", null ],
+    [ "interior_gaussian_layout_version", "structGaussianSplatHlodTree.html#ac883437feaab4d1b7c188e375f3061bc", null ],
     [ "interior_gaussian_offset", "structGaussianSplatHlodTree.html#a4a25b56c87b19535cbcc9c13eac95813", null ],
     [ "interior_gaussians", "structGaussianSplatHlodTree.html#a3b613677fb09c0b3a17fd37c5ccd23df", null ],
     [ "interior_resident", "structGaussianSplatHlodTree.html#a20ed53994934d6f4a15502ab62cfe15e", null ],

@@ -3,6 +3,7 @@ var gaussian__gpu__layout_8h =
     [ "SHCompressionMetrics", "structSHCompressionMetrics.html", "structSHCompressionMetrics" ],
     [ "InstanceDataGPU", "structInstanceDataGPU.html", "structInstanceDataGPU" ],
     [ "SphereEffectorGPU", "structSphereEffectorGPU.html", "structSphereEffectorGPU" ],
+    [ "RegionOverrideGPU", "structRegionOverrideGPU.html", "structRegionOverrideGPU" ],
     [ "InstanceGradingGPU", "structInstanceGradingGPU.html", "structInstanceGradingGPU" ],
     [ "AssetLodRangeGPU", "structAssetLodRangeGPU.html", "structAssetLodRangeGPU" ],
     [ "AssetMetaGPU", "structAssetMetaGPU.html", "structAssetMetaGPU" ],

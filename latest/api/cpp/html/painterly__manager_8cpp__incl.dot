@@ -94,5 +94,10 @@ digraph "painterly_manager.cpp"
   Node33 [id="Node000033",label="cstring",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node5 -> Node34 [id="edge56_Node000005_Node000034",color="steelblue1",style="solid",tooltip=" "];
   Node34 [id="Node000034",label="type_traits",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node3 [id="edge57_Node000001_Node000003",color="steelblue1",style="solid",tooltip=" "];
+  Node5 -> Node35 [id="edge57_Node000005_Node000035",color="steelblue1",style="solid",tooltip=" "];
+  Node35 [id="Node000035",label="gaussian_semantic.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__semantic_8h.html",tooltip=" "];
+  Node35 -> Node32 [id="edge58_Node000035_Node000032",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node36 [id="edge59_Node000035_Node000036",color="steelblue1",style="solid",tooltip=" "];
+  Node36 [id="Node000036",label="../shaders/includes\l/gs_semantic.glsl",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node3 [id="edge60_Node000001_Node000003",color="steelblue1",style="solid",tooltip=" "];
 }

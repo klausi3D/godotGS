@@ -96,6 +96,7 @@ $(function(){initNavTree('structGaussianSplatSceneDirector_1_1WorldSubmission.ht
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
+<tr class="memitem:aeae6db6e032a855953ba8dd24221765b" id="r_aeae6db6e032a855953ba8dd24221765b"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGSRegionOverrideState.html">GSRegionOverrideState</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeae6db6e032a855953ba8dd24221765b">region_overrides</a></td></tr>
 <tr class="memitem:a084c09e562cd6b2609d6ea1b45eccca8" id="r_a084c09e562cd6b2609d6ea1b45eccca8"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a084c09e562cd6b2609d6ea1b45eccca8">hlod_snapshot</a></td></tr>
 <tr class="memitem:a71584aa4613818dab9eb5ac54eba60e9" id="r_a71584aa4613818dab9eb5ac54eba60e9"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a71584aa4613818dab9eb5ac54eba60e9">hlod_reason</a></td></tr>
 <tr class="memitem:abb31b36169d088168d735cda96973e26" id="r_abb31b36169d088168d735cda96973e26"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb31b36169d088168d735cda96973e26">hlod_tau_px</a> = 0.0f</td></tr>
@@ -112,7 +113,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a78d1c137084316a5e5c5b746f1a09714" id="r_a78d1c137084316a5e5c5b746f1a09714"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a78d1c137084316a5e5c5b746f1a09714">desired_renderer_overrides</a></td></tr>
 <tr class="memitem:aa38ea5ee4ba705f0ead56a422d8b2ee9" id="r_aa38ea5ee4ba705f0ead56a422d8b2ee9"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa38ea5ee4ba705f0ead56a422d8b2ee9">casts_shadow</a> = true</td></tr>
 <tr class="memitem:a120735b5d7be62cdeb1733b1e69f5a74" id="r_a120735b5d7be62cdeb1733b1e69f5a74"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a120735b5d7be62cdeb1733b1e69f5a74">wind_intensity</a> = 1.0f</td></tr>
-<tr class="memitem:a9d391e087fab7f7d5cb9dcb9307f3523" id="r_a9d391e087fab7f7d5cb9dcb9307f3523"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d391e087fab7f7d5cb9dcb9307f3523">wind_mode</a> = <a class="el" href="classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c">INSTANCE_WIND_FORCE_DISABLED</a></td></tr>
+<tr class="memitem:a9d391e087fab7f7d5cb9dcb9307f3523" id="r_a9d391e087fab7f7d5cb9dcb9307f3523"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d391e087fab7f7d5cb9dcb9307f3523">wind_mode</a> = <a class="el" href="classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a37b60138a2030228c44319a259c473d1">INSTANCE_WIND_SEMANTIC_INHERIT</a></td></tr>
 <tr class="memitem:a8577fb5d4914d1e429f372bafc45749b" id="r_a8577fb5d4914d1e429f372bafc45749b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8577fb5d4914d1e429f372bafc45749b">scene_effectors_enabled</a> = false</td></tr>
 <tr class="memitem:a40d0d5eb7a9d2274d87f07129b357a68" id="r_a40d0d5eb7a9d2274d87f07129b357a68"><td class="memItemLeft" align="right" valign="top">Callable&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a40d0d5eb7a9d2274d87f07129b357a68">hlod_demotion_callback</a></td></tr>
 </table>
@@ -313,6 +314,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="aeae6db6e032a855953ba8dd24221765b" name="aeae6db6e032a855953ba8dd24221765b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aeae6db6e032a855953ba8dd24221765b">&#9670;&#160;</a></span>region_overrides</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Ref&lt;<a class="el" href="classGSRegionOverrideState.html">GSRegionOverrideState</a>&gt; GaussianSplatSceneDirector::WorldSubmission::region_overrides</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a4a8c693443b7ea2c9614db5f1faea3bd" name="a4a8c693443b7ea2c9614db5f1faea3bd"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a4a8c693443b7ea2c9614db5f1faea3bd">&#9670;&#160;</a></span>scenario</h2>
 
@@ -376,7 +391,7 @@ Public Attributes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t GaussianSplatSceneDirector::WorldSubmission::wind_mode = <a class="el" href="classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a7f7b8f2fe3627498a1781ab2d834ed5c">INSTANCE_WIND_FORCE_DISABLED</a></td>
+          <td class="memname">uint32_t GaussianSplatSceneDirector::WorldSubmission::wind_mode = <a class="el" href="classGaussianSplatSceneDirector.html#a6646213ef04729e49d868908ce2433f3a37b60138a2030228c44319a259c473d1">INSTANCE_WIND_SEMANTIC_INHERIT</a></td>
         </tr>
       </table>
 </div><div class="memdoc">

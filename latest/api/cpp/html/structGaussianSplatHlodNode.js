@@ -2,6 +2,7 @@ var structGaussianSplatHlodNode =
 [
     [ "get_kind", "structGaussianSplatHlodNode.html#ab391a07ba9403107e7de52467e609a14", null ],
     [ "is_leaf", "structGaussianSplatHlodNode.html#a80565b1ad094310027377654a6ae35c5", null ],
+    [ "is_semantic_valid", "structGaussianSplatHlodNode.html#a45f55bc8734d37fe015cf5fa7130f2a9", null ],
     [ "aabb_max", "structGaussianSplatHlodNode.html#a0812cfc19aec818e1846c3d7837662de", null ],
     [ "aabb_min", "structGaussianSplatHlodNode.html#a715cdd8e02f7ba707b9ebebbc5bb9f56", null ],
     [ "cell", "structGaussianSplatHlodNode.html#a72af543ef1327b1fc5ac78cf2a4a66c8", null ],
@@ -12,6 +13,7 @@ var structGaussianSplatHlodNode =
     [ "flags", "structGaussianSplatHlodNode.html#aa5cb6080edfe9a8d7ac2ecb6a2a6b5c7", null ],
     [ "geometric_error", "structGaussianSplatHlodNode.html#a85f4e0edb3f397ccdba2870ab20b9c3d", null ],
     [ "height", "structGaussianSplatHlodNode.html#abfcc7708f4b445c269bec146e987997a", null ],
+    [ "max_wind_weight", "structGaussianSplatHlodNode.html#a0f952837f443a89d6975520498007a5f", null ],
     [ "overlap_footprint", "structGaussianSplatHlodNode.html#a0767d32249cd26294433e6710d31c225", null ],
     [ "parent", "structGaussianSplatHlodNode.html#a355e6a6b26069bbd450878861ce21318", null ],
     [ "payload_count", "structGaussianSplatHlodNode.html#a2131d58aab0d29114037c5b5b2cb6325", null ],

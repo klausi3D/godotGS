@@ -17,6 +17,7 @@ var classGaussianSplatSceneDirector_1_1InstanceStore =
     [ "instance_count", "classGaussianSplatSceneDirector_1_1InstanceStore.html#a6796bfc747f63c52dfa43adc8b2138ad", null ],
     [ "is_empty", "classGaussianSplatSceneDirector_1_1InstanceStore.html#a7aaffcd98572b3e75c6d8ed4a79d71c1", null ],
     [ "mutable_records", "classGaussianSplatSceneDirector_1_1InstanceStore.html#a6a2b813e939fff857ed5dce6d9d59f05", null ],
+    [ "rebuild_sort_identity", "classGaussianSplatSceneDirector_1_1InstanceStore.html#aad0fa197958dcf07421b1f9e5cd09c72", null ],
     [ "records", "classGaussianSplatSceneDirector_1_1InstanceStore.html#a30144ad50f512eaa6ebc812203061342", null ],
     [ "refresh_asset", "classGaussianSplatSceneDirector_1_1InstanceStore.html#a6b2c36b47cd7d6b40e3fdce8b20525bf", null ],
     [ "release_asset", "classGaussianSplatSceneDirector_1_1InstanceStore.html#a2f89285bcab25d6ce45e61a8461a3bb6", null ],

@@ -115,6 +115,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ab5b68141d8275ddb6de30bf97ec6e460" id="r_ab5b68141d8275ddb6de30bf97ec6e460"><td class="memItemLeft" align="right" valign="top">int32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab5b68141d8275ddb6de30bf97ec6e460">desired_residency_hint</a> = <a class="el" href="classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3aae53012a0357a2c94c7930fcbc4080b5">SUBMISSION_RESIDENCY_HINT_RESIDENT</a></td></tr>
 <tr class="memitem:a6136f6ef8394f0e3b29a3daecc5739d3" id="r_a6136f6ef8394f0e3b29a3daecc5739d3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6136f6ef8394f0e3b29a3daecc5739d3">dirty</a> = true</td></tr>
 <tr class="memitem:ac1e12b9823104543bbd41fa1e4be6eed" id="r_ac1e12b9823104543bbd41fa1e4be6eed"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classColorGradingResource.html">ColorGradingResource</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1e12b9823104543bbd41fa1e4be6eed">color_grading</a></td></tr>
+<tr class="memitem:aab43741f9b741e3ecf8e48b771073de6" id="r_aab43741f9b741e3ecf8e48b771073de6"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGSRegionOverrideState.html">GSRegionOverrideState</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aab43741f9b741e3ecf8e48b771073de6">region_overrides</a></td></tr>
+<tr class="memitem:a723956a14ca968076a0f8fe41ebad231" id="r_a723956a14ca968076a0f8fe41ebad231"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a723956a14ca968076a0f8fe41ebad231">sort_identity_flags</a> = 0</td></tr>
+<tr class="memitem:ac1ab1b46e73612a28fa1751fdd242eec" id="r_ac1ab1b46e73612a28fa1751fdd242eec"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1ab1b46e73612a28fa1751fdd242eec">sort_identity_refusal</a></td></tr>
 <tr class="memitem:abc12cdfc8dcad504a3afac03f26c3fea" id="r_abc12cdfc8dcad504a3afac03f26c3fea"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abc12cdfc8dcad504a3afac03f26c3fea">scene_effectors_enabled</a> = true</td></tr>
 <tr class="memitem:a699269292baae1551bbdda7f90d22fb0" id="r_a699269292baae1551bbdda7f90d22fb0"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a699269292baae1551bbdda7f90d22fb0">scene_effector_layer_mask</a> = 1u</td></tr>
 <tr class="memitem:a042700f9e9d20120cedfcbe28644cade" id="r_a042700f9e9d20120cedfcbe28644cade"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a042700f9e9d20120cedfcbe28644cade">scene_effector_scope_filter_present</a> = false</td></tr>
@@ -305,6 +308,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="aab43741f9b741e3ecf8e48b771073de6" name="aab43741f9b741e3ecf8e48b771073de6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aab43741f9b741e3ecf8e48b771073de6">&#9670;&#160;</a></span>region_overrides</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Ref&lt;<a class="el" href="classGSRegionOverrideState.html">GSRegionOverrideState</a>&gt; GaussianSplatSceneDirector::InstanceRecord::region_overrides</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a699269292baae1551bbdda7f90d22fb0" name="a699269292baae1551bbdda7f90d22fb0"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a699269292baae1551bbdda7f90d22fb0">&#9670;&#160;</a></span>scene_effector_layer_mask</h2>
 
@@ -383,6 +400,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">LocalVector&lt;ObjectID&gt; GaussianSplatSceneDirector::InstanceRecord::scene_tree_ancestor_ids</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a723956a14ca968076a0f8fe41ebad231" name="a723956a14ca968076a0f8fe41ebad231"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a723956a14ca968076a0f8fe41ebad231">&#9670;&#160;</a></span>sort_identity_flags</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatSceneDirector::InstanceRecord::sort_identity_flags = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac1ab1b46e73612a28fa1751fdd242eec" name="ac1ab1b46e73612a28fa1751fdd242eec"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac1ab1b46e73612a28fa1751fdd242eec">&#9670;&#160;</a></span>sort_identity_refusal</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">String GaussianSplatSceneDirector::InstanceRecord::sort_identity_refusal</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -14,6 +14,7 @@ var structGaussianSplatSceneDirector_1_1WorldSubmission =
     [ "metadata", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#adef6e838ee119bc3628ce500b50ada7d", null ],
     [ "owner_id", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a8924bc60ed4b35be7aa0d916872af6dc", null ],
     [ "payload_source", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a3083ed6d266c029646cf8d2ed8d7bc65", null ],
+    [ "region_overrides", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#aeae6db6e032a855953ba8dd24221765b", null ],
     [ "scenario", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a4a8c693443b7ea2c9614db5f1faea3bd", null ],
     [ "scene_effectors_enabled", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a8577fb5d4914d1e429f372bafc45749b", null ],
     [ "static_chunks", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a87ed002c7af70349e77689459f193e34", null ],

@@ -1,6 +1,7 @@
 var structGaussianSplatting_1_1TileSubpixelHistoryBuffers =
 [
     [ "TileSubpixelHistoryBuffers", "structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html#ab07088b487bcdd99074dbca21f83d877", null ],
+    [ "clear_history_range", "structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html#aa95c29de4bf54b7347c4674ecf13c49f", null ],
     [ "ensure_history_buffer", "structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html#a37743bb71d7134af74f22050138967ad", null ],
     [ "release", "structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html#a7f3aee28593ab6bd0eddbac8ee23c29d", null ],
     [ "reset_state", "structGaussianSplatting_1_1TileSubpixelHistoryBuffers.html#abbe5dc685e433f53975bcceb31785d32", null ],

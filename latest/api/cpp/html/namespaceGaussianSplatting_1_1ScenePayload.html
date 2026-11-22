@@ -96,14 +96,14 @@ $(function(){initNavTree('namespaceGaussianSplatting_1_1ScenePayload.html','',''
 Functions</h2></td></tr>
 <tr class="memitem:a888583c6e41c464e75bf2479fcb92232" id="r_a888583c6e41c464e75bf2479fcb92232"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a888583c6e41c464e75bf2479fcb92232">degree_for_layout</a> (uint32_t p_first, uint32_t p_high)</td></tr>
 <tr class="memitem:abfcadee9379b5fd769c53dc036a799c6" id="r_abfcadee9379b5fd769c53dc036a799c6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abfcadee9379b5fd769c53dc036a799c6">encode_record</a> (const <a class="el" href="structGaussian.html">Gaussian</a> &amp;g, uint8_t *r_bytes)</td></tr>
-<tr class="memitem:a59ddd16a71c25074f21dcdfd5585742c" id="r_a59ddd16a71c25074f21dcdfd5585742c"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussian.html">Gaussian</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a59ddd16a71c25074f21dcdfd5585742c">decode_record</a> (const uint8_t *p_bytes)</td></tr>
+<tr class="memitem:a8bc4d6f347e1d745459498cfa5737ccc" id="r_a8bc4d6f347e1d745459498cfa5737ccc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussian.html">Gaussian</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8bc4d6f347e1d745459498cfa5737ccc">decode_record</a> (const uint8_t *p_bytes, uint32_t p_schema=2)</td></tr>
 <tr class="memitem:aefd30d2b1b759a0963db5c0a679388d6" id="r_aefd30d2b1b759a0963db5c0a679388d6"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aefd30d2b1b759a0963db5c0a679388d6">encode</a> (const <a class="el" href="classGaussianData_1_1SaveSnapshot.html">::GaussianData::SaveSnapshot</a> &amp;p_snapshot, PackedByteArray &amp;r_payload)</td></tr>
 <tr class="memitem:a7a143bdd88a3ce772d60ac16133b0313" id="r_a7a143bdd88a3ce772d60ac16133b0313"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7a143bdd88a3ce772d60ac16133b0313">decode</a> (const PackedByteArray &amp;p_payload, uint32_t p_declared_count, uint64_t p_memory_budget, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_high_order, uint32_t &amp;r_first, uint32_t &amp;r_high, bool &amp;r_mode_2d, bool &amp;r_antialiased)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
 <tr class="memitem:a78c3bf258130c87603609039ab1cfac7" id="r_a78c3bf258130c87603609039ab1cfac7"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a78c3bf258130c87603609039ab1cfac7">PREFIX_SIZE</a> = 32</td></tr>
-<tr class="memitem:a0d7380c467326c03d948169a319aba77" id="r_a0d7380c467326c03d948169a319aba77"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0d7380c467326c03d948169a319aba77">RECORD_SIZE</a> = 132</td></tr>
+<tr class="memitem:a0d7380c467326c03d948169a319aba77" id="r_a0d7380c467326c03d948169a319aba77"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0d7380c467326c03d948169a319aba77">RECORD_SIZE</a> = 136</td></tr>
 <tr class="memitem:a5e440e26175706f89d93d454e4644fff" id="r_a5e440e26175706f89d93d454e4644fff"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e440e26175706f89d93d454e4644fff">MAX_HIGH_ORDER</a> = 21</td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
@@ -171,8 +171,8 @@ Variables</h2></td></tr>
 
 </div>
 </div>
-<a id="a59ddd16a71c25074f21dcdfd5585742c" name="a59ddd16a71c25074f21dcdfd5585742c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a59ddd16a71c25074f21dcdfd5585742c">&#9670;&#160;</a></span>decode_record()</h2>
+<a id="a8bc4d6f347e1d745459498cfa5737ccc" name="a8bc4d6f347e1d745459498cfa5737ccc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8bc4d6f347e1d745459498cfa5737ccc">&#9670;&#160;</a></span>decode_record()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -183,8 +183,12 @@ Variables</h2></td></tr>
         <tr>
           <td class="memname"><a class="el" href="structGaussian.html">Gaussian</a> GaussianSplatting::ScenePayload::decode_record </td>
           <td>(</td>
-          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span></td><td>)</td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_schema</em></span><span class="paramdefsep"> = </span><span class="paramdefval">2</span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -338,7 +342,7 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t GaussianSplatting::ScenePayload::RECORD_SIZE = 132</td>
+          <td class="memname">uint32_t GaussianSplatting::ScenePayload::RECORD_SIZE = 136</td>
         </tr>
       </table>
   </td>

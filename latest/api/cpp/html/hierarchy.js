@@ -223,6 +223,7 @@ var hierarchy =
     [ "gs_streaming_pool_growth::GrowInputs", "structgs__streaming__pool__growth_1_1GrowInputs.html", null ],
     [ "GSAtomicFileTransaction", "classGSAtomicFileTransaction.html", null ],
     [ "gs::settings::GSLightingSettings", "structgs_1_1settings_1_1GSLightingSettings.html", null ],
+    [ "GSRegionOverrideBuffer", "classGSRegionOverrideBuffer.html", null ],
     [ "GSSceneDepthLinearize", "structGSSceneDepthLinearize.html", null ],
     [ "gs::settings::GSSphereEffectorSettings", "structgs_1_1settings_1_1GSSphereEffectorSettings.html", null ],
     [ "GsSplatShadowCaster", "classGsSplatShadowCaster.html", null ],
@@ -340,6 +341,7 @@ var hierarchy =
     [ "GaussianSplatting::KeyframeInterpolator", "classGaussianSplatting_1_1KeyframeInterpolator.html", null ],
     [ "OutputCompositor::LastCompositeStats", "structOutputCompositor_1_1LastCompositeStats.html", null ],
     [ "LastSortGpuTimestamp", "structLastSortGpuTimestamp.html", null ],
+    [ "gs_splat_identity::Layout", "structgs__splat__identity_1_1Layout.html", null ],
     [ "gs_layout_hint::LayoutHintFailureCounters", "structgs__layout__hint_1_1LayoutHintFailureCounters.html", null ],
     [ "gs_layout_hint::LayoutHintFailureState", "structgs__layout__hint_1_1LayoutHintFailureState.html", null ],
     [ "gs_layout_hint::LayoutHintIndexRange", "structgs__layout__hint_1_1LayoutHintIndexRange.html", null ],
@@ -367,6 +369,11 @@ var hierarchy =
     [ "StreamingQueuePressureController::NeededSetProgressState", "structStreamingQueuePressureController_1_1NeededSetProgressState.html", null ],
     [ "GaussianSplatHlodRuntimeData::Node", "structGaussianSplatHlodRuntimeData_1_1Node.html", null ],
     [ "Node3D", null, [
+      [ "GaussianSplatBakeVolume3D", "classGaussianSplatBakeVolume3D.html", [
+        [ "GaussianSplatDynamicIslandVolume3D", "classGaussianSplatDynamicIslandVolume3D.html", null ],
+        [ "GaussianSplatRegionVolume3D", "classGaussianSplatRegionVolume3D.html", null ],
+        [ "GaussianSplatWindVolume3D", "classGaussianSplatWindVolume3D.html", null ]
+      ] ],
       [ "GaussianSplatContainer", "classGaussianSplatContainer.html", null ],
       [ "GaussianSplatNode3D", "classGaussianSplatNode3D.html", [
         [ "GaussianSplatDynamicInstance3D", "classGaussianSplatDynamicInstance3D.html", null ]
@@ -526,6 +533,7 @@ var hierarchy =
       [ "GPUBufferManager", "classGPUBufferManager.html", null ],
       [ "GPUCuller", "classGPUCuller.html", null ],
       [ "GPUSortingPipeline", "classGPUSortingPipeline.html", null ],
+      [ "GSRegionOverrideState", "classGSRegionOverrideState.html", null ],
       [ "GaussianMemoryStream", "classGaussianMemoryStream.html", null ],
       [ "GaussianSplatHlodAutoTree", "classGaussianSplatHlodAutoTree.html", null ],
       [ "GaussianSplatHlodPagedSource", "classGaussianSplatHlodPagedSource.html", null ],
@@ -554,6 +562,8 @@ var hierarchy =
       [ "VRAMBudgetRegulator", "classVRAMBudgetRegulator.html", null ]
     ] ],
     [ "gs_hlod_auto_route::RefusalInputs", "structgs__hlod__auto__route_1_1RefusalInputs.html", null ],
+    [ "RegionOverrideGPU", "structRegionOverrideGPU.html", null ],
+    [ "GaussianSplatSceneDirector::RegionOverrideSource", "structGaussianSplatSceneDirector_1_1RegionOverrideSource.html", null ],
     [ "RenderBufferCustomDataRD", null, [
       [ "GaussianHlodViewLifetime", "classGaussianHlodViewLifetime.html", null ]
     ] ],
@@ -596,6 +606,7 @@ var hierarchy =
       [ "ColorGradingResource", "classColorGradingResource.html", null ],
       [ "GaussianData", "classGaussianData.html", null ],
       [ "GaussianSplatAsset", "classGaussianSplatAsset.html", null ],
+      [ "GaussianSplatRegionOverride", "classGaussianSplatRegionOverride.html", null ],
       [ "GaussianSplatWorld", "classGaussianSplatWorld.html", null ],
       [ "GaussianSplatting::GaussianAnimationStateMachine", "classGaussianSplatting_1_1GaussianAnimationStateMachine.html", null ],
       [ "GaussianSplatting::GaussianIncrementalSaver", "classGaussianSplatting_1_1GaussianIncrementalSaver.html", null ],
@@ -720,6 +731,7 @@ var hierarchy =
     [ "GaussianSplatting::ComputeInfrastructure::StageValidationHarness", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html", null ],
     [ "GaussianSplatting::ComputeInfrastructure::StageValidationInput", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html", null ],
     [ "GaussianSplatting::ComputeInfrastructure::StageValidationRecord", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html", null ],
+    [ "gs_hlod::SemanticBakeSource::State", "structgs__hlod_1_1SemanticBakeSource_1_1State.html", null ],
     [ "GaussianRenderConfig::StateUniformData", "structGaussianRenderConfig_1_1StateUniformData.html", null ],
     [ "StaticChunk", "structStaticChunk.html", null ],
     [ "StaticLayoutFallbackSnapshot", "structStaticLayoutFallbackSnapshot.html", null ],
@@ -779,7 +791,8 @@ var hierarchy =
     [ "gs_hlod::TiledBakeReport", "structgs__hlod_1_1TiledBakeReport.html", null ],
     [ "gs_hlod::TiledBakeSink", "classgs__hlod_1_1TiledBakeSink.html", null ],
     [ "gs_hlod::TiledBakeSource", "classgs__hlod_1_1TiledBakeSource.html", [
-      [ "GsqAutoTreeSource", "classGsqAutoTreeSource.html", null ]
+      [ "GsqAutoTreeSource", "classGsqAutoTreeSource.html", null ],
+      [ "gs_hlod::SemanticBakeSource", "classgs__hlod_1_1SemanticBakeSource.html", null ]
     ] ],
     [ "gs_hlod::TiledBakeSourceInfo", "structgs__hlod_1_1TiledBakeSourceInfo.html", null ],
     [ "GaussianSplatting::TileDebugCounterSnapshot", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html", null ],
@@ -849,6 +862,7 @@ var hierarchy =
     [ "VRAMDebugStats", "structVRAMDebugStats.html", null ],
     [ "GaussianSplatPerformanceOverlay::FrameClock::Window", "structGaussianSplatPerformanceOverlay_1_1FrameClock_1_1Window.html", null ],
     [ "gs_hlod_auto_route::WorldInputs", "structgs__hlod__auto__route_1_1WorldInputs.html", null ],
+    [ "gs_splat_identity::WorldLayout", "structgs__splat__identity_1_1WorldLayout.html", null ],
     [ "gs_world_frame::WorldOriginContext", "classgs__world__frame_1_1WorldOriginContext.html", null ],
     [ "gs_hlod_auto_route::WorldPlan", "structgs__hlod__auto__route_1_1WorldPlan.html", null ],
     [ "GaussianSplatSceneDirector::WorldSubmission", "structGaussianSplatSceneDirector_1_1WorldSubmission.html", null ],
