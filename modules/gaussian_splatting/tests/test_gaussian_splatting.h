@@ -191,6 +191,10 @@
 	static const volatile int test_hlod_wind_cpp_force_link_anchor = test_hlod_wind_cpp_force_link();
 	extern "C" int test_hlod_shadow_casters_cpp_force_link();
 	static const volatile int test_hlod_shadow_casters_cpp_force_link_anchor = test_hlod_shadow_casters_cpp_force_link();
+	extern "C" int test_hlod_shadow_face_cull_cpp_force_link();
+	static const volatile int test_hlod_shadow_face_cull_cpp_force_link_anchor = test_hlod_shadow_face_cull_cpp_force_link();
+	extern "C" int test_hlod_shadow_face_cull_gpu_cpp_force_link();
+	static const volatile int test_hlod_shadow_face_cull_gpu_cpp_force_link_anchor = test_hlod_shadow_face_cull_gpu_cpp_force_link();
 	extern "C" int test_hlod_auto_route_cpp_force_link();
 	static const volatile int test_hlod_auto_route_cpp_force_link_anchor = test_hlod_auto_route_cpp_force_link();
 	extern "C" int test_integration_cpp_force_link();

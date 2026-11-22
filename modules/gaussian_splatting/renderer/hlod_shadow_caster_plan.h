@@ -417,6 +417,12 @@ struct FrameStats {
 	Refusal last_refusal = Refusal::NONE;
 	uint64_t total_passes_cast = 0;
 	uint64_t total_passes_refused = 0;
+	// Per-view caster lists (hlod_shadow_face_cull.h), over this frame's cast passes: passes drawn from a view list or
+	// from the whole list, and the records listed out of the records available to those listed passes.
+	uint32_t view_list_passes = 0;
+	uint32_t whole_list_passes = 0;
+	uint64_t view_list_records = 0;
+	uint64_t view_list_available = 0;
 
 	void record(uint64_t p_frame, const PassPlan &p_plan) {
 		if (frame != p_frame) {
@@ -424,6 +430,8 @@ struct FrameStats {
 			passes_cast = passes_refused = 0;
 			casters = instance_slots = 0;
 			last_refusal = Refusal::NONE;
+			view_list_passes = whole_list_passes = 0;
+			view_list_records = view_list_available = 0;
 		}
 		if (p_plan.draws()) {
 			++passes_cast;
@@ -434,6 +442,18 @@ struct FrameStats {
 			++passes_refused;
 			++total_passes_refused;
 			last_refusal = p_plan.refusal;
+		}
+	}
+
+	// After record() for the same pass: how a cast pass chose its records.
+	void record_list(const PassPlan &p_plan, bool p_view_list, uint32_t p_listed, uint32_t p_available) {
+		if (!p_plan.draws()) { return; }
+		if (p_view_list) {
+			++view_list_passes;
+			view_list_records += p_listed;
+			view_list_available += p_available;
+		} else {
+			++whole_list_passes;
 		}
 	}
 };

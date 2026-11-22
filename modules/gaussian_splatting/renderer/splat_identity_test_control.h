@@ -58,6 +58,10 @@ inline std::atomic<bool> override_by_address{ false };
 inline std::atomic<bool> hide_only_in_raster{ false };
 inline std::atomic<bool> asset_set_reset{ false };
 inline std::atomic<bool> rows_after_shadow{ false };
+// Per-view caster lists (hlod_shadow_face_cull.h): draw every view from the whole list (the reference), or cull with
+// zero guard band and centre-only boxes (a deliberately unsafe negative control a depth comparison must detect).
+inline std::atomic<bool> shadow_view_lists_disabled{ false };
+inline std::atomic<bool> shadow_view_lists_unsafe{ false };
 inline void set_force_address_wind_phase(bool p_enabled) { force_address_wind_phase.store(p_enabled); }
 inline bool get_force_address_wind_phase() { return force_address_wind_phase.load(); }
 inline uint32_t shader_variant() {
