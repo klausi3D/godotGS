@@ -755,15 +755,19 @@ func _deformation_rows() -> void:
 	keys = []
 	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
 		var node = obs["nodes"][int(id)]
+		# One in-frustum probe per drawn node: 64 probes from the first drawn node
+		# all fell outside the view and none was colour-valid (local run, 0/64).
 		for local in range(mini(int(node["splats"]), 64)):
 			var splat = _raw_splat(bytes, node, local)
-			if not splat.is_empty() and ((int(splat["semantic"]) >> 16) & 255) == 0 and (int(splat["semantic"]) & 65535) == _regions[2]:
+			if not splat.is_empty() and ((int(splat["semantic"]) >> 16) & 255) == 0 and (int(splat["semantic"]) & 65535) == _regions[2] \
+					and _camera.is_position_in_frustum(splat["position"]):
 				keys.append({"node": int(id), "local": local, "row": 0})
-			if keys.size() == 64:
 				break
 		if keys.size() == 64:
 			break
-	if not keys.is_empty():
+	if keys.is_empty():
+		_raw["rows"]["W4"] = {"not_run_reason": "W4 found no in-frustum zero-weight rock-region probe"}
+	else:
 		capture = await _capture(keys)
 		var movement: Array = []
 		for sample in capture.get("samples", []):
@@ -771,6 +775,8 @@ func _deformation_rows() -> void:
 				movement.append(_camera.unproject_position(sample["colour"]).distance_to(_camera.unproject_position(sample["rest"])))
 		if not movement.is_empty():
 			_raw["rows"]["W4"] = {"weight_zero_displacement_px": movement, "samples": movement.size(), "capture": capture}
+		else:
+			_raw["rows"]["W4"] = {"not_run_reason": "W4 probes not colour-valid: 0/%d" % keys.size(), "capture": capture}
 
 
 func _shadow_pixels(light: Light3D) -> Dictionary:
