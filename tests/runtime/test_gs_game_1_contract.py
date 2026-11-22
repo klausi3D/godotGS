@@ -225,6 +225,16 @@ class ContractTests(unittest.TestCase):
         self.assertIn('"not_run_reason": "W4 found no in-frustum zero-weight rock-region probe"', rock)
         self.assertIn('"not_run_reason": "W4 probes not colour-valid: 0/%d" % keys.size()', rock)
 
+    def test_null_drawn_ids_name_why_w3_o2_w4_cannot_run(self):
+        # Local O2 control arm: hlod_drawn_node_ids was null at pose A, every
+        # helper iterated it ("Unable to iterate on object of type 'Nil'") and
+        # W3, O2 and W4 silently disappeared.
+        self.assertIn('return ids if ids is Array else []', self._harness_function("_drawn_ids"))
+        rows = self._harness_function("_deformation_rows")
+        self.assertIn('if _drawn_ids(obs).is_empty():', rows)
+        self.assertIn('for row in ["W3", "O2", "W4"]:', rows)
+        self.assertNotIn('obs.get("stats", {}).get("hlod_drawn_node_ids", [])', rows)
+
     def test_r1_expects_only_levels_reachable_for_the_region(self):
         # expected_lods listed every level of the tree; levels 5 and 7 never drew
         # at any tau, so R1 could never be complete.

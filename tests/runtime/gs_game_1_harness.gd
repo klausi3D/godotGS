@@ -568,9 +568,16 @@ func _atlas_pages(obs: Dictionary, nodes: Array, max_local: int = 64) -> Diction
 	return pages
 
 
+# The drawn ids are published as null when the cut telemetry is not valid (seen
+# under the O2 forcing control); a null list is treated as no drawn nodes.
+func _drawn_ids(obs: Dictionary) -> Array:
+	var ids = obs.get("stats", {}).get("hlod_drawn_node_ids")
+	return ids if ids is Array else []
+
+
 func _drawn_nodes(obs: Dictionary) -> Array:
 	var nodes: Array = []
-	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
+	for id in _drawn_ids(obs):
 		if int(id) < obs.get("nodes", []).size():
 			nodes.append(obs["nodes"][int(id)])
 	return nodes
@@ -589,7 +596,7 @@ func _has_region(pages: Dictionary, node: Dictionary, region: int) -> bool:
 # Frozen wind time leaves such splats statically displaced (ADR §7 W1 step 1).
 func _wind_keys(obs: Dictionary, pages: Dictionary, count: int = 16) -> Array:
 	var keys: Array = []
-	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
+	for id in _drawn_ids(obs):
 		var node = obs["nodes"][int(id)]
 		if int(node["level"]) != 0:
 			continue
@@ -709,6 +716,14 @@ func _deformation_rows() -> void:
 	_pose_a()
 	await _settle()
 	var obs = await _native("_test_gs_game_1_observe")
+	if _drawn_ids(obs).is_empty():
+		# Seen under the O2 forcing control: the cut telemetry publishes no drawn
+		# ids, settle never completes and no probe can be selected. Name it.
+		var reason = "no drawn node ids published at pose A (cut telemetry not valid); probes cannot be selected"
+		for row in ["W3", "O2", "W4"]:
+			if not _raw["rows"].has(row):
+				_raw["rows"][row] = {"not_run_reason": reason}
+		return
 	var keys = _wind_keys(obs, await _atlas_pages(obs, _drawn_nodes(obs)))
 	for key in obs.get("instance_probes", []):
 		if keys.size() < 64:
@@ -753,7 +768,7 @@ func _deformation_rows() -> void:
 	obs = await _native("_test_gs_game_1_observe")
 	var bytes = await _atlas_pages(obs, _drawn_nodes(obs))
 	keys = []
-	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
+	for id in _drawn_ids(obs):
 		var node = obs["nodes"][int(id)]
 		# One in-frustum probe per drawn node: 64 probes from the first drawn node
 		# all fell outside the view and none was colour-valid (local run, 0/64).
