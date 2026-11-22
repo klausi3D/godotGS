@@ -91,8 +91,13 @@ inline uint32_t hash(uint32_t p_value) {
 	return p_value ^ (p_value >> 16u);
 }
 
+// Parent-compatible budget seam: A has no upload-time refusal yet.
+inline String world_layout_refusal(uint32_t, uint32_t) { return String(); }
+inline String layout_refusal(uint32_t, uint32_t, uint32_t) { return String(); }
+
 // Host mirror of gs_splat_identity.glsl; Python also executes the actual GLSL.
-inline Keys keys(uint32_t p_node, uint32_t p_local, uint64_t p_placement, uint32_t p_atlas, uint32_t p_history_size, uint32_t p_row = 0) {
+inline Keys keys(uint32_t p_node, uint32_t p_local, uint64_t p_placement, uint32_t p_atlas, uint32_t p_history_size, uint32_t p_row = 0, uint32_t p_prefix = 0, uint32_t p_bits = 14, bool p_single = false) {
+	(void)p_prefix; (void)p_bits; (void)p_single;
 	const uint32_t size = p_history_size > 0 ? p_history_size : 1u;
 	if (get_force_address_keying()) {
 		const uint32_t slot = p_row == 0 ? p_atlas % size : hash(p_atlas ^ (p_row * 0x9e3779b9u)) % size;

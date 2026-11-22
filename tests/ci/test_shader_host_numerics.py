@@ -1287,13 +1287,11 @@ class StableSplatIdentityTests(unittest.TestCase):
     """WP1: execute the real sort/history expressions, including the address control."""
 
     def evaluate(self, node=7, local=1029, placement=0x123456789, atlas=3077,
-                 row=0, forced=False, tests_enabled=True):
+                 row=0, forced=False, tests_enabled=True, prefix=0, bits=14,
+                 canonical=False, single=False, history_size=65521):
         depth = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text(encoding="utf-8")
         binning = (SHADERS_DIR / "tile_binning.glsl").read_text(encoding="utf-8")
-        identity = INCLUDES_DIR / "gs_splat_identity.glsl"
-        # Parent code has no identity helper yet; execute its real address expressions
-        # so the test-only commit fails assertions, rather than import/translation.
-        shared = identity.read_text(encoding="utf-8") if identity.exists() else ""
+        shared = (INCLUDES_DIR / "gs_splat_identity.glsl").read_text(encoding="utf-8")
         culling = (INCLUDES_DIR / "gs_culling_utils.glsl").read_text(encoding="utf-8")
         tie = re.search(r"uint tie_break = ([^;]+);", depth)
         self.assertIsNotNone(tie)
@@ -1302,63 +1300,150 @@ class StableSplatIdentityTests(unittest.TestCase):
         if binning[conditional:start].strip() == "#if defined(GS_HLOD_RELATIVE_PAYLOAD)":
             start = conditional
         end = binning.index("    uint history_packed =", start)
-        signature = "uint node, uint local, uvec2 placement, uint atlas_index"
-        helper = ("uint identity_hash = gs_splat_identity_hash(node, local, placement);"
-                  if shared else "uint identity_hash = 0u;")
-        source = shared + culling + f"\nuint tie({signature}) {{ {helper} return {tie.group(1)}; }}\n"
-        source += f"uvec2 history({signature}) {{ {helper} uint gaussian_idx = atlas_index; uint history_size = 65521u;\n"
+        signature = "uint node, uint local, uvec2 placement, uint atlas_index, uint prefix, uint bits, bool single"
+        helper = "uint identity_hash = gs_splat_identity_hash(node, local, placement);"
+        # Execute the complete production packing/decoding block, including the
+        # flags and metadata fields uploaded by the host. Parent has the hash block.
+        begin = depth.index("    uint sort_prefix =" if "    uint sort_prefix =" in depth else "    uint identity_hash =")
+        end_tie = depth.index("    sort_key_buffer.keys[", begin)
+        constants = "\n".join(line for line in (INCLUDES_DIR / "gs_instance_layout.glsl").read_text().splitlines()
+                              if line.startswith("const uint GS_INSTANCE_SORT_"))
+        source = shared + culling + constants + f"\nuint tie({signature}) {{ uint splat_index_in_chunk = local;\n"
+        source += depth[begin:end_tie] + "return tie_break; }\n"
+        source += f"uvec2 history({signature}) {{ {helper} uint gaussian_idx = atlas_index; uint history_size = {history_size}u;\n"
         source += binning[start:end] + "return uvec2(history_idx, history_key); }\n"
-        defines = {"GS_HLOD_RELATIVE_PAYLOAD": "1"}
+        defines = {} if canonical else {"GS_HLOD_RELATIVE_PAYLOAD": "1"}
         if tests_enabled:
             defines["GS_TESTS_ENABLED"] = "1"
         if forced:
             defines["GS_TEST_ADDRESS_IDENTITY"] = "1"
         program = glsl.GlslProgram(source, defines=defines)
+        program.namespace["chunk"] = SimpleNamespace(reserved_node_y=glsl.U32(node), reserved_node_z=glsl.U32(bits | (256 if single else 0)))
+        flags = prefix | (bits << 6) | (0x800 if single else 0)
+        program.namespace["instance"] = SimpleNamespace(ids=program.namespace["uvec2"](0, flags),
+                                                        placement_key=program.namespace["uvec2"](placement & 0xffffffff, placement >> 32))
+        program.namespace["visible_chunk"] = SimpleNamespace(chunk_id=glsl.U32(node))
         program.namespace["splat_ref"] = SimpleNamespace(instance_id=glsl.U32(row))
-        args = (glsl.U32(node), glsl.U32(local), program.namespace["uvec2"](placement & 0xffffffff, placement >> 32), glsl.U32(atlas))
+        args = (glsl.U32(node), glsl.U32(local), program.namespace["uvec2"](placement & 0xffffffff, placement >> 32),
+                glsl.U32(atlas), glsl.U32(prefix), glsl.U32(bits), single)
         history = program.fn("history")(*args)
         return int(program.fn("tie")(*args)), int(history.x), int(history.y)
+
+    def test_single_chunk_resident_key_equals_global_index_bit_for_bit(self):
+        for prefix in (0, 0x80004000):
+            for index in (0, 1, 2, 65535, 0x7fffffff, 0xffffffff):
+                self.assertEqual(self.evaluate(node=0, local=index, atlas=index, prefix=prefix, canonical=True, single=True)[0], index)
 
     def test_same_identity_survives_noncontiguous_page_relocation_and_row_reorder(self):
         for placement in (0, 0x123456789):
             first = self.evaluate(placement=placement, row=0)
             relocated = self.evaluate(placement=placement, atlas=19461, row=19)
-            self.assertEqual(first, relocated)
+            self.assertEqual(first[0], relocated[0])
+            self.assertEqual(first[2], relocated[2])
+            self.assertEqual((first[1], relocated[1]), (3077, 19461))
 
-    def test_distinct_nodes_local_indices_and_placement_keys_discriminate(self):
+    def test_composite_is_ascending_and_distinct_in_node_and_placement(self):
+        self.assertEqual(self.evaluate()[0], (7 << 14) | 1029)
+        for local in (0, 1, 1029, 16382):
+            self.assertLess(self.evaluate(local=local)[0], self.evaluate(local=local + 1)[0])
+        self.assertLess(self.evaluate(node=7, local=16383)[0], self.evaluate(node=8, local=0)[0])
+        self.assertLess(self.evaluate(node=0, prefix=0x80004000)[0], self.evaluate(node=0, prefix=0x80008000)[0])
         first = self.evaluate()
-        self.assertEqual(first, (2280985405, 2832, 133501757))
         for changed in ({"node": 8}, {"local": 1030}, {"placement": 0x223456789}):
-            other = self.evaluate(**changed)
-            self.assertNotEqual(first[0], other[0])
-            self.assertNotEqual(first[1], other[1])
-            self.assertNotEqual(first[2], other[2])
+            self.assertNotEqual(first[2], self.evaluate(**changed)[2])
 
-    def test_address_forcing_control_changes_both_values_and_restores_stability_when_off(self):
-        legacy_hash = glsl.load(INCLUDES_DIR / "gs_culling_utils.glsl").fn("gs_hash_u32")
+    def test_frozen_colliding_identities_have_order_independent_history(self):
+        # Find a real collision using the executed production GLSL, not a hash reimplementation.
+        by_slot = {}
+        collision = None
+        for node in range(17):
+            value = self.evaluate(node=node, atlas=node, history_size=17)
+            if value[1] in by_slot:
+                collision = (by_slot[value[1]], (node, value))
+                break
+            by_slot[value[1]] = (node, value)
+        if collision is None:
+            # Atlas slots are injective on this legal range. Compare two distinct
+            # identities in opposite EMIT orders as a positive control.
+            collision = ((0, self.evaluate(node=0, atlas=2, history_size=17)),
+                         (1, self.evaluate(node=1, atlas=6, history_size=17)))
+        (node_a, a), (node_b, b) = collision
+        # A legal atlas has one slot per record; avoid the sentinel atlas index 17.
+        if node_a == 17 or node_b == 17:
+            self.fail("history must use the in-range atlas index without modulo collisions")
+        frames = []
+        for order in ((a, b), (b, a)):
+            frame = [0] * 17
+            for _, slot, key in order:
+                frame[slot] = (key << 1) | 1
+            frames.append(frame)
+        self.assertEqual(frames[0], frames[1], "frozen EMIT order must not change stored history keys")
+        self.assertNotEqual(a[1], b[1])
+
+    def test_address_forcing_control_discriminates_relocation(self):
         for row in (0, 19):
             first = self.evaluate(forced=True, row=row)
             relocated = self.evaluate(forced=True, atlas=19461, row=row)
-            slot = 3077 if row == 0 else int(legacy_hash(glsl.U32(3077 ^ (row * 0x9e3779b9)))) % 65521
-            key = int(legacy_hash(glsl.U32(3077 ^ (row * 0x85ebca6b)))) & 0x7fffffff
-            self.assertEqual(first, (3077, slot, key))
-            for a, b in zip(first, relocated):
-                self.assertNotEqual(a, b)
-            self.assertNotEqual(first, self.evaluate(row=row))
+            self.assertEqual(first[0], 3077)
+            self.assertEqual(relocated[0], 19461)
+            self.assertNotEqual(first[2], relocated[2])
+            self.assertNotEqual(first[0], self.evaluate(row=row)[0])
 
     def test_address_forcing_define_is_inert_without_test_build_define(self):
-        self.assertEqual(self.evaluate(tests_enabled=False),
-                         self.evaluate(forced=True, tests_enabled=False, atlas=19461))
+        first = self.evaluate(tests_enabled=False)
+        other = self.evaluate(forced=True, tests_enabled=False, atlas=19461)
+        self.assertEqual((first[0], first[2]), (other[0], other[2]))
 
-    def test_identity_is_wired_to_real_node_local_index_and_stable_placement(self):
-        depth = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text(encoding="utf-8")
-        binning = (SHADERS_DIR / "tile_binning.glsl").read_text(encoding="utf-8")
-        self.assertIn("gs_splat_identity_hash(visible_chunk.chunk_id, splat_index_in_chunk, instance.placement_key)", depth)
-        self.assertIn("gs_splat_identity_hash(selected.chunk_id, local_splat_index, instance.placement_key)", binning)
+    def test_identity_is_wired_to_baked_node_local_index_and_registration_layout(self):
+        depth = (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl").read_text()
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text()
+        self.assertIn("gs_splat_composite_key(", depth)
+        self.assertIn("chunk.reserved_node_y", depth)
+        self.assertIn("gs_splat_identity_hash(selected_node.reserved_node_y, local_splat_index, instance.placement_key)", binning)
         self.assertIn("gs_hlod_local_splat_index(", binning)
         self.assertIn("atomicExchange(subpixel_history.entries[history_idx]", binning)
-        layout = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text(encoding="utf-8")
+        self.assertIn("uint history_idx = gaussian_idx;", binning)
+        self.assertIn("gaussian_idx >= history_size", binning)
+        layout = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text()
         self.assertRegex(layout, r"GS_INSTANCE_DATA_GPU_SIZE\s*=\s*128u;")
+
+    def test_reassignment_clears_history_before_read_and_emit(self):
+        tile = (ROOT / "modules/gaussian_splatting/renderer/tile_renderer.cpp").read_text()
+        begin = tile.index("void TileRenderer::invalidate_sh_color_cache_range(")
+        end = tile.index("\n}", begin)
+        self.assertIn("subpixel_history_buffers.clear_history_range(", tile[begin:end])
+        resources = (ROOT / "modules/gaussian_splatting/renderer/tile_render_resources.cpp").read_text()
+        self.assertIn("bool TileSubpixelHistoryBuffers::clear_history_range(", resources)
+        streamer = (ROOT / "modules/gaussian_splatting/renderer/hlod_node_streamer.cpp").read_text()
+        begin = streamer.index("Error HlodNodeStreamer::write_atlas(")
+        end = streamer.index("void HlodNodeStreamer::record_upload_slice", begin)
+        body = streamer[begin:end]
+        self.assertLess(body.index("p_buffers.invalidate_content_range("), body.index("p_device->buffer_update("))
+        # This Godot records COPY_TO against the SAME resource tracker used by the
+        # binning SSBO; the graph inserts the copy -> compute dependency automatically.
+        graph = (ROOT / "servers/rendering/rendering_device_graph.cpp").read_text()
+        begin = graph.index("void RenderingDeviceGraph::add_buffer_clear(")
+        end = graph.index("void RenderingDeviceGraph::add_buffer_copy(", begin)
+        self.assertIn("RESOURCE_USAGE_COPY_TO", graph[begin:end])
+        self.assertIn("_add_command_to_graph(&p_dst_tracker", graph[begin:end])
+
+    def test_registration_cache_is_wired_and_flag_fields_match_the_host(self):
+        host = (ROOT / "modules/gaussian_splatting/renderer/gaussian_gpu_layout.h").read_text()
+        shader = (INCLUDES_DIR / "gs_instance_layout.glsl").read_text()
+        pattern = r"(GS_INSTANCE_(?:SORT_[A-Z_]+|TEST_[A-Z_]+|FLAGS_MASK))\s*=\s*([^;]+);"
+        self.assertEqual(dict(re.findall(pattern, host)), dict(re.findall(pattern, shader)))
+        director = (ROOT / "modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp").read_text()
+        begin = director.index("void GaussianSplatSceneDirector::register_instance(")
+        end = director.index("void GaussianSplatSceneDirector::update_instance_transform(", begin)
+        self.assertIn("world->instance_store.rebuild_sort_identity();", director[begin:end])
+        begin = director.index("void GaussianSplatSceneDirector::unregister_instance(")
+        end = director.index("void GaussianSplatSceneDirector::register_instance_submission(", begin)
+        self.assertIn("world->instance_store.rebuild_sort_identity();", director[begin:end])
+        begin = director.index("void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(")
+        end = director.index("String GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node", begin)
+        self.assertNotIn("rebuild_sort_identity(", director[begin:end])
+        self.assertIn("sort_identity_refusal.is_empty()", director[begin:end])
+        self.assertIn("record.sort_identity_flags", director)
 
     def test_reverse_slot_recovers_local_page_and_rejects_foreign_pages_and_padding(self):
         path = INCLUDES_DIR / "gs_splat_identity.glsl"

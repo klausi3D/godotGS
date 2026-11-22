@@ -334,6 +334,11 @@ public:
     int get_aggregated_count() const { return debug_stats.cached_overflow_stats.overflow_splats_aggregated; }
 
 #ifdef TESTS_ENABLED
+    // Exercise the real cache range hook and the next same-frame GPU consumer.
+    RID _test_subpixel_history(uint32_t p_records) {
+        subpixel_history_buffers.ensure_history_buffer(p_records);
+        return subpixel_history_buffers.subpixel_history_buffer;
+    }
     bool test_address_identity_enabled = false;
     uint32_t test_game_shader_variant = 0;
     bool _test_uses_address_identity() const { return shader_resources.tile_binning_pipeline.is_valid() && test_address_identity_enabled; }

@@ -157,6 +157,43 @@ static InstanceRegion region_for(const LocalVector<uint64_t> &p_asset_ids, const
 	return region;
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] A2 registered ObjectID rank survives middle removal and larger chunk registration") {
+    DirectorScene scene;
+    GS_NEED(scene.init());
+    const Ref<GaussianSplatAsset> small = blob_asset(3);
+    Node3D *a = scene.add_node(), *b = scene.add_node(), *c = scene.add_node();
+    // Register out of ObjectID order, including an invisible middle placement.
+    for (Node3D *node : { c, b, a }) {
+        scene.director->register_instance(node->get_instance_id(), small, Transform3D(), 1, 0, 0, false,
+                1, GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT, Vector3(), 1, node != b);
+    }
+    auto prefix = [&](uint64_t key) {
+        Rows rows; LocalVector<uint64_t> keys; scene.rows(rows, keys);
+        if (rows.instances.size() != keys.size()) {
+            CHECK_MESSAGE(false, "parallel identity rows missing"); return uint32_t(0);
+        }
+        for (uint32_t i = 0; i < keys.size(); ++i) {
+            if (keys[i] == key) { return rows.instances[i].ids[1] & 0xffffc000u; }
+        }
+        CHECK_MESSAGE(false, "registered visible placement missing");
+        return uint32_t(0);
+    };
+    const uint64_t ka = uint64_t(a->get_instance_id()), kc = uint64_t(c->get_instance_id());
+    const uint32_t pa = prefix(ka), pc = prefix(kc);
+    CHECK(pa == 0x80004000u); // R=2, C=0, L=14, rank 1.
+    CHECK(pc == 0x8000c000u); // Hidden middle row still owns rank 2.
+    CHECK(pa < pc);
+    scene.director->unregister_instance(b->get_instance_id());
+    CHECK(prefix(ka) < prefix(kc));
+    CHECK(prefix(kc) == 0x80008000u);
+    Node3D *large = scene.add_node();
+    // Real descriptor producer: 65537 splats -> two chunks; local maximum -> L=16.
+    scene.director->register_instance(large->get_instance_id(), blob_asset(65537), Transform3D(), 1, 0, 0);
+    CHECK(prefix(ka) < prefix(kc));
+    CHECK(prefix(ka) == 0x80020000u); // R=2, C=1, L=16.
+    CHECK(prefix(kc) == 0x80040000u);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] a world with 0, 1 and 8 node instances keeps the HLOD route and its row 0; nodes are rows 1..N") {
 	DirectorScene scene;
 	GS_NEED(scene.init());
