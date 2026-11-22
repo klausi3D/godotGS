@@ -1,5 +1,8 @@
 """Lane wiring contracts; constructed tests, never GPU evidence."""
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+import contextlib
 import importlib.util
 import sys
 import re
@@ -92,6 +95,45 @@ class ContractTests(unittest.TestCase):
             out = Path(temporary)
             lane.save(out / "raw.json", {"rows": {}})
             self.assertEqual(lane.finalize(out, "failure"), 2)
+
+    def test_t0_world_is_generated_in_the_auto_tree_producer_input_encoding(self):
+        # Run 45026893667: the lane generated plain_v3_uncompressed and the native
+        # auto-tree source refused it (input_requires_plain_v3_gsq). The encoding the
+        # builder accepts is the one dispatch_lane's own auto-tree T0 producer feeds it,
+        # so both producers' generator commands are captured, not hand-copied.
+        here = ROOT / "tests/runtime"
+        sys.path.insert(0, str(here))
+        try:
+            spec = importlib.util.spec_from_file_location("game_lane_encoding", here / "gs_game_1_lane.py")
+            lane = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(lane)
+        finally:
+            sys.path.remove(str(here))
+        dispatch = lane.dispatch
+        calls = []
+
+        def record(cmd, log, runner, timeout):
+            calls.append(list(cmd))
+            return 1  # Stop each producer after its first (generator) command.
+
+        def generated(cmd):
+            self.assertEqual(Path(cmd[1]).name, "generate_world.py")
+            self.assertEqual(cmd[cmd.index("--tier") + 1], "T0")
+            return cmd[cmd.index("--encoding") + 1]
+
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(dispatch, "_run_logged", record), \
+                mock.patch.object(lane.cache, "cache_lock", lambda root, exclusive: contextlib.nullcontext()), \
+                mock.patch.object(lane.shutil, "disk_usage", return_value=SimpleNamespace(free=1 << 62)):
+            scratch = Path(temporary)
+            with self.assertRaises(dispatch.LaneError):
+                lane.prepare_world(Path("godot"), scratch / "cache", scratch / "out", True)
+            with self.assertRaises(dispatch.LaneError):
+                dispatch.prepare_auto_tree_t0(ROOT, Path("godot"), scratch / "auto", scratch / "auto-out")
+        self.assertEqual(len(calls), 2)
+        lane_encoding, producer_encoding = generated(calls[0]), generated(calls[1])
+        self.assertEqual(producer_encoding, dispatch.ENCODING_GSQ)
+        self.assertEqual(lane_encoding, producer_encoding)
 
     def test_postflight_finalizes_before_artifacts(self):
         text = (ROOT / ".github/workflows/gs_game_1.yml").read_text(encoding="utf-8")

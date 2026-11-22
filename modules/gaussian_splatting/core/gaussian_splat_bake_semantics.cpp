@@ -56,6 +56,19 @@ Array identity_transform_json() {
     }
     return a;
 }
+// TiledBakeSource contract: centre_bounds is closed and its upper face is
+// AABB::get_end(), evaluated in real_t. AABB::expand_to stores a rounded
+// end - begin, so position + size can land one ulp below the largest centre.
+// Round each size up until position + size covers the exact maximum.
+AABB closed_centre_bounds(const Vector3 &p_lo, const Vector3 &p_hi) {
+    Vector3 size;
+    for (int a = 0; a < 3; ++a) {
+        real_t s = real_t(double(p_hi[a]) - double(p_lo[a]));
+        while (std::isfinite(s) && real_t(p_lo[a] + s) < p_hi[a]) { s = std::nextafter(s, std::numeric_limits<real_t>::infinity()); }
+        size[a] = s;
+    }
+    return AABB(p_lo, size);
+}
 Dictionary bounds_json(const AABB &p) { Dictionary d; d["position"] = xyz(p.position); d["size"] = xyz(p.size); return d; }
 struct Volume {
     String kind, path, name;
@@ -103,8 +116,10 @@ public:
     Error get_chunk_info(uint32_t p_id, TiledBakeChunkInfo &r, String *) const override {
         if (p_id != 0) { return ERR_INVALID_PARAMETER; }
         r.first_splat = 0; r.splat_count = input.count;
-        if (input.count) { r.centre_bounds = AABB(input.gaussians[0].position, Vector3()); }
-        for (uint32_t i = 1; i < input.count; ++i) { r.centre_bounds.expand_to(input.gaussians[i].position); }
+        if (!input.count) { return OK; }
+        Vector3 lo = input.gaussians[0].position, hi = lo;
+        for (uint32_t i = 1; i < input.count; ++i) { lo = lo.min(input.gaussians[i].position); hi = hi.max(input.gaussians[i].position); }
+        r.centre_bounds = closed_centre_bounds(lo, hi);
         return OK;
     }
     Error read_chunk(uint32_t p_id, TiledBakeChunk &r, String *) const override {
@@ -325,12 +340,13 @@ Error SemanticBakeSource::open(const TiledBakeSource &p_source, const Array &p_v
         if (error == OK) { error = p_source.read_chunk(c, raw, nullptr); }
         if (error != OK) { return s.fail("semantic_source_read", error); }
         Chunk mapped; mapped.source = c; mapped.info.first_splat = s.info.splat_count;
+        Vector3 centre_lo, centre_hi;
         for (uint32_t i = 0; i < raw.gaussians.size(); ++i) {
             Gaussian g = raw.gaussians[i]; const uint32_t id = s.assign(g, descriptor.first_splat + i, overrides);
             Cell cell; if (!cell_at(g.position, cell)) { return s.fail("semantic_hole_grid_range"); }
             if (id == 0) {
-                if (mapped.info.splat_count++ == 0) { mapped.info.centre_bounds = AABB(g.position, Vector3()); }
-                else { mapped.info.centre_bounds.expand_to(g.position); }
+                if (mapped.info.splat_count++ == 0) { centre_lo = centre_hi = g.position; }
+                else { centre_lo = centre_lo.min(g.position); centre_hi = centre_hi.max(g.position); }
                 world_cells.insert(cell);
             } else {
                 int index = s.island_index(id);
@@ -361,6 +377,7 @@ Error SemanticBakeSource::open(const TiledBakeSource &p_source, const Array &p_v
             }
         }
         if (mapped.info.splat_count) {
+            mapped.info.centre_bounds = closed_centre_bounds(centre_lo, centre_hi);
             const uint32_t count = s.chunks.size();
             if (!fallible_resize(s.chunks, uint64_t(count) + 1, "semantic chunk map")) { return s.fail("semantic_limit_ram", ERR_OUT_OF_MEMORY); }
             s.chunks[count] = mapped; s.info.splat_count += mapped.info.splat_count; ++s.info.chunk_count;
