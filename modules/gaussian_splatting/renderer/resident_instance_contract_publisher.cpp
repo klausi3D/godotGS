@@ -3810,10 +3810,13 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
         grading = hlod_rows.grading;
     } else {
         director->build_instance_buffer_for_renderer(this, instances, false);
+        // Mirror update_instance_buffer(): the region-override segment base (lod.y)
+        // is written before upload on this route too (package C).
+        if (!prepare_region_override_rows(instances)) { return Dictionary(); }
         director->build_instance_grading_buffer_for_renderer(this, grading, false);
     }
     if (instance_contract_shape != "hlod_canonical") {
-        // Ordinary resident publication adds its remap generation in lod[1].
+        // Ordinary resident publication adds its remap generation in placement_pad[1].
         // This is not source payload and is intentionally different from the
         // direct HLOD identity shim; compare each route's complete actual ABI.
         if (!instance_asset_remap.valid || instances.size() != 1) {
