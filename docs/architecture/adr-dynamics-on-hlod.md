@@ -380,13 +380,21 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 ### 6.4 Runtime recolour, tint, emissive and hide (D4)
 
 **Table [P]:**
-- An SSBO `RegionOverrideGPU[]` of 32 B entries: `tint.rgb`, `tint_strength`, `emissive.rgb`,
-  `opacity_mul`, `flags` (HIDE, NO_WIND, HIGHLIGHT, NO_SHADOW) and 4 bytes of padding.
-- Each asset gets a segment. The instance row's reserved `lod.y` (`gs_instance_layout.glsl:35`)
+- An SSBO `RegionOverrideGPU[]` of exactly **32 B** entries (binding owner decision):
+  bytes 0–15: fp32 `vec4 tint = (tint.rgb, tint_strength)`;
+  bytes 16–23: `uvec2 emissive_opacity = (packHalf2x16(emissive.rg), packHalf2x16(emissive.b, opacity_mul))`;
+  bytes 24–27: `uint flags` (HIDE, NO_WIND, HIGHLIGHT, NO_SHADOW);
+  bytes 28–31: zero `uint padding`. CPU/Resource values remain floats. On upload emissive is
+  clamped to [0, 65504] and opacity to [0, 1]. A full 65,536-entry segment uses **2 MiB** (65,536 × 32 B).
+- Each asset gets a segment. The instance row's `lod.y` (`gs_instance_layout.glsl`)
   [V] holds the segment base, with `0xFFFFFFFF` for none. The splat's entry is
-  `table[base + min(region_id, segment_len - 1)]`; entry 0 of a segment is the "whole asset" entry.
+  `table[base + min(region_id, segment_len - 1)]`; entry 0 supplies the whole-asset default.
+  CPU upload materializes that default in every region without an explicit override. Separate placements
+  have independent segments even when they share an asset. `placement_pad.x` stores `segment_len` and
+  `placement_pad.y` retains the dense-remap generation formerly written in `lod.y`. This uses existing
+  tail words and keeps the instance ABI at 128 B; no params or push-constant block grows.
 - Uploads go as dirty ranges from the CPU and take effect in the **same** frame they are set,
-  before the main view is recorded.
+  before the shadow passes and main view are recorded. The table and rows are frozen together for the server frame.
 
 **Application points [P]:**
 
@@ -395,7 +403,7 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 | `HIDE`, `opacity_mul == 0` | `compute/depth_compute.glsl`, before the sort-key write (`:268-273`) [V for the location] | Hidden splats cost no sort records (acceptance row R3). |
 | `opacity_mul` | `tile_binning.glsl` base opacity (`:1423-1424`) [V] | The same spot as the instance opacity. |
 | tint and highlight | after the SH cache read and next to `apply_color_grading_binning` (`tile_binning.glsl:1468-1469`) [V] | The cached SH colour is ungraded by design (comment `:1459`) [V], so the override acts without SH-cache latency. |
-| emissive | added after lighting, not before (so lights do not modulate it) | where exactly is [I]; to be located in the lighting applier |
+| emissive | added after lighting, not before (so lights do not modulate it) | `tile_binning.glsl`, after the direct/ambient lighting block and before finite-color rejection and projected-color packing |
 | `HIDE`, `NO_SHADOW` | caster | the shadow of a hidden region disappears too |
 | `NO_WIND` | `W(splat) = 0` | freezes a region, for example a wrecked tree |
 
@@ -428,7 +436,7 @@ func set_hidden(hidden: bool) -> void                # distinct from Node3D.visi
 - `GaussianSplatRegionOverride` is a `Resource` with `tint`, `tint_strength`, `emissive`,
   `opacity`, `wind_enabled`, `cast_shadow` and `highlight`.
 - Region names come from bake metadata: a `regions[]` manifest in the V4 metadata JSON and in
-  plain-v3 metadata.
+  plain-v3 metadata. Volume IDs are NOT stable across edits: game code resolves names with `get_region_id(name)`, never hard-coded numbers.
 - Picking (#1312) later returns `{instance, region_id}` from a per-pixel ID output. It is listed,
   not designed here.
 - **Authoring of regions [P]:** region volumes at bake (`GaussianSplatRegionVolume3D`, a named

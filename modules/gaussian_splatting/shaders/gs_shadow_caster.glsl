@@ -12,6 +12,8 @@
 #version 450
 
 #include "includes/gs_instance_layout.glsl"
+#define GS_REGION_BINDING 7
+#include "includes/gs_region_override.glsl"
 #include "includes/gs_camera_relative.glsl"
 #include "includes/gs_deformation.glsl"
 
@@ -180,6 +182,9 @@ void main() {
     // exactly as tile_binning.glsl scales it (clamped to [0, 1] there too), before both the threshold test and the
     // support radius: a faded node or world casts what it shows.
     InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
+    RegionOverrideGPU region_override = gs_region_resolve(instance, atlas_gaussian_buffer.gaussians[atlas_index].semantic, atlas_index);
+    vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
+    if ((region_override.flags & (GS_REGION_HIDE | GS_REGION_NO_SHADOW)) != 0u || region_emissive_opacity.w == 0.0) { gs_caster_reject(); return; }
     float opacity_multiplier = uintBitsToFloat(params.counts.w);
     vec3 local_position = atlas_gaussian_buffer.gaussians[atlas_index].position;
     vec3 local_scale = atlas_gaussian_buffer.gaussians[atlas_index].scale;
@@ -200,13 +205,13 @@ void main() {
     float deformation_fade = gs_wind_distance_level_fade(frame_position, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(frame_position,
             atlas_gaussian_buffer.gaussians[atlas_index].opacity,
-            atlas_gaussian_buffer.gaussians[atlas_index].semantic,
+            gs_region_wind_semantic(atlas_gaussian_buffer.gaussians[atlas_index].semantic, region_override.flags),
             max(instance.params.z, 0.0), instance.params.w, instance.wind_params, instance.effect_params,
             deformation_params.wind_dir_strength, deformation_params.wind_time_config, deformation_params.effector_meta,
             deformation_params.effector_spheres, deformation_params.effector_configs, deformation_params.effector_opacity_configs,
             deformation_params.frame_anchor.xyz, deformation_fade);
     frame_position = deformation.position;
-    float opacity = clamp(deformation.opacity * instance.params.x * opacity_multiplier, 0.0, 1.0);
+    float opacity = clamp(deformation.opacity * region_emissive_opacity.w * instance.params.x * opacity_multiplier, 0.0, 1.0);
     float threshold = params.viewport.z;
     // A splat whose peak alpha is below the threshold occludes nowhere.
     if (!(opacity >= threshold) || threshold <= 0.0) {

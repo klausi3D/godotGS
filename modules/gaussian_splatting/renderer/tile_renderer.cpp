@@ -1976,6 +1976,7 @@ Error TileRenderer::initialize(RenderingDevice *p_rendering_device, const Vector
 }
 
 void TileRenderer::cleanup() {
+    neutral_region_overrides.clear();
 	clear_output_resource_tracking();
 	clear_adaptive_overlap_budget_runtime_state();
 	async_readback.overflow_state = TileAsyncReadback::AsyncOverflowState();
@@ -2395,6 +2396,7 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_X %d\n", config_state.tile_size));
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_Y %d\n", config_state.tile_size));
 #ifdef TESTS_ENABLED
+    defines.push_back("#define GS_TESTS_ENABLED 1\n#define GS_TEST_REGION_CONTROLS 1\n");
 	if (GSSplatIdentityTestControl::get_force_address_keying()) {
 		defines.push_back(GSSplatIdentityTestControl::shader_defines());
 	}
@@ -3478,7 +3480,8 @@ bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBin
             p_bindings.hlod_content_generation != p_params.hlod_content_generation ||
             p_bindings.hlod_origin_revision != p_params.hlod_origin_revision ||
             p_bindings.instance_buffer != p_params.instance_buffer ||
-			p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
+			p_bindings.region_override_buffer != p_params.region_override_buffer ||
+            p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
 			p_bindings.splat_ref_buffer != p_params.splat_ref_buffer ||
 			p_bindings.chunk_meta_buffer != p_params.chunk_meta_buffer ||
 			p_bindings.quantization_buffer != p_params.quantization_buffer ||
@@ -3498,6 +3501,7 @@ void TileRenderer::_assign_instance_pipeline_bindings(InstancePipelineBindings &
     r_bindings.hlod_origin_revision = p_params.hlod_origin_revision;
 	r_bindings.instance_buffer = p_params.instance_buffer;
 	r_bindings.instance_grading_buffer = p_params.instance_grading_buffer;
+    r_bindings.region_override_buffer = p_params.region_override_buffer;
 	r_bindings.splat_ref_buffer = p_params.splat_ref_buffer;
 	r_bindings.chunk_meta_buffer = p_params.chunk_meta_buffer;
 	r_bindings.quantization_buffer = p_params.quantization_buffer;

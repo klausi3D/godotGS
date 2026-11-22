@@ -1826,6 +1826,7 @@ struct RenderPipelineStages::SortStage {
 					instance_inputs.atlas_gaussian_buffer = buffers.atlas_gaussian_buffer;
 					instance_inputs.quantization_buffer = buffers.quantization_required ? buffers.quantization_buffer : RID();
 					instance_inputs.instance_buffer = buffers.instance_buffer;
+                    instance_inputs.region_override_buffer = renderer->get_region_override_buffer();
 					instance_inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;
 					instance_inputs.visible_chunk_buffer = buffers.visible_chunk_buffer;
 					instance_inputs.splat_ref_buffer = buffers.splat_ref_buffer;
@@ -2463,6 +2464,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	if (instance_buffers_ready) {
 		render_params.instance_buffer = instance_buffers.instance_buffer;
 		render_params.instance_grading_buffer = instance_buffers.instance_grading_buffer;
+        render_params.region_override_buffer = renderer->get_region_override_buffer();
         render_params.hlod_relative = instance_buffers.hlod_relative;
 		render_params.current_cpu_draw_domain_count = instance_buffers.hlod_relative ? 0u : instance_buffers.current_cpu_draw_domain_count;
         render_params.hlod_draw_entry_buffer = instance_buffers.hlod_draw_entry_buffer;

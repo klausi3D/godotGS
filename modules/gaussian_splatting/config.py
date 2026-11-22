@@ -92,6 +92,7 @@ def get_doc_classes():
         "BitonicSort",
         "ChunkPayloadSource",
         "ColorGradingResource",
+        "GaussianSplatRegionOverride",
         "GPUBufferManager",
         "GaussianAnimationStateMachine",
         "GaussianData",

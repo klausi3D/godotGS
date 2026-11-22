@@ -165,13 +165,17 @@ static Error _load_island_asset(const String &p_path, Ref<GaussianSplatAsset> &r
     asset.instantiate();
     error = asset->populate_from_gaussian_data(data);
     if (error != OK) { return error; }
+    Dictionary import_metadata = asset->get_import_metadata();
+    const Dictionary island_metadata = island_world->get_metadata();
+    if (island_metadata.has("regions")) { import_metadata["regions"] = island_metadata["regions"]; }
+    asset->set_import_metadata(import_metadata);
     r_asset = asset;
     return OK;
 }
 
 } // namespace
 
-GaussianSplatWorld3D::GaussianSplatWorld3D() = default;
+GaussianSplatWorld3D::GaussianSplatWorld3D() { region_overrides.instantiate(); }
 GaussianSplatWorld3D::~GaussianSplatWorld3D() = default;
 
 Ref<GaussianSplatRenderer> GaussianSplatWorld3D::get_renderer() const {
@@ -223,6 +227,15 @@ Array GaussianSplatWorld3D::create_island_nodes(Node *p_parent) {
 }
 
 void GaussianSplatWorld3D::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("get_region_id", "name"), &GaussianSplatWorld3D::get_region_id);
+    ClassDB::bind_method(D_METHOD("get_region_names"), &GaussianSplatWorld3D::get_region_names);
+    ClassDB::bind_method(D_METHOD("set_region_override", "region", "override"), &GaussianSplatWorld3D::set_region_override);
+    ClassDB::bind_method(D_METHOD("clear_region_override", "region"), &GaussianSplatWorld3D::clear_region_override);
+    ClassDB::bind_method(D_METHOD("clear_all_region_overrides"), &GaussianSplatWorld3D::clear_all_region_overrides);
+    ClassDB::bind_method(D_METHOD("set_tint", "color", "strength"), &GaussianSplatWorld3D::set_tint);
+    ClassDB::bind_method(D_METHOD("set_emissive", "color"), &GaussianSplatWorld3D::set_emissive);
+    ClassDB::bind_method(D_METHOD("set_hidden", "hidden"), &GaussianSplatWorld3D::set_hidden);
+
     ClassDB::bind_method(D_METHOD("set_world", "world"), &GaussianSplatWorld3D::set_world);
     ClassDB::bind_method(D_METHOD("get_world"), &GaussianSplatWorld3D::get_world);
     ClassDB::bind_method(D_METHOD("set_auto_apply_on_ready", "enabled"), &GaussianSplatWorld3D::set_auto_apply_on_ready);
@@ -575,10 +588,18 @@ void GaussianSplatWorld3D::_on_world_resource_changed() {
     // KNOWN GAP, not covered by this: get_metadata() hands script the resource's
     // own Dictionary, so mutating it in place emits nothing and the director keeps
     // the previous metadata until something else re-registers.
+    // Detached resource inspection can run without scene services. Do not arm
+    // the coalescing latch when there is no queue to clear it later. A later
+    // apply_world() captures the resource's current metadata. This callback can
+    // run on a loader thread, so leave scene-tree inspection to the flush.
+    CallQueue *queue = MessageQueue::get_main_singleton();
+    if (!queue) {
+        return;
+    }
     if (world_resource_resubmit_pending.exchange(true)) {
         return;
     }
-    MessageQueue::get_main_singleton()->push_callable(
+    queue->push_callable(
             callable_mp(this, &GaussianSplatWorld3D::_flush_world_resource_resubmit));
 }
 
@@ -917,7 +938,9 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
         return;
     }
 
+    region_overrides->set_manifest(world->get_metadata());
     GaussianSplatSceneDirector::WorldSubmission submission;
+    submission.region_overrides = region_overrides;
     submission.owner_id = get_instance_id();
     submission.casts_shadow = cast_shadow; // Row 0 of the HLOD shadow casters (#1095); see set_cast_shadow().
     submission.wind_intensity = wind_intensity;
@@ -1230,3 +1253,19 @@ void GaussianSplatWorld3D::set_hlod_tau_px(float p_tau) {
     hlod_tau_px = p_tau;
     _resubmit_world_submission_if_registered();
 }
+
+int GaussianSplatWorld3D::get_region_id(const StringName &p_name) const { return GSRegionOverrideState::region_id(world.is_valid() ? world->get_metadata() : Dictionary(), p_name); }
+PackedStringArray GaussianSplatWorld3D::get_region_names() const { return GSRegionOverrideState::region_names(world.is_valid() ? world->get_metadata() : Dictionary()); }
+void GaussianSplatWorld3D::_sync_region_overrides() {
+    region_overrides->set_manifest(world.is_valid() ? world->get_metadata() : Dictionary());
+    if (auto *director = GaussianSplatSceneDirector::get_singleton()) { director->update_region_overrides(get_instance_id(), region_overrides); }
+}
+void GaussianSplatWorld3D::set_region_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override) {
+    ERR_FAIL_COND(p_region < 0 || p_region > 65535 || p_override.is_null());
+    region_overrides->set_override(p_region, p_override); _sync_region_overrides();
+}
+void GaussianSplatWorld3D::clear_region_override(int p_region) { region_overrides->clear_override(p_region); _sync_region_overrides(); }
+void GaussianSplatWorld3D::clear_all_region_overrides() { region_overrides->clear_all(); _sync_region_overrides(); }
+void GaussianSplatWorld3D::set_tint(const Color &p_color, float p_strength) { auto whole = region_overrides->whole_asset(); whole->set_tint(p_color); whole->set_tint_strength(p_strength); _sync_region_overrides(); }
+void GaussianSplatWorld3D::set_emissive(const Color &p_color) { region_overrides->whole_asset()->set_emissive(p_color); _sync_region_overrides(); }
+void GaussianSplatWorld3D::set_hidden(bool p_hidden) { region_overrides->set_hidden(p_hidden); _sync_region_overrides(); }

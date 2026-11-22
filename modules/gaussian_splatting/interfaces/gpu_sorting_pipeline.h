@@ -1,6 +1,7 @@
 #ifndef GS_GPU_SORTING_PIPELINE_H
 #define GS_GPU_SORTING_PIPELINE_H
 
+#include "../renderer/gs_region_override_buffer.h"
 #include "gpu_sorting_pipeline_interfaces.h"
 #include "splat_count_sample.h"
 #include "render_device_manager.h"
@@ -23,6 +24,7 @@ public:
         RID atlas_gaussian_buffer;
         RID quantization_buffer;
         RID instance_buffer;
+        RID region_override_buffer;
         RID chunk_meta_buffer;
         RID visible_chunk_buffer;
         RID splat_ref_buffer;
@@ -169,6 +171,7 @@ protected:
     static void _bind_methods();
 
 private:
+    GSRegionOverrideBuffer neutral_region_overrides;
     // State
     bool initialized = false;
     RenderingDevice *rd = nullptr;

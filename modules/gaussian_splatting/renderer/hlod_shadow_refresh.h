@@ -208,7 +208,7 @@ inline uint64_t record_digest(const DrawnNodeGPU &p_draw, const Geometry &p_geom
 inline uint64_t row_digest(const InstanceDataGPU &p_row, uint64_t p_key, uint64_t p_asset) {
 	InstanceDataGPU row = p_row; // Layout has asserted size and no padding.
 	row.ids[0] = 0; // The stable asset identity below replaces the bundle's dense remap.
-	row.lod[0] = row.lod[1] = 0; // Camera-selected legacy LOD fields are not read by the retained HLOD caster.
+	row.lod[0] = 0; // Ignore camera-selected LOD; lod.y remains the semantic override base.
 	row.params[1] = 0; // LOD bias affects admission, already represented by selected node/chunk identities.
 	return hash_value(hash_value(hash_value(HASH_SEED, p_key), p_asset), row);
 }

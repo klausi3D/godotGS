@@ -905,6 +905,7 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.hlod_world_key = p_submission.hlod_world_key;
 	r_record.bounds = p_submission.bounds;
 	r_record.metadata = p_submission.metadata;
+    r_record.region_overrides = p_submission.region_overrides;
 	r_record.has_desired_residency_hint = p_submission.has_desired_residency_hint;
 	r_record.desired_residency_hint = p_submission.desired_residency_hint;
 	r_record.desired_renderer_overrides = p_submission.desired_renderer_overrides;
@@ -944,6 +945,7 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->hlod_world_key = p_record.hlod_world_key;
 	r_submission->bounds = p_record.bounds;
 	r_submission->metadata = p_record.metadata;
+    r_submission->region_overrides = p_record.region_overrides;
 	r_submission->has_desired_residency_hint = p_record.has_desired_residency_hint;
 	r_submission->desired_residency_hint = p_record.desired_residency_hint;
 	r_submission->desired_renderer_overrides = p_record.desired_renderer_overrides;
@@ -1745,7 +1747,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 			entry.ids[1] = flags;
 
 			entry.lod[0] = record.last_lod;
-			entry.lod[1] = 0;
+			entry.lod[1] = UINT32_MAX;
 			entry.wind_params[0] = record.wind_direction.x;
 			entry.wind_params[1] = record.wind_direction.y;
 			entry.wind_params[2] = record.wind_direction.z;
@@ -1783,7 +1785,7 @@ void GaussianSplatSceneDirector::_fill_world_identity_row(const WorldSubmissionR
 		entry.ids[1] |= GS_INSTANCE_FLAG_ANTIALIASED;
 	}
 	entry.lod[0] = 0;
-	entry.lod[1] = 0;
+	entry.lod[1] = UINT32_MAX;
 	entry.wind_params[0] = 0.0f;
 	entry.wind_params[1] = 0.0f;
 	entry.wind_params[2] = 0.0f;
@@ -1927,7 +1929,7 @@ void GaussianSplatSceneDirector::_fill_instance_row(const InstanceRecord &p_reco
 	entry.ids[1] = flags;
 
 	entry.lod[0] = record.last_lod;
-	entry.lod[1] = 0;
+	entry.lod[1] = UINT32_MAX;
 	entry.wind_params[0] = record.wind_direction.x;
 	entry.wind_params[1] = record.wind_direction.y;
 	entry.wind_params[2] = record.wind_direction.z;
@@ -2067,7 +2069,8 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 				SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
 			InstanceDataGPU entry = {};
 			_fill_world_identity_row(world->submission_store.get_record(), scene_payload, entry);
-			out.push_back(entry);
+			if (p_shadow_casters_only) { entry.ids[1] |= GS_INSTANCE_FLAG_SHADOW_PASS; }
+            out.push_back(entry);
 			if (r_submission_asset_ids) {
 				// Primary/world-submission asset id is 0 (kPrimary*AssetId).
 				r_submission_asset_ids->push_back(0ULL);
@@ -2107,7 +2110,8 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 		_fill_instance_row(record, scene_payload, entry);
 		const uint32_t flags = entry.ids[1];
 
-		out.push_back(entry);
+		if (p_shadow_casters_only) { entry.ids[1] |= GS_INSTANCE_FLAG_SHADOW_PASS; }
+            out.push_back(entry);
 		if (r_submission_asset_ids) {
 			r_submission_asset_ids->push_back(record.asset_id);
 		}
@@ -3368,3 +3372,31 @@ double GaussianSplatSceneDirector::test_deformation_visibility_margin_for_scenar
 	return _deformation_visibility_margin_locked(world_registry.find(p_scenario), fallback, p_wind, deformation_pre_draw_epoch);
 }
 #endif
+
+void GaussianSplatSceneDirector::update_region_overrides(ObjectID p_owner, const Ref<GSRegionOverrideState> &p_state) {
+    GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+    SharedWorld *world = _find_world_for_instance(p_owner);
+    if (world) {
+        if (auto *record = world->instance_store.find_mutable(p_owner)) { record->region_overrides = p_state; world->instance_store.bump_generation(); }
+        return;
+    }
+    world = _find_world_for_world_submission(p_owner);
+    if (world && world->submission_store.is_active()) {
+        world->submission_store.mutable_record().region_overrides = p_state;
+        world->instance_store.bump_generation();
+    }
+}
+
+void GaussianSplatSceneDirector::collect_region_overrides(const GaussianSplatRenderer *p_renderer,
+        LocalVector<RegionOverrideSource> &r_sources) const {
+    GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+    r_sources.clear();
+    const SharedWorld *world = _find_world_for_renderer(p_renderer);
+    if (!world) { return; }
+    if (world->submission_store.is_active() && world->submission_store.get_record().region_overrides.is_valid()) {
+        r_sources.push_back({0, world->submission_store.get_record().region_overrides});
+    }
+    for (const auto &record : world->instance_store.records()) {
+        if (record.region_overrides.is_valid()) { r_sources.push_back({uint64_t(record.node_id), record.region_overrides}); }
+    }
+}

@@ -10,6 +10,47 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+        <method name="get_region_id" qualifiers="const">
+            <return type="int" />
+            <param index="0" name="name" type="StringName" />
+            <description>Returns the region ID recorded under [param name] in the baked [code]regions[][/code] manifest, or -1 if unknown. Volume region IDs are NOT stable across edits. Game code must resolve regions by name with this method after loading or rebaking, never use a hard-coded numeric ID.</description>
+        </method>
+        <method name="get_region_names" qualifiers="const">
+            <return type="PackedStringArray" />
+            <description>Returns region names from the baked manifest, in manifest order. Resolve each name through [method get_region_id]; volume IDs can change when volumes are added, removed, or renamed.</description>
+        </method>
+        <method name="set_region_override">
+            <return type="void" />
+            <param index="0" name="region" type="int" />
+            <param index="1" name="override" type="GaussianSplatRegionOverride" />
+            <description>Assigns a runtime override to a baked region (0 to 65535). Resolve [param region] by name with [method get_region_id]. Region 0 supplies the whole-asset default; explicit regions replace that default. Updates made before rendering are uploaded before that frame's shadow and main passes and survive HLOD eviction. The override is specific to this node, including when several nodes share an asset.</description>
+        </method>
+        <method name="clear_region_override">
+            <return type="void" />
+            <param index="0" name="region" type="int" />
+            <description>Clears this region's explicit override. It inherits the whole-asset default again.</description>
+        </method>
+        <method name="clear_all_region_overrides">
+            <return type="void" />
+            <description>Clears all overrides, including the whole-asset default and the state set by [method set_hidden].</description>
+        </method>
+        <method name="set_tint">
+            <return type="void" />
+            <param index="0" name="color" type="Color" />
+            <param index="1" name="strength" type="float" />
+            <description>Sets the whole-asset default tint and strength (clamped to 0 to 1). Strength 1 replaces the SH color with [param color]. Tint is applied after the SH cache and before lighting. Explicit region overrides replace this default.</description>
+        </method>
+        <method name="set_emissive">
+            <return type="void" />
+            <param index="0" name="color" type="Color" />
+            <description>Sets the whole-asset default emission, added after lighting. Components are clamped to 0 to 65504 during GPU upload. Explicit region overrides replace this default.</description>
+        </method>
+        <method name="set_hidden">
+            <return type="void" />
+            <param index="0" name="hidden" type="bool" />
+            <description>Hides every region, including explicit overrides, before sort records are allocated, and suppresses its shadows. This is distinct from [member Node3D.visible]: the instance remains registered. Passing false restores the authored per-region opacity and overrides.</description>
+        </method>
+
 		<method name="create_island_nodes">
 			<return type="Array" />
 			<param index="0" name="parent" type="Node" default="null" />

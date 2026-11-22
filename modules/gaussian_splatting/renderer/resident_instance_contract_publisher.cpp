@@ -1500,8 +1500,10 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     const uint32_t row_count = p_rows.count();
     LocalVector<InstanceDataGPU> packed_rows;
     gs_hlod_bundle::pack_instance_rows(p_rows, region, packed_rows);
+    if (!p_renderer->prepare_region_override_rows(packed_rows)) { return false; }
     const uint32_t visible_chunks = uint32_t(gs_hlod_bundle::visible_chunk_capacity(p_data.nodes.size(), p_relative, region));
     auto &b = r_bundle.buffers;
+    b.region_override_buffer = p_renderer->get_region_override_buffer();
     const uint32_t node_count = p_data.nodes.size();
     const uint32_t records = p_streaming ? p_atlas_records : p_data.leaf_count + (p_relative ? p_data.parent_count : 0);
     // The instance region follows the world: chunk tables [node_count, +chunk_count), atlas [records, +region.records).
@@ -2166,6 +2168,7 @@ bool GaussianSplatRenderer::refresh_hlod_instance_rows(gs_shadow_caster::Refusal
     }
     LocalVector<InstanceDataGPU> packed;
     gs_hlod_bundle::pack_instance_rows(rows, state.hlod_instance_region, packed);
+    if (!prepare_region_override_rows(packed)) { return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT); }
     for (bool relative : { false, true }) {
         if (state.hlod_streaming && !relative) { continue; } // A streamed world has no canonical bundle.
         const auto &b = (relative ? state.hlod_relative : state.hlod_canonical).buffers;
@@ -2285,7 +2288,8 @@ static void report_hlod_ledger_categories(GaussianRenderFacadeState::ResourceSta
     const uint64_t overlap_per_record = p_tile.get_hlod_overlap_bytes_per_record();
     ledger.report(DeviceVramLedger::POOL, pool_bytes);
     ledger.report(DeviceVramLedger::INSTANCE_REGION, region_bytes);
-    ledger.report(DeviceVramLedger::VIEW, bundle_bytes > atlas_bytes ? bundle_bytes - atlas_bytes : 0u);
+    ledger.report(DeviceVramLedger::VIEW, (bundle_bytes > atlas_bytes ? bundle_bytes - atlas_bytes : 0u) +
+            p_state.region_override_buffer.bytes() + p_tile.get_region_override_neutral_bytes());
     ledger.report(DeviceVramLedger::OVERLAP, uint64_t(p_tile.get_allocated_overlap_capacity()) * overlap_per_record);
     // One sort record costs one overlap record without the sorter's alternate buffer (same key width).
     ledger.report(DeviceVramLedger::SORT, uint64_t(p_sort.capacity) * (overlap_per_record / 2u));
@@ -3774,6 +3778,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
             result["error"] = "current_hlod_rows_unpackable"; return result;
         }
         gs_hlod_bundle::pack_instance_rows(hlod_rows, state.hlod_instance_region, instances);
+        if (!prepare_region_override_rows(instances)) { return Dictionary(); }
         grading = hlod_rows.grading;
     } else {
         director->build_instance_buffer_for_renderer(this, instances, false);
@@ -3787,7 +3792,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
             result["error"] = "current_resident_remap_missing"; return result;
         }
         instances[0].ids[0] = 0u;
-        instances[0].lod[1] = instance_asset_remap.generation == 0 ? 1u : uint32_t(instance_asset_remap.generation & uint64_t(UINT32_MAX));
+        instances[0].placement_pad[1] = instance_asset_remap.generation == 0 ? 1u : uint32_t(instance_asset_remap.generation & uint64_t(UINT32_MAX));
     }
     result["expected_instance_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(instances.ptr()), instances.size() * sizeof(InstanceDataGPU));
     result["expected_grading_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(grading.ptr()), grading.size() * sizeof(InstanceGradingGPU));

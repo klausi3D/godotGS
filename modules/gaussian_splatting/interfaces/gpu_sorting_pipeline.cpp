@@ -542,6 +542,7 @@ Error GPUSortingPipeline::initialize(RenderingDevice *p_device, uint32_t p_initi
 }
 
 void GPUSortingPipeline::shutdown() {
+    neutral_region_overrides.clear();
     release_buffers();
 
     if (gpu_sorter.is_valid()) {
@@ -2718,6 +2719,12 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 7, inputs.sort_value_buffer, "sort_value_buffer");
     append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 8, inputs.counter_buffer, "counter_buffer");
     append_binding(depth_bindings, RD::UNIFORM_TYPE_UNIFORM_BUFFER, 9, instance_param_buffer, "instance_param_buffer");
+    RID region_buffer = inputs.region_override_buffer;
+    if (!region_buffer.is_valid()) {
+        if (!neutral_region_overrides.ensure_neutral(compute_rd)) { return false; }
+        region_buffer = neutral_region_overrides.get();
+    }
+    append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 12, region_buffer, "region_override_buffer");
     if (inputs.hlod_relative) {
         append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 10, inputs.hlod_draw_entry_buffer, "hlod_draw_entry_buffer");
         append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 11, inputs.hlod_page_table_buffer, "hlod_page_table_buffer");

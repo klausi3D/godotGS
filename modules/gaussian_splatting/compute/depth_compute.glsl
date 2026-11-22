@@ -5,6 +5,8 @@
 #VERSION_DEFINES
 
 #include "../shaders/includes/gs_instance_layout.glsl"
+#define GS_REGION_BINDING 12
+#include "../shaders/includes/gs_region_override.glsl"
 #include "../shaders/includes/gs_camera_relative.glsl"
 #include "../shaders/includes/gs_sort_key.glsl"
 #include "../shaders/includes/gs_splat_identity.glsl"
@@ -203,6 +205,15 @@ void main() {
 #endif
 
     InstanceDataGPU instance = instance_buffer.instances[visible_chunk.instance_id];
+    RegionOverrideGPU region_override = gs_region_resolve(instance, gaussian.semantic, atlas_index);
+    vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
+    bool reject_region = (region_override.flags & GS_REGION_HIDE) != 0u || region_emissive_opacity.w == 0.0 ||
+            ((instance.ids.y & GS_INSTANCE_FLAG_SHADOW_PASS) != 0u && (region_override.flags & GS_REGION_NO_SHADOW) != 0u);
+#ifdef GS_TEST_REGION_CONTROLS
+    // Negative control R3: hiding only during raster must leave depth records.
+    if ((instance.ids.y & (1u << 29u)) != 0u) { reject_region = false; }
+#endif
+    if (reject_region) { return; }
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
@@ -235,7 +246,7 @@ void main() {
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             gaussian.opacity,
-            gaussian.semantic,
+            gs_region_wind_semantic(gaussian.semantic, region_override.flags),
             instance_intensity,
             instance_wind_mode,
             instance.wind_params,

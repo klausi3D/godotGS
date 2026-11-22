@@ -197,6 +197,7 @@ struct InstancePipelineBuffers {
     uint64_t hlod_origin_revision = 0;
     uint32_t hlod_draw_count = 0;
 	RID instance_buffer;
+        RID region_override_buffer;
 	// Per-instance color grading SSBO (InstanceGradingGPU rows). Parallel to instance_buffer.
 	RID instance_grading_buffer;
 	RID asset_meta_buffer;

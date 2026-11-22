@@ -25,6 +25,7 @@
 #include "../compute/instance_count_clamp.glsl.gen.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/gs_region_override_buffer.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include <cstring>
 
@@ -1925,6 +1926,9 @@ TEST_CASE("[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance depth pass
 	RID value_buffer = rd->storage_buffer_create(zero_values.size(), zero_values);
 	RID counter_buffer = rd->storage_buffer_create(zero_counter.size(), zero_counter);
 	RID params_buffer = rd->uniform_buffer_create(params_bytes.size(), params_bytes);
+    const RegionOverrideGPU neutral_region = GSRegionOverrideBuffer::neutral();
+    Vector<uint8_t> region_bytes; region_bytes.resize(sizeof(neutral_region)); memcpy(region_bytes.ptrw(), &neutral_region, sizeof(neutral_region));
+    RID region_buffer = rd->storage_buffer_create(region_bytes.size(), region_bytes);
 
 	Vector<RD::Uniform> uniforms;
 	const RID storage[] = { atlas_buffer, RID(), instance_buffer, chunk_buffer, visible_buffer, ref_buffer,
@@ -1946,6 +1950,7 @@ TEST_CASE("[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance depth pass
 		u.append_id(params_buffer);
 		uniforms.push_back(u);
 	}
+    { RD::Uniform region_uniform; region_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER; region_uniform.binding = 12; region_uniform.append_id(region_buffer); uniforms.push_back(region_uniform); }
 	RID uniform_set = pipeline.is_valid() ? rd->uniform_set_create(uniforms, shader, 0) : RID();
 
 	// Decodes the SH limit written for each instance id (UINT32_MAX = no reference).
@@ -2022,7 +2027,7 @@ TEST_CASE("[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance depth pass
 	if (uniform_set.is_valid()) {
 		rd->free(uniform_set);
 	}
-	const RID owned[] = { params_buffer, counter_buffer, value_buffer, key_buffer, ref_buffer, visible_buffer,
+	const RID owned[] = { region_buffer, params_buffer, counter_buffer, value_buffer, key_buffer, ref_buffer, visible_buffer,
 		chunk_buffer, instance_buffer, atlas_buffer };
 	for (const RID &rid : owned) {
 		rd->free(rid);

@@ -4330,6 +4330,7 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A per-tile raster cap 
     ds.free_buffers(rd);
 }
 
+
 // C's observations use the production TileRenderer (including its SH cache,
 // binning COUNT/EMIT and raster), never a color-composition mirror.
 #ifdef TESTS_ENABLED

@@ -1,6 +1,7 @@
 #ifndef TILE_RENDERER_H
 #define TILE_RENDERER_H
 
+#include "gs_region_override_buffer.h"
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector2i.h"
@@ -143,6 +144,7 @@ public:
         return uint64_t(projection_buffers.projection_buffer_size) + subpixel_history_buffers.subpixel_history_size +
                 subpixel_visibility_buffers.subpixel_visibility_size + sh_cache_buffers.sh_color_cache_size;
     }
+    uint64_t get_region_override_neutral_bytes() const { return neutral_region_overrides.bytes(); }
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
     // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already
@@ -410,6 +412,7 @@ protected:
     static void _bind_methods();
 
 private:
+    GSRegionOverrideBuffer neutral_region_overrides;
     // Recorded means command recording succeeded, not GPU completion. Empty
     // denotes the explicit clear-only frame; failed work must not be published.
     enum class RasterDispatchResult { FAILED, RECORDED, EMPTY };
@@ -587,6 +590,7 @@ private:
     struct InstancePipelineBindings {
         RID instance_buffer;
         RID instance_grading_buffer;
+        RID region_override_buffer;
         RID splat_ref_buffer;
         RID hlod_draw_entry_buffer;
         RID hlod_page_owner_buffer;

@@ -322,6 +322,17 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 	instance_grading_uniform.binding = 20;
 	instance_grading_uniform.append_id(owner.instance_pipeline_buffers.instance_grading_buffer);
 	uniforms.push_back(instance_grading_uniform);
+    RID region_buffer = owner.instance_pipeline_buffers.region_override_buffer;
+    if (!region_buffer.is_valid()) {
+        if (!owner.neutral_region_overrides.ensure_neutral(p_device)) { return RID(); }
+        region_buffer = owner.neutral_region_overrides.get();
+    }
+    RD::Uniform region_uniform;
+    region_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+    region_uniform.binding = 26;
+    region_uniform.append_id(region_buffer);
+    uniforms.push_back(region_uniform);
+
 
 	if (quantization_required) {
 		RD::Uniform quant_uniform;
@@ -586,6 +597,17 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 	instance_grading_uniform.binding = 20;
 	instance_grading_uniform.append_id(owner.instance_pipeline_buffers.instance_grading_buffer);
 	uniforms.push_back(instance_grading_uniform);
+    RID region_buffer = owner.instance_pipeline_buffers.region_override_buffer;
+    if (!region_buffer.is_valid()) {
+        if (!owner.neutral_region_overrides.ensure_neutral(p_device)) { return RID(); }
+        region_buffer = owner.neutral_region_overrides.get();
+    }
+    RD::Uniform region_uniform;
+    region_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+    region_uniform.binding = 26;
+    region_uniform.append_id(region_buffer);
+    uniforms.push_back(region_uniform);
+
 
 	if (quantization_required) {
 		RD::Uniform quant_uniform;

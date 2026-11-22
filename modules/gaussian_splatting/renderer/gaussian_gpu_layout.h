@@ -118,12 +118,12 @@ struct alignas(16) InstanceDataGPU {
     float translation_scale[4];  // xyz = translation, w = uniform_scale
     float params[4];             // x = opacity, y = lod_bias, z = wind_intensity, w = wind_mode
     uint32_t ids[2];             // x = asset_id, y = flags
-    uint32_t lod[2];             // x = resolved_lod_level, y = reserved
+    uint32_t lod[2];             // x = resolved_lod_level, y = region override segment base (0xFFFFFFFF = none)
     float wind_params[4];        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     float effect_params[4];      // x = position response scale, y = opacity response scale,
                                  // z = scene effector mask bits, w = bound scene effector count snapshot
     uint32_t placement_key[2];   // low/high halves of the stable placement ObjectID; world row = 0
-    uint32_t placement_pad[2];   // explicit std430 tail padding (zero)
+    uint32_t placement_pad[2];   // x = region segment length, y = dense-remap generation
 };
 
 // Instance flag bits (ids[1]).
@@ -138,6 +138,7 @@ static constexpr uint32_t GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3;
 // GaussianSplatNode3D::_get_instance_flags() and the nodeless instances use
 // gs::settings::get_antialiased_compensation_default().
 static constexpr uint32_t GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4;
+static constexpr uint32_t GS_INSTANCE_FLAG_SHADOW_PASS = 1u << 5;
 
 // Instance wind override modes (InstanceDataGPU.params.w).
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_INHERIT = 0u;

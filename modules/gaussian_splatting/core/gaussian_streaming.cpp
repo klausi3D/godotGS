@@ -1733,7 +1733,7 @@ bool GaussianStreamingSystem::remap_instance_asset_ids(LocalVector<InstanceDataG
     bool ok = true;
     for (uint32_t i = 0; i < p_instances.size(); i++) {
         const uint32_t incoming_asset_id = p_instances[i].ids[0];
-        const uint32_t incoming_dense_generation = p_instances[i].lod[1];
+        const uint32_t incoming_dense_generation = p_instances[i].placement_pad[1];
         uint32_t dense_id = INVALID_ASSET_ID;
         uint32_t dense_generation = 0;
 
@@ -1767,7 +1767,7 @@ bool GaussianStreamingSystem::remap_instance_asset_ids(LocalVector<InstanceDataG
         }
 
         p_instances[i].ids[0] = dense_id;
-        p_instances[i].lod[1] = dense_generation;
+        p_instances[i].placement_pad[1] = dense_generation;
     }
     return ok;
 }

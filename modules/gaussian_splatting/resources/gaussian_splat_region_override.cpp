@@ -42,22 +42,79 @@ void GaussianSplatRegionOverride::_bind_methods() {
 }
 
 RegionOverrideGPU GaussianSplatRegionOverride::pack_for_upload() const {
+    MutexLock lock(mutex);
     RegionOverrideGPU entry = {};
-    entry.tint[0] = entry.tint[1] = entry.tint[2] = 1.0f;
-    entry.emissive_opacity[1] = uint32_t(Math::make_half_float(1.0f)) << 16;
-    return entry; // Parent-compatible inert seam; C's fix packs the float state.
+    entry.tint[0] = tint.r; entry.tint[1] = tint.g; entry.tint[2] = tint.b;
+    entry.tint[3] = CLAMP(tint_strength, 0.0f, 1.0f);
+    // Binary16 cannot represent a finite value above 65504. Keep authoring
+    // floats intact and clamp only at the upload boundary.
+    const uint32_t r = Math::make_half_float(CLAMP(emissive.r, 0.0f, 65504.0f));
+    const uint32_t g = Math::make_half_float(CLAMP(emissive.g, 0.0f, 65504.0f));
+    const uint32_t b = Math::make_half_float(CLAMP(emissive.b, 0.0f, 65504.0f));
+    entry.emissive_opacity[0] = r | (g << 16);
+    entry.emissive_opacity[1] = b | (uint32_t(Math::make_half_float(CLAMP(opacity, 0.0f, 1.0f))) << 16);
+    entry.flags = (opacity <= 0 ? GS_REGION_HIDE : 0u) | (!wind_enabled ? GS_REGION_NO_WIND : 0u) |
+            (highlight ? GS_REGION_HIGHLIGHT : 0u) | (!cast_shadow ? GS_REGION_NO_SHADOW : 0u);
+    return entry;
 }
 
-int GSRegionOverrideState::region_id(const Dictionary &, const StringName &) { return -1; }
-PackedStringArray GSRegionOverrideState::region_names(const Dictionary &) { return {}; }
-void GSRegionOverrideState::set_manifest(const Dictionary &) {}
-void GSRegionOverrideState::set_override(int, const Ref<GaussianSplatRegionOverride> &) {}
-void GSRegionOverrideState::clear_override(int) {}
-void GSRegionOverrideState::clear_all() {}
-void GSRegionOverrideState::set_hidden(bool) {}
-Ref<GaussianSplatRegionOverride> GSRegionOverrideState::whole_asset() { Ref<GaussianSplatRegionOverride> value; value.instantiate(); return value; }
+int GSRegionOverrideState::region_id(const Dictionary &p_metadata, const StringName &p_name) {
+    const Array regions = p_metadata.get("regions", Array());
+    for (int i = 0; i < regions.size(); ++i) {
+        if (regions[i].get_type() != Variant::DICTIONARY) { continue; }
+        const Dictionary region = regions[i];
+        const int id = region.get("id", -1);
+        if (id >= 0 && id <= 65535 && StringName(String(region.get("name", String()))) == p_name) { return id; }
+    }
+    return -1;
+}
+PackedStringArray GSRegionOverrideState::region_names(const Dictionary &p_metadata) {
+    PackedStringArray names;
+    const Array regions = p_metadata.get("regions", Array());
+    for (int i = 0; i < regions.size(); ++i) {
+        if (regions[i].get_type() != Variant::DICTIONARY) { continue; }
+        const Dictionary region = regions[i];
+        const int id = region.get("id", -1);
+        const String name = region.get("name", String());
+        if (id >= 0 && id <= 65535 && !name.is_empty()) { names.push_back(name); }
+    }
+    return names;
+}
+void GSRegionOverrideState::set_manifest(const Dictionary &p_metadata) {
+    MutexLock lock(mutex);
+    segment_len = 1;
+    const Array regions = p_metadata.get("regions", Array());
+    for (int i = 0; i < regions.size(); ++i) {
+        if (regions[i].get_type() != Variant::DICTIONARY) { continue; }
+        const Dictionary region = regions[i];
+        const int id = region.get("id", -1);
+        if (id >= 0 && id <= 65535) { segment_len = MAX(segment_len, uint32_t(id + 1)); }
+    }
+}
+void GSRegionOverrideState::set_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override) {
+    ERR_FAIL_COND(p_region < 0 || p_region > 65535 || p_override.is_null());
+    MutexLock lock(mutex); overrides[p_region] = p_override;
+}
+void GSRegionOverrideState::clear_override(int p_region) { MutexLock lock(mutex); overrides.erase(p_region); }
+void GSRegionOverrideState::clear_all() { MutexLock lock(mutex); overrides.clear(); hidden = false; }
+void GSRegionOverrideState::set_hidden(bool p_hidden) { MutexLock lock(mutex); hidden = p_hidden; }
+Ref<GaussianSplatRegionOverride> GSRegionOverrideState::whole_asset() {
+    MutexLock lock(mutex);
+    if (!overrides.has(0)) { Ref<GaussianSplatRegionOverride> value; value.instantiate(); overrides[0] = value; }
+    return overrides[0];
+}
 void GSRegionOverrideState::snapshot(LocalVector<RegionOverrideGPU> &r_entries) const {
+    MutexLock lock(mutex);
     r_entries.clear();
     GaussianSplatRegionOverride neutral;
-    r_entries.push_back(neutral.pack_for_upload());
+    const auto *whole = overrides.getptr(0);
+    const RegionOverrideGPU fallback = whole ? (*whole)->pack_for_upload() : neutral.pack_for_upload();
+    uint32_t length = segment_len;
+    for (const auto &item : overrides) { length = MAX(length, uint32_t(item.key + 1)); }
+    r_entries.resize(length);
+    for (uint32_t region = 0; region < length; ++region) {
+        const auto *value = overrides.getptr(int(region));
+        r_entries[region] = value ? (*value)->pack_for_upload() : fallback;
+        if (hidden) { r_entries[region].flags |= GS_REGION_HIDE; }
+    }
 }

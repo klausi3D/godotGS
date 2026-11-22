@@ -24,6 +24,7 @@
 #include "core/templates/rid.h"
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "../gaussian_gpu_layout.h"
+#include "../gs_region_override_buffer.h"
 #include "render_pipeline_io_types.h"
 #include "../gpu_buffer_manager.h"
 #include "../gpu_performance_monitor.h"
@@ -260,6 +261,10 @@ struct ResourceState {
 	Ref<GPUBufferManager> buffer_manager;
 	bool buffer_manager_initialized = false;
 	GPUBufferManager::DeferredDeletionQueue deletion_queue;
+	GSRegionOverrideBuffer region_override_buffer;
+    HashMap<uint64_t, uint64_t> region_override_digests;
+    uint64_t region_override_server_frame = UINT64_MAX;
+    HashMap<uint64_t, uint64_t> region_override_segments; // placement -> base | (len << 32)
 	RID instance_buffer;
 	uint32_t instance_buffer_capacity = 0;
 	// Sibling SSBO to instance_buffer: one InstanceGradingGPU row per instance, indexed

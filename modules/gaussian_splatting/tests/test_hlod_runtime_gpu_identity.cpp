@@ -8,6 +8,7 @@
 #include "../renderer/tile_renderer.h"
 #include "../renderer/instance_pipeline_contract.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/gs_region_override_buffer.h"
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
@@ -1070,15 +1071,17 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         deformation.wind_time_config[2] = 0.1f;
         deformation.wind_time_config[3] = pass == 3 || pass == 4 ? 1.0f : 0.0f;
         if (pass >= 5) { deformation.frame_anchor[0] = previous_camera_x; }
-        const RID inputs[7] = {
+        const RegionOverrideGPU neutral_region = GSRegionOverrideBuffer::neutral();
+        const RID inputs[8] = {
             resources.buffer(uint32_t(atlas.size()) * sizeof(PackedGaussian), atlas.ptr()),
             resources.buffer(sizeof(rows), rows), resources.buffer(sizeof(meta), &meta),
             resources.buffer(sizeof(drawn), &drawn), resources.buffer(sizeof(casts), &casts),
             resources.buffer(uint32_t(forward.size()) * sizeof(uint32_t), forward.ptr()),
-            resources.buffer(sizeof(deformation), &deformation)
+            resources.buffer(sizeof(deformation), &deformation),
+            resources.buffer(sizeof(RegionOverrideGPU), &neutral_region)
         };
         Vector<RD::Uniform> uniforms;
-        for (uint32_t binding = 0; binding < 7; ++binding) {
+        for (uint32_t binding = 0; binding < 8; ++binding) {
             if (!inputs[binding].is_valid()) { FAIL("page-table draw input unavailable"); return; }
             RD::Uniform u;
             u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;

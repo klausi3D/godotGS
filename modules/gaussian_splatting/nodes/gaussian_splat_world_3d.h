@@ -2,6 +2,7 @@
 #define GAUSSIAN_SPLAT_WORLD_3D_H
 
 #include "scene/3d/node_3d.h"
+#include "../resources/gaussian_splat_region_override.h"
 #include "core/math/aabb.h"
 
 #include "../core/gaussian_splat_world.h"
@@ -14,6 +15,8 @@ class GaussianSplatRenderer;
 
 class GaussianSplatWorld3D : public Node3D {
     GDCLASS(GaussianSplatWorld3D, Node3D);
+    Ref<GSRegionOverrideState> region_overrides;
+    void _sync_region_overrides();
 
 public:
     enum WindMode { WIND_MODE_AUTO, WIND_MODE_ON, WIND_MODE_OFF };
@@ -199,6 +202,15 @@ public:
 
     void set_async_upload_enabled(bool p_enabled);
     bool is_async_upload_enabled() const { return async_upload_enabled; }
+
+    int get_region_id(const StringName &p_name) const;
+    PackedStringArray get_region_names() const;
+    void set_region_override(int p_region, const Ref<GaussianSplatRegionOverride> &p_override);
+    void clear_region_override(int p_region);
+    void clear_all_region_overrides();
+    void set_tint(const Color &p_color, float p_strength);
+    void set_emissive(const Color &p_color);
+    void set_hidden(bool p_hidden);
 
     void set_opacity(float p_opacity);
     float get_opacity() const { return opacity; }

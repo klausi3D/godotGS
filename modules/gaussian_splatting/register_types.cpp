@@ -28,6 +28,7 @@
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "resources/color_grading_resource.h"
+#include "resources/gaussian_splat_region_override.h"
 #include "renderer/gpu_sorter.h"
 #include "renderer/gpu_memory_stream.h"
 #include "renderer/rendering_diagnostics.h"
@@ -138,6 +139,7 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             GDREGISTER_CLASS(GaussianSplatManager);
             GDREGISTER_CLASS(GaussianSplatSceneDirector);
             GDREGISTER_CLASS(ColorGradingResource);
+            GDREGISTER_CLASS(GaussianSplatRegionOverride);
 
             // #839 round 3, thread C: let the renderer layer reach the node layer
             // for "a debug HUD source flag on this renderer changed". renderer/

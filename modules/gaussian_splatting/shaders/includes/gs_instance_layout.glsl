@@ -34,12 +34,12 @@ struct InstanceDataGPU {
     vec4 translation_scale;  // xyz = translation, w = uniform_scale
     vec4 params;             // x = opacity, y = lod_bias, z = wind_intensity, w = wind_mode
     uvec2 ids;               // x = asset_id, y = flags
-    uvec2 lod;               // x = resolved_lod_level, y = reserved
+    uvec2 lod;               // x = resolved_lod_level, y = region override segment base (0xFFFFFFFF = none)
     vec4 wind_params;        // xyz = wind direction override (0,0,0=infer global), w = wind frequency scale
     vec4 effect_params;      // x = position response scale, y = opacity response scale,
                              // z = scene effector mask bits, w = bound scene effector count snapshot
     uvec2 placement_key;     // low/high halves of stable placement ObjectID; world row = 0
-    uvec2 placement_pad;     // explicit std430 tail padding (zero)
+    uvec2 placement_pad;     // x = region segment length, y = dense-remap generation
 };
 
 // Instance flag bits (ids.y).
@@ -50,6 +50,7 @@ const uint GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3u;
 // Mip-Splatting opacity compensation for assets trained with antialiasing (#1173).
 // Mirrors GS_INSTANCE_FLAG_ANTIALIASED in renderer/gaussian_gpu_layout.h.
 const uint GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4u;
+const uint GS_INSTANCE_FLAG_SHADOW_PASS = 1u << 5u;
 
 // Asset/chunk metadata flags.
 const uint GS_ASSET_FLAG_IS_2D = 1u << 0u;

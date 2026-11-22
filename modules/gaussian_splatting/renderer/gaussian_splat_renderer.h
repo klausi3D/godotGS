@@ -1056,13 +1056,16 @@ public:
             const LocalVector<uint64_t> *p_submission_asset_ids = nullptr);
     // Upload the per-instance color grading SSBO. Called alongside update_instance_buffer
     // from both the resident and streaming contract-publish paths.
-    bool sync_region_overrides() { return true; }
-    RID get_region_override_buffer() const { return RID(); }
+    bool sync_region_overrides();
 #ifdef TESTS_ENABLED
-    void test_begin_region_override_frame() {}
-    void test_defer_region_override_upload(bool) {}
-    bool test_region_override_upload_is_deferred() const { return false; }
+    // Local GPU tests record frames without advancing the live compositor.
+    void test_begin_region_override_frame() { get_resource_state().region_override_server_frame = UINT64_MAX; }
+    void test_defer_region_override_upload(bool p_enabled) { get_resource_state().region_override_buffer.test_defer_one_frame(p_enabled); }
+    bool test_region_override_upload_is_deferred() const { return get_resource_state().region_override_buffer.test_is_deferred(); }
 #endif
+    bool prepare_region_override_rows(LocalVector<InstanceDataGPU> &p_rows);
+    uint64_t get_region_override_revision() const { return get_resource_state().region_override_buffer.revision(); }
+    RID get_region_override_buffer() const { return get_resource_state().region_override_buffer.get(); }
     bool update_instance_grading_buffer(const LocalVector<InstanceGradingGPU> &p_gradings);
 
     bool ensure_rendering_device(const char *p_context) { return _ensure_rendering_device(p_context); }

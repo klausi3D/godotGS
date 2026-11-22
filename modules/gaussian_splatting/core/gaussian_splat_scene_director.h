@@ -1,6 +1,7 @@
 #ifndef GAUSSIAN_SPLAT_SCENE_DIRECTOR_H
 #define GAUSSIAN_SPLAT_SCENE_DIRECTOR_H
 
+#include "../resources/gaussian_splat_region_override.h"
 #include "core/object/object.h"
 #include "core/object/object_id.h"
 #include "core/os/mutex.h"
@@ -73,6 +74,7 @@ public:
     };
 
     struct WorldSubmission {
+        Ref<GSRegionOverrideState> region_overrides;
         Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
         String hlod_reason;
         float hlod_tau_px = 0.0f;
@@ -171,6 +173,9 @@ public:
 	void unregister_instance(ObjectID p_node_id);
     void update_instance_lods_for_renderer(const GaussianSplatRenderer *p_renderer, const Vector3 &p_camera_pos,
             const LODConfig &p_lod_config, float p_hysteresis_zone);
+    void update_region_overrides(ObjectID p_owner, const Ref<GSRegionOverrideState> &p_state);
+    struct RegionOverrideSource { uint64_t placement; Ref<GSRegionOverrideState> state; };
+    void collect_region_overrides(const GaussianSplatRenderer *p_renderer, LocalVector<RegionOverrideSource> &r_sources) const;
     void build_instance_buffer(LocalVector<InstanceDataGPU> &out) const;
 	// Builds the per-instance GPU rows. When r_submission_asset_ids is non-null it is
 	// filled parallel to `out` with each instance's FULL 64-bit submission asset

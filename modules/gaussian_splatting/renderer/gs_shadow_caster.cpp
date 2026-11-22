@@ -196,8 +196,8 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 		r_error = "empty caster draw";
 		return false;
 	}
-	const RID buffers[5] = { p_inputs.atlas_gaussian_buffer, p_inputs.instance_buffer, p_inputs.chunk_meta_buffer,
-		p_inputs.draw_list_buffer, p_inputs.page_table_buffer };
+	const RID buffers[6] = { p_inputs.atlas_gaussian_buffer, p_inputs.instance_buffer, p_inputs.chunk_meta_buffer,
+		p_inputs.draw_list_buffer, p_inputs.page_table_buffer, p_inputs.region_override_buffer };
 	for (const RID &buffer : buffers) {
 		if (!buffer.is_valid() || !p_device->buffer_is_valid(buffer)) {
 			r_error = "caster input buffer invalid on the shadow device";
@@ -224,7 +224,8 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 	}
 	const RID uniform_set = uniform_set_cache->get_cache(shader, 0, storage_uniform(0, buffers[0]),
 			storage_uniform(1, buffers[1]), storage_uniform(2, buffers[2]), storage_uniform(3, buffers[3]),
-			storage_uniform(4, row_cast_buffer), storage_uniform(5, buffers[4]), storage_uniform(6, deformation_buffer));
+			storage_uniform(4, row_cast_buffer), storage_uniform(5, buffers[4]), storage_uniform(6, deformation_buffer),
+			storage_uniform(7, buffers[5]));
 	if (!uniform_set.is_valid()) {
 		_free_deformation_buffer();
 		r_error = "caster uniform set unavailable";

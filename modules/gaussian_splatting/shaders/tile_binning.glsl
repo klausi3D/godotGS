@@ -26,6 +26,8 @@
 #include "includes/tile_projection_common.glsl"
 
 #include "includes/gs_instance_layout.glsl"
+#define GS_REGION_BINDING 26
+#include "includes/gs_region_override.glsl"
 #include "includes/gs_splat_identity.glsl"
 #include "includes/gs_camera_relative.glsl"
 #include "includes/gs_alpha_threshold.glsl"
@@ -984,6 +986,11 @@ void main() {
     vec3 hlod_camera_offset = selected.camera_offset.xyz;
 #endif
 
+    RegionOverrideGPU region_override = gs_region_resolve(instance, g.semantic, gaussian_idx);
+    vec4 region_emissive_opacity = gs_region_emissive_opacity(region_override.emissive_opacity);
+    if ((region_override.flags & GS_REGION_HIDE) != 0u || region_emissive_opacity.w == 0.0 ||
+            ((instance.ids.y & GS_INSTANCE_FLAG_SHADOW_PASS) != 0u && (region_override.flags & GS_REGION_NO_SHADOW) != 0u)) { return; }
+
     // Optional per-splat alpha clip. It runs before world transform/projection
     // only when projects opt into an aggressive threshold. The default stays 0
     // so opacity_multiplier can still recover low-opacity real-scan splats.
@@ -1022,7 +1029,7 @@ void main() {
     float deformation_fade = gs_wind_distance_level_fade(world_position - frame_camera, wind_level);
     GSDeformationResult deformation = gs_apply_wind_deformation(world_position,
             g.opacity,
-            g.semantic,
+            gs_region_wind_semantic(g.semantic, region_override.flags),
             instance_intensity,
             instance_wind_mode,
             instance.wind_params,
@@ -1167,7 +1174,7 @@ void main() {
         float visibility_threshold = min(gs_get_visibility_threshold(), GS_RASTER_ALPHA_THRESHOLD);
         // Use the base opacity (before any fades) for radius calculation
         // This ensures consistent culling regardless of size/aspect fades
-        float base_opacity_for_culling = clamp(max(g.opacity, deformation.opacity) * instance.params.x *
+        float base_opacity_for_culling = clamp(max(g.opacity, deformation.opacity) * region_emissive_opacity.w * instance.params.x *
                 params.opacity_multiplier, 0.0, 1.0);
 
         // Compute opacity-aware sigma (number of standard deviations to extend)
@@ -1407,7 +1414,7 @@ void main() {
     // GS_RASTER_ALPHA_THRESHOLD (no new magic number). Gated on opacity-aware culling so
     // the max-conservative / fidelity-override path is an exact no-op.
     if (gs_is_opacity_aware_culling_enabled()) {
-        float raster_peak_opacity = clamp(max(g.opacity, deformation.opacity) * instance.params.x *
+        float raster_peak_opacity = clamp(max(g.opacity, deformation.opacity) * region_emissive_opacity.w * instance.params.x *
                 params.opacity_multiplier * size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 1.0);
         raster_peak_opacity = min(raster_peak_opacity + GS_RASTER_ALPHA_THRESHOLD * 0.5, 1.0);
         // The rasterizer evaluates alpha with gs_exp_fast (Schraudolph bit-trick, no
@@ -1470,7 +1477,7 @@ void main() {
     // alpha_rescale_proj is the Mip-Splatting companion to the low-pass cov2d dilation
     // applied inside project_gaussian_2d. It is 1.0 for classic-trained assets, which
     // the references render with the dilated footprint at full opacity (#1173).
-    float base_opacity = clamp(deformation.opacity * instance.params.x * params.opacity_multiplier *
+    float base_opacity = clamp(deformation.opacity * region_emissive_opacity.w * instance.params.x * params.opacity_multiplier *
             size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 0.99);
 
     // Evaluate SH for view-dependent color using configurable band level.
@@ -1527,6 +1534,8 @@ void main() {
     sh_color = max(sh_color, vec3(0.0));
     sh_color = apply_color_grading_binning(sh_color, splat_ref.instance_id);
 #endif
+
+    sh_color = gs_region_tint(sh_color, region_override.tint, region_override.flags);
 
     // Debug: force white albedo to isolate lighting contribution (debug_overlay_flags.w).
     if (params.debug_overlay_flags.w > 0.5) {
@@ -1665,6 +1674,8 @@ void main() {
             }
         }
     }
+
+    final_color += region_emissive_opacity.rgb; // Emission is independent of direct and ambient lighting.
 
     // #1168: a NaN/Inf colour (degenerate light direction, extreme grade) would survive the
     // R11G11B10 pack and the raster would accumulate it over the splat's whole footprint;

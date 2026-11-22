@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatRegionOverride" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+    <brief_description>Runtime tint, emission, opacity, wind and shadow controls for a baked splat region.</brief_description>
+    <description>
+        Assign this resource with [method GaussianSplatWorld3D.set_region_override] or [method GaussianSplatNode3D.set_region_override]. The CPU stores float values; emission and opacity are packed to half precision on GPU upload. Emissive components are clamped to the fp16 maximum, 65504, on upload; the Resource retains its float values.
+        Volume region IDs are NOT stable across edits. Game code must resolve regions by name through [method GaussianSplatWorld3D.get_region_id] or [method GaussianSplatNode3D.get_region_id], never use hard-coded numeric IDs. Region 0 is the whole-asset default, inherited by regions without an explicit override. Overrides stay resident across payload eviction and apply to every LOD.
+    </description>
+    <tutorials />
+    <members>
+        <member name="tint" type="Color" setter="set_tint" getter="get_tint" default="Color(1, 1, 1, 1)">Target SH color before lighting.</member>
+        <member name="tint_strength" type="float" setter="set_tint_strength" getter="get_tint_strength" default="0.0">Blend from the SH color to [member tint], clamped to 0 to 1 on upload.</member>
+        <member name="emissive" type="Color" setter="set_emissive" getter="get_emissive" default="Color(0, 0, 0, 1)">Emission added after direct and ambient lighting. Components are clamped to 0 to 65504 on GPU upload.</member>
+        <member name="opacity" type="float" setter="set_opacity" getter="get_opacity" default="1.0">Opacity multiplier, clamped to 0 to 1 on upload. Zero hides the region before sort allocation and suppresses its shadow.</member>
+        <member name="wind_enabled" type="bool" setter="set_wind_enabled" getter="get_wind_enabled" default="true">If false, forces the splat wind weight to zero, including its weighted positional effector response.</member>
+        <member name="cast_shadow" type="bool" setter="set_cast_shadow" getter="get_cast_shadow" default="true">If false, suppresses this region's shadow while keeping its color visible.</member>
+        <member name="highlight" type="bool" setter="set_highlight" getter="get_highlight" default="false">Blends the tinted SH color halfway toward yellow before lighting.</member>
+    </members>
+</class>

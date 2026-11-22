@@ -1507,6 +1507,10 @@ void GaussianSplatRenderer::_teardown_resources() {
         get_pipeline_state().gaussian_shader_initialized = false;
         _free_owned_resource(get_device_state().rd, resource_state.instance_buffer);
         resource_state.instance_buffer_capacity = 0;
+        resource_state.region_override_buffer.clear();
+        resource_state.region_override_segments.clear();
+        resource_state.region_override_digests.clear();
+        resource_state.region_override_server_frame = UINT64_MAX;
         _free_owned_resource(get_device_state().rd, resource_state.instance_grading_buffer);
         resource_state.instance_grading_buffer_capacity = 0;
         _free_owned_resource(get_device_state().rd, resource_state.instance_visible_chunk_buffer);
@@ -2124,6 +2128,7 @@ gs_shadow_caster::Refusal GaussianSplatRenderer::refresh_hlod_shadow_rows() {
     // The main thread may already be processing the next scene update while RS draws. Freeze this successful snapshot
     // through every cascade and colour publication in the server frame, as we already freeze the animation clock.
     if (hlod_shadow_colour_refused()) { return refuse(gs_shadow_caster::Refusal::BUNDLE_CHANGED); }
+    if (!sync_region_overrides()) { return refuse(gs_shadow_caster::Refusal::ROWS_NOT_CURRENT); }
     if (hlod_shadow_rows_latched()) { return refuse(gs_shadow_caster::Refusal::NONE); }
     auto *director = GaussianSplatSceneDirector::get_singleton();
     if (!director || get_device_state().rd != RenderingDevice::get_singleton() || !get_device_state().rd) {
@@ -2229,7 +2234,16 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
             owner_margin = MAX(owner_margin, rounded);
         }
         auto &index = state.hlod_shadow_index;
-        index.rebuild(state.hlod_shadow_content, record, rows, row_margins, row_animated);
+        auto region_content = state.hlod_shadow_content;
+        for (uint32_t i = 0; i < region_content.geometry.size() && i < region_content.draws.size(); ++i) {
+            const uint32_t row = region_content.draws[i].instance_id;
+            if (row >= rows.size()) { continue; }
+            const uint64_t key = uint64_t(rows[row].placement_key[0]) | (uint64_t(rows[row].placement_key[1]) << 32);
+            if (const auto *digest = state.region_override_digests.getptr(key)) {
+                region_content.geometry[i].payload = gs_shadow_refresh::hash_value(region_content.geometry[i].payload, *digest);
+            }
+        }
+        index.rebuild(region_content, record, rows, row_margins, row_animated);
         owner.content = &index;
         indexed_renderers.insert(renderer_key);
         owner.bounds.grow_by(owner_margin);
@@ -2271,6 +2285,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         GsSplatShadowCaster::Inputs inputs;
         inputs.atlas_gaussian_buffer = buffers.atlas_gaussian_buffer;
         inputs.instance_buffer = buffers.instance_buffer;
+        inputs.region_override_buffer = get_region_override_buffer();
         inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;
         inputs.draw_list_buffer = buffers.visible_chunk_buffer;
         inputs.page_table_buffer = buffers.hlod_page_table_buffer;
@@ -3433,6 +3448,9 @@ void GaussianSplatRenderer::publish_instance_pipeline_contract(const InstancePip
     }
 
     instance_pipeline_buffers = p_buffers;
+    if (get_region_override_buffer().is_valid()) {
+        instance_pipeline_buffers.region_override_buffer = get_region_override_buffer();
+    }
     instance_asset_remap = p_remap;
     instance_backend_policy = p_backend_policy;
     instance_contract_shape = p_contract_shape;
@@ -3502,6 +3520,7 @@ bool GaussianSplatRenderer::update_instance_buffer(LocalVector<InstanceDataGPU> 
         return false;
     }
 
+    if (!prepare_region_override_rows(p_instances)) { return false; }
     const uint32_t instance_count = p_instances.size();
     if (instance_count == 0) {
         instance_pipeline_buffers.instance_count = 0;
@@ -3542,7 +3561,7 @@ bool GaussianSplatRenderer::update_instance_buffer(LocalVector<InstanceDataGPU> 
                     String::num_uint64(incoming_asset_id)));
         }
         p_instances[i].ids[0] = dense_id;
-        p_instances[i].lod[1] = published_generation;
+        p_instances[i].placement_pad[1] = published_generation;
     }
 
     RenderingDevice *rd = get_device_state().rd;
@@ -3895,3 +3914,44 @@ std::unique_ptr<IRenderThreadDispatcher> GaussianSplatRenderer::test_swap_render
     return previous;
 }
 #endif
+
+
+bool GaussianSplatRenderer::sync_region_overrides() {
+    auto &state = get_resource_state();
+    // Freeze the table with the row snapshot through all shadow cascades and colour.
+    const uint64_t frame = gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : UINT64_MAX;
+    if (frame != UINT64_MAX && frame == state.region_override_server_frame && state.region_override_buffer.get().is_valid()) { return true; }
+    LocalVector<GaussianSplatSceneDirector::RegionOverrideSource> sources;
+    if (auto *director = GaussianSplatSceneDirector::get_singleton()) { director->collect_region_overrides(this, sources); }
+    LocalVector<RegionOverrideGPU> entries;
+    HashMap<uint64_t, uint64_t> segments;
+    HashMap<uint64_t, uint64_t> digests;
+    for (const auto &source : sources) {
+        LocalVector<RegionOverrideGPU> segment;
+        source.state->snapshot(segment); // Float snapshots packed at this upload boundary.
+        if (uint64_t(entries.size()) + segment.size() > UINT32_MAX / sizeof(RegionOverrideGPU)) { return false; }
+        segments[source.placement] = uint64_t(entries.size()) | (uint64_t(segment.size()) << 32);
+        digests[source.placement] = gs_shadow_refresh::hash_bytes(gs_shadow_refresh::HASH_SEED, segment.ptr(), uint64_t(segment.size()) * sizeof(RegionOverrideGPU));
+        for (const auto &entry : segment) { entries.push_back(entry); }
+    }
+    if (entries.is_empty()) { entries.push_back(GSRegionOverrideBuffer::neutral()); }
+    // Called outside draw/compute lists, before shadow recording and before sort-cache reuse.
+    if (!state.region_override_buffer.update(get_device_state().rd, entries)) { return false; }
+    state.region_override_segments = segments;
+    state.region_override_digests = digests;
+    state.region_override_server_frame = frame;
+    instance_pipeline_buffers.region_override_buffer = state.region_override_buffer.get();
+    return true;
+}
+
+bool GaussianSplatRenderer::prepare_region_override_rows(LocalVector<InstanceDataGPU> &p_rows) {
+    if (!sync_region_overrides()) { return false; }
+    const auto &segments = get_resource_state().region_override_segments;
+    for (auto &row : p_rows) {
+        const uint64_t placement = uint64_t(row.placement_key[0]) | (uint64_t(row.placement_key[1]) << 32);
+        const uint64_t *segment = segments.getptr(placement);
+        row.lod[1] = segment ? uint32_t(*segment) : UINT32_MAX;
+        row.placement_pad[0] = segment ? uint32_t(*segment >> 32) : 0;
+    }
+    return true;
+}

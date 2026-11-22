@@ -30,6 +30,7 @@ struct GaussianSplatSceneDirector::InstanceRecord {
     int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
     bool dirty = true;
     Ref<ColorGradingResource> color_grading;
+    Ref<GSRegionOverrideState> region_overrides;
 
     // Scene-effector filter state — cached on registration / setters so the
     // render thread never has to read these from the live Node3D.

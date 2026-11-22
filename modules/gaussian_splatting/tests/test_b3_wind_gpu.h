@@ -3,6 +3,7 @@
 #include "test_macros.h"
 #include "../core/gaussian_semantic.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/gs_region_override_buffer.h"
 #include "../renderer/gs_shadow_caster.h"
 #include "../renderer/hlod_shadow_caster_plan.h"
 #include "../renderer/shader_compilation_helper.h"
@@ -113,12 +114,14 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][B3] baked wind weights a
         deformation.wind_time_config[0] = 1.57079632679f;
         deformation.wind_time_config[1] = 1.0f;
         deformation.wind_time_config[3] = 1.0f;
+        const RegionOverrideGPU neutral_region = GSRegionOverrideBuffer::neutral();
         const RID inputs[] = { resources.buffer(sizeof(g), &g), resources.buffer(sizeof(rows), rows),
             resources.buffer(sizeof(chunk), &chunk), resources.buffer(sizeof(drawn), &drawn),
             resources.buffer(sizeof(casts), casts), resources.buffer(sizeof(page), &page),
-            resources.buffer(sizeof(deformation), &deformation) };
+            resources.buffer(sizeof(deformation), &deformation),
+            resources.buffer(sizeof(RegionOverrideGPU), &neutral_region) };
         Vector<RD::Uniform> uniforms;
-        for (int binding = 0; binding < 7; ++binding) {
+        for (int binding = 0; binding < 8; ++binding) {
             if (!inputs[binding].is_valid()) { FAIL("B3 input buffer unavailable"); return; }
             RD::Uniform u;
             u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
