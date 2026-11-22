@@ -803,6 +803,8 @@ uint64_t RenderPipelineStages::compute_raster_params_signature(const GaussianSpl
 	// features) never call invalidate_cached_render().
 	uint64_t seed = HASH_MURMUR3_SEED;
 	seed = _hash_u64(static_cast<uint64_t>(p_viewport_format), seed);
+	// Overrides alter raster content independently of instance transforms/content generation.
+	seed = _hash_u64(p_renderer.get_region_override_revision(), seed);
 	if (!p_renderer.get_instance_pipeline_buffers().hlod_relative && !p_renderer.is_shadow_instance_filter_enabled()) {
 		// A hint must reach the next chunk raster, even when its pose is unchanged.
 		seed = _hash_u64(p_renderer.get_camera_cut_hint_generation(), seed);

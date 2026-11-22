@@ -359,6 +359,8 @@ func _wait_image() -> Image:
 	var deadline = Time.get_ticks_msec() + DEADLINE_MS
 	while Time.get_ticks_msec() <= deadline:
 		var result = await _native("_test_gs_game_1_image_poll")
+		if Time.get_ticks_msec() > deadline:
+			return null
 		if result.has("error"):
 			return null
 		if result.get("complete") == true:

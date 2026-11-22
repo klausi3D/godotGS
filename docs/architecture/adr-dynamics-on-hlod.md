@@ -388,7 +388,7 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
   clamped to [0, 65504] and opacity to [0, 1]. A full 65,536-entry segment uses **2 MiB** (65,536 × 32 B).
 - Each asset gets a segment. The instance row's `lod.y` (`gs_instance_layout.glsl`)
   [V] holds the segment base, with `0xFFFFFFFF` for none. The splat's entry is
-  `table[base + min(region_id, segment_len - 1)]`; entry 0 supplies the whole-asset default.
+  `table[base + (region_id < segment_len ? region_id : 0)]`; out-of-range ids use entry 0, the whole-asset default.
   CPU upload materializes that default in every region without an explicit override. Separate placements
   have independent segments even when they share an asset. `placement_pad.x` stores `segment_len` and
   `placement_pad.y` retains the dense-remap generation formerly written in `lod.y`. This uses existing

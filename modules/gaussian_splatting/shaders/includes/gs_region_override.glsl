@@ -51,7 +51,8 @@ RegionOverrideGPU gs_region_resolve(InstanceDataGPU instance, uint semantic, uin
     if ((instance.ids.y & GS_INSTANCE_TEST_OVERRIDE_BY_ADDRESS) != 0u) { region = atlas_index; }
 #endif
 #endif
-    return region_override_buffer.entries[base + min(region, segment_len - 1u)];
+    // Missing regions inherit the whole-asset default at entry 0.
+    return region_override_buffer.entries[base + region * uint(region < segment_len)];
 }
 #endif
 

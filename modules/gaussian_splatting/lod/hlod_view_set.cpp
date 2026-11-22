@@ -1,6 +1,7 @@
 #include "hlod_view_set.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "../core/gaussian_splat_hlod_merge.h"
 #include "../renderer/gs_wind_bounds.h"
 #include <algorithm>
 #include <cmath>
@@ -361,6 +362,34 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 	return true;
 }
 
+static void restore_nonpaged_wind_metadata(const GaussianSplatHlodRuntimeData &p_source, uint32_t p_node,
+		GaussianSplatHlodNode &r_node) {
+	// V4 stores this byte. Nonpaged topology does not, even when bit 5 survives a v3 reload.
+	if (p_source.is_paged()) { return; }
+	// No complete resident payload means legacy/full D_max, never a trusted zero maximum.
+	r_node.flags &= ~gs_hlod::kNodeFlagSemanticValid;
+	r_node.max_wind_weight = 0;
+	if (p_source.is_stale(p_node) || r_node.payload_count == 0) { return; }
+	gs_hlod::SplatSpan payload;
+	if (const auto *edited = p_source.find_edited(p_node)) {
+		if (uint64_t(edited->gaussians.size()) != r_node.payload_count) { return; }
+		payload.gaussians = edited->gaussians.ptr();
+	} else if (r_node.payload_first < p_source.leaf_count) {
+		const auto &leaves = p_source.leaves.get_gaussians();
+		const uint64_t first = r_node.payload_first;
+		if (r_node.payload_count > p_source.leaf_count - first || first > uint64_t(leaves.size()) ||
+				r_node.payload_count > uint64_t(leaves.size()) - first) { return; }
+		payload.gaussians = leaves.ptr() + first;
+	} else {
+		const uint64_t first = r_node.payload_first - p_source.leaf_count;
+		if (first > uint64_t(p_source.parents.size()) || r_node.payload_count > uint64_t(p_source.parents.size()) - first) { return; }
+		payload.gaussians = p_source.parents.ptr() + first;
+	}
+	payload.count = r_node.payload_count;
+	// Same own-payload maximum/all-valid rule as the bake; unrelated topology flags survive.
+	gs_hlod::set_node_payload_semantics(r_node, payload);
+}
+
 bool ViewSet::prepare_displacement_bounds(InstanceSlot &r_slot, const SnapshotInstance &p_instance, const SnapshotAsset &p_asset) {
 	if (p_instance.displacement_margin == 0.0) {
 		r_slot.displacement_data.unref();
@@ -391,7 +420,10 @@ bool ViewSet::prepare_displacement_bounds(InstanceSlot &r_slot, const SnapshotIn
 		const auto &original = source.nodes[i];
 		auto &node = nodes[i];
 		node = original;
-		const double node_margin = gs_wind::node_displacement_bound(local_margin, original.topology.max_wind_weight, original.topology.is_semantic_valid());
+		// Every main/shadow cut uses this cached derivative before publication. Repair here so even a
+		// manually submitted nonpaged snapshot is safe, without mutating shared immutable content.
+		restore_nonpaged_wind_metadata(source, i, node.topology);
+		const double node_margin = gs_wind::node_displacement_bound(local_margin, node.topology.max_wind_weight, node.topology.is_semantic_valid());
 		// The existing cut uses an enclosing sphere for culling and near-surface screen error. Growing
 		// each AABB axis by m is enclosed by growing its sphere by sqrt(3)*m, at every hierarchy level.
 		const double radius = double(original.topology.radius) + std::sqrt(3.0) * node_margin;
