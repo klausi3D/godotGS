@@ -215,6 +215,16 @@ class ContractTests(unittest.TestCase):
         # The scene's atlas budget and the churn poses are unchanged (P1/M1 keep them).
         self.assertIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
 
+    def test_w4_probes_are_in_view_and_a_missing_row_names_why(self):
+        # Locally all 64 W4 probes came from the first drawn node, outside the
+        # view: 0/64 colour-valid, so W4 never measured. One in-frustum probe per
+        # node gave 21/27 colour-valid.
+        rows = self._harness_function("_deformation_rows")
+        rock = rows.split("# Rock region:", 1)[1]
+        self.assertIn('_camera.is_position_in_frustum(splat["position"])', rock)
+        self.assertIn('"not_run_reason": "W4 found no in-frustum zero-weight rock-region probe"', rock)
+        self.assertIn('"not_run_reason": "W4 probes not colour-valid: 0/%d" % keys.size()', rock)
+
     def test_r1_expects_only_levels_reachable_for_the_region(self):
         # expected_lods listed every level of the tree; levels 5 and 7 never drew
         # at any tau, so R1 could never be complete.
