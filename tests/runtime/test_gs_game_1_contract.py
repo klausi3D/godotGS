@@ -158,6 +158,76 @@ class ContractTests(unittest.TestCase):
         self.assertLess(refused.start(), run.index("await _settle()"))
         self.assertIn("const DEADLINE_MS = 240000", script)
 
+    @staticmethod
+    def _harness_function(name):
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        parts = re.split(r"\nfunc " + re.escape(name) + r"\(", script, maxsplit=1)
+        if len(parts) != 2:
+            return ""
+        return parts[1].split("\nfunc ", 1)[0]
+
+    def test_stall_push_constant_is_the_16_byte_block_the_pipeline_requires(self):
+        # Run 45073045558: "This compute pipeline requires (16) bytes of push
+        # constant data, supplied: (4)"; the stall never ran, so every calibration
+        # attempt measured the same 6.4e-5 ms and P1's control never stalled.
+        stall = self._harness_function("_stall_on_rd")
+        self.assertRegex(stall, r"push\.resize\(16\)")
+        self.assertRegex(stall, r"compute_list_set_push_constant\(list, push, 16\)")
+        self.assertNotRegex(stall, r"compute_list_set_push_constant\(list, push, 4\)")
+
+    def test_atlas_payload_is_read_by_page_not_as_one_whole_buffer(self):
+        # A whole-buffer async readback of the ~320 MB atlas returned zero-filled
+        # bytes (every decoded semantic was 0) while a ranged read of the same page
+        # returned the record the GPU capture saw (0x80ff0003). W2, W4, R1 and R3
+        # selected nothing from the zeros.
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        self.assertNotRegex(script, r'_buffer_bytes\([^)]*\["atlas_buffer"\]\)')
+        pages = self._harness_function("_atlas_pages")
+        self.assertIn("_buffer_bytes(buffer, page * PAGE_SPLATS * RAW_STRIDE, PAGE_SPLATS * RAW_STRIDE)", pages)
+        self.assertIn("func _raw_splat(pages: Dictionary, node: Dictionary, local_index: int)", script)
+        read = self._harness_function("_buffer_bytes")
+        self.assertIn("buffer_get_data_async(buffer,", read)
+        self.assertIn("p_offset, p_size)", read)
+
+    def test_wind_probes_are_leaf_splats_inside_the_wind_fade(self):
+        # The W1/W3 probes were local splat 0 of the first drawn node ids: height-1
+        # nodes 300 m away, where gs_wind_distance_level_fade is 0. Frozen wind is
+        # non-zero by the ADR (§7 W1 step 1) only where the fade lets it act.
+        keys = self._harness_function("_wind_keys")
+        self.assertIn("int(node[\"level\"]) != 0", keys)
+        self.assertIn("< 64.0", keys)
+        self.assertIn("wind > 0", keys)
+        self.assertIn("_wind_keys(", self._harness_function("_identity"))
+        self.assertIn("_wind_keys(", self._harness_function("_deformation_rows"))
+        self.assertNotIn("_world_keys(before)", self._harness_function("_identity"))
+
+    def test_churn_poses_look_away_from_the_pose_a_set(self):
+        # All 16 churn poses looked at the world centre, so pose A's coarse nodes
+        # stayed drawn and at most 16 of 64 nodes were ever evicted.
+        churn = self._harness_function("_churn")
+        self.assertIn("Vector3(x * 2.0, 1, z * 2.0)", churn)
+        self.assertNotIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+
+    def test_r1_expects_only_levels_reachable_for_the_region(self):
+        # expected_lods listed every level of the tree; levels 5 and 7 never drew
+        # at any tau, so R1 could never be complete.
+        regions = self._harness_function("_regions_rows")
+        sweep = regions.split("for tau in [", 1)
+        self.assertEqual(len(sweep), 2)
+        before, inside = sweep[0], sweep[1].split('_raw["rows"]["R1"]', 1)[0]
+        self.assertNotIn("expected_lods.append", before)
+        self.assertIn("expected_lods.append(level)", inside)
+        self.assertIn("_has_region(pages, node, target)", inside)
+
+    def test_p1_reports_viewport_gpu_time_beside_the_gs_pass_time(self):
+        sample = self._harness_function("_sample_frames")
+        self.assertIn("viewport_set_measure_render_time(root.get_viewport_rid(), true)", sample)
+        self.assertIn('rec["viewport_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())', sample)
+        self.assertIn('target["gpu_frame_ms"] = timing.get("gpu_coherent_total_ms")', sample)
+        # The verdict logic is unchanged: it never reads the added field.
+        verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
+        self.assertNotIn("viewport_gpu_ms", verdict_text)
+
     def test_postflight_finalizes_before_artifacts(self):
         text = (ROOT / ".github/workflows/gs_game_1.yml").read_text(encoding="utf-8")
         self.assertLess(text.index("id: contention_postflight"), text.index("--finalize-postflight"))
