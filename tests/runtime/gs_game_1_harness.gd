@@ -113,7 +113,12 @@ func _pose_a() -> void:
 	_camera.look_at_from_position(Vector3(0, 3, 24), Vector3(0, 1, -16), Vector3.UP)
 
 
-func _build() -> void:
+func _build() -> String:
+	# A refused world ends the arm here: nothing can settle without it, and the
+	# loader's refusal text is in this process's log (godot.log).
+	var loaded = ResourceLoader.load(str(_plan["world"]))
+	if not loaded is GaussianSplatWorld:
+		return "NOT_RUN: world failed to load (ResourceLoader refused %s; see godot.log)" % str(_plan["world"])
 	_scene = Node3D.new()
 	root.add_child(_scene)
 	var environment = Environment.new()
@@ -133,7 +138,7 @@ func _build() -> void:
 	_pose_a()
 	_world = GaussianSplatWorld3D.new()
 	_world.set_auto_apply_on_ready(false)
-	_world.world = ResourceLoader.load(str(_plan["world"]))
+	_world.world = loaded
 	_world.set_max_splat_count(500000)
 	_world.set_max_render_distance(1800)
 	_world.set_lod_enabled(true)
@@ -180,6 +185,7 @@ func _build() -> void:
 	_scene.add_child(_spot)
 	_spot.look_at(Vector3(0, 0, -10), Vector3.UP)
 	_spot.light_energy = 0 # L2 isolates it in its diagnostic pass.
+	return ""
 
 
 func _inputs(sample: int) -> String:
@@ -1074,7 +1080,12 @@ func _run() -> void:
 	for key in settings:
 		_setting(key, settings[key])
 	_raw["settings"] = settings
-	_build()
+	var refused = _build()
+	if refused != "":
+		_raw["reason"] = refused
+		_save()
+		quit(3)
+		return
 	var deadline = Time.get_ticks_msec() + DEADLINE_MS
 	while _renderer == null and Time.get_ticks_msec() <= deadline:
 		await RenderingServer.frame_post_draw

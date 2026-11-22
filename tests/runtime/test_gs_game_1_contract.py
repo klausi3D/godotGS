@@ -135,6 +135,29 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(producer_encoding, dispatch.ENCODING_GSQ)
         self.assertEqual(lane_encoding, producer_encoding)
 
+    def test_unloadable_world_ends_the_arm_before_any_deadline_wait(self):
+        # Run 45046955733: ResourceLoader.load refused the tree, _build carried on
+        # with a null world, and every arm burned the 240 s settle deadline before
+        # reporting "did not settle". The load result must end the arm first.
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        build = script.split("func _build() -> String:", 1)
+        self.assertEqual(len(build), 2, "_build must return the world load result")
+        build = build[1].split("\nfunc ", 1)[0]
+        load = build.index('ResourceLoader.load(str(_plan["world"]))')
+        check = re.search(r"\n\tif not loaded is GaussianSplatWorld:\n\t\treturn \"NOT_RUN: world failed to load", build[load:])
+        self.assertIsNotNone(check, "a null or foreign world load is not checked")
+        # Nothing that consumes the world (apply, regions) runs before the check.
+        self.assertLess(load + check.start(), build.index("_world.world = loaded"))
+        self.assertLess(build.index("_world.world = loaded"), build.index("_world.apply_world()"))
+        run = script.split("func _run() -> void:", 1)[1].split("\nfunc ", 1)[0]
+        refused = re.search(r"var refused = _build\(\)\n\tif refused != \"\":\n\t\t_raw\[\"reason\"\] = refused\n"
+                            r"\t\t_save\(\)\n\t\tquit\(3\)\n\t\treturn", run)
+        self.assertIsNotNone(refused, "_run does not end the arm on a refused build")
+        # Ends before the first deadline-bounded wait, whose length stays unchanged.
+        self.assertLess(refused.start(), run.index("var deadline = Time.get_ticks_msec() + DEADLINE_MS"))
+        self.assertLess(refused.start(), run.index("await _settle()"))
+        self.assertIn("const DEADLINE_MS = 240000", script)
+
     def test_postflight_finalizes_before_artifacts(self):
         text = (ROOT / ".github/workflows/gs_game_1.yml").read_text(encoding="utf-8")
         self.assertLess(text.index("id: contention_postflight"), text.index("--finalize-postflight"))

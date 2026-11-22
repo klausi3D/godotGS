@@ -17,6 +17,7 @@
 #include "core/io/file_access.h"
 #include "core/io/json.h"
 #include "core/io/marshalls.h"
+#include "core/io/resource_loader.h"
 #include "core/os/os.h"
 
 #include <algorithm>
@@ -608,6 +609,31 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Codec-none auto-tree reopens n
 		const Dictionary entry = nodes[i];
 		CHECK(String(entry.get("decoded_sha256", "")) == payload_digest(g, sh, expected.payload_count, resident.high));
 		CHECK(String(entry.get("stored_sha256", "")) == String::hex_encode_buffer(paged->get_nodes()[i].digest, 32));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree output loads through ResourceLoader for every codec") {
+	// GS-GAME-1 run 45046955733: the codec-none semantic tree baked and verified,
+	// then every harness arm's ResourceLoader.load refused it ("header world
+	// bounds are invalid or do not enclose the HLOD root") and the arm burned its
+	// settle deadline. The header must enclose the root for every codec.
+	Fixture fixture;
+	D2_AUTO_NEED(fixture.create());
+	for (const char *name : { "none", "gsq" }) {
+		Dictionary options = fixture.options();
+		options["codec"] = name;
+		const String output = fixture.dir.path_join(String("load_") + name + ".gsplatworld");
+		const Dictionary report = GaussianSplatHlodAutoTree::build(fixture.input, output, options);
+		INFO("codec=", doctest::String(name));
+		if (int(report.get("error", FAILED)) != OK) {
+			FAIL("auto-tree build refused: ", String(report.get("reason", "missing")));
+			return;
+		}
+		Error error = FAILED;
+		const Ref<Resource> loaded = ResourceLoader::load(output, "", ResourceFormatLoader::CACHE_MODE_IGNORE, &error);
+		CHECK(error == OK);
+		const Ref<GaussianSplatWorld> world = loaded;
+		CHECK_MESSAGE(world.is_valid(), "ResourceLoader refused the auto-tree output");
 	}
 }
 
