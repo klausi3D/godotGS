@@ -56,7 +56,7 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     rows_after_shadow.store(p_control == "O2");
     // Shadow split PR0 (renderer/hlod_shadow_face_cull.h): SVW draws every light view from the whole caster list (the
     // reference for the per-view lists), SVU culls by record centres only (the unsafe negative control).
-    shadow_view_lists_disabled.store(p_control == "SVW");
+    shadow_view_lists_disabled.store(p_control == "SVW" || shadow_view_lists_env_whole()); // The env keeps a whole-list lane.
     shadow_view_lists_unsafe.store(p_control == "SVU");
     expected_region_key.store(false);
     // Fault bits are packed into rows; force an honest repack on a switch change.
