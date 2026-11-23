@@ -491,6 +491,33 @@ TEST_CASE("[GaussianSplatting][D3Telemetry] D3-7 drop-frame export carries the p
 	CHECK(diagnostics.overflow_drop_events == 2u);
 }
 
+TEST_CASE("[GaussianSplatting][D3Telemetry] D1 distance-cull drops are counted and exported, never silent") {
+	using GaussianSplatting::TileOverflowSampleContext;
+	using GaussianSplatting::TileOverflowStatsSnapshot;
+	CHECK(offsetof(TileOverflowStatsSnapshot, distance_cull_dropped_splats) == size_t(100));
+	GaussianSplatting::TileDiagnosticsState diagnostics;
+	{
+		Dictionary stats;
+		diagnostics.append_drop_frame_telemetry(stats);
+		CHECK(not_measured(stats, "sampled_distance_cull_dropped_splats"));
+		CHECK(number(stats, "sampled_distance_cull_dropped_splats_total") == 0);
+	}
+	TileOverflowSampleContext context;
+	context.frame_serial = 9;
+	TileOverflowStatsSnapshot culled;
+	culled.distance_cull_dropped_splats = 1234;
+	diagnostics.record_overflow_sample(culled, context);
+	TileOverflowStatsSnapshot none;
+	context.frame_serial = 10;
+	diagnostics.record_overflow_sample(none, context);
+	Dictionary stats;
+	diagnostics.append_drop_frame_telemetry(stats);
+	CHECK(number(stats, "sampled_distance_cull_dropped_splats") == 0); // the latest sample: a measured 0
+	CHECK(number(stats, "sampled_distance_cull_dropped_splats_total") == 1234);
+	// Distance culling is not an overlap-record loss: it raises no drop event.
+	CHECK(diagnostics.overflow_drop_events == 0u);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real HLOD export covers stages queues transfers and replacement epoch") {
 	// Both source files outlive the streamer's worker drain, including on failure.
 	TestHlodPageStore::Fixture replacement;

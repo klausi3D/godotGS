@@ -268,6 +268,7 @@ layout(set = 0, binding = 3, std430) buffer OverflowStats {
     uint raster_cap_dropped_records;  // records past GS_MAX_RASTER_SPLATS_PER_TILE (subset of overflow_splats_clamped)
     uint max_tile_records;            // atomicMax: most records COUNT reserved for any tile
     uint max_tile_key;                // atomicMax: gs_pack_max_tile_key(records, tile index)
+    uint distance_cull_dropped_splats; // splats the stochastic distance cull removed (EMIT; canonical route only)
 } overflow_stats;
 
 layout(set = 0, binding = 5, std430) buffer TileCounts {
@@ -1077,17 +1078,26 @@ void main() {
         return;
     }
 
+    // Stochastic distance cull. Its key is the atlas address, which on the HLOD route depends on
+    // streaming completion order and residency history, so the same cut drew a different subset
+    // of distant splats per process or reload (D1). The HLOD route never applies it: its cut
+    // already thins with distance. The canonical route keeps it (still address-keyed; follow-up)
+    // and counts every drop in distance_cull_dropped_splats, once per frame (not in COUNT).
+#if !defined(GS_HLOD_RELATIVE_PAYLOAD)
     float world_dist = length(frame_camera - g.position);
-    // Use a stable per-splat key for distance culling; global_idx is rank-based and
-    // changes with camera motion as sorted order changes, which causes temporal flicker.
+    // global_idx is rank-based and changes with camera motion, so the key uses the atlas index.
     uint distance_cull_key = gaussian_idx;
     if (splat_ref.instance_id != 0u) {
         distance_cull_key = gs_hash_u32(distance_cull_key ^ (splat_ref.instance_id * 0x9e3779b9u));
     }
     if (gs_should_distance_cull(distance_cull_key, world_dist)) {
         GS_DEBUG_INCREMENT(distance_cull_reject);
+#if !defined(GS_TILE_GLOBAL_SORT_COUNT_PASS)
+        atomicAdd(overflow_stats.distance_cull_dropped_splats, 1u);
+#endif
         return;
     }
+#endif
 
     // The payload stores screen_pos as raw fp32 (#1153), so binning and rasterization see
     // the same centre without re-quantizing it here.
