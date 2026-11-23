@@ -3,6 +3,7 @@ extern "C" int test_hlod_node_residency_cpp_force_link() { return 0; }
 #include "../lod/hlod_node_residency.h"
 #include "../lod/hlod_runtime_selection.h"
 #include "../renderer/hlod_node_streamer.h"
+#include <algorithm>
 #include <vector>
 
 // ADR 6.6 / 14.1 / 14.2, package D1: demand -> request -> resident-ready -> drawable, protection, cancellation
@@ -572,6 +573,66 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction order is least recently
 	CHECK(sim.res.state(10) == Residency::ABSENT);
 	CHECK(sim.res.state(9) == Residency::RESIDENT);
 	CHECK(sim.res.state(0) == Residency::RESIDENT); // The pinned root is never a victim.
+}
+
+// Stroboscopic flicker on the reef world (forced streaming, slow pan): node 5, a child of the refined root, was out of
+// view, so it was neither drawn nor an ancestor of a drawn node. LRU evicted it before nodes drawn more recently. One
+// frame later the pan brought it back into the frustum: the root's visible children were no longer all resident, so the
+// root replaced its whole subtree (60 splats for the whole world) until node 5 reloaded two frames later.
+// A resident child of a refined node is part of that refinement: it must outlive nodes nothing depends on.
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a resident child of a refined node outlives unrelated nodes while it is out of view") {
+	Sim sim;
+	if (!one_page_tree(sim, 7)) { FAIL("residency setup failed"); return; }
+	// 0..4 resident since frame 1; 11 and 12 (under node 5, which nothing refines) were drawn later, at frame 8.
+	for (uint32_t n : { 0u, 1u, 2u, 3u, 4u }) {
+		if (!make_resident_at(sim.res, n, 1)) { FAIL("could not make node resident"); return; }
+	}
+	for (uint32_t n : { 11u, 12u }) {
+		if (!make_resident_at(sim.res, n, 8)) { FAIL("could not make node resident"); return; }
+	}
+	CHECK(sim.res.stats().pages_free == 0);
+	// Frame 20: node 2 is out of view, the drawn cut under the refined root is {3, 4}.
+	sim.res.begin_frame(20);
+	const uint32_t drawn[2] = { 3, 4 };
+	sim.res.protect_drawn(drawn, 2);
+	CHECK_FALSE(sim.res.is_protected(2)); // Not hard protection: it stays a victim of last resort.
+	LocalVector<Residency::Ticket> tickets;
+	const uint32_t demand[2] = { 7, 8 };
+	const auto result = sim.res.request(demand, 2, tickets);
+	CHECK(result.evicted == 2);
+	CHECK(tickets.size() == 2);
+	CHECK(sim.res.state(11) == Residency::ABSENT);
+	CHECK(sim.res.state(12) == Residency::ABSENT);
+	CHECK(sim.res.state(2) == Residency::RESIDENT);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] an out-of-view child re-entering the frustum does not collapse its refined parent") {
+	Sim sim;
+	if (!one_page_tree(sim, 7)) { FAIL("residency setup failed"); return; }
+	for (uint32_t n : { 0u, 1u, 2u, 3u, 4u }) {
+		if (!make_resident_at(sim.res, n, 1)) { FAIL("could not make node resident"); return; }
+	}
+	for (uint32_t n : { 11u, 12u }) {
+		if (!make_resident_at(sim.res, n, 8)) { FAIL("could not make node resident"); return; }
+	}
+	// Frame 20: the view ends at x = 35, so node 2 (x 40..80) is outside it while node 1's subtree is inside.
+	sim.frame = 19;
+	sim.req.frustum_enabled = true;
+	sim.req.frustum[0] = Plane(Vector3(1, 0, 0), 35);
+	for (int p = 1; p < 6; ++p) { sim.req.frustum[p] = Plane(Vector3(0, 1, 0), 1.0e6); }
+	sim.step(); // Selects, protects the drawn cut and requests its demand (which needs eviction).
+	CHECK(sim.cut.status == CutHistory::COMPLETE);
+	CHECK(sim.drawn == std::vector<uint32_t>{ 3, 4 });
+	CHECK(sim.res.state(2) == Residency::RESIDENT);
+	sim.arrive_all();
+	// Frame 21: the camera turns, node 2 is visible again. The root stays refined; node 2 serves its region.
+	sim.req.frustum_enabled = false;
+	sim.step(false);
+	CHECK(sim.cut.status == CutHistory::COMPLETE);
+	CHECK(sim.drawn != std::vector<uint32_t>{ 0 });
+	CHECK(std::find(sim.drawn.begin(), sim.drawn.end(), 2u) != sim.drawn.end());
+	CHECK(every_drawn_resident(sim));
+	CHECK(exact_cover(sim, 4));
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][Residency] a transition is admitted whole or not at all") {
