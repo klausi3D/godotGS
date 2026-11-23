@@ -760,6 +760,7 @@ struct TileRenderParams {
 	bool debug_show_overflow_tiles = false;
 	bool debug_show_projection_issues = false;
 	bool debug_show_white_albedo = false;
+	bool debug_show_hlod_level_tint = false; // HLOD route only: tint splats by draw-record level.
 	bool debug_dump_gpu_counters = false;
 	bool debug_enable_tile_logs = false;
 	bool debug_enable_tile_pipeline_logs = false;

@@ -238,7 +238,7 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.alpha_floor = p_params.alpha_floor;
 	params.force_solid_coverage = p_params.force_solid_coverage ? 1u : 0u;
 	params.overlap_record_count = p_overlap_record_count;
-	params._pad_overlap = 0u;
+	params.debug_hlod_level_tint = p_params.debug_show_hlod_level_tint ? 1u : 0u;
 	params.cull_far_tolerance = p_params.cull_far_tolerance;
 	params.tiny_splat_screen_radius = p_params.tiny_splat_screen_radius;
 	params.max_conic_aspect = p_params.max_conic_aspect;
@@ -417,7 +417,7 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.alpha_floor = p_params.alpha_floor;
 	params.force_solid_coverage = p_params.force_solid_coverage ? 1u : 0u;
 	params.overlap_record_count = p_overlap_record_count;
-	params._pad_overlap = 0u;
+	params.debug_hlod_level_tint = p_params.debug_show_hlod_level_tint ? 1u : 0u;
 	owner.diagnostics.capture_tile_density_snapshot = p_params.debug_show_tile_grid || p_params.debug_show_density_heatmap;
 
 	// Set instance rotation inverse for SH view direction correction.

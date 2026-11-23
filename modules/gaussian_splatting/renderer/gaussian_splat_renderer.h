@@ -1732,6 +1732,8 @@ public:
     bool get_debug_show_projection_issues() const;
     void set_debug_show_white_albedo(bool p_enabled);
     bool get_debug_show_white_albedo() const;
+    void set_debug_show_hlod_level_tint(bool p_enabled);
+    bool get_debug_show_hlod_level_tint() const;
     void set_debug_show_shadow_opacity(bool p_enabled);
     bool get_debug_show_shadow_opacity() const;
     void set_debug_dump_gpu_counters(bool p_enabled);

@@ -843,6 +843,7 @@ uint64_t RenderPipelineStages::compute_raster_params_signature(const GaussianSpl
 		seed = _hash_bool(debug_params.debug_show_overflow_tiles, seed);
 		seed = _hash_bool(debug_params.debug_show_projection_issues, seed);
 		seed = _hash_bool(debug_params.debug_show_white_albedo, seed);
+		seed = _hash_bool(debug_params.debug_show_hlod_level_tint, seed);
 		seed = _hash_bool(debug_params.debug_show_shadow_opacity, seed);
 		seed = _hash_bool(debug_params.debug_show_tile_grid, seed);
 		seed = _hash_bool(debug_params.debug_show_density_heatmap, seed);

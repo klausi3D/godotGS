@@ -339,6 +339,10 @@ public:
         subpixel_history_buffers.ensure_history_buffer(p_records);
         return subpixel_history_buffers.subpixel_history_buffer;
     }
+    // The production RenderParams -> UBO packing, without dispatching a frame.
+    TileRenderParamsGPU _test_build_params(const RenderParams &p_params, RenderingDevice *p_device) {
+        return params_builder.build_params(p_params, 0u, 1u, p_device);
+    }
     bool test_address_identity_enabled = false;
     uint32_t test_game_shader_variant = 0;
     bool _test_uses_address_identity() const { return shader_resources.tile_binning_pipeline.is_valid() && test_address_identity_enabled; }

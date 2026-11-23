@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 238,
-    "sha256": "49f36ee15a622fb2b514956ed6d281200f48239e496b127c9f96e8e8360c21bf",
-    "sha256_last_changed_by": "WP4 C: add R1 region pixel coverage, R2 same-frame and eviction latency, and R3 sort-record/caster readbacks with forcing controls in existing GpuSorting. Round 3 adds the SceneTree setup tag to R2 for RenderingServer; counts remain unchanged. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Filters, required batches, waivers, thresholds and gates unchanged.",
+    "test_count": 240,
+    "sha256": "6fdac6bb1fb442ddd6c93a4bf63c521886086bd844ca5787aae00b04b6b58cea",
+    "sha256_last_changed_by": "HLOD level tint debug view: two cases in the existing GpuSorting batch (UBO byte identity with the view off, production binning gate). Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Filters, required batches, waivers, thresholds and gates unchanged.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -480,8 +480,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 238,
-      "running_in_a_named_batch": 173,
+      "requires_gpu_total": 240,
+      "running_in_a_named_batch": 175,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },

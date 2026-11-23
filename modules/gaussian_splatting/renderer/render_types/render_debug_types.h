@@ -118,6 +118,7 @@ struct DebugState {
 	bool show_overflow_tiles = false;
 	bool show_projection_issues = false;
 	bool show_white_albedo = false;
+	bool show_hlod_level_tint = false;
 	bool show_shadow_opacity = false;
 	bool show_tile_grid = false;
 	bool show_density_heatmap = false;

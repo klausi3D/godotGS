@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 
-static constexpr uint32_t GS_RENDER_PARAMS_LAYOUT_VERSION = 20; // Keep in sync with shaders/includes/gs_render_params.glsl
+static constexpr uint32_t GS_RENDER_PARAMS_LAYOUT_VERSION = 21; // Keep in sync with shaders/includes/gs_render_params.glsl
 static constexpr uint32_t GS_MAX_ASSET_LODS = 8;
 // Hard runtime bound for scene/global sphere effectors consumed per pass.
 // Keep this explicit until every producer/consumer supports a larger fixed ABI.
@@ -480,7 +480,7 @@ struct alignas(16) TileRenderParamsGPU {
     float alpha_floor;
     uint32_t force_solid_coverage;
     uint32_t overlap_record_count;
-    uint32_t _pad_overlap;
+    uint32_t debug_hlod_level_tint; // Nonzero tints HLOD splats by draw-record level (debug view; was std140 padding)
     float cull_far_tolerance;
     float tiny_splat_screen_radius;
     float max_conic_aspect;
@@ -593,7 +593,7 @@ static_assert(offsetof(TileRenderParamsGPU, camera_position) == 320, "TileRender
 static_assert(offsetof(TileRenderParamsGPU, alpha_floor) == 336, "TileRenderParamsGPU.alpha_floor offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, force_solid_coverage) == 340, "TileRenderParamsGPU.force_solid_coverage offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, overlap_record_count) == 344, "TileRenderParamsGPU.overlap_record_count offset mismatch");
-static_assert(offsetof(TileRenderParamsGPU, _pad_overlap) == 348, "TileRenderParamsGPU._pad_overlap offset mismatch");
+static_assert(offsetof(TileRenderParamsGPU, debug_hlod_level_tint) == 348, "TileRenderParamsGPU.debug_hlod_level_tint offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, cull_far_tolerance) == 352, "TileRenderParamsGPU.cull_far_tolerance offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, tiny_splat_screen_radius) == 356, "TileRenderParamsGPU.tiny_splat_screen_radius offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, max_conic_aspect) == 360, "TileRenderParamsGPU.max_conic_aspect offset mismatch");

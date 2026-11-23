@@ -821,6 +821,7 @@ void RenderDebugStateOrchestrator::apply_debug_options_to_render_params(TileRend
 		r_params.debug_show_overflow_tiles = overlay_options.show_overflow_tiles;
 		r_params.debug_show_projection_issues = overlay_options.show_projection_issues;
 		r_params.debug_show_white_albedo = overlay_options.show_white_albedo;
+		r_params.debug_show_hlod_level_tint = overlay_options.show_hlod_level_tint;
 		r_params.debug_show_shadow_opacity = overlay_options.show_shadow_opacity;
 		r_params.debug_show_tile_grid = overlay_options.show_tile_grid;
 		r_params.debug_show_density_heatmap = overlay_options.show_density_heatmap;
@@ -843,6 +844,7 @@ void RenderDebugStateOrchestrator::apply_debug_options_to_render_params(TileRend
 		r_params.debug_show_overflow_tiles = debug_state.show_overflow_tiles;
 		r_params.debug_show_projection_issues = debug_state.show_projection_issues;
 		r_params.debug_show_white_albedo = debug_state.show_white_albedo;
+		r_params.debug_show_hlod_level_tint = debug_state.show_hlod_level_tint;
 		r_params.debug_show_shadow_opacity = debug_state.show_shadow_opacity;
 		r_params.debug_show_tile_grid = debug_state.show_tile_grid;
 		r_params.debug_show_density_heatmap = debug_state.show_density_heatmap;
