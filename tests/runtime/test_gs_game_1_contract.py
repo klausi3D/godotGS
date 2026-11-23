@@ -175,6 +175,29 @@ class ContractTests(unittest.TestCase):
         self.assertRegex(stall, r"compute_list_set_push_constant\(list, push, 16\)")
         self.assertNotRegex(stall, r"compute_list_set_push_constant\(list, push, 4\)")
 
+    def test_incomplete_atlas_reads_make_their_rows_not_run(self):
+        # PR #1532 review: _atlas_pages() drops a failed or short page read and
+        # returns the rest. W2 then built its merge oracle from a truncated child
+        # population and could PASS. Every row that reads atlas pages checks that
+        # each requested page arrived and is NOT_RUN, naming the pages, otherwise.
+        missing = self._harness_function("_atlas_missing")
+        self.assertTrue(missing, "no completeness check for atlas page reads")
+        self.assertIn('node["pages"].size() < need', missing)  # Unallocated pages count as missing.
+        self.assertIn("not pages.has(page)", missing)
+        reason = 'atlas pages not read completely: %s'
+        for name, rows in (("_identity", ("W1",)), ("_wind_lod", ("W2",)),
+                           ("_deformation_rows", ("W3", "W4")), ("_regions_rows", ("R2", "R3"))):
+            body = self._harness_function(name)
+            reads = len(re.findall(r"await _atlas_pages\(", body))
+            self.assertGreater(reads, 0, name)
+            self.assertEqual(len(re.findall(r"_atlas_missing\(", body)), reads, name)
+            self.assertIn(reason, body, name)
+            for row in rows:
+                self.assertRegex(body, r'\["' + row + r'"\][^\n]*not_run_reason|for row in \[[^\]]*"' + row + '"', name + " " + row)
+        # W2: the check precedes any use of the pages for the oracle.
+        w2 = self._harness_function("_wind_lod")
+        self.assertLess(w2.index("_atlas_missing("), w2.index("var center = Vector3("))
+
     def test_atlas_payload_is_read_by_page_not_as_one_whole_buffer(self):
         # A whole-buffer async readback of the ~320 MB atlas returned zero-filled
         # bytes (every decoded semantic was 0) while a ranged read of the same page
