@@ -202,8 +202,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] per-view caster lists dr
 			float matrix[16];
 			float viewport[4];
 			uint32_t counts[4];
+			uint32_t atlas[4]; // 0: the shader bounds by the array length (BV-17 fallback; this atlas is far below 2^31 bytes).
 		} push{};
-		static_assert(sizeof(Push) == 96, "view-list test push layout");
+		static_assert(sizeof(Push) == 112, "view-list test push layout");
 		for (int c = 0; c < 4; ++c) {
 			for (int r = 0; r < 4; ++r) { push.matrix[c * 4 + r] = float(p_clip.columns[c][r]); }
 		}

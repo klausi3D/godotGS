@@ -131,8 +131,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][B3] baked wind weights a
         }
         const RID set = resources.keep(rd->uniform_set_create(uniforms, shaders[forced], 0));
         if (!set.is_valid()) { FAIL("B3 uniform set unavailable"); return; }
-        struct Push { float matrix[16]; float viewport[4]; uint32_t counts[4]; } push{};
-        static_assert(sizeof(Push) == 96, "B3 caster push layout");
+        // atlas[0] = 0: the shader bounds by the array length (BV-17 fallback; this atlas is far below 2^31 bytes).
+        struct Push { float matrix[16]; float viewport[4]; uint32_t counts[4]; uint32_t atlas[4]; } push{};
+        static_assert(sizeof(Push) == 112, "B3 caster push layout");
         for (int axis = 0; axis < 4; ++axis) { push.matrix[axis * 5] = 1.0f; }
         push.viewport[0] = push.viewport[1] = float(size);
         push.viewport[2] = gs_shadow_caster::kAlphaThreshold;
