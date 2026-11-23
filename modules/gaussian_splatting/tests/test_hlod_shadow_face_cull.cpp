@@ -147,8 +147,10 @@ static void sweep(bool p_unsafe, uint32_t &r_violations, uint32_t &r_dropped, ui
 	for (const Vector3 &camera : { Vector3(), Vector3(-37.5f, 2.0f, 61.0f) }) {
 		for (const ViewCase &v : views(camera)) {
 			const View view(v.clip, camera, v.size, v.mode == 2, p_unsafe ? 0.0 : kGuardTexels);
-			for (int box_index = 0; box_index < 600; ++box_index) {
-				const Vector3 center = v.light + Vector3(rng.random(-70.0f, 70.0f), rng.random(-70.0f, 70.0f), rng.random(-70.0f, 70.0f));
+			for (int box_index = 0; box_index < 900; ++box_index) {
+				// Two thirds anywhere around the light, one third close to it (where the perspective footprint is largest).
+				const float spread = box_index % 3 == 2 ? 12.0f : 70.0f;
+				const Vector3 center = v.light + Vector3(rng.random(-spread, spread), rng.random(-spread, spread), rng.random(-spread, spread));
 				const Vector3 half(rng.random(0.2f, 6.0f), rng.random(0.2f, 6.0f), rng.random(0.2f, 6.0f));
 				const AABB box(center - half, half * 2.0f);
 				const AABB tested = p_unsafe ? AABB(box.get_center(), Vector3()) : box;
@@ -186,6 +188,7 @@ static void sweep(bool p_unsafe, uint32_t &r_violations, uint32_t &r_dropped, ui
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters][ViewLists] no dropped record has a splat the caster shader keeps") {
 	uint32_t violations = 0, dropped = 0, boxes = 0;
 	sweep(false, violations, dropped, boxes);
+	MESSAGE("view-list sweep: dropped ", dropped, " of ", boxes, " boxes; violations ", violations);
 	CHECK_MESSAGE(violations == 0, "dropped boxes with a kept splat: ", violations, " of ", dropped);
 	// The lists must actually shrink views; a culler that drops nothing would pass the line above vacuously.
 	CHECK_MESSAGE(dropped * 4 > boxes, "dropped ", dropped, " of ", boxes);

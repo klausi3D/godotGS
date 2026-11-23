@@ -19,8 +19,12 @@
 // The shader keeps a quad only if |ndc.xy| <= 1 + extent_ndc, extent = 1.177 sigma (alpha threshold 0.5) along the
 // footprint's eigen axes plus the 0.3 texel^2 low-pass. Per screen axis that reach is <= sqrt(2) * 1.177 sigma +
 // 1.3 texels, inside the projected three-sigma reach plus the guard band below. A box is dropped only when it lies
-// entirely in one outer half-space of the view (x or y beyond 1 + guard, beyond the far plane, or behind a perspective
-// light); the near plane is never used (directional casters in front of it are pancaked, not clipped).
+// entirely in one outer half-space of the view (x or y beyond the bound, beyond the far plane, or behind a perspective
+// light); the near plane is never used (directional casters in front of it are pancaked, not clipped). Perspective views
+// linearise the footprint at the splat centre, which grows without bound as clip.w -> 0 (a splat beside the light, in the
+// face's own plane, can cover the whole face), so a perspective side test needs w > 0 over the whole box and widens its
+// bound by that footprint at the box's smallest w (View::box_outside). The CPU sweep in
+// tests/test_hlod_shadow_face_cull.cpp mirrors the shader's keep test against these rules.
 
 #include "hlod_shadow_refresh.h"
 
@@ -155,6 +159,7 @@ struct View {
 	double camera[3] = {};
 	double guard_x = 0.0;
 	double guard_y = 0.0;
+	double half_px[2] = {};
 	bool perspective = false;
 	bool valid = false;
 
@@ -173,6 +178,8 @@ struct View {
 		if (valid) {
 			guard_x = 2.0 * p_guard_texels / double(p_rect_size.x);
 			guard_y = 2.0 * p_guard_texels / double(p_rect_size.y);
+			half_px[0] = 0.5 * double(p_rect_size.x);
+			half_px[1] = 0.5 * double(p_rect_size.y);
 		}
 		for (int r = 0; r < 4 && valid; ++r) {
 			for (int c = 0; c < 4; ++c) { valid = valid && std::isfinite(rows[r][c]); }
@@ -203,12 +210,32 @@ struct View {
 		range(rows[3], center, half, w_min, w_max);
 		if (perspective && w_max < 0.0) { return true; } // Behind the light: every centre has clip.w <= 1e-6.
 		const double w_abs = std::fmax(std::fabs(w_min), std::fabs(w_max));
-		for (int axis = 0; axis < 2; ++axis) {
-			const double guard = 1.0 + (axis == 0 ? guard_x : guard_y);
+		// Largest sigma along any direction of a splat whose three-sigma support fits the box: sigma_dir^2 <= trace of
+		// the covariance <= 3 * (max half / 3)^2.
+		const double sigma_max = std::fmax(half[0], std::fmax(half[1], half[2])) / std::sqrt(3.0);
+		double row3_norm = 0.0;
+		for (int a = 0; a < 3; ++a) { row3_norm += rows[3][a] * rows[3][a]; }
+		row3_norm = std::sqrt(row3_norm);
+		for (int axis = 0; axis < 2 && (!perspective || w_min > 0.0); ++axis) {
+			double bound = 1.0 + (axis == 0 ? guard_x : guard_y);
+			if (perspective) {
+				// The shader keeps a quad when |ndc| <= 1 + E, E = 1.177 sigma * |(row - ndc * row_w) / w| summed over the
+				// two footprint axes (<= sqrt(2) * 1.177 = 1.665 sigma times the gradient norm) plus the low-pass. Near the
+				// face's own plane (w -> 0) that footprint grows without bound, so solve |ndc| (1 - a) > 1 + b for the
+				// smallest w in the box: a = 1.665 sigma |row_w| / w, b = 1.665 sigma |row| / w + 1.3 texels.
+				double row_norm = 0.0;
+				for (int a = 0; a < 3; ++a) { row_norm += rows[axis][a] * rows[axis][a]; }
+				row_norm = std::sqrt(row_norm);
+				const double a = 1.665 * sigma_max * row3_norm / w_min;
+				if (!(a < 0.5)) { continue; }
+				const double b = 1.665 * sigma_max * row_norm / w_min + 1.3 / half_px[axis];
+				bound = std::fmax(bound, (1.0 + b) / (1.0 - a) + (axis == 0 ? guard_x : guard_y));
+				if (!std::isfinite(bound)) { continue; }
+			}
 			double outer[4], inner[4];
 			for (int c = 0; c < 4; ++c) {
-				outer[c] = rows[axis][c] - guard * rows[3][c]; // x - (1 + g) w > 0
-				inner[c] = -rows[axis][c] - guard * rows[3][c]; // -x - (1 + g) w > 0
+				outer[c] = rows[axis][c] - bound * rows[3][c]; // x - bound * w > 0
+				inner[c] = -rows[axis][c] - bound * rows[3][c]; // -x - bound * w > 0
 			}
 			double lo, hi;
 			range(outer, center, half, lo, hi);
