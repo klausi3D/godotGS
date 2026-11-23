@@ -101,6 +101,7 @@ layout(set = 0, binding = 3, std430) buffer OverflowStatisticsBuffer {
     uint raster_cap_dropped_records;  // records past GS_MAX_RASTER_SPLATS_PER_TILE (subset of overflow_splats_clamped)
     uint max_tile_records;            // atomicMax: most records COUNT reserved for any tile
     uint max_tile_key;                // atomicMax: gs_pack_max_tile_key(records, tile index)
+    uint distance_cull_dropped_splats; // written by tile binning only (layout parity)
 } overflow_stats;
 
 layout(set = 0, binding = 4, std430) readonly buffer ProjectionBuffer {

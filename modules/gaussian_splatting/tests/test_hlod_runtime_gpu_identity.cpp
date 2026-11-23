@@ -1344,6 +1344,87 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] A2 reassigned range is c
 }
 } // namespace TestA2History
 
+namespace TestHlodDistanceCull {
+// D1 (real-scan check, 2026-11-23): the stochastic distance cull hashed the ATLAS ADDRESS, so the
+// same HLOD cut drew a different subset of distant splats per process and per reload (fresh
+// processes differed in 7.5 % of pixels at a far pose). On the HLOD route the same splats at a
+// different atlas placement must survive identically. This executes the production binning
+// statements from `float world_dist` up to `float max_sigma` for 256 splats at two placements,
+// 45 m away with start 30 m and max rate 1 (cull probability 0.25).
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] distance cull outcome does not depend on atlas placement on the HLOD route") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("RenderingDevice required to execute the production distance-cull statements"); return; }
+    TestA2History::Resources resources{ rd, {} };
+    TileBinningShaderRD production;
+    Vector<String> variants; variants.push_back(String()); production.initialize(variants);
+    const RID version = production.version_create();
+    if (!version.is_valid()) { FAIL("production binning source unavailable"); return; }
+    const Vector<String> stages = production.version_build_variant_stage_sources(version, 0);
+    production.version_free(version);
+    if (stages.size() <= RD::SHADER_STAGE_COMPUTE) { FAIL("production compute stage missing"); return; }
+    const String body = stages[RD::SHADER_STAGE_COMPUTE];
+    const int helpers = body.find("uint gs_hash_u32(uint v) {");
+    const int helpers_end = body.find("bool gs_should_hotspot_prune_overlap(", helpers);
+    if (helpers < 0 || helpers_end <= helpers) { FAIL("production distance-cull helpers missing"); return; }
+    int first = body.find("    float world_dist = length(frame_camera - g.position);");
+    if (first < 0) { FAIL("production distance-cull statement missing"); return; }
+    const String guard = "#if !defined(GS_HLOD_RELATIVE_PAYLOAD)\n";
+    const int preceding = body.rfind(guard, first);
+    if (preceding >= 0 && body.substr(preceding + guard.length(), first - preceding - guard.length()).strip_edges().is_empty()) {
+        first = preceding;
+    }
+    const int last = body.find("    float max_sigma = MAX_SIGMA;", first);
+    if (last <= first) { FAIL("production distance-cull block end missing"); return; }
+    // [route][placement]. Route 0 is the canonical route: it still keys the cull on the address
+    // (follow-up), which doubles as the forcing control that this harness can see placement.
+    Vector<uint8_t> survived[2][2];
+    for (int hlod = 0; hlod < 2; ++hlod) {
+        const String source = String("#version 450\n") + (hlod ? "#define GS_HLOD_RELATIVE_PAYLOAD 1\n" : "") +
+                "#define GS_DEBUG_INCREMENT(counter)\n#define GS_TILE_GLOBAL_SORT_COUNT_PASS 1\n" +
+                "layout(local_size_x=1) in;\n" +
+                "layout(set=0,binding=0,std430) buffer O { uint entries[]; } survived;\n" +
+                "layout(push_constant,std430) uniform P { vec4 distance_cull_config; uvec4 v; } params;\n" +
+                body.substr(helpers, helpers_end - helpers) +
+                "struct GsTestSplat { vec3 position; };\nstruct GsTestRef { uint instance_id; };\n" +
+                "void main() {\nuint i = gl_GlobalInvocationID.x; uint gaussian_idx = params.v.x + i;\n" +
+                "GsTestRef splat_ref = GsTestRef(0u); GsTestSplat g = GsTestSplat(vec3(0.0, 0.0, 45.0));\n" +
+                "vec3 frame_camera = vec3(0.0);\n" +
+                body.substr(first, last - first) +
+                "survived.entries[i] = 1u; }\n";
+        String error;
+        const RID shader = resources.keep(ShaderCompilationHelper::compile_shader_on_device(rd, source, "hlod_distance_cull_placement", Vector<String>(), &error));
+        if (!shader.is_valid()) { FAIL("distance-cull shader failed: ", error.utf8().get_data()); return; }
+        const RID pipeline = resources.keep(rd->compute_pipeline_create(shader));
+        const RID out = resources.buffer(256 * sizeof(uint32_t));
+        const RID set = resources.set(shader, out);
+        if (!pipeline.is_valid() || !out.is_valid() || !set.is_valid()) { FAIL("distance-cull resources missing"); return; }
+        for (int placement = 0; placement < 2; ++placement) {
+            if (rd->buffer_clear(out, 0, 256 * sizeof(uint32_t)) != OK) { FAIL("survivor reset failed"); return; }
+            // x = start 30 m, y = max rate 1, z = enabled. Same splats, atlas base 1024 or 70001.
+            struct Push { float config[4]; uint32_t v[4]; } push{ { 30.0f, 1.0f, 1.0f, 0.0f }, { placement ? 70001u : 1024u, 0u, 0u, 0u } };
+            static_assert(sizeof(Push) == 32, "distance-cull test push layout");
+            const RD::ComputeListID list = rd->compute_list_begin();
+            rd->compute_list_bind_compute_pipeline(list, pipeline);
+            rd->compute_list_bind_uniform_set(list, set, 0);
+            rd->compute_list_set_push_constant(list, &push, sizeof(push));
+            rd->compute_list_dispatch(list, 256, 1, 1);
+            rd->compute_list_end();
+            survived[hlod][placement] = rd->buffer_get_data(out);
+            if (survived[hlod][placement].size() != 256 * int(sizeof(uint32_t))) { FAIL("full survivor readback required"); return; }
+        }
+    }
+    CHECK(survived[0][0] != survived[0][1]); // control: the address-keyed canonical cull is visible to this harness
+    CHECK(survived[1][0] == survived[1][1]); // HLOD: atlas placement must not change which splats are drawn
+    int hlod_survivors = 0;
+    for (int i = 0; i < 256; ++i) {
+        uint32_t v = 0;
+        memcpy(&v, survived[1][0].ptr() + i * sizeof(uint32_t), sizeof(v));
+        hlod_survivors += int(v);
+    }
+    CHECK(hlod_survivors == 256); // the HLOD route never applies the stochastic distance cull
+}
+} // namespace TestHlodDistanceCull
+
 namespace TestHlodLevelTint {
 // The HLOD level debug view must not change the default frame. Its only input is one
 // RenderParams word that used to be std140 padding (always 0); the binning shader reads
