@@ -49,7 +49,7 @@
 
 namespace TestGaussianSplatting {
 
-static_assert(GS_RENDER_PARAMS_LAYOUT_VERSION == 20, "Render params layout version mismatch");
+static_assert(GS_RENDER_PARAMS_LAYOUT_VERSION == 21,"Render params layout version mismatch");
 
 static_assert(sizeof(InstanceDataGPU) == 128, "InstanceDataGPU size contract changed");
 static_assert(offsetof(InstanceDataGPU, lod) == 72, "InstanceDataGPU.lod offset contract changed");
@@ -942,7 +942,7 @@ TEST_CASE("[GaussianSplatting] pack_gaussian leaves no byte of PackedGaussian in
 }
 
 TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
-    CHECK(GS_RENDER_PARAMS_LAYOUT_VERSION == 20u);
+    CHECK(GS_RENDER_PARAMS_LAYOUT_VERSION == 21u);
     CHECK(sizeof(InstanceDataGPU) == size_t(128));
     CHECK(offsetof(InstanceDataGPU, effect_params) == size_t(96));
     CHECK(offsetof(InstanceDataGPU, placement_key) == size_t(112));

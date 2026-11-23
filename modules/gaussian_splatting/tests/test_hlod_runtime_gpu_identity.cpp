@@ -17,6 +17,7 @@
 #include "../renderer/splat_ref_encoding.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
+#include "../interfaces/debug_overlay_interfaces.h"
 #include "../renderer/splat_identity_test_control.h"
 #include "core/config/project_settings.h"
 #include "../core/gaussian_splat_world.h"
@@ -1423,3 +1424,64 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] distance cull outcome do
     CHECK(hlod_survivors == 256); // the HLOD route never applies the stochastic distance cull
 }
 } // namespace TestHlodDistanceCull
+
+namespace TestHlodLevelTint {
+// The HLOD level debug view must not change the default frame. Its only input is one
+// RenderParams word that used to be std140 padding (always 0); the binning shader reads
+// it in a uniform branch. So: off by default everywhere, and the UBO of a frame with the
+// view off is byte-identical to the default UBO, before and after the view was on.
+TEST_CASE("[GaussianSplatting][HLOD] level tint debug view is off by default at every layer") {
+    CHECK_FALSE(TileRenderer::RenderParams().debug_show_hlod_level_tint);
+    CHECK_FALSE(DebugOverlayOptions().show_hlod_level_tint);
+    CHECK(offsetof(TileRenderParamsGPU, debug_hlod_level_tint) == size_t(348));
+}
+
+// [Sort][RequiresGPU] places the GPU cases in the required GpuSorting batch, as the A2 cases above.
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] level tint off leaves the RenderParams UBO byte-identical to the default") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("RenderingDevice required to pack production RenderParams"); return; }
+    Ref<TileRenderer> tile; tile.instantiate();
+    if (tile->initialize(rd, Vector2i(64, 64)) != OK) { FAIL("tile renderer initialization failed"); return; }
+    TileRenderer::RenderParams params;
+    params.viewport_size = Vector2i(64, 64);
+    params.projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+    params.render_projection = params.projection;
+    const TileRenderParamsGPU baseline = tile->_test_build_params(params, rd);
+    // Determinism control: without it, the comparisons below could not see a difference.
+    const TileRenderParamsGPU repeat = tile->_test_build_params(params, rd);
+    if (memcmp(&baseline, &repeat, sizeof(TileRenderParamsGPU)) != 0) { FAIL("RenderParams packing is not repeatable; the identity check below would be meaningless"); return; }
+    CHECK(baseline.debug_hlod_level_tint == 0u);
+
+    params.debug_show_hlod_level_tint = true;
+    const TileRenderParamsGPU tinted = tile->_test_build_params(params, rd);
+    CHECK(tinted.debug_hlod_level_tint == 1u); // the view is observable in the UBO
+    constexpr size_t word = offsetof(TileRenderParamsGPU, debug_hlod_level_tint);
+    const uint8_t *a = reinterpret_cast<const uint8_t *>(&baseline);
+    const uint8_t *b = reinterpret_cast<const uint8_t *>(&tinted);
+    CHECK(memcmp(a, b, word) == 0); // and it changes nothing else
+    CHECK(memcmp(a + word + sizeof(uint32_t), b + word + sizeof(uint32_t), sizeof(TileRenderParamsGPU) - word - sizeof(uint32_t)) == 0);
+
+    params.debug_show_hlod_level_tint = false;
+    const TileRenderParamsGPU after = tile->_test_build_params(params, rd);
+    CHECK(memcmp(&baseline, &after, sizeof(TileRenderParamsGPU)) == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] production binning shader gates the level tint on the RenderParams word") {
+    TileBinningShaderRD production;
+    Vector<String> variants; variants.push_back(String()); production.initialize(variants);
+    const RID version = production.version_create();
+    if (!version.is_valid()) { FAIL("production binning source unavailable"); return; }
+    const Vector<String> stages = production.version_build_variant_stage_sources(version, 0);
+    production.version_free(version);
+    if (stages.size() <= RD::SHADER_STAGE_COMPUTE) { FAIL("production compute stage missing"); return; }
+    const String body = stages[RD::SHADER_STAGE_COMPUTE];
+    const int gate = body.find("if (params.debug_hlod_level_tint != 0u) {");
+    if (gate < 0) { FAIL("level tint gate missing from the real binning shader"); return; }
+    CHECK(body.find("sh_color = gs_hlod_level_tint_color(sh_color, selected.level);", gate) > gate);
+    // The tint sits in the HLOD-relative block, after COUNT returned: colour only.
+    const int block = body.rfind("#if defined(GS_HLOD_RELATIVE_PAYLOAD)", gate);
+    CHECK(block >= 0);
+    CHECK(body.rfind("#endif", gate) < block);
+    CHECK(body.find("vec3 gs_hlod_level_tint_color(vec3 p_color, uint p_level)") >= 0);
+}
+} // namespace TestHlodLevelTint

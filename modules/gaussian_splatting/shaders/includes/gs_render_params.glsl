@@ -1,6 +1,6 @@
 #ifndef GS_RENDER_PARAMS_GLSL
 #define GS_RENDER_PARAMS_GLSL
-#define GS_RENDER_PARAMS_LAYOUT_VERSION 20 // Keep in sync with gaussian_gpu_layout.h
+#define GS_RENDER_PARAMS_LAYOUT_VERSION 21 // Keep in sync with gaussian_gpu_layout.h
 
 #ifndef GS_MAX_SPHERE_EFFECTORS
 #define GS_MAX_SPHERE_EFFECTORS 4
@@ -29,7 +29,7 @@ layout(set = 1, binding = 0, std140) uniform RenderParams {
     float alpha_floor; // Minimum alpha when force_solid_coverage is enabled
     uint force_solid_coverage; // Nonzero enforces alpha_floor for any covered pixel
     uint overlap_record_count; // Total overlap records in the sorted buffer
-    uint _pad_overlap; // std140 padding
+    uint debug_hlod_level_tint; // Nonzero tints HLOD splats by draw-record level (debug view; was std140 padding)
     float cull_far_tolerance; // Extra tolerance past the far plane for culling
     float tiny_splat_screen_radius; // Drop splats smaller than this pixel radius
     float max_conic_aspect;  // Max aspect ratio for conic clamping (lower = less stretching)

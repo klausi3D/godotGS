@@ -448,6 +448,8 @@ void GaussianSplatRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_debug_show_projection_issues"), &GaussianSplatRenderer::get_debug_show_projection_issues);
     ClassDB::bind_method(D_METHOD("set_debug_show_white_albedo", "enabled"), &GaussianSplatRenderer::set_debug_show_white_albedo);
     ClassDB::bind_method(D_METHOD("get_debug_show_white_albedo"), &GaussianSplatRenderer::get_debug_show_white_albedo);
+    ClassDB::bind_method(D_METHOD("set_debug_show_hlod_level_tint", "enabled"), &GaussianSplatRenderer::set_debug_show_hlod_level_tint);
+    ClassDB::bind_method(D_METHOD("get_debug_show_hlod_level_tint"), &GaussianSplatRenderer::get_debug_show_hlod_level_tint);
     ClassDB::bind_method(D_METHOD("set_debug_show_shadow_opacity", "enabled"), &GaussianSplatRenderer::set_debug_show_shadow_opacity);
     ClassDB::bind_method(D_METHOD("get_debug_show_shadow_opacity"), &GaussianSplatRenderer::get_debug_show_shadow_opacity);
     ClassDB::bind_method(D_METHOD("set_debug_show_device_boundaries", "enabled"), &GaussianSplatRenderer::set_debug_show_device_boundaries);
@@ -559,6 +561,7 @@ void GaussianSplatRenderer::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_overflow_tiles"), "set_debug_show_overflow_tiles", "get_debug_show_overflow_tiles");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_projection_issues"), "set_debug_show_projection_issues", "get_debug_show_projection_issues");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_white_albedo"), "set_debug_show_white_albedo", "get_debug_show_white_albedo");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_hlod_level_tint"), "set_debug_show_hlod_level_tint", "get_debug_show_hlod_level_tint");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_shadow_opacity"), "set_debug_show_shadow_opacity", "get_debug_show_shadow_opacity");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_resolve_input"), "set_debug_show_resolve_input", "get_debug_show_resolve_input");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_resolve_output"), "set_debug_show_resolve_output", "get_debug_show_resolve_output");

@@ -748,6 +748,19 @@
 				Returns [code]true[/code] if white albedo override is active.
 			</description>
 		</method>
+		<method name="set_debug_show_hlod_level_tint">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Enables or disables the HLOD level debug view, which tints each HLOD splat by its draw record's level (node height, 0 = leaf).
+			</description>
+		</method>
+		<method name="get_debug_show_hlod_level_tint">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the HLOD level debug view is active.
+			</description>
+		</method>
 		<method name="set_debug_show_shadow_opacity">
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
@@ -1156,6 +1169,9 @@
 		</member>
 		<member name="debug/show_white_albedo" type="bool" setter="set_debug_show_white_albedo" getter="get_debug_show_white_albedo" default="false">
 			Overrides all splat colors with white for geometry inspection.
+		</member>
+		<member name="debug/show_hlod_level_tint" type="bool" setter="set_debug_show_hlod_level_tint" getter="get_debug_show_hlod_level_tint" default="false">
+			Tints every HLOD splat by the level of the node that drew it: leaf green, 1 blue, 2 yellow, 3 orange, 4 red, 5 and above purple. The splat's luminance modulates the tint. Applies on the HLOD route only; object draws keep their colour. Off by default.
 		</member>
 		<member name="debug/show_shadow_opacity" type="bool" setter="set_debug_show_shadow_opacity" getter="get_debug_show_shadow_opacity" default="false">
 			Visualizes the shadow opacity channel as grayscale.

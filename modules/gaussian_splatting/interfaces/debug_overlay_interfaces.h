@@ -15,6 +15,7 @@ struct DebugOverlayOptions {
     // Projection and rendering debug
     bool show_projection_issues = false;
     bool show_white_albedo = false;
+    bool show_hlod_level_tint = false; // HLOD route: tint splats by draw-record level
     bool show_density_heatmap = false;
     bool show_shadow_opacity = false;
 
