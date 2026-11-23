@@ -108,8 +108,8 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] per-view caster lists dr
 	content.gpu_draws.resize(node_count);
 	content.geometry.resize(node_count);
 	for (uint32_t n = 0; n < node_count; ++n) {
-		const Vector3 center = light + Vector3(rng.randf_range(-30.0f, 30.0f), rng.randf_range(-12.0f, 12.0f), rng.randf_range(-30.0f, 30.0f));
-		const Vector3 half(rng.randf_range(1.0f, 4.0f), rng.randf_range(1.0f, 4.0f), rng.randf_range(1.0f, 4.0f));
+		const Vector3 center = light + Vector3(rng.random(-30.0f, 30.0f), rng.random(-12.0f, 12.0f), rng.random(-30.0f, 30.0f));
+		const Vector3 half(rng.random(1.0f, 4.0f), rng.random(1.0f, 4.0f), rng.random(1.0f, 4.0f));
 		ChunkMetaGPU meta = {};
 		meta.atlas_base = atlas.size();
 		meta.splat_count = node_splats;
@@ -117,21 +117,21 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] per-view caster lists dr
 		for (uint32_t s = 0; s < node_splats; ++s) {
 			PackedGaussian g = {};
 			const float max_sigma = std::fmin(half.x, std::fmin(half.y, half.z)) / 3.0f;
-			const float sigma = (s % 4 == 0) ? max_sigma : rng.randf_range(0.03f, max_sigma);
+			const float sigma = (s % 4 == 0) ? max_sigma : rng.random(0.03f, max_sigma);
 			g.scale[0] = sigma;
-			g.scale[1] = rng.randf_range(0.02f, sigma);
-			g.scale[2] = rng.randf_range(0.02f, sigma);
+			g.scale[1] = rng.random(0.02f, sigma);
+			g.scale[2] = rng.random(0.02f, sigma);
 			const float reach = 3.0f * sigma;
 			for (int a = 0; a < 3; ++a) {
 				const float lo = -half[a] + reach, hi = half[a] - reach;
-				g.position[a] = (s % 2 == 0) ? (rng.randf() < 0.5f ? lo : hi) : rng.randf_range(lo, std::fmax(lo, hi));
+				g.position[a] = (s % 2 == 0) ? (rng.randf() < 0.5f ? lo : hi) : rng.random(lo, std::fmax(lo, hi));
 			}
-			const Quaternion q(Vector3(rng.randf() - 0.5f, rng.randf() - 0.5f, rng.randf() - 0.5f).normalized(), rng.randf_range(0.0f, 6.2831853f));
+			const Quaternion q(Vector3(rng.randf() - 0.5f, rng.randf() - 0.5f, rng.randf() - 0.5f).normalized(), rng.random(0.0f, 6.2831853f));
 			g.rotation[0] = q.x;
 			g.rotation[1] = q.y;
 			g.rotation[2] = q.z;
 			g.rotation[3] = q.w;
-			g.opacity = rng.randf_range(0.55f, 1.0f);
+			g.opacity = rng.random(0.55f, 1.0f);
 			atlas.push_back(g);
 		}
 		DrawnNodeGPU drawn = {};

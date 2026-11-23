@@ -148,8 +148,8 @@ static void sweep(bool p_unsafe, uint32_t &r_violations, uint32_t &r_dropped, ui
 		for (const ViewCase &v : views(camera)) {
 			const View view(v.clip, camera, v.size, v.mode == 2, p_unsafe ? 0.0 : kGuardTexels);
 			for (int box_index = 0; box_index < 600; ++box_index) {
-				const Vector3 center = v.light + Vector3(rng.randf_range(-70.0f, 70.0f), rng.randf_range(-70.0f, 70.0f), rng.randf_range(-70.0f, 70.0f));
-				const Vector3 half(rng.randf_range(0.2f, 6.0f), rng.randf_range(0.2f, 6.0f), rng.randf_range(0.2f, 6.0f));
+				const Vector3 center = v.light + Vector3(rng.random(-70.0f, 70.0f), rng.random(-70.0f, 70.0f), rng.random(-70.0f, 70.0f));
+				const Vector3 half(rng.random(0.2f, 6.0f), rng.random(0.2f, 6.0f), rng.random(0.2f, 6.0f));
 				const AABB box(center - half, half * 2.0f);
 				const AABB tested = p_unsafe ? AABB(box.get_center(), Vector3()) : box;
 				const bool dropped = view.box_outside(tested);
@@ -160,21 +160,21 @@ static void sweep(bool p_unsafe, uint32_t &r_violations, uint32_t &r_dropped, ui
 				for (int i = 0; i < 48 && !kept; ++i) {
 					const float max_sigma = std::fmin(half.x, std::fmin(half.y, half.z)) / 3.0f;
 					// Every third splat is as large as the box allows: the worst case for the support bound.
-					const float sigma_hi = (i % 3 == 0) ? max_sigma : rng.randf_range(0.001f, max_sigma);
-					const Vector3 scale(sigma_hi, rng.randf_range(0.0005f, sigma_hi), rng.randf_range(0.0005f, sigma_hi));
+					const float sigma_hi = (i % 3 == 0) ? max_sigma : rng.random(0.001f, max_sigma);
+					const Vector3 scale(sigma_hi, rng.random(0.0005f, sigma_hi), rng.random(0.0005f, sigma_hi));
 					const Basis rotation(Quaternion(Vector3(rng.randf() - 0.5f, rng.randf() - 0.5f, rng.randf() - 0.5f).normalized(),
-							rng.randf_range(0.0f, 6.2831853f)));
+							rng.random(0.0f, 6.2831853f)));
 					const float reach = 3.0f * std::fmax(scale.x, std::fmax(scale.y, scale.z));
 					Vector3 p;
 					for (int a = 0; a < 3; ++a) {
 						const float lo = box.position[a] + reach, hi = box.position[a] + box.size[a] - reach;
 						// Hug the faces too: corners and edges are where an unsafe cull leaks.
-						p[a] = (i % 2 == 0) ? (rng.randf() < 0.5f ? lo : hi) : rng.randf_range(lo, std::fmax(lo, hi));
+						p[a] = (i % 2 == 0) ? (rng.randf() < 0.5f ? lo : hi) : rng.random(lo, std::fmax(lo, hi));
 					}
 					Splat s;
 					s.position = p - camera;
 					covariance(rotation, scale, s.cov);
-					s.opacity = rng.randf_range(0.5f, 1.0f);
+					s.opacity = rng.random(0.5f, 1.0f);
 					kept = shader_keeps(v.clip, s, Vector2(v.size), v.mode);
 				}
 				r_violations += kept ? 1u : 0u;
