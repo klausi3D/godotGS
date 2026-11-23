@@ -485,8 +485,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction observations include fu
 	CHECK_FALSE(sim.res.evict(7));
 	CHECK_FALSE(sim.res.evict(3));
 	LocalVector<Residency::Ticket> tickets;
-	// Higher-priority group 13/14 evicts 8 and 9. Missing child 10 is demanded later, so
+	// Higher-priority group 13/14 evicts 9, then 8. Missing child 10 is demanded later, so
 	// its resident sibling 9 is a transition dependency even before that group is visited.
+	// 8 is the sibling of drawn 7 under refined 3, needed this frame, so it goes after 9 (last used at 5).
 	const uint32_t demand[3] = { 13, 14, 10 };
 	const auto result = sim.res.request(demand, 3, tickets);
 	CHECK(result.evicted == 2);
@@ -506,12 +507,12 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction observations include fu
 	}
 	CHECK(first.sequence == 1);
 	CHECK(first.frame == 20);
-	CHECK(first.node == 8);
-	CHECK(first.classification == Residency::EVICTION_NEITHER);
+	CHECK(first.node == 9);
+	CHECK(first.classification == Residency::EVICTION_IN_TRANSITION);
 	CHECK(second.sequence == 2);
 	CHECK(second.frame == 20);
-	CHECK(second.node == 9);
-	CHECK(second.classification == Residency::EVICTION_IN_TRANSITION);
+	CHECK(second.node == 8);
+	CHECK(second.classification == Residency::EVICTION_NEITHER);
 	CHECK_FALSE(sim.res.eviction_event(2, second));
 }
 
