@@ -93,6 +93,7 @@
 #include "test_b3_wind_gpu.h"
 #include "test_c_region_overrides.h"
 #include "test_c_region_overrides_gpu.h"
+#include "test_hlod_atlas_above_2gib_gpu.h"
 #include "test_d_island_nodes.h"
 #include "test_gsq_codec.h"
 #include "test_gsq_codec_hardening.h"

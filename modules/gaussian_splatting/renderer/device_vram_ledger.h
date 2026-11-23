@@ -52,13 +52,12 @@ public:
 	// resident route and the whole-tree HLOD bundle (one-shot uploads). A STREAMED HLOD atlas is not bound by it: it
 	// uploads page runs under the per-frame byte cap (ADR adr-beyond-vram-worlds.md D-3, BV-17); see streamed_atlas_limit_for_device.
 	static constexpr uint64_t kResidentStagingCeilingBytes = uint64_t(2) * 1024 * 1024 * 1024;
-	// The byte limit of the one atlas storage buffer the HLOD route can draw from: every byte offset in it must fit a signed
-	// 32-bit integer. Measured (2026-11-23, RTX 3090, Windows, Vulkan, maxStorageBufferRange 4294967295): a streamed atlas
-	// buffer of 2,146,287,616 B draws; one of 2,148,450,304 B draws NOTHING (projection and presort see no splats and the
-	// sort reports an instance-count overflow), so the device limit is not the binding one; the >2 GiB single-buffer path
-	// (ADR K8) is broken on the GPU side. Until that is fixed or the pool is segmented (BV-34b), and RenderingDevice
-	// exposes maxStorageBufferRange (BV-33), this is the hard bound. It is also below the 32-bit size hlod_create_buffer accepts.
-	static constexpr uint64_t kMaxAtlasBufferBytes = uint64_t(1) << 31;
+	// The byte limit of the one atlas storage buffer: every HLOD bundle buffer is created with a 32-bit size
+	// (hlod_create_buffer), and RenderingDevice exposes no maxStorageBufferRange query (ADR BV-33); the RTX 3090 reports
+	// 4294967295. The shaders bound the atlas with the host's record count (InstanceDepthParamsGPU::atlas_info,
+	// ShadowCasterPushConstant::atlas), never with gaussians.length(): on the RTX 3090 (Windows, Vulkan) the array length
+	// of an atlas binding above 2^31 bytes is wrong, and a streamed atlas of 2,148,450,304 B drew nothing (ADR K8, BV-17).
+	static constexpr uint64_t kMaxAtlasBufferBytes = UINT32_MAX;
 
 	// What bounds the atlas of a streamed HLOD world. Published as hlod_stream_atlas_limit_bound.
 	enum class StreamedAtlasBound : uint8_t {

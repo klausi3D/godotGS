@@ -819,12 +819,13 @@ class ShadowCasterPerspectiveTests(unittest.TestCase):
         self.assertTrue("p_inputs.perspective ? 2u : (p_inputs.pancake ? 1u : 0u)" in host, "host mode encoding changed")
         self.assertTrue("inputs.perspective = !r_result.light_pass.orthographic;" in hook, "hook perspective selection missing")
         self.assertTrue("inputs.pancake = !inputs.perspective;" in hook, "positional pancake disabling missing")
-        self.assertTrue("sizeof(ShadowCasterPushConstant) == 96" in host, "host packet size changed")
-        # Both stages must agree on the unchanged 96-byte layout; no new bindings or include inputs are needed.
+        self.assertTrue("sizeof(ShadowCasterPushConstant) == 112" in host, "host packet size changed")
+        # Both stages must agree on the 112-byte layout (BV-17 added the atlas record count); no new bindings or include
+        # inputs are needed.
         blocks = re.findall(r"layout\(push_constant, std430\) uniform Params\s*\{([^}]+)\}", shader)
         self.assertEqual(len(blocks), 2)
         layouts = [re.findall(r"\b(mat4|vec4|uvec4)\s+(\w+)\s*;", block) for block in blocks]
-        self.assertEqual(layouts, [[("mat4", "light_from_frame"), ("vec4", "viewport"), ("uvec4", "counts")]] * 2)
+        self.assertEqual(layouts, [[("mat4", "light_from_frame"), ("vec4", "viewport"), ("uvec4", "counts"), ("uvec4", "atlas")]] * 2)
 
     def test_hlod_cube_shader_consumer_runs_before_shared_cube_copy(self) -> None:
         forward = (ROOT / "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp").read_text(encoding="utf-8")

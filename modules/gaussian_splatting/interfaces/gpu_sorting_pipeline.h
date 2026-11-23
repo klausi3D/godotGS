@@ -22,6 +22,8 @@ class GPUSortingPipeline : public RefCounted, public IGPUSortingPipeline {
 public:
     struct InstancePipelineInputs {
         RID atlas_gaussian_buffer;
+        // Records the atlas buffer holds (InstanceDepthParamsGPU::atlas_info.x); 0 = unknown.
+        uint32_t atlas_record_count = 0;
         RID quantization_buffer;
         RID instance_buffer;
         RID region_override_buffer;

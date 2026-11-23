@@ -716,10 +716,15 @@ struct alignas(16) InstanceDepthParamsGPU {
     float camera_position_ortho[4]; // xyz = camera position, w = orthographic flag (1.0 or 0.0)
     float cull_screen_distance[4]; // x = pixel_scale_y, y = tiny_splat_radius_px, z = min_screen_threshold_px, w = max_distance_sq
     float cull_frustum_radius[4]; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy (gs_pack_instance_sh_policy)
+    // x = the records the atlas buffer holds (0 = unknown: the shader falls back to the array length); yzw unused.
+    // depth_compute.glsl bounds the HLOD page lookup with it instead of atlas_gaussian_buffer.gaussians.length(): on the
+    // RTX 3090 (Windows, Vulkan) the array length of an atlas binding above 2^31 bytes is wrong and every splat was
+    // rejected (BV-17). The other shaders that share this UBO declare only its prefix.
+    uint32_t atlas_info[4];
 };
 
 static_assert(alignof(InstanceDepthParamsGPU) == 16, "InstanceDepthParamsGPU must be 16-byte aligned");
-static_assert(sizeof(InstanceDepthParamsGPU) == 464, "InstanceDepthParamsGPU must match std140 layout (464 bytes)");
+static_assert(sizeof(InstanceDepthParamsGPU) == 480, "InstanceDepthParamsGPU must match std140 layout (480 bytes)");
 static_assert(sizeof(InstanceDepthParamsGPU) % 16 == 0, "InstanceDepthParamsGPU must align to 16 bytes for std140");
 static_assert(offsetof(InstanceDepthParamsGPU, view_matrix) == 0, "InstanceDepthParamsGPU.view_matrix offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, visible_chunk_count) == 64, "InstanceDepthParamsGPU.visible_chunk_count offset mismatch");
@@ -736,6 +741,7 @@ static_assert(offsetof(InstanceDepthParamsGPU, frustum_planes) == 320, "Instance
 static_assert(offsetof(InstanceDepthParamsGPU, camera_position_ortho) == 416, "InstanceDepthParamsGPU.camera_position_ortho offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, cull_screen_distance) == 432, "InstanceDepthParamsGPU.cull_screen_distance offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, cull_frustum_radius) == 448, "InstanceDepthParamsGPU.cull_frustum_radius offset mismatch");
+static_assert(offsetof(InstanceDepthParamsGPU, atlas_info) == 464, "InstanceDepthParamsGPU.atlas_info offset mismatch");
 
 // Per-chunk quantization bounds (defined in core/streaming_quantization.h).
 struct ChunkQuantizationInfo;

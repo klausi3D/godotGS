@@ -43,7 +43,7 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] limits are
 }
 
 // BV-17 (ADR adr-beyond-vram-worlds.md D-3): the atlas of a STREAMED HLOD world is a share of the ledger limit, not the 2 GiB
-// staging ceiling of a one-shot upload, bounded by the atlas buffer the GPU path can address (kMaxAtlasBufferBytes). The reserve below is the default route's: max_overlap_records 100M at the 32 B growth
+// staging ceiling of a one-shot upload, bounded by one atlas buffer (kMaxAtlasBufferBytes). The reserve below is the default route's: max_overlap_records 100M at the 32 B growth
 // charge, and a 4M-splat sort at 12 B (half of the 24 B overlap record with 64-bit keys).
 namespace DeviceVramLedgerTests {
 static constexpr uint64_t kGiB = uint64_t(1) << 30;
@@ -58,7 +58,7 @@ static uint64_t pages_for(uint64_t p_atlas_bytes) {
 }
 } // namespace DeviceVramLedgerTests
 
-TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] on a 24 GiB device the atlas buffer limit binds, not the ledger share (BV-17)") {
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] a 24 GiB device streams more than the 2 GiB staging ceiling; the atlas buffer binds (BV-17)") {
     using namespace DeviceVramLedgerTests;
     using Bound = DeviceVramLedger::StreamedAtlasBound;
     const uint64_t heap = 24 * kGiB; // RTX 3090
@@ -69,14 +69,16 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] on a
     // The streamed atlas: 14.4 GiB of ledger less 3.25 GB of frame reserve is more than five atlas buffers, so the one
     // buffer binds, and it is named as what binds (not the staging ceiling, and not the ledger).
     const uint64_t share = limit - default_reserve();
-    CHECK(share > 5 * DeviceVramLedger::kMaxAtlasBufferBytes);
+    CHECK(share > 2 * DeviceVramLedger::kMaxAtlasBufferBytes);
     const DeviceVramLedger::StreamedAtlasLimit streamed = DeviceVramLedger::streamed_atlas_limit_for_device(heap, limit, 0, default_reserve());
+    CHECK(streamed.bytes > DeviceVramLedger::kResidentStagingCeilingBytes);
     CHECK(streamed.bytes == DeviceVramLedger::kMaxAtlasBufferBytes);
     CHECK(streamed.bound == Bound::BUFFER_LIMIT);
     CHECK(String(DeviceVramLedger::streamed_atlas_bound_name(streamed.bound)) == "buffer_limit");
-    // In 176 B records: 11,915 pages; every byte offset of the buffer fits a signed 32-bit integer.
-    CHECK(pages_for(streamed.bytes) == 11915);
-    CHECK(pages_for(streamed.bytes) * kPageSplats * kStride - 1 <= uint64_t(INT32_MAX));
+    // In 176 B records: 23,831 pages (24.4M record slots) where the staging ceiling allowed 11,915.
+    CHECK(pages_for(DeviceVramLedger::kResidentStagingCeilingBytes) == 11915);
+    CHECK(pages_for(streamed.bytes) == 23831);
+    CHECK(pages_for(streamed.bytes) * kPageSplats * kStride <= DeviceVramLedger::kMaxAtlasBufferBytes);
 }
 
 TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] an 8 GiB device streams the ledger share left after the frame reserve (BV-17)") {
@@ -96,10 +98,9 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] an 8
     // A smaller overlap cap (a lower quality tier) leaves the pool more, through the same accounting.
     const uint64_t low_reserve = ResidentAtlasBudget::hlod_streamed_frame_reserve_bytes(30000000u, 32u, 4000000u, 12u);
     const DeviceVramLedger::StreamedAtlasLimit low = DeviceVramLedger::streamed_atlas_limit_for_device(heap, limit, 0, low_reserve);
-    CHECK(limit - low_reserve > DeviceVramLedger::kMaxAtlasBufferBytes);
-    CHECK(low.bytes == DeviceVramLedger::kMaxAtlasBufferBytes);
-    CHECK(low.bound == Bound::BUFFER_LIMIT);
-    CHECK(low.bytes > streamed.bytes);
+    CHECK(low.bound == Bound::LEDGER_SHARE);
+    CHECK(low.bytes == limit - low_reserve);
+    CHECK(low.bytes > DeviceVramLedger::kResidentStagingCeilingBytes);
 }
 
 TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] the streamed atlas clamps at one storage buffer, exactly at the bound (BV-17)") {
@@ -114,7 +115,7 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] the 
     at = DeviceVramLedger::streamed_atlas_limit_for_device(heap, buffer + 78, 0, 77, buffer);
     CHECK(at.bytes == buffer);
     CHECK(at.bound == Bound::BUFFER_LIMIT);
-    // An override above the buffer is clamped too: never an atlas buffer the GPU path cannot address.
+    // An override above the buffer is clamped too: never a buffer above the 32-bit size hlod_create_buffer accepts.
     const DeviceVramLedger::StreamedAtlasLimit big = DeviceVramLedger::streamed_atlas_limit_for_device(heap, 40 * kGiB, 8192, 0);
     CHECK(big.bytes == DeviceVramLedger::kMaxAtlasBufferBytes);
     CHECK(big.bound == Bound::BUFFER_LIMIT);
@@ -123,9 +124,8 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] the 
     CHECK(pages * kPageSplats * kStride <= DeviceVramLedger::kMaxAtlasBufferBytes);
     CHECK((pages + 1) * kPageSplats * kStride > DeviceVramLedger::kMaxAtlasBufferBytes);
     CHECK(pages * kPageSplats <= UINT32_MAX);
-    // The default bound is the measured signed 32-bit byte-offset limit, below the 32-bit size hlod_create_buffer accepts.
-    CHECK(DeviceVramLedger::kMaxAtlasBufferBytes == uint64_t(INT32_MAX) + 1);
-    CHECK(DeviceVramLedger::kMaxAtlasBufferBytes <= uint64_t(UINT32_MAX));
+    // The default bound is the 32-bit buffer size hlod_create_buffer accepts.
+    CHECK(DeviceVramLedger::kMaxAtlasBufferBytes == uint64_t(UINT32_MAX));
 }
 
 TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] the override pins the streamed atlas in both directions (BV-17)") {
@@ -147,7 +147,7 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] the 
     CHECK(l.bytes > limit - reserve);
     CHECK(l.bound == Bound::OVERRIDE);
     // Up past the atlas buffer: clamped and named.
-    l = DeviceVramLedger::streamed_atlas_limit_for_device(heap, limit, 3072, reserve);
+    l = DeviceVramLedger::streamed_atlas_limit_for_device(heap, limit, 4096, reserve);
     CHECK(l.bytes == DeviceVramLedger::kMaxAtlasBufferBytes);
     CHECK(l.bound == Bound::BUFFER_LIMIT);
     // The whole-tree and resident atlas keep the MIN semantics: an override only lowers it.
