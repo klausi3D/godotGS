@@ -1,5 +1,11 @@
 var NAVTREEINDEX48 =
 {
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a24b4b529e28c020eafa32c9b7a475339":[0,0,12,67,5],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a24b4b529e28c020eafa32c9b7a475339":[1,0,9,66,5],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a29a3bc2da33f25e292da46e55bcae3a1":[0,0,12,67,1],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a29a3bc2da33f25e292da46e55bcae3a1":[1,0,9,66,1],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a4dc430f44377357f4e0045ec744d2532":[0,0,12,67,2],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a4dc430f44377357f4e0045ec744d2532":[1,0,9,66,2],
 "structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a5179586e8a5bc6c91cbbbd4924165f7c":[0,0,12,67,7],
 "structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a5179586e8a5bc6c91cbbbd4924165f7c":[1,0,9,66,7],
 "structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a5d45f021a05df375cb34aa5cbec65a0c":[0,0,12,67,6],
@@ -243,11 +249,5 @@ var NAVTREEINDEX48 =
 "structGaussianStreamingTypes_1_1AtlasAssetState.html#a340a0fd4c2b50451889c2fa7d2483759":[0,0,14,3,14],
 "structGaussianStreamingTypes_1_1AtlasAssetState.html#a340a0fd4c2b50451889c2fa7d2483759":[1,0,10,3,14],
 "structGaussianStreamingTypes_1_1AtlasAssetState.html#a36a50c30d7398bef89afb195bbfde498":[0,0,14,3,8],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a36a50c30d7398bef89afb195bbfde498":[1,0,10,3,8],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a37d59e9f267cd73c6fc2772d716ed4d9":[0,0,14,3,18],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a37d59e9f267cd73c6fc2772d716ed4d9":[1,0,10,3,18],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a38eac6c25dc0b4cb5c51f6a4071cd195":[0,0,14,3,13],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a38eac6c25dc0b4cb5c51f6a4071cd195":[1,0,10,3,13],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a4d79261d8d998bd31bb2240f854cc858":[0,0,14,3,3],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a4d79261d8d998bd31bb2240f854cc858":[1,0,10,3,3]
+"structGaussianStreamingTypes_1_1AtlasAssetState.html#a36a50c30d7398bef89afb195bbfde498":[1,0,10,3,8]
 };

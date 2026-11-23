@@ -1,5 +1,11 @@
 var NAVTREEINDEX53 =
 {
+"structPainterlyPassGraph_1_1PassNode.html#a9f7dcf85977124ded776cf198b5b035c":[1,0,198,0,3],
+"structPainterlyPassGraph_1_1PassNode.html#aca53379d132ba33a5823c73c91579656":[1,0,198,0,4],
+"structPainterlyPassGraph_1_1PassNode.html#ada12efa9c71f2e64ff44f85474956efc":[1,0,198,0,0],
+"structPainterlyPassGraph_1_1PassNode.html#aeabdfdc0d51f238ac2317b55013d8daa":[1,0,198,0,1],
+"structPainterlyPassGraph_1_1TextureInfo.html":[1,0,198,1],
+"structPainterlyPassGraph_1_1TextureInfo.html#a0defe45c5dd64d382ff5f0a0504407f2":[1,0,198,1,6],
 "structPainterlyPassGraph_1_1TextureInfo.html#a199a5c80971ceae09610ec292e52f09c":[1,0,198,1,1],
 "structPainterlyPassGraph_1_1TextureInfo.html#a2e391704274e0f4b9106fcb3fe6db5d9":[1,0,198,1,2],
 "structPainterlyPassGraph_1_1TextureInfo.html#a38109b5c83a72062dd57affd6fcae7f0":[1,0,198,1,5],
@@ -243,11 +249,5 @@ var NAVTREEINDEX53 =
 "structRasterDebugOptions.html":[1,0,216],
 "structRasterDebugOptions.html#a0924c498f7ee265ddcf7dcb1727b71e9":[1,0,216,2],
 "structRasterDebugOptions.html#a30a12f07bb5e2fcb7557f19073300d6d":[1,0,216,5],
-"structRasterDebugOptions.html#a5aad1f395f47a1af4b75cd461ce41181":[1,0,216,4],
-"structRasterDebugOptions.html#a5b07a4881b4a021044ac03e37d2c2b62":[1,0,216,9],
-"structRasterDebugOptions.html#a618c264a90a222df20f2b0c5abc5ec18":[1,0,216,1],
-"structRasterDebugOptions.html#a7e0572eb473c6c037e95623bb96ca7cc":[1,0,216,3],
-"structRasterDebugOptions.html#a961d0810427813811aaf60124c02f703":[1,0,216,0],
-"structRasterDebugOptions.html#aa533ff9130f0687a4ccd3531a3138776":[1,0,216,8],
-"structRasterDebugOptions.html#ae9d906dadd7fd3e600ee9db737f21aee":[1,0,216,6]
+"structRasterDebugOptions.html#a5aad1f395f47a1af4b75cd461ce41181":[1,0,216,4]
 };

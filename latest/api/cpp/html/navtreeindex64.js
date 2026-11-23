@@ -1,5 +1,11 @@
 var NAVTREEINDEX64 =
 {
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a0bfdae113a5f2da6f94e913fdf9f4044":[0,0,26,10,2],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a0bfdae113a5f2da6f94e913fdf9f4044":[1,0,18,10,2],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a49267b421278f212d9957b6e29803cb9":[0,0,26,10,4],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a49267b421278f212d9957b6e29803cb9":[1,0,18,10,4],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a6d056c6b68230758300feb0cb47b625a":[0,0,26,10,3],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a6d056c6b68230758300feb0cb47b625a":[1,0,18,10,3],
 "structgs__hlod__runtime_1_1SnapshotInstance.html#a85f4af039524b8cdc04abf9663323ac8":[0,0,26,10,0],
 "structgs__hlod__runtime_1_1SnapshotInstance.html#a85f4af039524b8cdc04abf9663323ac8":[1,0,18,10,0],
 "structgs__hlod__runtime_1_1SnapshotInstance.html#ae04e9b4a12f22387836c7c234833535d":[0,0,26,10,1],
@@ -243,11 +249,5 @@ var NAVTREEINDEX64 =
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5065d183ad7a651ebfdb8d7d0170009f":[0,0,30,7,0,6],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5065d183ad7a651ebfdb8d7d0170009f":[1,0,20,7,0,6],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5aae1dcc116a9c05038351e40e8fa91a":[0,0,30,7,0,5],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5aae1dcc116a9c05038351e40e8fa91a":[1,0,20,7,0,5],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a756f1e93d5ee1d424fbb8a222bd88058":[0,0,30,7,0,2],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a756f1e93d5ee1d424fbb8a222bd88058":[1,0,20,7,0,2],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#aa0a2b3e9f847052bfbf2a16bf88cb4aa":[0,0,30,7,0,1],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#aa0a2b3e9f847052bfbf2a16bf88cb4aa":[1,0,20,7,0,1],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ab2b2d626f323d9ad84e1f4284cb0e990":[0,0,30,7,0,3],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ab2b2d626f323d9ad84e1f4284cb0e990":[1,0,20,7,0,3]
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5aae1dcc116a9c05038351e40e8fa91a":[1,0,20,7,0,5]
 };

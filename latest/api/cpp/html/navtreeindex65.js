@@ -1,5 +1,11 @@
 var NAVTREEINDEX65 =
 {
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a756f1e93d5ee1d424fbb8a222bd88058":[0,0,30,7,0,2],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a756f1e93d5ee1d424fbb8a222bd88058":[1,0,20,7,0,2],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#aa0a2b3e9f847052bfbf2a16bf88cb4aa":[0,0,30,7,0,1],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#aa0a2b3e9f847052bfbf2a16bf88cb4aa":[1,0,20,7,0,1],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ab2b2d626f323d9ad84e1f4284cb0e990":[0,0,30,7,0,3],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ab2b2d626f323d9ad84e1f4284cb0e990":[1,0,20,7,0,3],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ac5a8e17c327dcafb475677b39e940533":[0,0,30,7,0,0],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#ac5a8e17c327dcafb475677b39e940533":[1,0,20,7,0,0],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html":[0,0,30,7,1],
@@ -243,11 +249,5 @@ var NAVTREEINDEX65 =
 "structgs__world__frame_1_1PreciseCoord.html#ac1fa08c6e48d8fa435966ba7165cadfa":[0,0,39,0,4],
 "structgs__world__frame_1_1PreciseCoord.html#ac1fa08c6e48d8fa435966ba7165cadfa":[1,0,27,0,4],
 "structgs__world__frame_1_1PrecisePlacement.html":[0,0,39,1],
-"structgs__world__frame_1_1PrecisePlacement.html":[1,0,27,1],
-"structgs__world__frame_1_1PrecisePlacement.html#a00646fbe4f7a193595e72f89db316bad":[0,0,39,1,0],
-"structgs__world__frame_1_1PrecisePlacement.html#a00646fbe4f7a193595e72f89db316bad":[1,0,27,1,0],
-"structgs__world__frame_1_1PrecisePlacement.html#a3437ae544166d6dea420c71298d9064f":[0,0,39,1,2],
-"structgs__world__frame_1_1PrecisePlacement.html#a3437ae544166d6dea420c71298d9064f":[1,0,27,1,2],
-"structgs__world__frame_1_1PrecisePlacement.html#af227723adda37885faf81eac1b51f673":[0,0,39,1,1],
-"structgs__world__frame_1_1PrecisePlacement.html#af227723adda37885faf81eac1b51f673":[1,0,27,1,1]
+"structgs__world__frame_1_1PrecisePlacement.html":[1,0,27,1]
 };

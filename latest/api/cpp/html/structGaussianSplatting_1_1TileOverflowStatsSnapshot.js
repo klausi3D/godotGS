@@ -1,5 +1,6 @@
 var structGaussianSplatting_1_1TileOverflowStatsSnapshot =
 [
+    [ "distance_cull_dropped_splats", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a4fd1794135b65578694d6aec7ea4aa8f", null ],
     [ "max_tile_key", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a07de23a6ce8e077585a97a414a19f801", null ],
     [ "max_tile_records", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#adab761982ecd854c9478c242607f5b8b", null ],
     [ "overflow_drop_signal", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a6c1a45e6beb67b04a6c7f88bc170d544", null ],

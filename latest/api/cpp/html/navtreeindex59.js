@@ -1,5 +1,11 @@
 var NAVTREEINDEX59 =
 {
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a338fec168ba12b6e76ef7304402cc91b":[0,0,16,0,0,7],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a338fec168ba12b6e76ef7304402cc91b":[1,0,11,0,0,7],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a37cf8bca3c4b66f7a004a812252b5669":[0,0,16,0,0,0],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a37cf8bca3c4b66f7a004a812252b5669":[1,0,11,0,0,0],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a64505b2b4206cf870f70b911e621681b":[0,0,16,0,0,5],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a64505b2b4206cf870f70b911e621681b":[1,0,11,0,0,5],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html#a8efa866c6f3fde33a2f18419bfc2ea9b":[0,0,16,0,0,6],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html#a8efa866c6f3fde33a2f18419bfc2ea9b":[1,0,11,0,0,6],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html#a9e83e782679d3b66d15529cbebf8585e":[0,0,16,0,0,1],
@@ -243,11 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__hlod_1_1InteriorBakeScratch.html#ad4fd212d83a33a2ea38429c42f785a13":[0,0,21,15,0],
 "structgs__hlod_1_1InteriorBakeScratch.html#ad4fd212d83a33a2ea38429c42f785a13":[1,0,14,15,0],
 "structgs__hlod_1_1MergeCellEntry.html":[0,0,21,12],
-"structgs__hlod_1_1MergeCellEntry.html":[1,0,14,12],
-"structgs__hlod_1_1MergeCellEntry.html#a11fce90a90c30dca4b6556d0487d5409":[0,0,21,12,2],
-"structgs__hlod_1_1MergeCellEntry.html#a11fce90a90c30dca4b6556d0487d5409":[1,0,14,12,2],
-"structgs__hlod_1_1MergeCellEntry.html#a1b51cced6b34552f2ae27cfd9c5373db":[0,0,21,12,3],
-"structgs__hlod_1_1MergeCellEntry.html#a1b51cced6b34552f2ae27cfd9c5373db":[1,0,14,12,3],
-"structgs__hlod_1_1MergeCellEntry.html#a76b2676b4e08d9a2d3a436dbaab683e5":[0,0,21,12,4],
-"structgs__hlod_1_1MergeCellEntry.html#a76b2676b4e08d9a2d3a436dbaab683e5":[1,0,14,12,4]
+"structgs__hlod_1_1MergeCellEntry.html":[1,0,14,12]
 };

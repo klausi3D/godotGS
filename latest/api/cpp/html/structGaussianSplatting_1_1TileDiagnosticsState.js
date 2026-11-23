@@ -33,6 +33,8 @@ var structGaussianSplatting_1_1TileDiagnosticsState =
     [ "resolve_debug_visualize_tiles", "structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654", null ],
     [ "resolve_use_texel_fetch_sampling", "structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627", null ],
     [ "runtime_statistics_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#aea848fb7a377423231a3e73d0ba03534", null ],
+    [ "sampled_distance_cull_dropped_splats", "structGaussianSplatting_1_1TileDiagnosticsState.html#ac39d74b54d125b101c9cc3708984bac0", null ],
+    [ "sampled_distance_cull_dropped_splats_total", "structGaussianSplatting_1_1TileDiagnosticsState.html#ae0dfee8a7ac410c8d7142db9fb35c488", null ],
     [ "sampled_drop_frame_serial", "structGaussianSplatting_1_1TileDiagnosticsState.html#abdf374cd02a7b973c0f977a08ecf51db", null ],
     [ "sampled_dropped_records", "structGaussianSplatting_1_1TileDiagnosticsState.html#ae5489ba582da14d4e91bd2aa4f3a6922", null ],
     [ "sampled_dropped_records_total", "structGaussianSplatting_1_1TileDiagnosticsState.html#ac529c0d7164b7276d088ca1dae5ec08d", null ],

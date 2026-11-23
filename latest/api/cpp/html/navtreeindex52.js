@@ -1,5 +1,11 @@
 var NAVTREEINDEX52 =
 {
+"structLastSortGpuTimestamp.html#a42721ce53fa3e782fc79f644e6a0b5df":[1,0,179,2],
+"structLastSortGpuTimestamp.html#a8c4fbd2ecab66e4867ec4b1d3363a6f2":[1,0,179,3],
+"structLastSortGpuTimestamp.html#ac7fc85dc5dd821183979234fb97be059":[1,0,179,0],
+"structLastSortGpuTimestamp.html#add26cbc56648df5bbccfba34ccf45c8e":[1,0,179,1],
+"structNodeResidency_1_1Config.html":[1,0,183,1],
+"structNodeResidency_1_1Config.html#a1c01e4d40f43a3007a7b66f776392bc1":[1,0,183,1,0],
 "structNodeResidency_1_1Config.html#a36b3eb0b91517fd3d3a5a4317374317b":[1,0,183,1,10],
 "structNodeResidency_1_1Config.html#a50b93f3dba6192171861f7244bc75c44":[1,0,183,1,3],
 "structNodeResidency_1_1Config.html#a7c0846d6aaca8ac24d059cfd5a3cc8d0":[1,0,183,1,7],
@@ -243,11 +249,5 @@ var NAVTREEINDEX52 =
 "structPainterlyMaterialResources.html#ab20c77c79aac6c7c10ce30d2fc4cd308":[1,0,197,0],
 "structPainterlyPassGraph_1_1PassNode.html":[1,0,198,0],
 "structPainterlyPassGraph_1_1PassNode.html#a106732bc431efc0078b7ac5a52b380c8":[1,0,198,0,2],
-"structPainterlyPassGraph_1_1PassNode.html#a98e2e000e2932e665ec6a426599c818e":[1,0,198,0,5],
-"structPainterlyPassGraph_1_1PassNode.html#a9f7dcf85977124ded776cf198b5b035c":[1,0,198,0,3],
-"structPainterlyPassGraph_1_1PassNode.html#aca53379d132ba33a5823c73c91579656":[1,0,198,0,4],
-"structPainterlyPassGraph_1_1PassNode.html#ada12efa9c71f2e64ff44f85474956efc":[1,0,198,0,0],
-"structPainterlyPassGraph_1_1PassNode.html#aeabdfdc0d51f238ac2317b55013d8daa":[1,0,198,0,1],
-"structPainterlyPassGraph_1_1TextureInfo.html":[1,0,198,1],
-"structPainterlyPassGraph_1_1TextureInfo.html#a0defe45c5dd64d382ff5f0a0504407f2":[1,0,198,1,6]
+"structPainterlyPassGraph_1_1PassNode.html#a98e2e000e2932e665ec6a426599c818e":[1,0,198,0,5]
 };

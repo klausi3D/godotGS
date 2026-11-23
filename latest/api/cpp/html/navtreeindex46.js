@@ -1,5 +1,11 @@
 var NAVTREEINDEX46 =
 {
+"structGaussianSplatting_1_1TileRenderParams.html#a57b9bef3ebc76b881529c86881c4c892":[0,0,12,78,46],
+"structGaussianSplatting_1_1TileRenderParams.html#a57b9bef3ebc76b881529c86881c4c892":[1,0,9,77,46],
+"structGaussianSplatting_1_1TileRenderParams.html#a5da5fdab0c8d43f5bd7bb9b7050508b0":[0,0,12,78,122],
+"structGaussianSplatting_1_1TileRenderParams.html#a5da5fdab0c8d43f5bd7bb9b7050508b0":[1,0,9,77,122],
+"structGaussianSplatting_1_1TileRenderParams.html#a5e993cda055cdad717fdc788f3a0703d":[0,0,12,78,54],
+"structGaussianSplatting_1_1TileRenderParams.html#a5e993cda055cdad717fdc788f3a0703d":[1,0,9,77,54],
 "structGaussianSplatting_1_1TileRenderParams.html#a6026553b9eca9a9f71dcbc1ffc0b68a8":[0,0,12,78,34],
 "structGaussianSplatting_1_1TileRenderParams.html#a6026553b9eca9a9f71dcbc1ffc0b68a8":[1,0,9,77,34],
 "structGaussianSplatting_1_1TileRenderParams.html#a64f017d499db3dfb5ab1703c46355891":[0,0,12,78,8],
@@ -243,11 +249,5 @@ var NAVTREEINDEX46 =
 "structGaussianSplatting_1_1TileRenderStats.html#abd8a38c7782279f842ae097bef44de46":[0,0,12,69,13],
 "structGaussianSplatting_1_1TileRenderStats.html#abd8a38c7782279f842ae097bef44de46":[1,0,9,68,13],
 "structGaussianSplatting_1_1TileRenderStats.html#abe714f81af1aebaa58397d0546072be1":[0,0,12,69,29],
-"structGaussianSplatting_1_1TileRenderStats.html#abe714f81af1aebaa58397d0546072be1":[1,0,9,68,29],
-"structGaussianSplatting_1_1TileRenderStats.html#ac02a9238d3f1855e98fa82f1a66f5a31":[0,0,12,69,3],
-"structGaussianSplatting_1_1TileRenderStats.html#ac02a9238d3f1855e98fa82f1a66f5a31":[1,0,9,68,3],
-"structGaussianSplatting_1_1TileRenderStats.html#ae31ca57170eb82173679492108baf8ae":[0,0,12,69,26],
-"structGaussianSplatting_1_1TileRenderStats.html#ae31ca57170eb82173679492108baf8ae":[1,0,9,68,26],
-"structGaussianSplatting_1_1TileRenderStats.html#ae45b4deaf737a39e7da199b145f72b2d":[0,0,12,69,2],
-"structGaussianSplatting_1_1TileRenderStats.html#ae45b4deaf737a39e7da199b145f72b2d":[1,0,9,68,2]
+"structGaussianSplatting_1_1TileRenderStats.html#abe714f81af1aebaa58397d0546072be1":[1,0,9,68,29]
 };
