@@ -56,6 +56,9 @@ public:
 		// world's "opacity_multiplier" override), the same value tile_binning.glsl multiplies into every splat of every row.
 		float opacity_multiplier = 1.0f;
 		const LocalVector<uint32_t> *row_casts = nullptr; // Per bundle row, uploaded into the caster-owned buffer.
+		// Optional per-view subset of the draw list (hlod_shadow_face_cull.h), byte-identical entries. When set it is
+		// uploaded into a caster-owned buffer bound in place of draw_list_buffer, and draw_count must equal its size.
+		const LocalVector<DrawnNodeGPU> *view_draws = nullptr;
 		DeformationUniform deformation;
 	};
 
@@ -68,7 +71,8 @@ public:
 			const Projection &p_light_from_frame, const Inputs &p_inputs, String &r_error);
 	void clear();
 	uint64_t get_owned_buffer_bytes() const {
-		return uint64_t(row_cast_capacity) * sizeof(uint32_t) + (deformation_buffer.is_valid() ? sizeof(DeformationUniform) : 0);
+		return uint64_t(row_cast_capacity) * sizeof(uint32_t) + (deformation_buffer.is_valid() ? sizeof(DeformationUniform) : 0) +
+				uint64_t(view_draw_capacity) * sizeof(DrawnNodeGPU);
 	}
 
 private:
@@ -77,6 +81,8 @@ private:
 	void _free_row_cast_buffer();
 	bool _upload_deformation(RenderingDevice *p_device, const DeformationUniform &p_deformation, String &r_error);
 	void _free_deformation_buffer();
+	bool _upload_view_draws(RenderingDevice *p_device, const LocalVector<DrawnNodeGPU> &p_draws, String &r_error);
+	void _free_view_draw_buffer();
 
 	std::unique_ptr<GsShadowCasterShaderRD> shader_source;
 	bool shader_source_initialized = false;
@@ -95,6 +101,11 @@ private:
 	// by this caster on teardown, device replacement, or a failed upload/draw.
 	RID deformation_buffer;
 	GaussianSplatting::BufferOwnership deformation_owner;
+	// This view's subset of the draw list, uploaded for every listed draw (like the deformation buffer). Freed by clear()
+	// through its owner, on device replacement, or on a failed upload.
+	RID view_draw_buffer;
+	uint32_t view_draw_capacity = 0;
+	GaussianSplatting::BufferOwnership view_draw_owner;
 };
 
 #endif // GS_SHADOW_CASTER_H

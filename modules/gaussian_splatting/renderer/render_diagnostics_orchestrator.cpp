@@ -1756,6 +1756,12 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["shadow_caster_last_refusal"] = String(gs_shadow_caster::refusal_reason(sc.last_refusal));
         stats["shadow_caster_total_passes_cast"] = int64_t(sc.total_passes_cast);
         stats["shadow_caster_total_passes_refused"] = int64_t(sc.total_passes_refused);
+        // Per-view caster lists (renderer/hlod_shadow_face_cull.h): cast passes drawn from a view list vs the whole list,
+        // and the records those view lists kept out of the records available to them.
+        stats["shadow_caster_view_list_passes"] = int64_t(sc.view_list_passes);
+        stats["shadow_caster_whole_list_passes"] = int64_t(sc.whole_list_passes);
+        stats["shadow_caster_view_list_records"] = int64_t(sc.view_list_records);
+        stats["shadow_caster_view_list_available"] = int64_t(sc.view_list_available);
         stats["shadow_caster_source"] = "hlod_main_view_draw_list";
         gs_shadow_caster::RowSyncSnapshot rows;
         {

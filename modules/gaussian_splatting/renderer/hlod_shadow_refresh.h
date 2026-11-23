@@ -48,15 +48,24 @@ struct Geometry {
 	AABB bounds; // World node: world-space bounds. Object chunk: asset-local bounds.
 	uint64_t payload = 0; // Per-node content version / per-chunk payload digest, never the whole cut's revision.
 	uint32_t chunk_key = 0; // World node slot or asset-local object chunk, never a dense bundle table address.
+	// Caster support for per-view record lists (hlod_shadow_face_cull.h); never part of the refresh digest.
+	// 0 = unknown (the record is never culled). 1 = world node: `bounds` contains every payload splat's three-sigma
+	// support (loader-validated). 2 = object chunk: the sphere of radius `support_radius` about bounds' centre does.
+	uint8_t support_kind = 0;
+	real_t support_radius = -1;
 };
 
 struct PublishedContent {
 	LocalVector<DrawnNodeGPU> draws;
+	// The uploaded list byte for byte (draws[] above zeroes the offsets), so a per-view subset can be uploaded instead.
+	LocalVector<DrawnNodeGPU> gpu_draws;
 	LocalVector<Geometry> geometry;
 	void publish(const gs_shadow_caster::FrameRecord &p_record, const DrawnNodeGPU *p_draws,
 			const LocalVector<Geometry> &p_geometry) {
 		draws.resize(p_record.draw_count);
+		gpu_draws.resize(p_record.draw_count);
 		for (uint32_t i = 0; i < p_record.draw_count; ++i) {
+			gpu_draws[i] = p_draws[i];
 			draws[i] = p_draws[i];
 			// frame_relative_shadow_clip compensates FrameRecord::camera. World identity comes from Geometry,
 			// not from adding an anchor to rounded GPU offsets; object translation comes from current rows.

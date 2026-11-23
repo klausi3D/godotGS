@@ -2257,6 +2257,9 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
             }
         }
         index.rebuild(region_content, record, rows, row_margins, row_animated);
+        // Same rows and margins as the index: this RS frame's per-view caster lists cull against it.
+        state.hlod_shadow_face_cull.build(record, state.hlod_shadow_content, rows, row_margins,
+                gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : UINT64_MAX);
         owner.content = &index;
         indexed_renderers.insert(renderer_key);
         owner.bounds.grow_by(owner_margin);
@@ -2291,6 +2294,8 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
     // Cube views arrive before Godot converts this light's combined mesh/splat cube into the atlas. Explicit type
     // and projection checks prevent identity cameras or direct paraboloids from masquerading as directional views.
     gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass, bundle_current, rows_refusal);
+    bool listed_view = false;
+    uint32_t listed_records = 0, available_records = 0;
     if (plan.draws()) {
         if (!splat_shadow_caster) {
             splat_shadow_caster = std::make_unique<GsSplatShadowCaster>();
@@ -2333,6 +2338,36 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         deformation.frame_anchor[2] = record.camera.z;
         const Projection light_from_frame = gs_shadow_caster::frame_relative_shadow_clip(p_light_projection,
                 p_light_transform, p_flip_y, record.camera);
+        // Per-view caster list (renderer/hlod_shadow_face_cull.h): only records whose caster support can reach this
+        // view, uploaded byte for byte from the published list. Without a snapshot for this exact list and RS frame the
+        // view draws the whole list as before. Either way the depth written is identical.
+        const uint64_t server_frame = gs_live_rasterizer() ? gs_live_rasterizer()->get_frame_number() : UINT64_MAX;
+        bool view_list = state.hlod_shadow_face_cull.matches(record, server_frame) &&
+                state.hlod_shadow_content.gpu_draws.size() == record.draw_count;
+        bool unsafe_view_list = false;
+#ifdef TESTS_ENABLED
+        view_list = view_list && !GSSplatIdentityTestControl::shadow_view_lists_disabled.load();
+        unsafe_view_list = GSSplatIdentityTestControl::shadow_view_lists_unsafe.load();
+#endif
+        gs_shadow_face_cull::ListStats list_stats;
+        if (view_list) {
+            const gs_shadow_face_cull::View view(light_from_frame, record.camera, p_atlas_rect.size, inputs.perspective,
+                    unsafe_view_list ? 0.0 : gs_shadow_face_cull::kGuardTexels);
+            gs_shadow_face_cull::build_view_list(state.hlod_shadow_face_cull, record.row_casts, view,
+                    state.hlod_shadow_view_list, list_stats, unsafe_view_list);
+            auto &view_draws = state.hlod_shadow_view_draws;
+            view_draws.resize(state.hlod_shadow_view_list.size());
+            for (uint32_t i = 0; i < view_draws.size(); ++i) {
+                view_draws[i] = state.hlod_shadow_content.gpu_draws[state.hlod_shadow_view_list[i]];
+            }
+            inputs.view_draws = &view_draws;
+            inputs.draw_count = view_draws.size();
+            inputs.instance_slots = uint32_t(uint64_t(view_draws.size()) * uint64_t(record.max_chunk_splats));
+            plan.instance_slots = inputs.instance_slots;
+            listed_view = true;
+            listed_records = list_stats.listed;
+            available_records = list_stats.total;
+        }
         String error;
         if (!splat_shadow_caster->draw(main_device, p_shadow_framebuffer, p_atlas_rect, light_from_frame, inputs, error)) {
             WARN_PRINT_ONCE(vformat("[GS Shadow] HLOD splat caster pass not drawn: %s", error));
@@ -2341,6 +2376,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         }
     }
     state.hlod_shadow_caster_stats.record(get_frame_state().frame_counter, plan);
+    state.hlod_shadow_caster_stats.record_list(plan, listed_view, listed_records, available_records);
     r_result.hlod_refusal = plan.refusal;
     r_result.rastered_splat_count = plan.draws() ? plan.casters : 0;
     r_result.depth_size = p_atlas_rect.size;

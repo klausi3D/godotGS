@@ -14,6 +14,7 @@
 #include "../hlod_world_instances.h"
 #include "../hlod_shadow_caster_plan.h"
 #include "../hlod_shadow_refresh.h"
+#include "../hlod_shadow_face_cull.h"
 #include "../../lod/hlod_auto_route.h"
 #include "core/os/mutex.h"
 #include "core/math/color.h"
@@ -211,6 +212,11 @@ struct ResourceState {
     gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
     gs_shadow_refresh::PublishedContent hlod_shadow_content; // Render thread; one bounded CPU snapshot, no GPU ownership.
     gs_shadow_refresh::ContentIndex hlod_shadow_index; // Rebuilt once per owner/view before all light queries.
+    // Per light view caster lists (hlod_shadow_face_cull.h): the records' caster support, rebuilt with the index above and
+    // valid for exactly one draw list and RS frame; otherwise a view draws the whole list. Render thread only.
+    gs_shadow_face_cull::Snapshot hlod_shadow_face_cull;
+    LocalVector<uint32_t> hlod_shadow_view_list; // Scratch, per light view.
+    LocalVector<DrawnNodeGPU> hlod_shadow_view_draws; // Scratch, per light view: the listed records byte for byte.
     uint64_t hlod_draw_list_uploads = 0;
     gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // Render-thread diagnostics: successful pre-shadow row sync in the RS frame, independently of main-view count.

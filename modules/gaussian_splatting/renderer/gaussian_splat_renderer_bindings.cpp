@@ -38,7 +38,7 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     Dictionary result;
     auto *server = RenderingServer::get_singleton();
     if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
-    static const char *names[] = { "none", "P1", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3", "S1", "O2" };
+    static const char *names[] = { "none", "P1", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3", "S1", "O2", "SVW", "SVU" };
     bool known = false;
     for (const char *name : names) { known |= p_control == name; }
     if (!known) { result["error"] = "unknown_control"; return result; }
@@ -54,6 +54,10 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     hide_only_in_raster.store(p_control == "R3");
     asset_set_reset.store(p_control == "S1");
     rows_after_shadow.store(p_control == "O2");
+    // Shadow split PR0 (renderer/hlod_shadow_face_cull.h): SVW draws every light view from the whole caster list (the
+    // reference for the per-view lists), SVU culls by record centres only (the unsafe negative control).
+    shadow_view_lists_disabled.store(p_control == "SVW" || shadow_view_lists_env_whole()); // The env keeps a whole-list lane.
+    shadow_view_lists_unsafe.store(p_control == "SVU");
     expected_region_key.store(false);
     // Fault bits are packed into rows; force an honest repack on a switch change.
     get_resource_state().hlod_instance_generation = UINT64_MAX;
@@ -78,6 +82,8 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     switches["R3"] = hide_only_in_raster.load();
     switches["S1"] = asset_set_reset.load();
     switches["O2"] = rows_after_shadow.load();
+    switches["SVW"] = shadow_view_lists_disabled.load();
+    switches["SVU"] = shadow_view_lists_unsafe.load();
     result["switches"] = switches;
     // P1 executes its workload through RD only after observing this test-only bridge.
     result["switch_observed"] = p_control == "P1" || p_control == "none" || bool(switches.get(p_control, false));

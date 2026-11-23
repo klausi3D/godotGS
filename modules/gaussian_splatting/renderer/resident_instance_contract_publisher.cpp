@@ -1592,6 +1592,13 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
                 : gs_shadow_refresh::hash_bytes(metadata_hash, p_instances.raw.ptr() + meta.atlas_base,
                         size_t(meta.splat_count) * sizeof(PackedGaussian));
         geometry.payload = gs_shadow_refresh::hash_value(geometry.payload, meta.flags);
+        // Per-view caster lists (hlod_shadow_face_cull.h) bound the chunk by its payload's own three-sigma support.
+        // The quantized payload never casts (Refusal::QUANTIZED_PAYLOAD), so it stays unbounded and never culled.
+        if (!p_quantized && uint64_t(meta.atlas_base) + meta.splat_count <= uint64_t(p_instances.raw.size()) &&
+                gs_shadow_face_cull::local_support_radius(p_instances.raw.ptr() + meta.atlas_base, meta.splat_count,
+                        geometry.bounds.get_center(), geometry.support_radius)) {
+            geometry.support_kind = gs_shadow_face_cull::SUPPORT_LOCAL_SPHERE;
+        }
         meta.atlas_base += records;
         metadata.write[node_count + k] = meta;
         indices.write[node_count + k].chunk_id = node_count + k;
@@ -1747,6 +1754,7 @@ void GaussianSplatRenderer::release_hlod_resources(bool p_renderer_teardown) {
     state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord(); // The buffers it names are gone.
     state.hlod_shadow_content = gs_shadow_refresh::PublishedContent();
     state.hlod_shadow_index = gs_shadow_refresh::ContentIndex();
+    state.hlod_shadow_face_cull.clear();
     state.hlod_shadow_rows_server_frame = UINT64_MAX;
     state.hlod_shadow_rows_bundle_builds = 0;
     state.hlod_shadow_rows_contract_refused_frame = refused_frame;
@@ -2922,6 +2930,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
                     if (double(hi[axis]) < upper) { hi[axis] = std::nextafter(hi[axis], std::numeric_limits<real_t>::infinity()); }
                 }
                 g.bounds = gs_shadow_refresh::enclosing_bounds(lo, hi);
+                // The node AABB contains its payload's three-sigma support (validated on load), so per-view caster
+                // lists may cull by it (hlod_shadow_face_cull.h).
+                g.support_kind = gs_shadow_face_cull::SUPPORT_WORLD_NODE_AABB;
                 // Node slot + stable source epoch + per-node revision survive camera motion and unrelated leaf edits.
                 g.payload = gs_shadow_refresh::hash_value(world_shadow_versions[i], source->source_epoch);
                 g.chunk_key = chunk;

@@ -95,6 +95,7 @@ bool GsSplatShadowCaster::_upload_row_casts(RenderingDevice *p_device, const Loc
 void GsSplatShadowCaster::clear() {
 	_free_row_cast_buffer();
 	_free_deformation_buffer();
+	_free_view_draw_buffer();
 	pipeline_cache.clear();
 	if (shader.is_valid() && shader_owner.device) {
 		shader_owner.device->free(shader);
@@ -134,6 +135,51 @@ bool GsSplatShadowCaster::_upload_deformation(RenderingDevice *p_device, const D
 	if (p_device->buffer_update(deformation_buffer, 0, sizeof(DeformationUniform), &p_deformation) != OK) {
 		_free_deformation_buffer();
 		r_error = "caster deformation buffer upload failed";
+		return false;
+	}
+	return true;
+}
+
+void GsSplatShadowCaster::_free_view_draw_buffer() {
+	if (view_draw_buffer.is_valid() && view_draw_owner.device) {
+		view_draw_owner.device->free(view_draw_buffer);
+	}
+	view_draw_buffer = RID();
+	view_draw_owner.clear();
+	view_draw_capacity = 0;
+}
+
+bool GsSplatShadowCaster::_upload_view_draws(RenderingDevice *p_device, const LocalVector<DrawnNodeGPU> &p_draws, String &r_error) {
+	if (p_draws.is_empty()) {
+		r_error = "empty view draw list";
+		return false;
+	}
+	if (view_draw_buffer.is_valid() && (!view_draw_owner.matches(p_device) || !p_device->buffer_is_valid(view_draw_buffer))) {
+		_free_view_draw_buffer();
+	}
+	const uint32_t bytes = p_draws.size() * sizeof(DrawnNodeGPU);
+	if (!view_draw_buffer.is_valid() || view_draw_capacity < p_draws.size()) {
+		_free_view_draw_buffer();
+		Vector<uint8_t> initial;
+		if (!gs_resize_or_fail(initial, int64_t(bytes), "GsSplatShadowCaster view draws")) {
+			r_error = "view draw staging allocation failed";
+			return false;
+		}
+		memcpy(initial.ptrw(), p_draws.ptr(), bytes);
+		view_draw_buffer = p_device->storage_buffer_create(bytes, initial);
+		if (!view_draw_buffer.is_valid()) {
+			r_error = "view draw buffer allocation failed";
+			return false;
+		}
+		p_device->set_resource_name(view_draw_buffer, "GS_ShadowCaster_ViewDraws");
+		view_draw_owner.set(p_device);
+		view_draw_capacity = p_draws.size();
+		return true;
+	}
+	// Entries past p_draws.size() are stale but never read: the shader bounds records by counts.x (= the list size).
+	if (p_device->buffer_update(view_draw_buffer, 0, bytes, p_draws.ptr()) != OK) {
+		_free_view_draw_buffer();
+		r_error = "view draw buffer upload failed";
 		return false;
 	}
 	return true;
@@ -227,6 +273,17 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 	if (!_upload_deformation(p_device, p_inputs.deformation, r_error)) {
 		return false;
 	}
+	RID draw_list_buffer = p_inputs.draw_list_buffer;
+	if (p_inputs.view_draws) {
+		if (p_inputs.view_draws->size() != p_inputs.draw_count) {
+			r_error = "view draw list does not match draw_count";
+			return false;
+		}
+		if (!_upload_view_draws(p_device, *p_inputs.view_draws, r_error)) {
+			return false;
+		}
+		draw_list_buffer = view_draw_buffer;
+	}
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	if (!uniform_set_cache) {
 		_free_deformation_buffer();
@@ -237,7 +294,7 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
     uniforms.push_back(storage_uniform(0, buffers[0]));
     uniforms.push_back(storage_uniform(1, buffers[1]));
     uniforms.push_back(storage_uniform(2, buffers[2]));
-    uniforms.push_back(storage_uniform(3, buffers[3]));
+    uniforms.push_back(storage_uniform(3, draw_list_buffer));
     uniforms.push_back(storage_uniform(4, row_cast_buffer));
     uniforms.push_back(storage_uniform(5, buffers[4]));
     uniforms.push_back(storage_uniform(6, deformation_buffer));

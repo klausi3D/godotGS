@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cstdint>
 #include <cstddef>
+#include <cstdlib>
+#include <cstring>
 
 // GS-GAME-1 readback ABI. The existing layout guard compares this test-only
 // host declaration with every GLSL mirror, including offsets and scalar kinds.
@@ -58,6 +60,16 @@ inline std::atomic<bool> override_by_address{ false };
 inline std::atomic<bool> hide_only_in_raster{ false };
 inline std::atomic<bool> asset_set_reset{ false };
 inline std::atomic<bool> rows_after_shadow{ false };
+// Per-view caster lists (hlod_shadow_face_cull.h): draw every view from the whole list (the reference), or cull with
+// zero guard band and centre-only boxes (a deliberately unsafe negative control a depth comparison must detect).
+// GS_TEST_SHADOW_VIEW_LISTS=whole starts a test binary on the whole-list reference, so lanes without the GS-GAME-1
+// bridge (GS-COMBINED-1, runtime profiles) can be compared against it in one binary.
+inline bool shadow_view_lists_env_whole() {
+    const char *value = std::getenv("GS_TEST_SHADOW_VIEW_LISTS");
+    return value != nullptr && std::strcmp(value, "whole") == 0;
+}
+inline std::atomic<bool> shadow_view_lists_disabled{ shadow_view_lists_env_whole() };
+inline std::atomic<bool> shadow_view_lists_unsafe{ false };
 inline void set_force_address_wind_phase(bool p_enabled) { force_address_wind_phase.store(p_enabled); }
 inline bool get_force_address_wind_phase() { return force_address_wind_phase.load(); }
 inline uint32_t shader_variant() {
