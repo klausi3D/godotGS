@@ -173,13 +173,18 @@ struct TileOverflowStatsSnapshot {
 	uint32_t raster_cap_dropped_records = 0;
 	uint32_t max_tile_records = 0;
 	uint32_t max_tile_key = 0;
+	// D1: splats the stochastic distance cull removed this frame (tile binning, canonical route
+	// only; the HLOD route never applies it). Per-frame, cleared with the words above.
+	uint32_t distance_cull_dropped_splats = 0;
 };
 
 // C4b: anchor the host mirror size so tests/ci/check_gaussian_layout_sync.py can validate
 // this struct against the OverflowStats / OverflowStatisticsBuffer SSBO (binding 3) declared
-// in tile_binning.glsl + the two tile_rasterizer shaders. 25 uint32_t fields, std430-tight.
-static_assert(sizeof(TileOverflowStatsSnapshot) == 100,
-		"TileOverflowStatsSnapshot must match the 100-byte binding-3 OverflowStats SSBO layout");
+// in tile_binning.glsl + the two tile_rasterizer shaders. 26 uint32_t fields, std430-tight.
+static_assert(sizeof(TileOverflowStatsSnapshot) == 104,
+		"TileOverflowStatsSnapshot must match the 104-byte binding-3 OverflowStats SSBO layout");
+static_assert(offsetof(TileOverflowStatsSnapshot, distance_cull_dropped_splats) == 100,
+		"distance_cull_dropped_splats must stay the 26th word of the OverflowStats SSBO");
 // The record-loss membership capture reserves fixed slots for the leading 88 bytes (through the
 // signal word); the words after it are not part of that capture.
 static constexpr uint32_t TILE_OVERFLOW_STATS_SIGNAL_END_BYTES = 88u;
@@ -537,6 +542,10 @@ struct TileDiagnosticsState {
 	mutable uint64_t drop_frame_samples = 0;
 	mutable TileDropFrameSample last_drop_frame;
 	mutable uint32_t drop_frame_max_tile_records_peak = 0;
+	// D1: distance-cull drops in the sampled frames (canonical route; the HLOD route never culls
+	// by distance). Same sampling as above: the total is a lower bound over all frames.
+	mutable uint32_t sampled_distance_cull_dropped_splats = 0;
+	mutable uint64_t sampled_distance_cull_dropped_splats_total = 0;
 	// The pure counter update of one drop-signal sample (the readback callback adds the warnings).
 	// drop_events semantics are unchanged: one per read-interval with a set signal bit.
 	void record_overflow_sample(const TileOverflowStatsSnapshot &p_sample, const TileOverflowSampleContext &p_context) const {
@@ -550,6 +559,8 @@ struct TileDiagnosticsState {
 		sampled_dropped_records_total += p_sample.overflow_splats_clamped;
 		sampled_raster_cap_dropped_records_total += p_sample.raster_cap_dropped_records;
 		sampled_max_tile_records = p_sample.max_tile_records;
+		sampled_distance_cull_dropped_splats = p_sample.distance_cull_dropped_splats;
+		sampled_distance_cull_dropped_splats_total += p_sample.distance_cull_dropped_splats;
 		if (p_context.binning_splats > 0u) {
 			sampled_overlap_records_total += p_sample.overflow_splats_aggregated;
 			sampled_overlap_splats_total += p_context.binning_splats;
@@ -602,9 +613,12 @@ struct TileDiagnosticsState {
 		r_stats["sampled_raster_cap_dropped_records_total"] = static_cast<int64_t>(sampled_raster_cap_dropped_records_total);
 		if (drop_signal_samples > 0u) {
 			r_stats["sampled_max_tile_records"] = static_cast<int64_t>(sampled_max_tile_records);
+			r_stats["sampled_distance_cull_dropped_splats"] = static_cast<int64_t>(sampled_distance_cull_dropped_splats);
 		} else {
 			r_stats["sampled_max_tile_records"] = not_measured;
+			r_stats["sampled_distance_cull_dropped_splats"] = not_measured;
 		}
+		r_stats["sampled_distance_cull_dropped_splats_total"] = static_cast<int64_t>(sampled_distance_cull_dropped_splats_total);
 		r_stats["drop_frame_samples"] = static_cast<int64_t>(drop_frame_samples);
 		if (drop_frame_samples == 0u) {
 			r_stats["drop_frame"] = not_measured;

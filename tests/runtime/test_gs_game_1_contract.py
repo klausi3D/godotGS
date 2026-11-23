@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 import contextlib
 import importlib.util
+import math
 import sys
 import re
 import tempfile
@@ -157,6 +158,163 @@ class ContractTests(unittest.TestCase):
         self.assertLess(refused.start(), run.index("var deadline = Time.get_ticks_msec() + DEADLINE_MS"))
         self.assertLess(refused.start(), run.index("await _settle()"))
         self.assertIn("const DEADLINE_MS = 240000", script)
+
+    @staticmethod
+    def _harness_function(name):
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        parts = re.split(r"\nfunc " + re.escape(name) + r"\(", script, maxsplit=1)
+        if len(parts) != 2:
+            return ""
+        return parts[1].split("\nfunc ", 1)[0]
+
+    def test_stall_push_constant_is_the_16_byte_block_the_pipeline_requires(self):
+        # Run 45073045558: "This compute pipeline requires (16) bytes of push
+        # constant data, supplied: (4)"; the stall never ran, so every calibration
+        # attempt measured the same 6.4e-5 ms and P1's control never stalled.
+        stall = self._harness_function("_stall_on_rd")
+        self.assertRegex(stall, r"push\.resize\(16\)")
+        self.assertRegex(stall, r"compute_list_set_push_constant\(list, push, 16\)")
+        self.assertNotRegex(stall, r"compute_list_set_push_constant\(list, push, 4\)")
+
+    def test_incomplete_atlas_reads_make_their_rows_not_run(self):
+        # PR #1532 review: _atlas_pages() drops a failed or short page read and
+        # returns the rest. W2 then built its merge oracle from a truncated child
+        # population and could PASS. Every row that reads atlas pages checks that
+        # each requested page arrived and is NOT_RUN, naming the pages, otherwise.
+        missing = self._harness_function("_atlas_missing")
+        self.assertTrue(missing, "no completeness check for atlas page reads")
+        self.assertIn('node["pages"].size() < need', missing)  # Unallocated pages count as missing.
+        self.assertIn("not pages.has(page)", missing)
+        reason = 'atlas pages not read completely: %s'
+        for name, rows in (("_identity", ("W1",)), ("_wind_lod", ("W2",)),
+                           ("_deformation_rows", ("W3", "W4")), ("_regions_rows", ("R2", "R3"))):
+            body = self._harness_function(name)
+            reads = len(re.findall(r"await _atlas_pages\(", body))
+            self.assertGreater(reads, 0, name)
+            self.assertEqual(len(re.findall(r"_atlas_missing\(", body)), reads, name)
+            self.assertIn(reason, body, name)
+            for row in rows:
+                self.assertRegex(body, r'\["' + row + r'"\][^\n]*not_run_reason|for row in \[[^\]]*"' + row + '"', name + " " + row)
+        # W2: the check precedes any use of the pages for the oracle.
+        w2 = self._harness_function("_wind_lod")
+        self.assertLess(w2.index("_atlas_missing("), w2.index("var center = Vector3("))
+
+    def test_atlas_payload_is_read_by_page_not_as_one_whole_buffer(self):
+        # A whole-buffer async readback of the ~320 MB atlas returned zero-filled
+        # bytes (every decoded semantic was 0) while a ranged read of the same page
+        # returned the record the GPU capture saw (0x80ff0003). W2, W4, R1 and R3
+        # selected nothing from the zeros.
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        self.assertNotRegex(script, r'_buffer_bytes\([^)]*\["atlas_buffer"\]\)')
+        pages = self._harness_function("_atlas_pages")
+        self.assertIn("_buffer_bytes(buffer, page * PAGE_SPLATS * RAW_STRIDE, PAGE_SPLATS * RAW_STRIDE)", pages)
+        self.assertIn("func _raw_splat(pages: Dictionary, node: Dictionary, local_index: int)", script)
+        read = self._harness_function("_buffer_bytes")
+        self.assertIn("buffer_get_data_async(buffer,", read)
+        self.assertIn("p_offset, p_size)", read)
+
+    def test_wind_probes_are_leaf_splats_inside_the_wind_fade(self):
+        # The W1/W3 probes were local splat 0 of the first drawn node ids: height-1
+        # nodes 300 m away, where gs_wind_distance_level_fade is 0. Frozen wind is
+        # non-zero by the ADR (§7 W1 step 1) only where the fade lets it act.
+        keys = self._harness_function("_wind_keys")
+        self.assertIn("int(node[\"level\"]) != 0", keys)
+        self.assertIn("< 64.0", keys)
+        self.assertIn("wind > 0", keys)
+        self.assertIn("_wind_keys(", self._harness_function("_identity"))
+        self.assertIn("_wind_keys(", self._harness_function("_deformation_rows"))
+        self.assertNotIn("_world_keys(before)", self._harness_function("_identity"))
+
+    def test_rows_without_full_churn_eviction_name_why(self):
+        # Churn never evicts the whole pose-A set (44/63 at best locally), so W1,
+        # C1 and R2 have no ADR §7 oracle; they must say so, not just be absent.
+        churn = self._harness_function("_churn")
+        self.assertIn('"not_run_reason": _churn_reason(ids, evidence, last)', churn)
+        reason = self._harness_function("_churn_reason")
+        self.assertIn("churn cannot reach full eviction: %d/%d; %d non-drawn non-ancestor nodes stay resident", reason)
+        identity = self._harness_function("_identity")
+        self.assertIn('_raw["rows"]["W1"]["not_run_reason"] = reason', identity)
+        self.assertIn('_raw["rows"]["C1"] = {"not_run_reason": reason}', identity)
+        self.assertIn('_raw["rows"]["R2"] = {"not_run_reason":', self._harness_function("_regions_rows"))
+        # The scene's atlas budget and the churn poses are unchanged (P1/M1 keep them).
+        self.assertIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+
+    def test_w4_probes_are_in_view_and_a_missing_row_names_why(self):
+        # Locally all 64 W4 probes came from the first drawn node, outside the
+        # view: 0/64 colour-valid, so W4 never measured. One in-frustum probe per
+        # node gave 21/27 colour-valid.
+        rows = self._harness_function("_deformation_rows")
+        rock = rows.split("# Rock region:", 1)[1]
+        self.assertIn('_camera.is_position_in_frustum(splat["position"])', rock)
+        self.assertIn('"not_run_reason": "W4 found no in-frustum zero-weight rock-region probe"', rock)
+        self.assertIn('"not_run_reason": "W4 probes not colour-valid: 0/%d" % keys.size()', rock)
+
+    def test_null_drawn_ids_name_why_w3_o2_w4_cannot_run(self):
+        # Local O2 control arm: hlod_drawn_node_ids was null at pose A, every
+        # helper iterated it ("Unable to iterate on object of type 'Nil'") and
+        # W3, O2 and W4 silently disappeared.
+        self.assertIn('if ids is Array or ids is PackedInt32Array or ids is PackedInt64Array:', self._harness_function("_drawn_ids"))
+        rows = self._harness_function("_deformation_rows")
+        self.assertIn('if _drawn_ids(obs).is_empty():', rows)
+        self.assertIn('for row in ["W3", "O2", "W4"]:', rows)
+        self.assertNotIn('obs.get("stats", {}).get("hlod_drawn_node_ids", [])', rows)
+
+    def test_r1_expected_levels_come_from_the_tree_never_from_the_sweep(self):
+        # PR #1532 review: expected_lods built from what the tau sweep drew let a
+        # level the sweep never reached (5 and 7 locally) drop out of the oracle, so
+        # the remaining levels could PASS. ADR §7 R1 is "at every LOD level".
+        regions = self._harness_function("_regions_rows")
+        sweep = regions.split("for tau in [", 1)
+        self.assertEqual(len(sweep), 2)
+        before, inside = sweep[0], sweep[1].split('_raw["rows"]["R1"]', 1)[0]
+        # Derived once, before any tau, from the tree's nodes and the asset's region volume.
+        self.assertRegex(before, r"var tree = _region_levels\(await _native\(\"_test_gs_game_1_observe\"\), \"mid\"\)\n")
+        self.assertIn('var expected_lods: Array = tree.get("levels", [])', before)
+        self.assertNotRegex(inside, r"expected_lods\s*(\.append|=|\+=)")
+        self.assertNotIn("_has_region(", inside)
+        levels = self._harness_function("_region_levels")
+        self.assertIn('.get_basename() + ".manifest.json"', levels)
+        self.assertIn('obs.get("nodes", [])', levels)
+        self.assertNotIn("hlod_drawn_node_ids", levels)
+        self.assertNotIn("_drawn_", levels)
+        # An unreached level is named and makes the row NOT_RUN, never PASS.
+        tail = regions.split('_raw["rows"]["R1"]', 1)[1]
+        self.assertIn('"unreached_lods": unreached', tail)
+        self.assertIn('"not_run_reason"', tail)
+
+    def test_p1_reports_viewport_gpu_time_beside_the_gs_pass_time(self):
+        sample = self._harness_function("_sample_frames")
+        self.assertIn("viewport_set_measure_render_time(root.get_viewport_rid(), true)", sample)
+        self.assertIn('rec["viewport_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())', sample)
+        self.assertIn('target["gpu_frame_ms"] = timing.get("gpu_coherent_total_ms")', sample)
+        # The verdict logic is unchanged: it never reads the added field.
+        verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
+        self.assertNotIn("viewport_gpu_ms", verdict_text)
+
+    def test_l2_spot_lights_what_pose_a_sees(self):
+        # L2 measures spot shadows at pose A. A spot aimed at (0, 0, -10) lit nothing
+        # visible from there (a splat wall at about z = 13 hides that ground), so the
+        # row read 0 shadow pixels however the shadow path behaved. Like omni[0], the
+        # spot must light the splats facing the pose-A camera: its cone must reach the eye.
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        number = r"(-?\d+(?:\.\d+)?)"
+        vector = rf"Vector3\({number}, {number}, {number}\)"
+
+        def vec(match, at=0):
+            return [float(match.group(at + k)) for k in (1, 2, 3)]
+
+        pose = script.split("func _pose_a() -> void:", 1)[1].split("\nfunc ", 1)[0]
+        eye = vec(re.search(rf"_camera\.look_at_from_position\({vector}", pose))
+        position = vec(re.search(rf"\n\t_spot\.position = {vector}\n", script))
+        target = vec(re.search(rf"\n\t_spot\.look_at\({vector}, Vector3\.UP\)\n", script))
+        spot_range = float(re.search(rf"\n\t_spot\.spot_range = {number}\n", script).group(1))
+        self.assertNotIn("_spot.spot_angle", script, "the cone check assumes Godot's default 45 degree spot angle")
+        axis = [t - p for t, p in zip(target, position)]
+        to_eye = [e - p for e, p in zip(eye, position)]
+        length = lambda v: sum(c * c for c in v) ** 0.5
+        cosine = sum(a * b for a, b in zip(axis, to_eye)) / (length(axis) * length(to_eye))
+        self.assertGreater(cosine, math.cos(math.radians(45.0)), "pose-A eye is outside the spot cone")
+        self.assertLess(length(to_eye), spot_range, "pose-A eye is beyond the spot range")
 
     def test_postflight_finalizes_before_artifacts(self):
         text = (ROOT / ".github/workflows/gs_game_1.yml").read_text(encoding="utf-8")
