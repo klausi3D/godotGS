@@ -6,8 +6,11 @@
 #include "../lod/hlod_edit.h"
 #include "../io/gs_payload_page_store.h"
 #include "../shaders/includes/gs_hlod_page_constants.glsl"
+#include "core/os/os.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <utility>
 
 using gs_hlod_runtime::NodeResidency;
@@ -64,6 +67,162 @@ Array HlodNodeStreamer::get_pressure_eviction_events() const {
 	eviction_export_frame = frame;
 	eviction_export_total = telemetry.evicted_total;
 	return eviction_export;
+}
+
+Array HlodNodeStreamer::get_upload_events() const {
+	Array out;
+	if (upload_events_frame != frame) { return out; }
+	for (const UploadEvent &e : upload_events) {
+		Dictionary item;
+		item["node"] = e.node;
+		item["priority"] = e.priority;
+		item["rank"] = e.rank == UINT32_MAX ? Variant() : Variant(int64_t(e.rank));
+		item["requested_frame"] = int64_t(e.requested_frame);
+		item["uploaded_frame"] = int64_t(e.uploaded_frame);
+		item["inversion"] = e.inversion;
+		item["ready_inversion"] = e.ready_inversion;
+		out.push_back(item);
+	}
+	return out;
+}
+
+// --- Service order (ADR adr-hlod-streaming.md 6.6: missing children are requested in refinement-priority order) ---
+// The streamer used to serve its queues first-in-first-out: tickets in request order across frames and decoded
+// payloads in IO completion order, so a near transition demanded after a far one waited behind it. Now every
+// update() re-derives each node's key from the current demand, and both queues are served by that key.
+
+HlodNodeStreamer::ServiceKey HlodNodeStreamer::service_key(uint32_t p_node) const {
+	ServiceKey key;
+	if (p_node < uint32_t(service.size()) && service[p_node].frame == frame) {
+		key.priority = service[p_node].priority;
+		key.rank = service[p_node].rank;
+	}
+	return key;
+}
+
+bool HlodNodeStreamer::serves_before(const ServiceKey &p_a, uint32_t p_node_a, const ServiceKey &p_b, uint32_t p_node_b) {
+	if (p_a.priority != p_b.priority) { return p_a.priority > p_b.priority; }
+	if (p_a.rank != p_b.rank) { return p_a.rank < p_b.rank; }
+	return p_node_a < p_node_b;
+}
+
+void HlodNodeStreamer::prioritize_demand() {
+	// demand_scratch and transition_scratch are parallel; every member of one emitted group carries the same priority
+	// and the members are consecutive, so a stable sort by priority keeps every group whole and keeps the emission
+	// order (instance order, then the selector's pop order) among equal priorities.
+	const uint32_t count = demand_scratch.size();
+	if (count < 2 || transition_scratch.size() != count) { return; }
+	bool sorted = true;
+	for (uint32_t i = 1; i < count && sorted; ++i) {
+		sorted = !(transition_scratch[i].priority > transition_scratch[i - 1].priority);
+	}
+	if (sorted) { return; }
+	LocalVector<uint32_t> order;
+	order.resize(count);
+	for (uint32_t i = 0; i < count; ++i) { order[i] = i; }
+	std::stable_sort(order.ptr(), order.ptr() + count, [&](uint32_t a, uint32_t b) {
+		return transition_scratch[a].priority > transition_scratch[b].priority;
+	});
+	LocalVector<uint32_t> nodes;
+	LocalVector<gs_hlod_runtime::TransitionGroup> groups;
+	nodes.resize(count);
+	groups.resize(count);
+	for (uint32_t i = 0; i < count; ++i) {
+		nodes[i] = demand_scratch[order[i]];
+		groups[i] = transition_scratch[order[i]];
+	}
+	demand_scratch = nodes;
+	transition_scratch = groups;
+}
+
+void HlodNodeStreamer::stamp_demand_priority() {
+	// A bundle may be updated more than once per frame (several views): ranks continue, a node keeps its best key.
+	if (service_rank_frame != frame) {
+		service_rank_frame = frame;
+		service_next_rank = 0;
+	}
+	const uint32_t count = demand_scratch.size();
+	for (uint32_t i = 0; i < count; ++i) {
+		const uint32_t node = demand_scratch[i];
+		if (node >= uint32_t(service.size())) { continue; }
+		float priority = transition_scratch.size() == count ? transition_scratch[i].priority : 0.0f;
+		if (std::isnan(priority)) { priority = 0.0f; } // Never let a NaN break the strict weak order.
+		const uint32_t rank = service_next_rank++;
+		ServiceState &s = service.write[node];
+		if (s.frame != frame) {
+			s.frame = frame;
+			s.priority = priority;
+			s.rank = rank;
+		} else {
+			s.priority = MAX(s.priority, priority);
+			s.rank = MIN(s.rank, rank);
+		}
+	}
+}
+
+void HlodNodeStreamer::prioritize_queues() {
+	if (fifo_service) { return; }
+	// Reads not started yet: strictly by the current key. Ties on node id, then request generation, are total.
+	std::sort(pending.ptr(), pending.ptr() + pending.size(), [this](const NodeResidency::Ticket &a, const NodeResidency::Ticket &b) {
+		const ServiceKey ka = service_key(a.node), kb = service_key(b.node);
+		if (ka.priority != kb.priority || ka.rank != kb.rank || a.node != b.node) { return serves_before(ka, a.node, kb, b.node); }
+		return a.request_generation < b.request_generation;
+	});
+	// Decoded payloads: a node already part-way through its transfer finishes first (it holds charged output and
+	// its pages are half written), then the current key. Moves only; payload storage is never copied.
+	MutexLock lock(ledger->mutex);
+	std::sort(ready.ptr(), ready.ptr() + ready.size(), [this](const PackResult &a, const PackResult &b) {
+		const bool partial_a = a.uploaded_bytes != 0, partial_b = b.uploaded_bytes != 0;
+		if (partial_a != partial_b) { return partial_a; }
+		const ServiceKey ka = service_key(a.ticket.node), kb = service_key(b.ticket.node);
+		if (ka.priority != kb.priority || ka.rank != kb.rank || a.ticket.node != b.ticket.node) {
+			return serves_before(ka, a.ticket.node, kb, b.ticket.node);
+		}
+		return a.ticket.request_generation < b.ticket.request_generation;
+	});
+}
+
+void HlodNodeStreamer::observe_job_start(const NodeResidency::Ticket &p_ticket, uint32_t p_rest) {
+	// Report-only: a read started while a strictly higher-priority current ticket stayed queued behind it.
+	const ServiceKey started = service_key(p_ticket.node);
+	bool inversion = false;
+	for (uint32_t i = p_rest; i < pending.size() && !inversion; ++i) {
+		inversion = residency.is_pending(pending[i]) && service_key(pending[i].node).priority > started.priority;
+	}
+	++telemetry.priority_jobs_started_total;
+	telemetry.priority_start_inversions_total += inversion ? 1 : 0;
+}
+
+void HlodNodeStreamer::observe_upload_service(uint32_t p_node, uint32_t p_ready_index) {
+	// Report-only; never feeds a decision. Called at a successful ordinary publication, before ready.remove_at().
+	const ServiceKey served = service_key(p_node);
+	bool inversion = false, ready_inversion = false;
+	for (uint32_t node : demand_scratch) {
+		if (node == p_node || residency.state(node) != NodeResidency::LOADING) { continue; }
+		if (service_key(node).priority > served.priority) { inversion = true; break; }
+	}
+	for (uint32_t i = 0; i < ready.size(); ++i) {
+		if (i == p_ready_index || ready[i].ticket.node == p_node || !residency.is_pending(ready[i].ticket)) { continue; }
+		if (service_key(ready[i].ticket.node).priority > served.priority) { ready_inversion = true; break; }
+	}
+	++telemetry.priority_uploads_total;
+	telemetry.priority_inversions_total += inversion ? 1 : 0;
+	telemetry.priority_ready_inversions_total += ready_inversion ? 1 : 0;
+	if (upload_events_frame != frame) {
+		upload_events.clear();
+		upload_events_frame = frame;
+	}
+	if (upload_events.size() < 4096) {
+		UploadEvent e;
+		e.node = p_node;
+		e.rank = served.rank;
+		e.priority = served.priority;
+		e.requested_frame = p_node < uint32_t(service.size()) ? service[p_node].requested_frame : 0;
+		e.uploaded_frame = frame;
+		e.inversion = inversion;
+		e.ready_inversion = ready_inversion;
+		upload_events.push_back(e);
+	}
 }
 
 Variant HlodNodeStreamer::get_payload_telemetry() const {
@@ -688,6 +847,18 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	telemetry.pressure_epoch = pressure_epoch_serial.fetch_add(1, std::memory_order_relaxed) + 1;
 	telemetry.pages_capacity = p_config.atlas_pages;
 	telemetry.edit_revision = p_data->edit_revision;
+	if (!gs_resize_or_fail(service, p_data->nodes.size(), "HLOD stream service order")) { return false; }
+	service.fill(ServiceState());
+	service_rank_frame = upload_events_frame = UINT64_MAX;
+	service_next_rank = 0;
+	upload_events.clear();
+	fifo_service = false;
+#ifdef TESTS_ENABLED
+	// FORCING control: restores the pre-fix first-in-first-out service of both queues (request order, IO completion
+	// order) so the same binary can measure the old order; the inversion metric stays on either way.
+	fifo_service = OS::get_singleton() && OS::get_singleton()->get_environment("GODOTGS_TEST_HLOD_FIFO_SERVICE") == "1";
+#endif
+	telemetry.priority_fifo_forced = fifo_service;
 	active = true;
 	transition_owner_bound = false;
 	const uint32_t node_count = data->nodes.size();
@@ -1061,6 +1232,7 @@ void HlodNodeStreamer::start_jobs() {
 				const bool current = p_shadow ? staged_data.is_valid() && residency.is_shadow_pending(ticket) : residency.is_pending(ticket);
 				if (!current) { queue.remove_at(0); continue; }
 				if (!start_one(ticket, p_shadow)) { return false; }
+				if (!p_shadow) { observe_job_start(ticket, 1); }
 				queue.remove_at(0);
 				return true;
 			}
@@ -1104,6 +1276,7 @@ void HlodNodeStreamer::start_jobs() {
 		if (!start_one(ticket, false)) {
 			break;
 		}
+		observe_job_start(ticket, consumed + 1);
 		++consumed;
 	}
 	if (consumed != 0) {
@@ -1976,6 +2149,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 #endif
 	if (ok) {
 		++telemetry.uploaded_this_frame;
+		observe_upload_service(publication_ticket.node, p_ready_index);
 	}
 	ready.remove_at(p_ready_index);
 	return true;
@@ -2053,7 +2227,10 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 		const uint32_t view_count = transition_scratch.size();
 		transition_scratch.resize(edit_count + view_count);
 		for (uint32_t i = view_count; i-- > 0;) { transition_scratch[edit_count + i] = transition_scratch[i]; }
-		for (uint32_t i = 0; i < edit_count; ++i) { transition_scratch[i] = gs_hlod_runtime::TransitionGroup(); }
+		for (uint32_t i = 0; i < edit_count; ++i) {
+			transition_scratch[i] = gs_hlod_runtime::TransitionGroup();
+			transition_scratch[i].priority = std::numeric_limits<float>::infinity(); // Gates the edit's publication.
+		}
 		for (uint32_t i = 0; i < demand_scratch.size(); ++i) {
 			prefetch_scratch.push_back(demand_scratch[i]);
 		}
@@ -2066,6 +2243,11 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 			telemetry.edit_event = "blocked";
 		}
 	}
+	// Service order (ADR 6.6): this frame's demand, highest priority first, decides what is requested (the per-frame
+	// request cap applies after this sort) and the order of both queues below.
+	if (!fifo_service) { prioritize_demand(); }
+	stamp_demand_priority();
+	telemetry.priority_measured = true;
 	// Protection first (ADR 14.1): drawn versions and their ancestors cannot be evicted by this frame's requests.
 	residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
 	if (multiple_owners) { residency.protect_drawn(kept_scratch.ptr(), kept_scratch.size()); } // Legacy bootstrap keep protection.
@@ -2088,7 +2270,10 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	const NodeResidency::RequestResult requested = draining_metadata ? NodeResidency::RequestResult() :
 			(multiple_owners ? residency.request_legacy(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch) :
 					residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch, transition_scratch.ptr(), kept_scratch.ptr(), kept_scratch.size()));
-	for (const auto &ticket : tickets_scratch) { pending.push_back(ticket); }
+	for (const auto &ticket : tickets_scratch) {
+		pending.push_back(ticket);
+		if (ticket.node < uint32_t(service.size())) { service.write[ticket.node].requested_frame = frame; }
+	}
 	telemetry.requested_this_frame = requested.requested;
 	telemetry.skipped_groups_this_frame = requested.skipped_groups;
 	telemetry.blocked_groups_this_frame = requested.blocked_groups;
@@ -2106,10 +2291,12 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 		// Drain before admission: transferred output returns capacity for the
 		// next pending job in this update, so a transaction can exceed the window.
 		drain_mailbox();
+		prioritize_queues();
 		upload_edit_ready(p_device, p_buffers);
 		start_jobs();
 	} else {
 		drain_mailbox();
+		prioritize_queues();
 		upload_ready(p_device, p_buffers);
 		// Completed output keeps its permit through upload/discard. Reuse the
 		// capacity returned above for pending jobs in this update, not next frame.
