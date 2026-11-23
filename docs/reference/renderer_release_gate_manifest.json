@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 242,
-    "sha256": "336c385499752f31c00005718db465a18c324d94d1d58cca82a4fe97e03db4ce",
-    "sha256_last_changed_by": "Shadow split PR0 (merged over master's D1 HLOD distance-cull and HLOD level tint cases): add one per-view caster list depth-identity case (byte-identical shadow depth from whole vs per-view lists, with an unsafe-cull negative control) to the existing GpuSorting batch. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Filters, required batches, waivers, thresholds and gates unchanged.",
+    "test_count": 243,
+    "sha256": "549f3d4d9191f3fc8121c552c5a42ee1859d3e4da813311573347fe9eccaa443",
+    "sha256_last_changed_by": "BV-17 atlas ceiling: add one HLOD relative depth-pass case that draws a record above 2^31 bytes of a streamed atlas (the host record count bound) to the existing GpuSorting batch. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Filters, required batches, waivers, thresholds and gates unchanged.",
     "deferred_tags_any": [
       "Importer"
     ],
