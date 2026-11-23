@@ -1,5 +1,14 @@
 var NAVTREEINDEX66 =
 {
+"structgs__world__frame_1_1PreciseCoord.html#a4e437e79a209a92f9f425902e29617ae":[1,0,27,0,2],
+"structgs__world__frame_1_1PreciseCoord.html#a51f8f6d2e2b30b7bcd07e43a117d93bc":[0,0,39,0,1],
+"structgs__world__frame_1_1PreciseCoord.html#a51f8f6d2e2b30b7bcd07e43a117d93bc":[1,0,27,0,1],
+"structgs__world__frame_1_1PreciseCoord.html#a5f069eafff53bc0089793ee6f945d809":[0,0,39,0,6],
+"structgs__world__frame_1_1PreciseCoord.html#a5f069eafff53bc0089793ee6f945d809":[1,0,27,0,6],
+"structgs__world__frame_1_1PreciseCoord.html#ac1fa08c6e48d8fa435966ba7165cadfa":[0,0,39,0,4],
+"structgs__world__frame_1_1PreciseCoord.html#ac1fa08c6e48d8fa435966ba7165cadfa":[1,0,27,0,4],
+"structgs__world__frame_1_1PrecisePlacement.html":[0,0,39,1],
+"structgs__world__frame_1_1PrecisePlacement.html":[1,0,27,1],
 "structgs__world__frame_1_1PrecisePlacement.html#a00646fbe4f7a193595e72f89db316bad":[0,0,39,1,0],
 "structgs__world__frame_1_1PrecisePlacement.html#a00646fbe4f7a193595e72f89db316bad":[1,0,27,1,0],
 "structgs__world__frame_1_1PrecisePlacement.html#a3437ae544166d6dea420c71298d9064f":[0,0,39,1,2],
@@ -240,14 +249,5 @@ var NAVTREEINDEX66 =
 "structgs__world__generator_1_1Plan.html#acbd7594024774815044e74d478ce617e":[1,0,28,6,1],
 "structgs__world__generator_1_1Plan.html#ae9f32366d7b8b76fd6520d276ca25c64":[0,0,40,6,14],
 "structgs__world__generator_1_1Plan.html#ae9f32366d7b8b76fd6520d276ca25c64":[1,0,28,6,14],
-"structgs__world__generator_1_1Plan.html#aee208285163cd165b4daf88feff8285d":[0,0,40,6,5],
-"structgs__world__generator_1_1Plan.html#aee208285163cd165b4daf88feff8285d":[1,0,28,6,5],
-"structgs__world__generator_1_1Report.html":[0,0,40,9],
-"structgs__world__generator_1_1Report.html":[1,0,28,9],
-"structgs__world__generator_1_1Report.html#a0a143156d1c7a57e196a7aa0a364949f":[0,0,40,9,12],
-"structgs__world__generator_1_1Report.html#a0a143156d1c7a57e196a7aa0a364949f":[1,0,28,9,12],
-"structgs__world__generator_1_1Report.html#a0c8efcc08dde98b98a2399ba457503c0":[0,0,40,9,11],
-"structgs__world__generator_1_1Report.html#a0c8efcc08dde98b98a2399ba457503c0":[1,0,28,9,11],
-"structgs__world__generator_1_1Report.html#a13067c0c1674a81fb3b43daf5a0ed1ea":[0,0,40,9,3],
-"structgs__world__generator_1_1Report.html#a13067c0c1674a81fb3b43daf5a0ed1ea":[1,0,28,9,3]
+"structgs__world__generator_1_1Plan.html#aee208285163cd165b4daf88feff8285d":[0,0,40,6,5]
 };

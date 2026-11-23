@@ -30,6 +30,7 @@ var structGaussianRenderDebug_1_1DebugState =
     [ "route_uid", "structGaussianRenderDebug_1_1DebugState.html#ab9d1a2224748e97cdd76873273ae9b43", null ],
     [ "show_density_heatmap", "structGaussianRenderDebug_1_1DebugState.html#af01039150a313eb989490cfd547e302a", null ],
     [ "show_device_boundaries", "structGaussianRenderDebug_1_1DebugState.html#a7641820c3b8fdbfe63a7b6ee87083dfa", null ],
+    [ "show_hlod_level_tint", "structGaussianRenderDebug_1_1DebugState.html#ac9a519140c8e5140b9e2dc73910455e3", null ],
     [ "show_overflow_tiles", "structGaussianRenderDebug_1_1DebugState.html#a891b80fdffe408f9415ebbb6f47271c3", null ],
     [ "show_performance_hud", "structGaussianRenderDebug_1_1DebugState.html#ade8885492ab546b5bcefcf908c1339df", null ],
     [ "show_projection_issues", "structGaussianRenderDebug_1_1DebugState.html#a0a6b3c3b950cc0e5ea101f59a17ebf26", null ],

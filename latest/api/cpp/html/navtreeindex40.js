@@ -1,5 +1,12 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatSceneDirector_1_1RegionOverrideSource.html#a467c5c4fccb888bdb639819558953861":[1,0,113,4,0],
+"structGaussianSplatSceneDirector_1_1RegionOverrideSource.html#ae69085d027b56d1dd1dc90b244e170f3":[1,0,113,4,1],
+"structGaussianSplatSceneDirector_1_1SharedWorld.html":[1,0,113,16],
+"structGaussianSplatSceneDirector_1_1SharedWorld.html#a220b067da690685fc863af02c7c87c76":[1,0,113,16,1],
+"structGaussianSplatSceneDirector_1_1SharedWorld.html#a357bdc3cd5aac8b746587fa885068671":[1,0,113,16,6],
+"structGaussianSplatSceneDirector_1_1SharedWorld.html#a5e68a614ab40fc01a3cdc907ec479106":[1,0,113,16,3],
+"structGaussianSplatSceneDirector_1_1SharedWorld.html#aa29815fd107d33fd99b551533e695172":[1,0,113,16,5],
 "structGaussianSplatSceneDirector_1_1SharedWorld.html#adda5592ef183432044d3abbdded3681c":[1,0,113,16,4],
 "structGaussianSplatSceneDirector_1_1SharedWorld.html#ae3b0f69ab2bbcf90b6c058301a702bde":[1,0,113,16,7],
 "structGaussianSplatSceneDirector_1_1SharedWorld.html#af900e98db5a2a221e2ab8c0772f111aa":[1,0,113,16,2],
@@ -242,12 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1ChunkHeader.html#ac24b06e120973aae7724eedd188bd8fd":[1,0,9,19,3],
 "structGaussianSplatting_1_1ChunkLODCandidate.html":[0,0,12,10],
 "structGaussianSplatting_1_1ChunkLODCandidate.html":[1,0,9,9],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a1e88fcb213e31b477328b09a31ef5ddd":[0,0,12,10,1],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a1e88fcb213e31b477328b09a31ef5ddd":[1,0,9,9,1],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a2f822db44f6484a1e7ad2f13e0b23c65":[0,0,12,10,3],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a2f822db44f6484a1e7ad2f13e0b23c65":[1,0,9,9,3],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a667610bef1dbdb0636fa0a6ca710c6aa":[0,0,12,10,6],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a667610bef1dbdb0636fa0a6ca710c6aa":[1,0,9,9,6],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a73e0cb7faaaffa89547817892d619599":[0,0,12,10,5],
-"structGaussianSplatting_1_1ChunkLODCandidate.html#a73e0cb7faaaffa89547817892d619599":[1,0,9,9,5]
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a1e88fcb213e31b477328b09a31ef5ddd":[0,0,12,10,1]
 };

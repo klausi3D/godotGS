@@ -1,7 +1,6 @@
 var structTileRenderParamsGPU =
 [
     [ "_pad_before_camera", "structTileRenderParamsGPU.html#ac94249908aa1de06ffbd3c6ed2b407ce", null ],
-    [ "_pad_overlap", "structTileRenderParamsGPU.html#a43ff4925ef5f6becd800994cbd2d86bf", null ],
     [ "alpha_floor", "structTileRenderParamsGPU.html#a1115defc3acede257bb2b2fdca573318", null ],
     [ "camera_position", "structTileRenderParamsGPU.html#aa140fada230a919001ecb0d0afb27190", null ],
     [ "cluster_config", "structTileRenderParamsGPU.html#ae591c36b81831e164b966c3a03f31702", null ],
@@ -9,6 +8,7 @@ var structTileRenderParamsGPU =
     [ "color_grading_secondary", "structTileRenderParamsGPU.html#a668c318521f38159a50bbeda53757a62", null ],
     [ "cull_far_tolerance", "structTileRenderParamsGPU.html#abfc663562e814140d55a1523b88abdf3", null ],
     [ "debug_flags", "structTileRenderParamsGPU.html#a51421f5a405b6ddbfa94e3054927bc3e", null ],
+    [ "debug_hlod_level_tint", "structTileRenderParamsGPU.html#a5471f4f19371f0c8af18007e1fc950fd", null ],
     [ "debug_overlay_flags", "structTileRenderParamsGPU.html#a6a3622dd6ca9442f98c88fa06546411b", null ],
     [ "debug_overlay_opacity", "structTileRenderParamsGPU.html#abb23258e18b799b7e079a5da969ea686", null ],
     [ "distance_cull_config", "structTileRenderParamsGPU.html#ab835754f234d72c19c7a78c0911b3d90", null ],

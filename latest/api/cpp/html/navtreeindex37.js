@@ -1,5 +1,12 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianRenderPipeline_1_1SortStageOutput.html#a85c94d7bfa043eafe70b54d6e6922190":[0,0,7,4,1],
+"structGaussianRenderPipeline_1_1SortStageOutput.html#a85c94d7bfa043eafe70b54d6e6922190":[1,0,6,4,1],
+"structGaussianRenderPipeline_1_1SortStageOutput.html#a8a86f0143ddc7be083dd927f5ed45e32":[0,0,7,4,4],
+"structGaussianRenderPipeline_1_1SortStageOutput.html#a8a86f0143ddc7be083dd927f5ed45e32":[1,0,6,4,4],
+"structGaussianRenderPipeline_1_1SortStageOutput.html#aa18fb28633c8f0fe20dad5123bdb44ed":[0,0,7,4,3],
+"structGaussianRenderPipeline_1_1SortStageOutput.html#aa18fb28633c8f0fe20dad5123bdb44ed":[1,0,6,4,3],
+"structGaussianRenderPipeline_1_1SortStageOutput.html#aa6ce58571b9ca787ec57c559d48726cf":[0,0,7,4,0],
 "structGaussianRenderPipeline_1_1SortStageOutput.html#aa6ce58571b9ca787ec57c559d48726cf":[1,0,6,4,0],
 "structGaussianRenderPipeline_1_1SplatDataSource.html":[0,0,7,5],
 "structGaussianRenderPipeline_1_1SplatDataSource.html":[1,0,6,5],
@@ -242,12 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianRenderState_1_1StreamingState.html":[0,0,9,3],
 "structGaussianRenderState_1_1StreamingState.html":[1,0,7,3],
 "structGaussianRenderState_1_1StreamingState.html#a1293e401c7f9030fd72e6bd109828f75":[0,0,9,3,11],
-"structGaussianRenderState_1_1StreamingState.html#a1293e401c7f9030fd72e6bd109828f75":[1,0,7,3,11],
-"structGaussianRenderState_1_1StreamingState.html#a1b280b64e62720296a50e8ff8bee6c7d":[0,0,9,3,27],
-"structGaussianRenderState_1_1StreamingState.html#a1b280b64e62720296a50e8ff8bee6c7d":[1,0,7,3,27],
-"structGaussianRenderState_1_1StreamingState.html#a360214d6df363ec5a47ddbf31794aeb1":[0,0,9,3,4],
-"structGaussianRenderState_1_1StreamingState.html#a360214d6df363ec5a47ddbf31794aeb1":[1,0,7,3,4],
-"structGaussianRenderState_1_1StreamingState.html#a3ad2e26cb46a3f19eed3027f61c48633":[0,0,9,3,12],
-"structGaussianRenderState_1_1StreamingState.html#a3ad2e26cb46a3f19eed3027f61c48633":[1,0,7,3,12],
-"structGaussianRenderState_1_1StreamingState.html#a4089a1b82c2093cc96d97ea52ff993ba":[0,0,9,3,22]
+"structGaussianRenderState_1_1StreamingState.html#a1293e401c7f9030fd72e6bd109828f75":[1,0,7,3,11]
 };

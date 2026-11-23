@@ -1,5 +1,9 @@
 var NAVTREEINDEX23 =
 {
+"gs__world__writer__v4_8cpp.html":[2,0,0,0,6,26],
+"gs__world__writer__v4_8h.html":[2,0,0,0,6,27],
+"gs__world__writer__v4_8h_source.html":[2,0,0,0,6,27],
+"gsq__codec_8cpp.html":[2,0,0,0,6,0,0],
 "gsq__codec_8h.html":[2,0,0,0,6,0,1],
 "gsq__codec_8h_source.html":[2,0,0,0,6,0,1],
 "gsq__page__builder_8cpp.html":[2,0,0,0,6,0,2],
@@ -245,9 +249,5 @@ var NAVTREEINDEX23 =
 "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85a":[0,0,12,91],
 "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa2542227e2d23e596ef1c61fcabd1207d":[0,0,12,91,2],
 "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa8d6b5cada83510220f59e00ce86d4d92":[0,0,12,91,0],
-"namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa9474868dd1cebf985201a2437f5b5394":[0,0,12,91,4],
-"namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aaaac544aacc3615aada24897a215f5046":[0,0,12,91,1],
-"namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aaef1ea416f0f07657aaf892b3a250d933":[0,0,12,91,3],
-"namespaceGaussianSplatting.html#a3748e229c2c96023b50286c0c622eaea":[0,0,12,121],
-"namespaceGaussianSplatting.html#a3bcdd8f5c7f63ca89a4b47587447194c":[0,0,12,127]
+"namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa9474868dd1cebf985201a2437f5b5394":[0,0,12,91,4]
 };

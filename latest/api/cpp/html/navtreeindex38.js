@@ -1,5 +1,12 @@
 var NAVTREEINDEX38 =
 {
+"structGaussianRenderState_1_1StreamingState.html#a1b280b64e62720296a50e8ff8bee6c7d":[0,0,9,3,27],
+"structGaussianRenderState_1_1StreamingState.html#a1b280b64e62720296a50e8ff8bee6c7d":[1,0,7,3,27],
+"structGaussianRenderState_1_1StreamingState.html#a360214d6df363ec5a47ddbf31794aeb1":[0,0,9,3,4],
+"structGaussianRenderState_1_1StreamingState.html#a360214d6df363ec5a47ddbf31794aeb1":[1,0,7,3,4],
+"structGaussianRenderState_1_1StreamingState.html#a3ad2e26cb46a3f19eed3027f61c48633":[0,0,9,3,12],
+"structGaussianRenderState_1_1StreamingState.html#a3ad2e26cb46a3f19eed3027f61c48633":[1,0,7,3,12],
+"structGaussianRenderState_1_1StreamingState.html#a4089a1b82c2093cc96d97ea52ff993ba":[0,0,9,3,22],
 "structGaussianRenderState_1_1StreamingState.html#a4089a1b82c2093cc96d97ea52ff993ba":[1,0,7,3,22],
 "structGaussianRenderState_1_1StreamingState.html#a487f74dbb54d49b1e019c47cad5e7efc":[0,0,9,3,28],
 "structGaussianRenderState_1_1StreamingState.html#a487f74dbb54d49b1e019c47cad5e7efc":[1,0,7,3,28],
@@ -242,12 +249,5 @@ var NAVTREEINDEX38 =
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a062d0d80bdc4aa2c2aee1cda731b4174":[1,0,109,1,8],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a1a59f34a4f3a39b20f91cfd631bf2e8a":[1,0,109,1,25],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a1ade68e80d2fd206ffbac9490d4cfcf9":[1,0,109,1,2],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a1fc640d46ce6c4f974512de9f86c5569":[1,0,109,1,26],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a2de418ef4528b2c4290ee6535f37fbfe":[1,0,109,1,0],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a3012142c54fd4f94513c24535179cf40":[1,0,109,1,6],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a3027fea2ea4b30e756a1f12929432082":[1,0,109,1,1],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a368a68ea0af61d25177fc567683b59f8":[1,0,109,1,5],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a38e1bafbe98e4e0bfdbb306076022417":[1,0,109,1,20],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a474d56595a71bc81f9daeaa77c10ba32":[1,0,109,1,24],
-"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a4db9e7a1b07c57506cc907bc0de589aa":[1,0,109,1,10]
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a1fc640d46ce6c4f974512de9f86c5569":[1,0,109,1,26]
 };

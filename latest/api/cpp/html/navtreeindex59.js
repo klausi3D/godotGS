@@ -1,5 +1,14 @@
 var NAVTREEINDEX59 =
 {
+"structgs_1_1settings_1_1GSLightingSettings.html#a9bbe17752af8d9a3285edb9885ecd0de":[1,0,11,0,2,1],
+"structgs_1_1settings_1_1GSLightingSettings.html#ada4fcf964e937b5da4b1c80030ef1d92":[0,0,16,0,2,2],
+"structgs_1_1settings_1_1GSLightingSettings.html#ada4fcf964e937b5da4b1c80030ef1d92":[1,0,11,0,2,2],
+"structgs_1_1settings_1_1GSLightingSettings.html#afd45c1b3ae8f692ac7b20812ab2a9c17":[0,0,16,0,2,3],
+"structgs_1_1settings_1_1GSLightingSettings.html#afd45c1b3ae8f692ac7b20812ab2a9c17":[1,0,11,0,2,3],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html":[0,0,16,0,0],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html":[1,0,11,0,0],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a1ee6202ea45a3bed5842cf7801e02aea":[0,0,16,0,0,10],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a1ee6202ea45a3bed5842cf7801e02aea":[1,0,11,0,0,10],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html#a338fec168ba12b6e76ef7304402cc91b":[0,0,16,0,0,7],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html#a338fec168ba12b6e76ef7304402cc91b":[1,0,11,0,0,7],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html#a37cf8bca3c4b66f7a004a812252b5669":[0,0,16,0,0,0],
@@ -240,14 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__hlod_1_1InteriorBakeResult.html#afb09d79d83541e1d97ae7778e0b90ac1":[1,0,14,16,0],
 "structgs__hlod_1_1InteriorBakeScratch.html":[0,0,21,15],
 "structgs__hlod_1_1InteriorBakeScratch.html":[1,0,14,15],
-"structgs__hlod_1_1InteriorBakeScratch.html#a5d0d2e42a1371abfbc74b4c05141d852":[0,0,21,15,3],
-"structgs__hlod_1_1InteriorBakeScratch.html#a5d0d2e42a1371abfbc74b4c05141d852":[1,0,14,15,3],
-"structgs__hlod_1_1InteriorBakeScratch.html#ab7438c3fedc316e116b1b67c72c64d78":[0,0,21,15,2],
-"structgs__hlod_1_1InteriorBakeScratch.html#ab7438c3fedc316e116b1b67c72c64d78":[1,0,14,15,2],
-"structgs__hlod_1_1InteriorBakeScratch.html#ac1d2722d729f197d268629f511478c9b":[0,0,21,15,1],
-"structgs__hlod_1_1InteriorBakeScratch.html#ac1d2722d729f197d268629f511478c9b":[1,0,14,15,1],
-"structgs__hlod_1_1InteriorBakeScratch.html#ad4fd212d83a33a2ea38429c42f785a13":[0,0,21,15,0],
-"structgs__hlod_1_1InteriorBakeScratch.html#ad4fd212d83a33a2ea38429c42f785a13":[1,0,14,15,0],
-"structgs__hlod_1_1MergeCellEntry.html":[0,0,21,12],
-"structgs__hlod_1_1MergeCellEntry.html":[1,0,14,12]
+"structgs__hlod_1_1InteriorBakeScratch.html#a5d0d2e42a1371abfbc74b4c05141d852":[0,0,21,15,3]
 };

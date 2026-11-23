@@ -1,5 +1,12 @@
 var NAVTREEINDEX43 =
 {
+"structGaussianSplatting_1_1PainterlyMetadata.html#ac178546a2cc6a9d16c34a04c2deba265":[1,0,9,11,0],
+"structGaussianSplatting_1_1PassColors.html":[0,0,12,30],
+"structGaussianSplatting_1_1PassColors.html":[1,0,9,29],
+"structGaussianSplatting_1_1SceneHeader.html":[0,0,12,21],
+"structGaussianSplatting_1_1SceneHeader.html":[1,0,9,20],
+"structGaussianSplatting_1_1SceneHeader.html#a08ffb15c150e01785ff1e202632ea9be":[0,0,12,21,5],
+"structGaussianSplatting_1_1SceneHeader.html#a08ffb15c150e01785ff1e202632ea9be":[1,0,9,20,5],
 "structGaussianSplatting_1_1SceneHeader.html#a0b0d13ad134c6d1a540163ac35d70bd3":[0,0,12,21,10],
 "structGaussianSplatting_1_1SceneHeader.html#a0b0d13ad134c6d1a540163ac35d70bd3":[1,0,9,20,10],
 "structGaussianSplatting_1_1SceneHeader.html#a2b645417cb494904eae08844854fc55e":[0,0,12,21,2],
@@ -242,12 +249,5 @@ var NAVTREEINDEX43 =
 "structGaussianSplatting_1_1TileDeviceContext.html#a8025c9fab3b7ff7bedffd39dd461a2c8":[1,0,9,52,3],
 "structGaussianSplatting_1_1TileDeviceContext.html#af10f04272d2a3c4514ea639cb4b1c769":[0,0,12,53,0],
 "structGaussianSplatting_1_1TileDeviceContext.html#af10f04272d2a3c4514ea639cb4b1c769":[1,0,9,52,0],
-"structGaussianSplatting_1_1TileDeviceContext.html#afccfa472233c36299ee99756a316e976":[0,0,12,53,1],
-"structGaussianSplatting_1_1TileDeviceContext.html#afccfa472233c36299ee99756a316e976":[1,0,9,52,1],
-"structGaussianSplatting_1_1TileDiagnosticsState.html":[0,0,12,74],
-"structGaussianSplatting_1_1TileDiagnosticsState.html":[1,0,9,73],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a1fe387819612c0983b89afb461d16117":[0,0,12,74,23],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a1fe387819612c0983b89afb461d16117":[1,0,9,73,23],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a235df70d29c57be86d64ea2b434cfb44":[0,0,12,74,5],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a235df70d29c57be86d64ea2b434cfb44":[1,0,9,73,5]
+"structGaussianSplatting_1_1TileDeviceContext.html#afccfa472233c36299ee99756a316e976":[0,0,12,53,1]
 };

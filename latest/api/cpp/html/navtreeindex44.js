@@ -1,5 +1,12 @@
 var NAVTREEINDEX44 =
 {
+"structGaussianSplatting_1_1TileDeviceContext.html#afccfa472233c36299ee99756a316e976":[1,0,9,52,1],
+"structGaussianSplatting_1_1TileDiagnosticsState.html":[0,0,12,74],
+"structGaussianSplatting_1_1TileDiagnosticsState.html":[1,0,9,73],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a1fe387819612c0983b89afb461d16117":[0,0,12,74,23],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a1fe387819612c0983b89afb461d16117":[1,0,9,73,23],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a235df70d29c57be86d64ea2b434cfb44":[0,0,12,74,5],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a235df70d29c57be86d64ea2b434cfb44":[1,0,9,73,5],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a2554da68f7509e6480201aff3d835a99":[0,0,12,74,25],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a2554da68f7509e6480201aff3d835a99":[1,0,9,73,25],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a26c25fdc27946b9e1b9b49ff02e34bed":[0,0,12,74,27],
@@ -242,12 +249,5 @@ var NAVTREEINDEX44 =
 "structGaussianSplatting_1_1TileLightingClusterABIConfig.html#ad33cf68591c2c77e7f616460ea4cb57b":[1,0,9,41,4],
 "structGaussianSplatting_1_1TileLightingClusterABIConfig.html#af35a635d2d476b9d9ba2df0ef38c294a":[0,0,12,42,1],
 "structGaussianSplatting_1_1TileLightingClusterABIConfig.html#af35a635d2d476b9d9ba2df0ef38c294a":[1,0,9,41,1],
-"structGaussianSplatting_1_1TileLightingClusterABIConfig.html#af7d5ed9d4a4b1c5eb65be6ccc0b48262":[0,0,12,42,3],
-"structGaussianSplatting_1_1TileLightingClusterABIConfig.html#af7d5ed9d4a4b1c5eb65be6ccc0b48262":[1,0,9,41,3],
-"structGaussianSplatting_1_1TileLightingSetABI.html":[0,0,12,43],
-"structGaussianSplatting_1_1TileLightingSetABI.html":[1,0,9,42],
-"structGaussianSplatting_1_1TileOverflowSampleContext.html":[0,0,12,65],
-"structGaussianSplatting_1_1TileOverflowSampleContext.html":[1,0,9,64],
-"structGaussianSplatting_1_1TileOverflowSampleContext.html#a1a7b4e825dc30586adc994535fbfee2c":[0,0,12,65,4],
-"structGaussianSplatting_1_1TileOverflowSampleContext.html#a1a7b4e825dc30586adc994535fbfee2c":[1,0,9,64,4]
+"structGaussianSplatting_1_1TileLightingClusterABIConfig.html#af7d5ed9d4a4b1c5eb65be6ccc0b48262":[0,0,12,42,3]
 };

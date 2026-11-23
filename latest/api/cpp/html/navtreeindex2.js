@@ -1,5 +1,7 @@
 var NAVTREEINDEX2 =
 {
+"classGaussianAtlasAllocator.html#adf2bb7344739ffd3b1494dd8466e7759":[1,0,76,1],
+"classGaussianAtlasAllocator.html#aed285371d83de02e5db5ae460d563485":[1,0,76,14],
 "classGaussianData.html":[1,0,78],
 "classGaussianData.html#a07edf78326a614edd9edc57ec407f9a2":[1,0,78,29],
 "classGaussianData.html#a089626b157d28d9d60fc571e525e06eb":[1,0,78,54],
@@ -247,7 +249,5 @@ var NAVTREEINDEX2 =
 "classGaussianSplatAsset.html#af01423bc4cc167118aff652901b9dfde":[1,0,84,77],
 "classGaussianSplatAsset.html#af476175e2a2e14ef149800e98216a3cb":[1,0,84,11],
 "classGaussianSplatAsset.html#af70856cb034bcbe63e5085e752817167":[1,0,84,80],
-"classGaussianSplatAsset.html#affdfa956917df7937e8fcd2bfe2e337f":[1,0,84,23],
-"classGaussianSplatBakeVolume3D.html":[1,0,85],
-"classGaussianSplatBakeVolume3D.html#a82c752c04bda00d2c4da9c94c59f4474":[1,0,85,1]
+"classGaussianSplatAsset.html#affdfa956917df7937e8fcd2bfe2e337f":[1,0,84,23]
 };

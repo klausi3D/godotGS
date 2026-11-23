@@ -1,5 +1,7 @@
 var NAVTREEINDEX1 =
 {
+"classDeviceVramLedger.html#a43acb8799e64462db0235f2058fd2e63":[1,0,70,4],
+"classDeviceVramLedger.html#a44ed98d090b0db6220076f7e2a462800":[1,0,70,9],
 "classDeviceVramLedger.html#ab803d2b79a871de94559cb0433d0f629":[1,0,70,11],
 "classDeviceVramLedger.html#ac81b158d1b3119f68f80fb9da120c5a4":[1,0,70,13],
 "classDeviceVramLedger.html#ad017e732fc79007da46126fbeb06de57":[1,0,70,5],
@@ -247,7 +249,5 @@ var NAVTREEINDEX1 =
 "classGaussianAtlasAllocator.html#a80e077d34fd734a99b823700e769af37":[1,0,76,13],
 "classGaussianAtlasAllocator.html#aa21718be764c9a9fca18cda494f36da7":[1,0,76,2],
 "classGaussianAtlasAllocator.html#ac06748f1930cb58f175a69930e38f187":[1,0,76,4],
-"classGaussianAtlasAllocator.html#ad5545dda5cda20a88d37bf16a5b611ab":[1,0,76,15],
-"classGaussianAtlasAllocator.html#adf2bb7344739ffd3b1494dd8466e7759":[1,0,76,1],
-"classGaussianAtlasAllocator.html#aed285371d83de02e5db5ae460d563485":[1,0,76,14]
+"classGaussianAtlasAllocator.html#ad5545dda5cda20a88d37bf16a5b611ab":[1,0,76,15]
 };

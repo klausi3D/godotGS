@@ -1,5 +1,14 @@
 var NAVTREEINDEX52 =
 {
+"structLODDebugStats.html#a64e70f07adb326e40000e3f321da5db9":[1,0,182,4],
+"structLODDebugStats.html#a7445ab19912fc1ec0331c34b97b5439a":[1,0,182,9],
+"structLODDebugStats.html#a9e96c089c5eb998700548eee2fde3f20":[1,0,182,8],
+"structLODDebugStats.html#aa8678da07d6569bbd40d402c945ee7cc":[1,0,182,11],
+"structLODDebugStats.html#ab8ea44bb0915751cf4db94f1dc4a40c7":[1,0,182,5],
+"structLODDebugStats.html#ae8da235b22876bda60ab3d13d5dc301b":[1,0,182,0],
+"structLODDebugStats.html#afd5caa6fd086554dfd458d1417a68cda":[1,0,182,2],
+"structLODDebugStats.html#afe77eb7e2d9e7ad0cd89d60a448e6c36":[1,0,182,7],
+"structLastSortGpuTimestamp.html":[1,0,179],
 "structLastSortGpuTimestamp.html#a42721ce53fa3e782fc79f644e6a0b5df":[1,0,179,2],
 "structLastSortGpuTimestamp.html#a8c4fbd2ecab66e4867ec4b1d3363a6f2":[1,0,179,3],
 "structLastSortGpuTimestamp.html#ac7fc85dc5dd821183979234fb97be059":[1,0,179,0],
@@ -240,14 +249,5 @@ var NAVTREEINDEX52 =
 "structPainterlyConfig.html#ab6f384a75c97d650bd68ef28b7fa831e":[1,0,194,7],
 "structPainterlyConfig.html#ac0902b5a754a2aaa8a2976a71e2980d3":[1,0,194,3],
 "structPainterlyConfig.html#ad584748fe47a09082845c7f006ef9a06":[1,0,194,2],
-"structPainterlyConfig.html#aff9717261218aaae393cf79fd32b320b":[1,0,194,8],
-"structPainterlyMaterialResources.html":[1,0,197],
-"structPainterlyMaterialResources.html#a47c95e2b4f9b572388f526b8d174cbd9":[1,0,197,1],
-"structPainterlyMaterialResources.html#a57c963d1637cffe3422a545a40698a32":[1,0,197,2],
-"structPainterlyMaterialResources.html#aad6ce02e5119e0fbd107411c19656663":[1,0,197,3],
-"structPainterlyMaterialResources.html#aaf82d2ca39f17fb938caeffb118e5de9":[1,0,197,4],
-"structPainterlyMaterialResources.html#ab20c77c79aac6c7c10ce30d2fc4cd308":[1,0,197,0],
-"structPainterlyPassGraph_1_1PassNode.html":[1,0,198,0],
-"structPainterlyPassGraph_1_1PassNode.html#a106732bc431efc0078b7ac5a52b380c8":[1,0,198,0,2],
-"structPainterlyPassGraph_1_1PassNode.html#a98e2e000e2932e665ec6a426599c818e":[1,0,198,0,5]
+"structPainterlyConfig.html#aff9717261218aaae393cf79fd32b320b":[1,0,194,8]
 };

@@ -1,5 +1,12 @@
 var NAVTREEINDEX34 =
 {
+"structGaussianRenderFacadeState_1_1ResourceState.html#abb59cb8fc04fbec0482140f60ded144b":[0,0,4,2,54],
+"structGaussianRenderFacadeState_1_1ResourceState.html#abb59cb8fc04fbec0482140f60ded144b":[1,0,3,2,54],
+"structGaussianRenderFacadeState_1_1ResourceState.html#abbd1110848bda5d37e7d50b9cfec7e13":[0,0,4,2,154],
+"structGaussianRenderFacadeState_1_1ResourceState.html#abbd1110848bda5d37e7d50b9cfec7e13":[1,0,3,2,154],
+"structGaussianRenderFacadeState_1_1ResourceState.html#abc795669484d51b94a70ff9af31dfd48":[0,0,4,2,129],
+"structGaussianRenderFacadeState_1_1ResourceState.html#abc795669484d51b94a70ff9af31dfd48":[1,0,3,2,129],
+"structGaussianRenderFacadeState_1_1ResourceState.html#abebb148958df13bf4167c5088b346057":[0,0,4,2,20],
 "structGaussianRenderFacadeState_1_1ResourceState.html#abebb148958df13bf4167c5088b346057":[1,0,3,2,20],
 "structGaussianRenderFacadeState_1_1ResourceState.html#ac8c652b487c49d2d90f0be593cdae721":[0,0,4,2,87],
 "structGaussianRenderFacadeState_1_1ResourceState.html#ac8c652b487c49d2d90f0be593cdae721":[1,0,3,2,87],
@@ -242,12 +249,5 @@ var NAVTREEINDEX34 =
 "structGaussianRenderFrame_1_1FrameTimingSample.html#ab39255ca868f1f49add298702c3bede6":[0,0,5,3,3],
 "structGaussianRenderFrame_1_1FrameTimingSample.html#ab39255ca868f1f49add298702c3bede6":[1,0,4,3,3],
 "structGaussianRenderFrame_1_1FrameTimingSample.html#acaee4c2558335d83fc16f15b2438fa1b":[0,0,5,3,4],
-"structGaussianRenderFrame_1_1FrameTimingSample.html#acaee4c2558335d83fc16f15b2438fa1b":[1,0,4,3,4],
-"structGaussianRenderFrame_1_1FrameTimingSample.html#aeb3c9e0c4cd13fc54e580a4c560f2d3b":[0,0,5,3,1],
-"structGaussianRenderFrame_1_1FrameTimingSample.html#aeb3c9e0c4cd13fc54e580a4c560f2d3b":[1,0,4,3,1],
-"structGaussianRenderFrame_1_1RuntimeErrorStatistics.html":[0,0,5,0],
-"structGaussianRenderFrame_1_1RuntimeErrorStatistics.html":[1,0,4,0],
-"structGaussianRenderFrame_1_1RuntimeErrorStatistics.html#a37fd480aea7db338888a9b4756876c6a":[0,0,5,0,3],
-"structGaussianRenderFrame_1_1RuntimeErrorStatistics.html#a37fd480aea7db338888a9b4756876c6a":[1,0,4,0,3],
-"structGaussianRenderFrame_1_1RuntimeErrorStatistics.html#a4e300f96fb6e89f8b74ff9bf46b4677f":[0,0,5,0,0]
+"structGaussianRenderFrame_1_1FrameTimingSample.html#acaee4c2558335d83fc16f15b2438fa1b":[1,0,4,3,4]
 };

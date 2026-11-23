@@ -1,5 +1,14 @@
 var NAVTREEINDEX53 =
 {
+"structPainterlyMaterialResources.html":[1,0,197],
+"structPainterlyMaterialResources.html#a47c95e2b4f9b572388f526b8d174cbd9":[1,0,197,1],
+"structPainterlyMaterialResources.html#a57c963d1637cffe3422a545a40698a32":[1,0,197,2],
+"structPainterlyMaterialResources.html#aad6ce02e5119e0fbd107411c19656663":[1,0,197,3],
+"structPainterlyMaterialResources.html#aaf82d2ca39f17fb938caeffb118e5de9":[1,0,197,4],
+"structPainterlyMaterialResources.html#ab20c77c79aac6c7c10ce30d2fc4cd308":[1,0,197,0],
+"structPainterlyPassGraph_1_1PassNode.html":[1,0,198,0],
+"structPainterlyPassGraph_1_1PassNode.html#a106732bc431efc0078b7ac5a52b380c8":[1,0,198,0,2],
+"structPainterlyPassGraph_1_1PassNode.html#a98e2e000e2932e665ec6a426599c818e":[1,0,198,0,5],
 "structPainterlyPassGraph_1_1PassNode.html#a9f7dcf85977124ded776cf198b5b035c":[1,0,198,0,3],
 "structPainterlyPassGraph_1_1PassNode.html#aca53379d132ba33a5823c73c91579656":[1,0,198,0,4],
 "structPainterlyPassGraph_1_1PassNode.html#ada12efa9c71f2e64ff44f85474956efc":[1,0,198,0,0],
@@ -240,14 +249,5 @@ var NAVTREEINDEX53 =
 "structRasterDebugCounters.html#abb30ef066fad103df496cece5d4163dd":[1,0,215,11],
 "structRasterDebugCounters.html#ac24c171f56add75ed63ab95e9701c610":[1,0,215,1],
 "structRasterDebugCounters.html#ac40a8b850f9fca0a56917c831cef1079":[1,0,215,2],
-"structRasterDebugCounters.html#ac90f2cf2b8c285df2fe6704b9f3327fd":[1,0,215,12],
-"structRasterDebugCounters.html#ad02f12f68344f9cd3a6084b43f1ba2cd":[1,0,215,17],
-"structRasterDebugCounters.html#ae75ca3085ed7ec4c0cea940fe6803155":[1,0,215,14],
-"structRasterDebugCounters.html#aea8a0cd3f58f37582f6233970e9db8ff":[1,0,215,18],
-"structRasterDebugCounters.html#aed03dec35548b2e54e575557af52cb0f":[1,0,215,3],
-"structRasterDebugCounters.html#aefdb2ac65e3b4fb443238b097cd6dedf":[1,0,215,5],
-"structRasterDebugOptions.html":[1,0,216],
-"structRasterDebugOptions.html#a0924c498f7ee265ddcf7dcb1727b71e9":[1,0,216,2],
-"structRasterDebugOptions.html#a30a12f07bb5e2fcb7557f19073300d6d":[1,0,216,5],
-"structRasterDebugOptions.html#a5aad1f395f47a1af4b75cd461ce41181":[1,0,216,4]
+"structRasterDebugCounters.html#ac90f2cf2b8c285df2fe6704b9f3327fd":[1,0,215,12]
 };

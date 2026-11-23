@@ -1,5 +1,9 @@
 var NAVTREEINDEX28 =
 {
+"quality__tier__config_8h_source.html":[2,0,0,0,3,70],
+"quantization__config_8cpp.html":[2,0,0,0,12,52],
+"quantization__config_8cpp.html#a8c11460d07de14a065bf834f2469116b":[2,0,0,0,12,52,0],
+"quantization__config_8cpp.html#ab52158f920a57bafe1a68c252f6e492b":[2,0,0,0,12,52,2],
 "quantization__config_8cpp.html#adb92671a7c697b1763e2bddca9010c2d":[2,0,0,0,12,52,1],
 "quantization__config_8h.html":[2,0,0,0,12,53],
 "quantization__config_8h.html#a8c11460d07de14a065bf834f2469116b":[2,0,0,0,12,53,1],
@@ -245,9 +249,5 @@ var NAVTREEINDEX28 =
 "streaming__analytics__frame_8h.html#a6cb44f59429dc5f25307ce0ef1a88ec5":[2,0,0,0,3,83,4],
 "streaming__analytics__frame_8h.html#a741dc40cba7d70ae16e13becdc442ec0":[2,0,0,0,3,83,2],
 "streaming__analytics__frame_8h.html#a92494b6dbac78e4c084b2f15fa466587":[2,0,0,0,3,83,3],
-"streaming__analytics__frame_8h_source.html":[2,0,0,0,3,83],
-"streaming__asset__types_8h.html":[2,0,0,0,3,84],
-"streaming__asset__types_8h_source.html":[2,0,0,0,3,84],
-"streaming__atlas_8cpp.html":[2,0,0,0,3,85],
-"streaming__atlas_8h.html":[2,0,0,0,3,86]
+"streaming__analytics__frame_8h_source.html":[2,0,0,0,3,83]
 };

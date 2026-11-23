@@ -1,5 +1,14 @@
 var NAVTREEINDEX48 =
 {
+"structGaussianSplatting_1_1TileShaderResources.html#af67c2c65a5ffc4e5453a4648775e8b37":[1,0,9,53,24],
+"structGaussianSplatting_1_1TileShaderResources.html#af8c47fca4f03b539a0f891a1149e5caf":[0,0,12,54,17],
+"structGaussianSplatting_1_1TileShaderResources.html#af8c47fca4f03b539a0f891a1149e5caf":[1,0,9,53,17],
+"structGaussianSplatting_1_1TileShaderResources.html#afbc379780d8f2608d79ced7cefdd708f":[0,0,12,54,19],
+"structGaussianSplatting_1_1TileShaderResources.html#afbc379780d8f2608d79ced7cefdd708f":[1,0,9,53,19],
+"structGaussianSplatting_1_1TileShaderResources.html#afc4ad77c3cb2766c93d8b90f9a48cebb":[0,0,12,54,33],
+"structGaussianSplatting_1_1TileShaderResources.html#afc4ad77c3cb2766c93d8b90f9a48cebb":[1,0,9,53,33],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html":[0,0,12,67],
+"structGaussianSplatting_1_1TileSplatAuditSnapshot.html":[1,0,9,66],
 "structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a24b4b529e28c020eafa32c9b7a475339":[0,0,12,67,5],
 "structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a24b4b529e28c020eafa32c9b7a475339":[1,0,9,66,5],
 "structGaussianSplatting_1_1TileSplatAuditSnapshot.html#a29a3bc2da33f25e292da46e55bcae3a1":[0,0,12,67,1],
@@ -240,14 +249,5 @@ var NAVTREEINDEX48 =
 "structGaussianStreamingTypes_1_1AtlasAssetState.html#a03504808700d5b58733791b0426fda2b":[1,0,10,3,11],
 "structGaussianStreamingTypes_1_1AtlasAssetState.html#a056726d750a4bca3cd8378b170c5a621":[0,0,14,3,17],
 "structGaussianStreamingTypes_1_1AtlasAssetState.html#a056726d750a4bca3cd8378b170c5a621":[1,0,10,3,17],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a13ec7bbe8a221f0325b4fc2725ee28ac":[0,0,14,3,9],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a13ec7bbe8a221f0325b4fc2725ee28ac":[1,0,10,3,9],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a241afa5f1c761bac34b4a56ff618595a":[0,0,14,3,6],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a241afa5f1c761bac34b4a56ff618595a":[1,0,10,3,6],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a2dcd835772199ecea40cc5517ac5c41e":[0,0,14,3,10],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a2dcd835772199ecea40cc5517ac5c41e":[1,0,10,3,10],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a340a0fd4c2b50451889c2fa7d2483759":[0,0,14,3,14],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a340a0fd4c2b50451889c2fa7d2483759":[1,0,10,3,14],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a36a50c30d7398bef89afb195bbfde498":[0,0,14,3,8],
-"structGaussianStreamingTypes_1_1AtlasAssetState.html#a36a50c30d7398bef89afb195bbfde498":[1,0,10,3,8]
+"structGaussianStreamingTypes_1_1AtlasAssetState.html#a13ec7bbe8a221f0325b4fc2725ee28ac":[0,0,14,3,9]
 };

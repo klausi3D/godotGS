@@ -4,6 +4,7 @@ var structDebugOverlayOptions =
     [ "overlay_opacity", "structDebugOverlayOptions.html#a09274de0887b05d75c4a0ec8cf792e88", null ],
     [ "show_density_heatmap", "structDebugOverlayOptions.html#a13263724cca2697ab61cf6eda002c90a", null ],
     [ "show_device_boundaries", "structDebugOverlayOptions.html#a90153f15e0e4b068c0b73ec79c470ce0", null ],
+    [ "show_hlod_level_tint", "structDebugOverlayOptions.html#a1bd509276a57ef85d96e9866c676df2f", null ],
     [ "show_overflow_tiles", "structDebugOverlayOptions.html#a4a5622b063f932f0af9c32dfa07d206e", null ],
     [ "show_performance_hud", "structDebugOverlayOptions.html#acc8682a17eddd42caa653eda7bc114e6", null ],
     [ "show_projection_issues", "structDebugOverlayOptions.html#a78f4c148eae7a982caa5ad09f6e08871", null ],

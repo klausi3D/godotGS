@@ -23,6 +23,7 @@ var structGaussianSplatting_1_1TileRenderParams =
     [ "debug_overlay_opacity", "structGaussianSplatting_1_1TileRenderParams.html#a089f9d1b7a5ec73f43515ad76c70af28", null ],
     [ "debug_show_density_heatmap", "structGaussianSplatting_1_1TileRenderParams.html#a536e9fd5572950f44bd6d6f2252f8123", null ],
     [ "debug_show_depth_visualization", "structGaussianSplatting_1_1TileRenderParams.html#a176ee11f731d5d2154d21d0d4be55c69", null ],
+    [ "debug_show_hlod_level_tint", "structGaussianSplatting_1_1TileRenderParams.html#a65fa7cb791275d2b84f70d0d0f74111d", null ],
     [ "debug_show_overflow_tiles", "structGaussianSplatting_1_1TileRenderParams.html#aed59b3cb1ac20f81ffc715106252a584", null ],
     [ "debug_show_performance_hud", "structGaussianSplatting_1_1TileRenderParams.html#a099356c801ef38a75962f40a198ca6d2", null ],
     [ "debug_show_projection_issues", "structGaussianSplatting_1_1TileRenderParams.html#a6ce55876f16bb816537f5bd2707b8de8", null ],

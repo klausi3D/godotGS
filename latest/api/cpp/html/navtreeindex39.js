@@ -1,5 +1,12 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a2de418ef4528b2c4290ee6535f37fbfe":[1,0,109,1,0],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a3012142c54fd4f94513c24535179cf40":[1,0,109,1,6],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a3027fea2ea4b30e756a1f12929432082":[1,0,109,1,1],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a368a68ea0af61d25177fc567683b59f8":[1,0,109,1,5],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a38e1bafbe98e4e0bfdbb306076022417":[1,0,109,1,20],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a474d56595a71bc81f9daeaa77c10ba32":[1,0,109,1,24],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a4db9e7a1b07c57506cc907bc0de589aa":[1,0,109,1,10],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a5e1a433b9199d3fe5734a5af1f827907":[1,0,109,1,15],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a61d01d51542faf831071d6d611fddbc6":[1,0,109,1,23],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a670094a73109c9eca0d918e8f8857ec4":[1,0,109,1,14],
@@ -242,12 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatSceneDirector_1_1InstanceSubmission.html#ae3c5e938c84cd3cf7654156ddc55e649":[1,0,113,0,15],
 "structGaussianSplatSceneDirector_1_1InstanceSubmission.html#ae93ae89e5ef80faed16a3a258e9045b9":[1,0,113,0,8],
 "structGaussianSplatSceneDirector_1_1InstanceSubmission.html#aff8da67bae3300834d133dd033be15e4":[1,0,113,0,4],
-"structGaussianSplatSceneDirector_1_1RegionOverrideSource.html":[1,0,113,4],
-"structGaussianSplatSceneDirector_1_1RegionOverrideSource.html#a467c5c4fccb888bdb639819558953861":[1,0,113,4,0],
-"structGaussianSplatSceneDirector_1_1RegionOverrideSource.html#ae69085d027b56d1dd1dc90b244e170f3":[1,0,113,4,1],
-"structGaussianSplatSceneDirector_1_1SharedWorld.html":[1,0,113,16],
-"structGaussianSplatSceneDirector_1_1SharedWorld.html#a220b067da690685fc863af02c7c87c76":[1,0,113,16,1],
-"structGaussianSplatSceneDirector_1_1SharedWorld.html#a357bdc3cd5aac8b746587fa885068671":[1,0,113,16,6],
-"structGaussianSplatSceneDirector_1_1SharedWorld.html#a5e68a614ab40fc01a3cdc907ec479106":[1,0,113,16,3],
-"structGaussianSplatSceneDirector_1_1SharedWorld.html#aa29815fd107d33fd99b551533e695172":[1,0,113,16,5]
+"structGaussianSplatSceneDirector_1_1RegionOverrideSource.html":[1,0,113,4]
 };

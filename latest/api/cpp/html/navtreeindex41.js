@@ -1,5 +1,12 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a1e88fcb213e31b477328b09a31ef5ddd":[1,0,9,9,1],
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a2f822db44f6484a1e7ad2f13e0b23c65":[0,0,12,10,3],
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a2f822db44f6484a1e7ad2f13e0b23c65":[1,0,9,9,3],
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a667610bef1dbdb0636fa0a6ca710c6aa":[0,0,12,10,6],
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a667610bef1dbdb0636fa0a6ca710c6aa":[1,0,9,9,6],
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a73e0cb7faaaffa89547817892d619599":[0,0,12,10,5],
+"structGaussianSplatting_1_1ChunkLODCandidate.html#a73e0cb7faaaffa89547817892d619599":[1,0,9,9,5],
 "structGaussianSplatting_1_1ChunkLODCandidate.html#a882dc8fb0a411956adc5af6e0ec7efe3":[0,0,12,10,7],
 "structGaussianSplatting_1_1ChunkLODCandidate.html#a882dc8fb0a411956adc5af6e0ec7efe3":[1,0,9,9,7],
 "structGaussianSplatting_1_1ChunkLODCandidate.html#aa6292fce2594d9076d062839451410ea":[0,0,12,10,0],
@@ -242,12 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a7368da72d4267f74e72f221c379acd62":[1,0,9,1,7,12],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a74a9efe75e7346ff8f331bc775741833":[0,0,12,2,7,2],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a74a9efe75e7346ff8f331bc775741833":[1,0,9,1,7,2],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a861385e2beb0c6b81c8c7ed95e8fee96":[0,0,12,2,7,6],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a861385e2beb0c6b81c8c7ed95e8fee96":[1,0,9,1,7,6],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ab19bdff8432c0eda1c6d66efa30d486c":[0,0,12,2,7,8],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ab19bdff8432c0eda1c6d66efa30d486c":[1,0,9,1,7,8],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ac8a45e5edd7716033b5da6ff0f70e08a":[0,0,12,2,7,4],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ac8a45e5edd7716033b5da6ff0f70e08a":[1,0,9,1,7,4],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#acdcde538dc55fba8bda86a2f3f57fd7e":[0,0,12,2,7,5],
-"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#acdcde538dc55fba8bda86a2f3f57fd7e":[1,0,9,1,7,5]
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a861385e2beb0c6b81c8c7ed95e8fee96":[0,0,12,2,7,6]
 };

@@ -1,5 +1,12 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a861385e2beb0c6b81c8c7ed95e8fee96":[1,0,9,1,7,6],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ab19bdff8432c0eda1c6d66efa30d486c":[0,0,12,2,7,8],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ab19bdff8432c0eda1c6d66efa30d486c":[1,0,9,1,7,8],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ac8a45e5edd7716033b5da6ff0f70e08a":[0,0,12,2,7,4],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#ac8a45e5edd7716033b5da6ff0f70e08a":[1,0,9,1,7,4],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#acdcde538dc55fba8bda86a2f3f57fd7e":[0,0,12,2,7,5],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#acdcde538dc55fba8bda86a2f3f57fd7e":[1,0,9,1,7,5],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#add751689064ccf4fa8747f9edca212d0":[0,0,12,2,7,10],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#add751689064ccf4fa8747f9edca212d0":[1,0,9,1,7,10],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#af7fa79b5f9c753dfa654fc81f75e1386":[0,0,12,2,7,1],
@@ -242,12 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1PainterlyMetadata.html#aabf1d8b1a17d950b2e94d1bdaf351ce1":[1,0,9,11,2],
 "structGaussianSplatting_1_1PainterlyMetadata.html#abcc8471f82ef25e04ac5662cb374940f":[0,0,12,12,6],
 "structGaussianSplatting_1_1PainterlyMetadata.html#abcc8471f82ef25e04ac5662cb374940f":[1,0,9,11,6],
-"structGaussianSplatting_1_1PainterlyMetadata.html#ac178546a2cc6a9d16c34a04c2deba265":[0,0,12,12,0],
-"structGaussianSplatting_1_1PainterlyMetadata.html#ac178546a2cc6a9d16c34a04c2deba265":[1,0,9,11,0],
-"structGaussianSplatting_1_1PassColors.html":[0,0,12,30],
-"structGaussianSplatting_1_1PassColors.html":[1,0,9,29],
-"structGaussianSplatting_1_1SceneHeader.html":[0,0,12,21],
-"structGaussianSplatting_1_1SceneHeader.html":[1,0,9,20],
-"structGaussianSplatting_1_1SceneHeader.html#a08ffb15c150e01785ff1e202632ea9be":[0,0,12,21,5],
-"structGaussianSplatting_1_1SceneHeader.html#a08ffb15c150e01785ff1e202632ea9be":[1,0,9,20,5]
+"structGaussianSplatting_1_1PainterlyMetadata.html#ac178546a2cc6a9d16c34a04c2deba265":[0,0,12,12,0]
 };
