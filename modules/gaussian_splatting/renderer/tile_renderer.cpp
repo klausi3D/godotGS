@@ -4070,7 +4070,7 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
     }
     // Keys and values (8 B each), tile ranges and scan scratch scale with the record count: charge 32 B per record,
     // as a full new allocation (the old buffers stay charged until retired). Refused growth keeps the flag set.
-    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    if (uint64_t(needed) * HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD > p_headroom) { return false; }
     _ensure_global_sort_resources(needed);
     overflow.overflow_detected = false;
     return true;
@@ -4079,7 +4079,7 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
 bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom) {
     const uint32_t needed = clamp_hlod_overlap_records(p_records);
     if (needed <= global_sort_resources.capacity) { return false; }
-    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    if (uint64_t(needed) * HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD > p_headroom) { return false; }
     _ensure_global_sort_resources(needed);
     return true;
 }

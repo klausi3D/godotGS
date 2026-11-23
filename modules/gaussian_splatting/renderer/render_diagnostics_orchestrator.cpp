@@ -1596,7 +1596,12 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     // RenderingDevice copies through a transfer staging buffer). A buffer cleared on the device stages nothing.
     stats["hlod_bundle_device_bytes"] = int64_t(resource_state.hlod_canonical.bytes + resource_state.hlod_relative.bytes);
     stats["hlod_bundle_host_staged_bytes"] = int64_t(resource_state.hlod_canonical.host_staged_bytes + resource_state.hlod_relative.host_staged_bytes);
-    stats["hlod_stream_page_store_active"] = resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid() &&
+    // BV-17: the streamed atlas limit the last streamed publication was priced against, and what bound it
+    // (ledger_share, buffer_limit, override, unknown_heap_staging_ceiling, no_ledger_share; none without a streamed bundle).
+    stats["hlod_stream_atlas_limit_bytes"] = int64_t(resource_state.hlod_stream_atlas_limit_bytes);
+    stats["hlod_stream_atlas_limit_bound"] = String(DeviceVramLedger::streamed_atlas_bound_name(
+            DeviceVramLedger::StreamedAtlasBound(resource_state.hlod_stream_atlas_limit_bound)));
+    stats["hlod_stream_page_store_active"] = resource_state.hlod_streaming &&resource_state.hlod_streamer.is_valid() &&
             resource_state.hlod_streamer->uses_page_store(resource_state.hlod_page_store.get());
     const auto &payload_streaming_state = state_view.get_streaming_state();
     if (!resource_state.hlod_streaming && payload_streaming_state.current_streaming_system.is_valid()) {

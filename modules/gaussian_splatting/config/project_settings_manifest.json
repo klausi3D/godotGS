@@ -1076,7 +1076,7 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "ResidentInstanceContractPublisher effective atlas VRAM cap (importance-LOD clamp).",
+      "effective_state": "ResidentInstanceContractPublisher effective atlas VRAM cap (importance-LOD clamp; only lowers the 2 GiB staging ceiling of the resident and whole-tree HLOD atlas) and the streamed HLOD atlas limit (pins it in either direction, clamped to one storage buffer; published as hlod_stream_atlas_limit_bytes/_bound).",
       "key": "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb",
       "owner": "ResidentInstanceContractPublisher VRAM clamp",
       "publicness": "public",

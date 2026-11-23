@@ -80,6 +80,21 @@ inline bool hlod_should_stream(uint64_t whole_atlas_bytes, uint64_t atlas_limit_
     return whole_atlas_bytes > atlas_limit_bytes || !whole_candidate_fits;
 }
 
+// BV-17: the ledger bytes a streamed HLOD route's frame buffers can claim next to its pool, the reserve the streamed atlas
+// limit leaves (DeviceVramLedger::streamed_atlas_limit_for_device). Both terms are the charges the ledger itself uses:
+//  - the overlap (raster) storage at its configured cap, charged per record as its growth is admitted
+//    (TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD): the pool never takes the room the overlap storage can grow into;
+//  - the sort keys and indices at the route's sort capacity, as the ledger reports SORT.
+// Saturating: an unprovable sum reserves everything (no ledger share, refused with a named reason).
+inline uint64_t hlod_streamed_frame_reserve_bytes(uint64_t p_overlap_cap_records, uint64_t p_overlap_bytes_per_record,
+        uint64_t p_sort_capacity, uint64_t p_sort_bytes_per_record) {
+    if (p_overlap_bytes_per_record != 0 && p_overlap_cap_records > UINT64_MAX / p_overlap_bytes_per_record) { return UINT64_MAX; }
+    if (p_sort_bytes_per_record != 0 && p_sort_capacity > UINT64_MAX / p_sort_bytes_per_record) { return UINT64_MAX; }
+    const uint64_t overlap = p_overlap_cap_records * p_overlap_bytes_per_record;
+    const uint64_t sort = p_sort_capacity * p_sort_bytes_per_record;
+    return sort > UINT64_MAX - overlap ? UINT64_MAX : overlap + sort;
+}
+
 // Pages a streamed HLOD atlas may hold. `fixed_bundle_bytes` excludes atlas records and per-page bookkeeping.
 // The result is clamped by the atlas cap, the tree itself, the HLOD-owned cap and the device ledger headroom
 // (the same limits hlod_candidate_fits applies); 0 means not even one page is admissible.
