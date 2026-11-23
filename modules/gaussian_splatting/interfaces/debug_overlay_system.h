@@ -89,6 +89,7 @@ public:
     void set_show_overflow_tiles(bool p_enabled) override;
     void set_show_projection_issues(bool p_enabled) override;
     void set_show_white_albedo(bool p_enabled);
+    void set_show_hlod_level_tint(bool p_enabled);
     void set_show_density_heatmap(bool p_enabled) override;
     void set_show_shadow_opacity(bool p_enabled) override;
     void set_show_resolve_input(bool p_enabled) override;
@@ -107,6 +108,7 @@ public:
     bool get_show_overflow_tiles() const override { return options.show_overflow_tiles; }
     bool get_show_projection_issues() const override { return options.show_projection_issues; }
     bool get_show_white_albedo() const { return options.show_white_albedo; }
+    bool get_show_hlod_level_tint() const { return options.show_hlod_level_tint; }
     bool get_show_density_heatmap() const override { return options.show_density_heatmap; }
     bool get_show_shadow_opacity() const override { return options.show_shadow_opacity; }
     bool get_show_resolve_input() const override { return options.show_resolve_input; }

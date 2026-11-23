@@ -23,6 +23,20 @@ uint gs_hlod_level_stat_slot(uint level) {
     return min(level, uint(GS_HLOD_LEVEL_STAT_SLOTS - 2));
 }
 
+// HLOD level debug view (RenderParams.debug_hlod_level_tint). Palette by node height:
+// 0 (leaf) green, 1 blue, 2 yellow, 3 orange, 4 red, 5+ purple. The splat's own luminance
+// modulates the tint so structure stays readable. Object draws (GS_DRAWN_NODE_LEVEL_NONE)
+// keep their colour.
+vec3 gs_hlod_level_tint_color(vec3 p_color, uint p_level) {
+    if (p_level == GS_DRAWN_NODE_LEVEL_NONE) {
+        return p_color;
+    }
+    const vec3 palette[6] = vec3[6](vec3(0.10, 0.80, 0.20), vec3(0.20, 0.60, 1.00), vec3(1.00, 0.85, 0.10),
+            vec3(1.00, 0.50, 0.00), vec3(0.95, 0.15, 0.15), vec3(0.80, 0.20, 0.90));
+    float luma = clamp(dot(p_color, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    return palette[min(p_level, 5u)] * (0.35 + 0.65 * luma);
+}
+
 #ifndef GS_MAX_SPHERE_EFFECTORS
 #define GS_MAX_SPHERE_EFFECTORS 4
 #endif

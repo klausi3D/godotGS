@@ -1706,6 +1706,15 @@ void main() {
     }
     sh_color = max(final_color, vec3(0.0));
 
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    // Debug view: tint each splat by its draw record's HLOD level (node height, 0 = leaf).
+    // Colour only, after COUNT returned, so tile coverage and the COUNT/EMIT contract are
+    // unchanged. Off (0) by default; the branch is uniform across the dispatch.
+    if (params.debug_hlod_level_tint != 0u) {
+        sh_color = gs_hlod_level_tint_color(sh_color, selected.level);
+    }
+#endif
+
     // PERF-8 (#679): Redundant safety net — the primary NaN/Inf conic check now lives
     // before the COUNT/EMIT split to prevent divergence.  Kept as defence-in-depth.
     if (any(isnan(conic)) || any(isinf(conic))) {

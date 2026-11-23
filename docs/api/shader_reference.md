@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `201` documented functions, `37` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `202` documented functions, `37` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -538,6 +538,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 </table>
 
 
+## gs_instance_layout.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_instance_layout.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_hlod_level_tint_color(vec3 p_color, uint p_level)</code></pre></td>
+      <td>HLOD level debug view (RenderParams.debug_hlod_level_tint). Palette by node height: 0 (leaf) green, 1 blue, 2 yellow, 3 orange, 4 red, 5+ purple. The splat's own luminance modulates the tint so structure stays readable. Object draws (GS_DRAWN_NODE_LEVEL_NONE) keep their colour.</td>
+    </tr>
+  </tbody>
+</table>
+
+
 ## gs_lighting_bridge.glsl
 
 `modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl`
@@ -868,9 +890,9 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Total overlap records in the sorted buffer</td>
     </tr>
     <tr>
-      <td><pre><code>_pad_overlap</code></pre></td>
+      <td><pre><code>debug_hlod_level_tint</code></pre></td>
       <td><pre><code>uint</code></pre></td>
-      <td>std140 padding</td>
+      <td>Nonzero tints HLOD splats by draw-record level (debug view; was std140 padding)</td>
     </tr>
     <tr>
       <td><pre><code>cull_far_tolerance</code></pre></td>

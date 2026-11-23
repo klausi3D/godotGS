@@ -220,6 +220,7 @@ GS_DEBUG_OVERLAY_SETTER_IMPL(show_tile_grid)
 GS_DEBUG_OVERLAY_SETTER_IMPL(show_overflow_tiles)
 GS_DEBUG_OVERLAY_SETTER_IMPL(show_projection_issues)
 GS_DEBUG_OVERLAY_SETTER_IMPL(show_white_albedo)
+GS_DEBUG_OVERLAY_SETTER_IMPL(show_hlod_level_tint)
 GS_DEBUG_OVERLAY_SETTER_IMPL(show_density_heatmap)
 GS_DEBUG_OVERLAY_SETTER_IMPL(show_shadow_opacity)
 
@@ -262,6 +263,7 @@ bool DebugOverlaySystem::has_active_overlays() const {
            options.show_overflow_tiles ||
            options.show_projection_issues ||
            options.show_white_albedo ||
+           options.show_hlod_level_tint ||
            options.show_density_heatmap ||
            options.show_shadow_opacity ||
            options.show_resolve_input ||
