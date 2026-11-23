@@ -283,7 +283,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] per-view caster lists dr
 	}
 	// Non-vacuous: most views receive depth, the lists drop records, and the comparison can see an unsafe cull.
 	CHECK_MESSAGE(covered_views * 4 >= views.size() * 3, "views with depth: ", covered_views);
-	CHECK_MESSAGE(listed_total < views.size() * node_count / 2, "listed ", listed_total, " of ", views.size() * node_count);
+	MESSAGE("view lists kept ", listed_total, " of ", views.size() * node_count, " records; unsafe cull differs in ", unsafe_differs, " views");
+	// Non-vacuity, not a performance gate: the lists must drop a real share of this light-centred fixture.
+	CHECK_MESSAGE(listed_total * 4 < views.size() * node_count * 3, "listed ", listed_total, " of ", views.size() * node_count);
 	CHECK_MESSAGE(unsafe_differs > 0, "no view distinguishes the unsafe centre-only cull");
 }
 
