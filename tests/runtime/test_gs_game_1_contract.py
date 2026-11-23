@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 import contextlib
 import importlib.util
+import math
 import sys
 import re
 import tempfile
@@ -289,6 +290,31 @@ class ContractTests(unittest.TestCase):
         # The verdict logic is unchanged: it never reads the added field.
         verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
         self.assertNotIn("viewport_gpu_ms", verdict_text)
+
+    def test_l2_spot_lights_what_pose_a_sees(self):
+        # L2 measures spot shadows at pose A. A spot aimed at (0, 0, -10) lit nothing
+        # visible from there (a splat wall at about z = 13 hides that ground), so the
+        # row read 0 shadow pixels however the shadow path behaved. Like omni[0], the
+        # spot must light the splats facing the pose-A camera: its cone must reach the eye.
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        number = r"(-?\d+(?:\.\d+)?)"
+        vector = rf"Vector3\({number}, {number}, {number}\)"
+
+        def vec(match, at=0):
+            return [float(match.group(at + k)) for k in (1, 2, 3)]
+
+        pose = script.split("func _pose_a() -> void:", 1)[1].split("\nfunc ", 1)[0]
+        eye = vec(re.search(rf"_camera\.look_at_from_position\({vector}", pose))
+        position = vec(re.search(rf"\n\t_spot\.position = {vector}\n", script))
+        target = vec(re.search(rf"\n\t_spot\.look_at\({vector}, Vector3\.UP\)\n", script))
+        spot_range = float(re.search(rf"\n\t_spot\.spot_range = {number}\n", script).group(1))
+        self.assertNotIn("_spot.spot_angle", script, "the cone check assumes Godot's default 45 degree spot angle")
+        axis = [t - p for t, p in zip(target, position)]
+        to_eye = [e - p for e, p in zip(eye, position)]
+        length = lambda v: sum(c * c for c in v) ** 0.5
+        cosine = sum(a * b for a, b in zip(axis, to_eye)) / (length(axis) * length(to_eye))
+        self.assertGreater(cosine, math.cos(math.radians(45.0)), "pose-A eye is outside the spot cone")
+        self.assertLess(length(to_eye), spot_range, "pose-A eye is beyond the spot range")
 
     def test_postflight_finalizes_before_artifacts(self):
         text = (ROOT / ".github/workflows/gs_game_1.yml").read_text(encoding="utf-8")

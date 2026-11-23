@@ -185,7 +185,9 @@ func _build() -> String:
 	_spot.spot_range = 40
 	_spot.position = Vector3(0, 8, -6)
 	_scene.add_child(_spot)
-	_spot.look_at(Vector3(0, 0, -10), Vector3.UP)
+	# L2 reads the spot at pose A. Aim it at the pose-A eye, as omni[0] lights the
+	# splats facing the camera: the ground at (0, 0, -10) is hidden from pose A.
+	_spot.look_at(Vector3(0, 3, 24), Vector3.UP)
 	_spot.light_energy = 0 # L2 isolates it in its diagnostic pass.
 	return ""
 
