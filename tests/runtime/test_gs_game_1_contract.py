@@ -235,16 +235,28 @@ class ContractTests(unittest.TestCase):
         self.assertIn('for row in ["W3", "O2", "W4"]:', rows)
         self.assertNotIn('obs.get("stats", {}).get("hlod_drawn_node_ids", [])', rows)
 
-    def test_r1_expects_only_levels_reachable_for_the_region(self):
-        # expected_lods listed every level of the tree; levels 5 and 7 never drew
-        # at any tau, so R1 could never be complete.
+    def test_r1_expected_levels_come_from_the_tree_never_from_the_sweep(self):
+        # PR #1532 review: expected_lods built from what the tau sweep drew let a
+        # level the sweep never reached (5 and 7 locally) drop out of the oracle, so
+        # the remaining levels could PASS. ADR §7 R1 is "at every LOD level".
         regions = self._harness_function("_regions_rows")
         sweep = regions.split("for tau in [", 1)
         self.assertEqual(len(sweep), 2)
         before, inside = sweep[0], sweep[1].split('_raw["rows"]["R1"]', 1)[0]
-        self.assertNotIn("expected_lods.append", before)
-        self.assertIn("expected_lods.append(level)", inside)
-        self.assertIn("_has_region(pages, node, target)", inside)
+        # Derived once, before any tau, from the tree's nodes and the asset's region volume.
+        self.assertRegex(before, r"var tree = _region_levels\(await _native\(\"_test_gs_game_1_observe\"\), \"mid\"\)\n")
+        self.assertIn('var expected_lods: Array = tree.get("levels", [])', before)
+        self.assertNotRegex(inside, r"expected_lods\s*(\.append|=|\+=)")
+        self.assertNotIn("_has_region(", inside)
+        levels = self._harness_function("_region_levels")
+        self.assertIn('.get_basename() + ".manifest.json"', levels)
+        self.assertIn('obs.get("nodes", [])', levels)
+        self.assertNotIn("hlod_drawn_node_ids", levels)
+        self.assertNotIn("_drawn_", levels)
+        # An unreached level is named and makes the row NOT_RUN, never PASS.
+        tail = regions.split('_raw["rows"]["R1"]', 1)[1]
+        self.assertIn('"unreached_lods": unreached', tail)
+        self.assertIn('"not_run_reason"', tail)
 
     def test_p1_reports_viewport_gpu_time_beside_the_gs_pass_time(self):
         sample = self._harness_function("_sample_frames")

@@ -40,7 +40,7 @@ def record():
                "native_reference_frame": {"frame": 21, "drawn_digest": "abc"}, "changed_pixels": [0], "first_frame_after_admission": True,
                "divisor": 8, "reference_divisor": 1, "same_pose": True, "same_drawn_digest": True},
         "R1": {"lods": [{"level": 0, "region_pixels": 8, "tinted_pixels": 8, "foreign_pixels": 0}],
-               "expected_lods": [0]},
+               "expected_lods": [0], "expected_source": "tree_region_volume"},
         "R2": {"set_frame": 20, "same_frame_effect": True, "survives_far_evict_near": True},
         "R3": {"hidden_region_sort_records": 0, "hidden_region_shadow_pixels": 0,
                "visible_region_records": 4},
@@ -191,6 +191,29 @@ class VerdictTests(unittest.TestCase):
         r["rows"]["P2"]["measurement"]["off"] = frames()
         r["rows"]["P2"]["measurement"]["off"][0]["gpu_frame_valid"] = False
         self.assertEqual(self.evaluate(r)["rows"]["P2"]["state"], "NOT_RUN")
+
+    def test_r1_skipped_level_never_passes(self):
+        # PR #1532 review: a level the sweep never reached must stay missing coverage.
+        good = {"level": 0, "region_pixels": 8, "tinted_pixels": 8, "foreign_pixels": 0}
+        # (a) The tree expects 0, 5 and 7; only 0 was measured: NOT_RUN naming 5 and 7.
+        r = record()
+        r["rows"]["R1"]["measurement"] = {"lods": [good], "expected_lods": [0, 5, 7], "expected_source": "tree_region_volume"}
+        out = self.evaluate(r)["rows"]["R1"]
+        self.assertEqual(out["state"], "NOT_RUN")
+        self.assertIn("[5, 7]", out["measurement"]["reason"])
+        # (b) An expected set that is not tree-derived (the circular sweep-derived one)
+        # cannot pass, even when it equals what was measured.
+        for source in (None, "sweep"):
+            r = record()
+            m = {"lods": [good], "expected_lods": [0]}
+            if source:
+                m["expected_source"] = source
+            r["rows"]["R1"]["measurement"] = m
+            self.assertEqual(self.evaluate(r)["rows"]["R1"]["state"], "NOT_RUN", source)
+        # (c) A measured level outside the tree's set is not coverage either.
+        r = record()
+        r["rows"]["R1"]["measurement"]["lods"].append(dict(good, level=3))
+        self.assertEqual(self.evaluate(r)["rows"]["R1"]["state"], "NOT_RUN")
 
     def test_l2_missing_shadow_is_fail(self):
         r = record()
