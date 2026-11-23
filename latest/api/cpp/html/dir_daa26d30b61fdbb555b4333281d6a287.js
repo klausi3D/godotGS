@@ -42,6 +42,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "hlod_node_streamer.cpp", "hlod__node__streamer_8cpp.html", "hlod__node__streamer_8cpp" ],
     [ "hlod_node_streamer.h", "hlod__node__streamer_8h.html", "hlod__node__streamer_8h" ],
     [ "hlod_shadow_caster_plan.h", "hlod__shadow__caster__plan_8h.html", "hlod__shadow__caster__plan_8h" ],
+    [ "hlod_shadow_face_cull.h", "hlod__shadow__face__cull_8h.html", "hlod__shadow__face__cull_8h" ],
     [ "hlod_shadow_refresh.h", "hlod__shadow__refresh_8h.html", "hlod__shadow__refresh_8h" ],
     [ "hlod_world_instances.h", "hlod__world__instances_8h.html", "hlod__world__instances_8h" ],
     [ "instance_pipeline_contract.h", "instance__pipeline__contract_8h.html", "instance__pipeline__contract_8h" ],

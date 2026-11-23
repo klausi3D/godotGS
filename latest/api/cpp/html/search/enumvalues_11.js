@@ -126,8 +126,11 @@ var searchData=
   ['submit_5ftoo_5flarge_123',['SUBMIT_TOO_LARGE',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa9e538626926f13a081adf92a1024baef',1,'PayloadReadService']]],
   ['submitted_124',['SUBMITTED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a68b3434545536be2c3310cd8c714aa6f',1,'GaussianSplatting']]],
   ['success_125',['SUCCESS',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946ad0749aaba8b833466dfcbb0428e4f89c',1,'GaussianRenderPipeline::StageResult']]],
-  ['sync_5fcompleted_126',['SYNC_COMPLETED',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99',1,'gpu_sorting_pipeline_interfaces.h']]],
-  ['sync_5ffallback_5ffailed_127',['SYNC_FALLBACK_FAILED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a5dd2a9d54d9f6a2c57e38bae9af1ee4a',1,'GaussianSplatting']]],
-  ['sync_5ffallback_5fok_128',['SYNC_FALLBACK_OK',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a66d4a96af07ba30bc58429286a3b25aa',1,'GaussianSplatting']]],
-  ['synchronization_129',['SYNCHRONIZATION',['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180a8a98c80f69eb6125f41189d4d30343a9',1,'RenderingError']]]
+  ['support_5flocal_5fsphere_126',['SUPPORT_LOCAL_SPHERE',['../namespacegs__shadow__face__cull.html#a3a45704828d7a23165854f8b54aa2009a244d34a513b93507d4a70287ec6c5eb0',1,'gs_shadow_face_cull']]],
+  ['support_5funknown_127',['SUPPORT_UNKNOWN',['../namespacegs__shadow__face__cull.html#a3a45704828d7a23165854f8b54aa2009aa3d61fd1ae85274ff8efea2ab201ba6c',1,'gs_shadow_face_cull']]],
+  ['support_5fworld_5fnode_5faabb_128',['SUPPORT_WORLD_NODE_AABB',['../namespacegs__shadow__face__cull.html#a3a45704828d7a23165854f8b54aa2009a9f2e467064e36ae896c90b76c064db56',1,'gs_shadow_face_cull']]],
+  ['sync_5fcompleted_129',['SYNC_COMPLETED',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sync_5ffallback_5ffailed_130',['SYNC_FALLBACK_FAILED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a5dd2a9d54d9f6a2c57e38bae9af1ee4a',1,'GaussianSplatting']]],
+  ['sync_5ffallback_5fok_131',['SYNC_FALLBACK_OK',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a66d4a96af07ba30bc58429286a3b25aa',1,'GaussianSplatting']]],
+  ['synchronization_132',['SYNCHRONIZATION',['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180a8a98c80f69eb6125f41189d4d30343a9',1,'RenderingError']]]
 ];

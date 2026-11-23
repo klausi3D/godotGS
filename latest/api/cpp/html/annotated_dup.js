@@ -310,6 +310,11 @@ var annotated_dup =
       [ "FrameStats", "structgs__shadow__caster_1_1FrameStats.html", "structgs__shadow__caster_1_1FrameStats" ],
       [ "LightFrameStats", "structgs__shadow__caster_1_1LightFrameStats.html", "structgs__shadow__caster_1_1LightFrameStats" ]
     ] ],
+    [ "gs_shadow_face_cull", "namespacegs__shadow__face__cull.html", [
+      [ "Snapshot", "structgs__shadow__face__cull_1_1Snapshot.html", "structgs__shadow__face__cull_1_1Snapshot" ],
+      [ "View", "structgs__shadow__face__cull_1_1View.html", "structgs__shadow__face__cull_1_1View" ],
+      [ "ListStats", "structgs__shadow__face__cull_1_1ListStats.html", "structgs__shadow__face__cull_1_1ListStats" ]
+    ] ],
     [ "gs_shadow_refresh", "namespacegs__shadow__refresh.html", [
       [ "Geometry", "structgs__shadow__refresh_1_1Geometry.html", "structgs__shadow__refresh_1_1Geometry" ],
       [ "PublishedContent", "structgs__shadow__refresh_1_1PublishedContent.html", "structgs__shadow__refresh_1_1PublishedContent" ],

@@ -3,7 +3,7 @@ var searchData=
   ['uint_0',['uint',['../namespacegs__overlap__drop.html#ae9b88bca686c230ee1b94d8fdb015cbe',1,'gs_overlap_drop::uint'],['../namespacegs__splat__ref.html#a191aa2dfe0e99af442cea7247344bf42',1,'gs_splat_ref::uint']]],
   ['unattributed_5fbytes_1',['unattributed_bytes',['../structDeviceVramLedger_1_1Snapshot.html#a7d1117b795ad702d99376cd40f4a56d4',1,'DeviceVramLedger::Snapshot']]],
   ['unavailable_2',['UNAVAILABLE',['../classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044ac144e18ed4771716d74548350a5a6ffe',1,'gs_hlod_runtime::CutHistory']]],
-  ['unbounded_3',['unbounded',['../structgs__world__writer_1_1Limits.html#ab61089a87c8e6c561d344557b9d392bd',1,'gs_world_writer::Limits']]],
+  ['unbounded_3',['unbounded',['../structgs__shadow__face__cull_1_1ListStats.html#a00e2c4861790b9e1d0a6debb76a64ede',1,'gs_shadow_face_cull::ListStats::unbounded'],['../structgs__world__writer_1_1Limits.html#ab61089a87c8e6c561d344557b9d392bd',1,'gs_world_writer::Limits::unbounded()']]],
   ['unchanged_4',['UNCHANGED',['../namespacegs__hlod__bundle.html#ade33512ce6b6d854bb1b8ed4965ad05da46335765005ff44b1fe1e38e5d2ddfcc',1,'gs_hlod_bundle']]],
   ['unclamped_5ftotal_5',['unclamped_total',['../structGaussianSplatting_1_1IndirectDispatchLayout.html#ae5b9d116690f3dd2eab730d75d32bd2d',1,'GaussianSplatting::IndirectDispatchLayout']]],
   ['unhandled_5fkey_5finput_6',['unhandled_key_input',['../classGaussianSplatPerformanceOverlay.html#ab200c834efc544ece4c36dae48485751',1,'GaussianSplatPerformanceOverlay']]],

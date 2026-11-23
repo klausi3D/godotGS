@@ -30,5 +30,6 @@ var searchData=
   ['stylepreset_27',['StylePreset',['../classPainterlyMaterial.html#a16d60e38368200c91d13eed76502a2f7',1,'PainterlyMaterial']]],
   ['subgroupprefixmode_28',['SubgroupPrefixMode',['../structGPUSortingConfig.html#abe79287de1d3073e1a23585da1959b1e',1,'GPUSortingConfig']]],
   ['submissionresidencyhint_29',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]],
-  ['submitresult_30',['SubmitResult',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82ea',1,'PayloadReadService']]]
+  ['submitresult_30',['SubmitResult',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82ea',1,'PayloadReadService']]],
+  ['supportkind_31',['SupportKind',['../namespacegs__shadow__face__cull.html#a3a45704828d7a23165854f8b54aa2009',1,'gs_shadow_face_cull']]]
 ];

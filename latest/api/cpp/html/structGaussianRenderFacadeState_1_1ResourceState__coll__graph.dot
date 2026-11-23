@@ -44,23 +44,26 @@ digraph "GaussianRenderFacadeState::ResourceState"
   Node13 -> Node1 [id="edge12_Node000001_Node000013",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_shadow_index</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node13 [id="Node000013",label="gs_shadow_refresh::\lContentIndex",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__refresh_1_1ContentIndex.html",tooltip=" "];
-  Node14 -> Node1 [id="edge13_Node000001_Node000014",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_shadow_caster</TD></TR>
+  Node14 -> Node1 [id="edge13_Node000001_Node000014",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_shadow_face_cull</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node14 [id="Node000014",label="gs_shadow_face_cull\l::Snapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__face__cull_1_1Snapshot.html",tooltip=" "];
+  Node15 -> Node1 [id="edge14_Node000001_Node000015",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_shadow_caster</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_stats</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node14 [id="Node000014",label="gs_shadow_caster::FrameStats",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1FrameStats.html",tooltip=" "];
-  Node15 -> Node1 [id="edge14_Node000001_Node000015",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shadow_light_stats</TD></TR>
+  Node15 [id="Node000015",label="gs_shadow_caster::FrameStats",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1FrameStats.html",tooltip=" "];
+  Node16 -> Node1 [id="edge15_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shadow_light_stats</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node15 [id="Node000015",label="gs_shadow_caster::LightFrame\lStats",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightFrameStats.html",tooltip=" "];
-  Node16 -> Node1 [id="edge15_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shadow_light_snapshot</TD></TR>
+  Node16 [id="Node000016",label="gs_shadow_caster::LightFrame\lStats",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightFrameStats.html",tooltip=" "];
+  Node17 -> Node1 [id="edge16_Node000001_Node000017",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shadow_light_snapshot</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node16 [id="Node000016",label="gs_shadow_caster::LightFrame\lStats::Snapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html",tooltip=" "];
-  Node17 -> Node1 [id="edge16_Node000001_Node000017",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_shadow_rows_snapshot</TD></TR>
+  Node17 [id="Node000017",label="gs_shadow_caster::LightFrame\lStats::Snapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html",tooltip=" "];
+  Node18 -> Node1 [id="edge17_Node000001_Node000018",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_shadow_rows_snapshot</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node17 [id="Node000017",label="gs_shadow_caster::RowSync\lSnapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1RowSyncSnapshot.html",tooltip=" "];
-  Node18 -> Node1 [id="edge17_Node000001_Node000018",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
+  Node18 [id="Node000018",label="gs_shadow_caster::RowSync\lSnapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1RowSyncSnapshot.html",tooltip=" "];
+  Node19 -> Node1 [id="edge18_Node000001_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node18 [id="Node000018",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
-  Node19 -> Node1 [id="edge18_Node000001_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">region_override_buffer</TD></TR>
+  Node19 [id="Node000019",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
+  Node20 -> Node1 [id="edge19_Node000001_Node000020",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">region_override_buffer</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node19 [id="Node000019",label="GSRegionOverrideBuffer",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGSRegionOverrideBuffer.html",tooltip=" "];
+  Node20 [id="Node000020",label="GSRegionOverrideBuffer",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGSRegionOverrideBuffer.html",tooltip=" "];
 }

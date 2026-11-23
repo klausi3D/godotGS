@@ -82,6 +82,7 @@ var namespaces_dup =
       [ "GS_MAX_TILE_KEY_TILE_MASK", "namespacegs__overlap__drop.html#af56ee38e198d2d479b3058395255d592", null ]
     ] ],
     [ "gs_shadow_caster", "namespacegs__shadow__caster.html", "namespacegs__shadow__caster" ],
+    [ "gs_shadow_face_cull", "namespacegs__shadow__face__cull.html", "namespacegs__shadow__face__cull" ],
     [ "gs_shadow_refresh", "namespacegs__shadow__refresh.html", "namespacegs__shadow__refresh" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
     [ "gs_splat_identity", "namespacegs__splat__identity.html", "namespacegs__splat__identity" ],

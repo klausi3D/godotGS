@@ -30,7 +30,7 @@ var searchData=
   ['shcompressionmetrics_27',['SHCompressionMetrics',['../structSHCompressionMetrics.html',1,'']]],
   ['shconfig_28',['SHConfig',['../structSHConfig.html',1,'']]],
   ['slice_29',['Slice',['../structGSUploadSizing_1_1Slice.html',1,'GSUploadSizing']]],
-  ['snapshot_30',['Snapshot',['../structDeviceVramLedger_1_1Snapshot.html',1,'DeviceVramLedger::Snapshot'],['../structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html',1,'gs_shadow_caster::LightFrameStats::Snapshot'],['../structStreamingLatencyHistogram_1_1Snapshot.html',1,'StreamingLatencyHistogram::Snapshot'],['../structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html',1,'StreamingUploadPipeline::PackTelemetry::Snapshot']]],
+  ['snapshot_30',['Snapshot',['../structDeviceVramLedger_1_1Snapshot.html',1,'DeviceVramLedger::Snapshot'],['../structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html',1,'gs_shadow_caster::LightFrameStats::Snapshot'],['../structgs__shadow__face__cull_1_1Snapshot.html',1,'gs_shadow_face_cull::Snapshot'],['../structStreamingLatencyHistogram_1_1Snapshot.html',1,'StreamingLatencyHistogram::Snapshot'],['../structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html',1,'StreamingUploadPipeline::PackTelemetry::Snapshot']]],
   ['snapshotasset_31',['SnapshotAsset',['../structgs__hlod__runtime_1_1SnapshotAsset.html',1,'gs_hlod_runtime']]],
   ['snapshotinstance_32',['SnapshotInstance',['../structgs__hlod__runtime_1_1SnapshotInstance.html',1,'gs_hlod_runtime']]],
   ['sortbenchmarktimingmetrics_33',['SortBenchmarkTimingMetrics',['../structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html',1,'GaussianSplatting']]],

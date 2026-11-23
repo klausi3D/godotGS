@@ -13,5 +13,6 @@ var structGsSplatShadowCaster_1_1Inputs =
     [ "perspective", "structGsSplatShadowCaster_1_1Inputs.html#ae99d3c511b6acab7bf580b74042e27d0", null ],
     [ "region_override_buffer", "structGsSplatShadowCaster_1_1Inputs.html#a1f9997016c486f83bd2202b64f578f98", null ],
     [ "row_casts", "structGsSplatShadowCaster_1_1Inputs.html#a1d91c203917731feca8e1d5704bf35a2", null ],
-    [ "slot_stride", "structGsSplatShadowCaster_1_1Inputs.html#ab8a5c83ec2bee76acc71454a36c985cd", null ]
+    [ "slot_stride", "structGsSplatShadowCaster_1_1Inputs.html#ab8a5c83ec2bee76acc71454a36c985cd", null ],
+    [ "view_draws", "structGsSplatShadowCaster_1_1Inputs.html#a81ab06b91faeb8ae6184fc1fe70f5632", null ]
 ];
