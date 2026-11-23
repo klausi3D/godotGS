@@ -324,6 +324,24 @@ public:
 #ifdef TESTS_ENABLED
 	void test_set_require_contiguous(bool p_enabled) { allocator.test_set_require_contiguous(p_enabled); }
 	void test_reverse_free_pages() { allocator.test_reverse_free_pages(); }
+	// GS-GAME-1 churn diagnosis (read-only): why a RESIDENT node is still held. Every input of is_protected() and of
+	// evict_for()'s least-recently-drawn order.
+	struct TestHold {
+		uint32_t leases = 0, sibling_leases = 0;
+		uint64_t last_drawn_frame = 0;
+		bool drawn_this_frame = false, edit_hold = false, pinned_root = false;
+	};
+	bool test_hold(uint32_t p_node, TestHold &r_hold) const {
+		if (p_node >= uint32_t(nodes.size())) { return false; }
+		const Node &n = nodes[p_node];
+		r_hold.leases = n.leases;
+		r_hold.sibling_leases = n.sibling_leases;
+		r_hold.last_drawn_frame = n.last_drawn_frame;
+		r_hold.drawn_this_frame = n.protected_frame == current_frame;
+		r_hold.edit_hold = n.edit_hold;
+		r_hold.pinned_root = cfg.pin_root && p_node == 0;
+		return true;
+	}
 #endif
 	uint32_t pages_for(uint32_t p_node) const { return p_node < uint32_t(nodes.size()) ? nodes[p_node].pages : 0; }
 	// 1 per node = RESIDENT. Copy-on-write shared with the selector's snapshot.

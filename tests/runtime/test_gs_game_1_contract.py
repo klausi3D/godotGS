@@ -260,8 +260,40 @@ class ContractTests(unittest.TestCase):
         self.assertIn('_raw["rows"]["W1"]["not_run_reason"] = reason', identity)
         self.assertIn('_raw["rows"]["C1"] = {"not_run_reason": reason}', identity)
         self.assertIn('_raw["rows"]["R2"] = {"not_run_reason":', self._harness_function("_regions_rows"))
-        # The scene's atlas budget and the churn poses are unchanged (P1/M1 keep them).
-        self.assertIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+        # The churn stands behind the pose-A camera and looks away from what pose A
+        # draws: poses looking through the centre redrew pose A's nodes, so the LRU
+        # (atlas full, no leases) kept them.
+        self.assertIn("for pose in _churn_poses():", churn)
+        self.assertIn("Vector3(pose.x, 1, pose.z) + outward * 100", churn)
+        poses = self._harness_function("_churn_poses")
+        self.assertIn("for radius in [230.0, 180.0, 120.0, 60.0]:", poses)
+        self.assertIn("var angle = deg_to_rad(15.0 * step)", poses)  # Within 60 degrees of +z.
+        self.assertIn("for step in range(-4, 5):", poses)
+        self.assertIn("if radius < 130 and absi(step) > 3:", poses)
+        self.assertNotIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+        # The scene's atlas budget is unchanged (P1/M1 keep it): the churn sets nothing.
+        self.assertNotIn("_setting(", churn)
+        self.assertNotIn("atlas_vram_budget", churn)
+        # Per-pose residency counters tell an LRU from pinned or leaked nodes.
+        self.assertIn('"residency": _churn_counters(obs, ids)', churn)
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        for key in ("hlod_stream_pages_free", "hlod_stream_evicted_total", "hlod_stream_allocation_refused_total",
+                    "hlod_stream_allocation_protected_capacity_total"):
+            self.assertIn(f'"{key}"', script)
+        counters = self._harness_function("_churn_counters")
+        for key in ("leases", "edit_hold", "drawn_this_frame", "last_drawn_frame"):
+            self.assertIn(f'"{key}": hold.get("{key}")', counters)
+        bridge = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp").read_text(encoding="utf-8")
+        self.assertIn("residency.test_hold(node, hold)", bridge)
+        # Eviction is forced only through the residency's own evict() (refuses protected
+        # nodes), after page pressure, for pose-A nodes still resident; recorded per pose.
+        self.assertIn('forced = await _native("_test_gs_game_1_evict", [still])', churn)
+        self.assertIn('"absent_before_forcing": lru_evicted, "forced": forced', churn)
+        evict = bridge.split("Dictionary GaussianSplatRenderer::_test_gs_game_1_evict(", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("state.hlod_streamer->_test_evict_node(node) == OK", evict)
+        streamer = (ROOT / "modules/gaussian_splatting/renderer/hlod_node_streamer.cpp").read_text(encoding="utf-8")
+        self.assertIn("return residency.evict(p_node) ? OK : ERR_BUSY;", streamer)
+        self.assertIn('ClassDB::bind_method(D_METHOD("_test_gs_game_1_evict", "nodes")', bridge)
 
     def test_w4_probes_are_in_view_and_a_missing_row_names_why(self):
         # Locally all 64 W4 probes came from the first drawn node, outside the

@@ -411,6 +411,39 @@ func _pages(obs: Dictionary, ids: Array = []) -> Array:
 	return pages
 
 
+# ADR §7 W1 step 3: "Force eviction of the drawn set (page-budget churn). Pre-occupy
+# the freed runs so readmission lands on different pages."
+#
+# Why page pressure alone did not evict it (run 45231549548: 16/62), measured locally
+# with the per-pose counters below: the atlas was full (0 free pages, refusals only
+# "pending retire"), no pose-A node held a lease or an edit hold, and every pose-A
+# node that survived had been drawn again by the churn. The LRU kept what was still
+# drawn, correctly; nothing was pinned. Churn views that avoid pose A entirely (the
+# arcs below) stopped redrawing it, but their new demand ran out before the LRU
+# reached the last pose-A nodes (43-60 of 62).
+#
+# So the churn keeps the page pressure (the arcs keep the atlas full and pre-occupy
+# every freed page) and forces the eviction itself through the residency's own
+# evict(), the call the LRU makes: _test_gs_game_1_evict, TESTS_ENABLED only. It
+# refuses protected nodes, so a node still drawn or leased stays resident and the
+# rows stay NOT_RUN. The atlas budget is unchanged.
+#
+# Pose A stands at (0, 3, 24) looking -z. Every churn camera stands on an arc in the
+# +z half and looks outward, at most 60 degrees from +z (45 on arcs nearer than
+# 130 m): a 60-degree view from 60 m redrew pose-A nodes locally.
+func _churn_poses() -> Array:
+	var poses: Array = []
+	for radius in [230.0, 180.0, 120.0, 60.0]:
+		for step in range(-4, 5):
+			if radius < 130 and absi(step) > 3:
+				continue
+			var angle = deg_to_rad(15.0 * step)
+			var pose = Vector3(radius * sin(angle), 8, radius * cos(angle))
+			if absf(pose.x) <= 250 and absf(pose.z) <= 250:
+				poses.append(pose)
+	return poses
+
+
 func _churn(before: Dictionary) -> Dictionary:
 	var ids: Array = []
 	for id in before.get("stats", {}).get("hlod_drawn_node_ids", []):
@@ -419,28 +452,72 @@ func _churn(before: Dictionary) -> Dictionary:
 	var evidence: Array = []
 	var deadline = Time.get_ticks_msec() + DEADLINE_MS
 	var last: Dictionary = {}
-	for x in [-220, -70, 90, 220]:
-		for z in [-220, -70, 90, 220]:
-			_camera.look_at_from_position(Vector3(x, 8, z), Vector3(-x * 0.7, 1, -z * 0.7), Vector3.UP)
-			var settled = await _settle()
-			var obs = await _native("_test_gs_game_1_observe")
-			last = obs
-			var evicted: Array = []
-			var occupied: Array = []
-			for node in obs.get("nodes", []):
-				if int(node["node"]) in ids and not node["resident"]:
-					evicted.append(int(node["node"]))
-				if int(node["node"]) not in ids:
-					for page in node["pages"]:
-						if int(page) in old_pages and int(page) not in occupied:
-							occupied.append(int(page))
-			evidence.append({"pose": [x, z], "settled": settled.get("ready"), "evicted": evicted, "preoccupied": occupied})
-			if not ids.is_empty() and evicted.size() == ids.size() and not old_pages.is_empty() and occupied.size() == old_pages.size():
-				return {"evicted_nodes": evicted, "preoccupied_pages": occupied, "evidence": evidence}
-			if Time.get_ticks_msec() > deadline:
-				break
+	for pose in _churn_poses():
+		var outward = Vector3(pose.x, 0, pose.z).normalized()
+		_camera.look_at_from_position(pose, Vector3(pose.x, 1, pose.z) + outward * 100, Vector3.UP)
+		var settled = await _settle()
+		var obs = await _native("_test_gs_game_1_observe")
+		# Page pressure first; then force out what it left, never a protected node.
+		var lru_evicted: Array = []
+		var still: Array = []
+		for node in obs.get("nodes", []):
+			if int(node["node"]) in ids:
+				if node["resident"]:
+					still.append(int(node["node"]))
+				else:
+					lru_evicted.append(int(node["node"]))
+		var forced: Dictionary = {}
+		if not still.is_empty():
+			forced = await _native("_test_gs_game_1_evict", [still])
+			obs = await _native("_test_gs_game_1_observe")
+		last = obs
+		var evicted: Array = []
+		var occupied: Array = []
+		for node in obs.get("nodes", []):
+			if int(node["node"]) in ids and not node["resident"]:
+				evicted.append(int(node["node"]))
+			if int(node["node"]) not in ids:
+				for page in node["pages"]:
+					if int(page) in old_pages and int(page) not in occupied:
+						occupied.append(int(page))
+		evidence.append({"pose": [int(pose.x), int(pose.z)], "settled": settled.get("ready"), "evicted": evicted,
+			"absent_before_forcing": lru_evicted, "forced": forced, "preoccupied": occupied,
+			"residency": _churn_counters(obs, ids)})
+		if not ids.is_empty() and evicted.size() == ids.size() and not old_pages.is_empty() and occupied.size() == old_pages.size():
+			return {"evicted_nodes": evicted, "preoccupied_pages": occupied, "evidence": evidence}
+		if Time.get_ticks_msec() > deadline:
+			break
 	return {"error": "full drawn-set eviction and preoccupation not observed", "evidence": evidence,
 		"not_run_reason": _churn_reason(ids, evidence, last)}
+
+
+const CHURN_COUNTERS = ["hlod_stream_pages_capacity", "hlod_stream_pages_free", "hlod_stream_pages_resident",
+	"hlod_stream_pages_retiring", "hlod_stream_evicted_total", "hlod_stream_allocation_refused_total",
+	"hlod_stream_allocation_protected_capacity_total", "hlod_stream_allocation_eviction_limit_total",
+	"hlod_stream_allocation_pending_retire_total", "hlod_stream_allocation_over_page_budget_total",
+	"hlod_stream_page_refused_groups_total", "hlod_stream_skipped_groups_total"]
+
+
+# Distinguishes an LRU whose budget never filled (free pages remain, no refusal)
+# from nodes pinned or leaked (held by leases, edit holds or stamps while the
+# allocator refuses). Reported per churn pose; changes nothing.
+func _churn_counters(obs: Dictionary, ids: Array) -> Dictionary:
+	var stats: Dictionary = obs.get("stats", {})
+	var counters: Dictionary = {}
+	for key in CHURN_COUNTERS:
+		counters[key] = stats.get(key)
+	var held: Array = []
+	var nodes: Array = obs.get("nodes", [])
+	for id in ids:
+		if id < nodes.size() and nodes[id]["resident"]:
+			var hold: Dictionary = nodes[id].get("hold", {})
+			held.append({"node": id, "level": nodes[id]["level"], "pages": nodes[id]["pages"].size(),
+				"leases": hold.get("leases"), "sibling_leases": hold.get("sibling_leases"),
+				"drawn_this_frame": hold.get("drawn_this_frame"), "edit_hold": hold.get("edit_hold"),
+				"pinned_root": hold.get("pinned_root"), "last_drawn_frame": hold.get("last_drawn_frame")})
+	counters["residency_frame"] = obs.get("residency_frame")
+	counters["pose_a_resident"] = held
+	return counters
 
 
 # Names why W1/C1/R2 cannot run: the churn never evicted the whole pose-A set.
