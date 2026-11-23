@@ -9,6 +9,8 @@ const DEADLINE_MS = 240000
 const MAX_CALIBRATION_ATTEMPTS = 8
 const CAPTURE_STRIDE = 224 # GSGame1Sample, existing layout guard + contract test.
 const VIEW = Vector2i(1920, 1080)
+const RAW_STRIDE = 176 # PackedGaussian; checked against the bridge's raw_stride.
+const PAGE_SPLATS = 1024 # GS_HLOD_PAGE_SPLATS / HlodNodeStreamer DEFAULT_PAGE_SPLATS.
 
 var _plan: Dictionary
 var _raw: Dictionary = {"rows": {}, "frames": [], "completed": false}
@@ -263,7 +265,7 @@ func _settle() -> Dictionary:
 	return {"ready": false, "reason": "HLOD settle deadline", "elapsed_ms": Time.get_ticks_msec() - start}
 
 
-func _buffer_bytes(buffer: RID) -> PackedByteArray:
+func _buffer_bytes(buffer: RID, p_offset: int = 0, p_size: int = 0) -> PackedByteArray:
 	_mail_id += 1
 	var ticket = _mail_id
 	var submission = await _render(func():
@@ -271,7 +273,7 @@ func _buffer_bytes(buffer: RID) -> PackedByteArray:
 		return rd.buffer_get_data_async(buffer, func(bytes: PackedByteArray):
 			_mail_mutex.lock()
 			_mail[ticket] = bytes
-			_mail_mutex.unlock()))
+			_mail_mutex.unlock(), p_offset, p_size))
 	if submission != OK:
 		return PackedByteArray()
 	var deadline = Time.get_ticks_msec() + DEADLINE_MS
@@ -416,11 +418,13 @@ func _churn(before: Dictionary) -> Dictionary:
 	var old_pages = _pages(before, ids)
 	var evidence: Array = []
 	var deadline = Time.get_ticks_msec() + DEADLINE_MS
+	var last: Dictionary = {}
 	for x in [-220, -70, 90, 220]:
 		for z in [-220, -70, 90, 220]:
 			_camera.look_at_from_position(Vector3(x, 8, z), Vector3(-x * 0.7, 1, -z * 0.7), Vector3.UP)
 			var settled = await _settle()
 			var obs = await _native("_test_gs_game_1_observe")
+			last = obs
 			var evicted: Array = []
 			var occupied: Array = []
 			for node in obs.get("nodes", []):
@@ -435,7 +439,32 @@ func _churn(before: Dictionary) -> Dictionary:
 				return {"evicted_nodes": evicted, "preoccupied_pages": occupied, "evidence": evidence}
 			if Time.get_ticks_msec() > deadline:
 				break
-	return {"error": "full drawn-set eviction and preoccupation not observed", "evidence": evidence}
+	return {"error": "full drawn-set eviction and preoccupation not observed", "evidence": evidence,
+		"not_run_reason": _churn_reason(ids, evidence, last)}
+
+
+# Names why W1/C1/R2 cannot run: the churn never evicted the whole pose-A set.
+# Survivors are split into drawn, ancestors of drawn (protected by design) and
+# the rest, which page pressure alone did not evict.
+func _churn_reason(ids: Array, evidence: Array, last: Dictionary) -> String:
+	var best = 0
+	for item in evidence:
+		best = maxi(best, item["evicted"].size())
+	var drawn: Array = []
+	for id in last.get("stats", {}).get("hlod_drawn_node_ids", []):
+		drawn.append(int(id))
+	var ancestors: Dictionary = {}
+	var nodes: Array = last.get("nodes", [])
+	for id in drawn:
+		var n = int(nodes[id]["parent"]) if id < nodes.size() else -1
+		while n >= 0 and n < nodes.size() and not ancestors.has(n):
+			ancestors[n] = true
+			n = int(nodes[n]["parent"])
+	var stuck = 0
+	for id in ids:
+		if id < nodes.size() and nodes[id]["resident"] and id not in drawn and not ancestors.has(id):
+			stuck += 1
+	return "churn cannot reach full eviction: %d/%d; %d non-drawn non-ancestor nodes stay resident" % [best, ids.size(), stuck]
 
 
 func _identity() -> void:
@@ -451,7 +480,10 @@ func _identity() -> void:
 		_pose_a()
 		var settled = await _settle()
 		var before = await _native("_test_gs_game_1_observe")
-		var keys = _world_keys(before)
+		var probe_pages = await _atlas_pages(before, _drawn_nodes(before))
+		# W1's wind_nonzero oracle selects its probes from these pages.
+		var missing = _atlas_missing(before, _drawn_nodes(before), probe_pages)
+		var keys = _wind_keys(before, probe_pages)
 		var capture = await _capture(keys, _regions[1]) if not keys.is_empty() else {}
 		var wind_nonzero = false
 		for sample in capture.get("samples", []):
@@ -503,7 +535,7 @@ func _identity() -> void:
 			"drawn_digest_before": before.get("stats", {}).get("hlod_drawn_node_digest"),
 			"drawn_digest_after": after.get("stats", {}).get("hlod_drawn_node_digest"),
 			"frames_compared": comparisons.size(), "changed_frames": changed, "comparisons": comparisons,
-			"baseline_sha256": _image_sha(image_a), "churn": churn})
+			"baseline_sha256": _image_sha(image_a), "churn": churn, "atlas_missing": missing})
 		if divisor == 8 and first != null and reference != null:
 			_raw["rows"]["C1"] = {"changed_pixels": [_count_diff(first, reference)],
 				"first_frame_after_admission": not first_proof.get("first_readmitted_nodes", []).is_empty(),
@@ -512,14 +544,153 @@ func _identity() -> void:
 				"same_drawn_digest": first_proof.get("drawn_digest") != null and first_proof.get("drawn_digest") == reference_proof.get("drawn_digest"),
 				"first_sha256": _image_sha(first), "reference_sha256": _image_sha(reference)}
 	_raw["rows"]["W1"] = {"arms": arms}
+	for arm in arms:
+		if not arm["atlas_missing"].is_empty():
+			_raw["rows"]["W1"]["not_run_reason"] = "W1 atlas pages not read completely: %s" % _missing_summary(arm["atlas_missing"])
+			break
+	# Without full eviction W1 and C1 have no oracle (ADR §7 W1 step 3); say why.
+	for arm in arms:
+		if arm["churn"].has("error"):
+			var reason = arm["churn"].get("not_run_reason", arm["churn"]["error"])
+			if not _raw["rows"]["W1"].has("not_run_reason"):
+				_raw["rows"]["W1"]["not_run_reason"] = reason
+			if not _raw["rows"].has("C1"):
+				_raw["rows"]["C1"] = {"not_run_reason": reason}
+			break
 
 
-func _raw_splat(bytes: PackedByteArray, node: Dictionary, local_index: int) -> Dictionary:
-	if local_index / 1024 >= node["pages"].size():
+# Reads only the atlas pages that hold the first `max_local` splats of each node
+# (0: all). A whole-buffer async readback of the ~320 MB atlas came back
+# zero-filled, so every decode saw semantic 0; a ranged read returns the record.
+func _atlas_pages(obs: Dictionary, nodes: Array, max_local: int = 64) -> Dictionary:
+	var pages: Dictionary = {}
+	if int(obs.get("raw_stride", 0)) != RAW_STRIDE or obs.get("raw_payload") != true:
+		return pages
+	var buffer: RID = obs["atlas_buffer"]
+	for node in nodes:
+		var count = int(node["splats"]) if max_local <= 0 else mini(int(node["splats"]), max_local)
+		for slot in range(mini((count + PAGE_SPLATS - 1) / PAGE_SPLATS, node["pages"].size())):
+			var page = int(node["pages"][slot])
+			if not pages.has(page):
+				var bytes = await _buffer_bytes(buffer, page * PAGE_SPLATS * RAW_STRIDE, PAGE_SPLATS * RAW_STRIDE)
+				if bytes.size() == PAGE_SPLATS * RAW_STRIDE:
+					pages[page] = bytes
+	return pages
+
+
+# What a complete `_atlas_pages(obs, nodes, max_local)` read lacks: [] when every
+# page holding the requested splats arrived at full length. A short or failed read,
+# a node with fewer allocated pages than its splats need, or no raw atlas at all is
+# missing coverage. The row that reads the pages is then NOT_RUN, never judged on
+# whatever pages remained.
+func _atlas_missing(obs: Dictionary, nodes: Array, pages: Dictionary, max_local: int = 64) -> Array:
+	if int(obs.get("raw_stride", 0)) != RAW_STRIDE or obs.get("raw_payload") != true:
+		return ["no raw atlas payload"]
+	var missing: Array = []
+	for node in nodes:
+		var count = int(node["splats"]) if max_local <= 0 else mini(int(node["splats"]), max_local)
+		var need = (count + PAGE_SPLATS - 1) / PAGE_SPLATS
+		if node["pages"].size() < need:
+			missing.append("node %d: %d/%d pages allocated" % [int(node["node"]), node["pages"].size(), need])
+		for slot in range(mini(need, node["pages"].size())):
+			var page = int(node["pages"][slot])
+			if not pages.has(page):
+				missing.append("node %d page %d" % [int(node["node"]), page])
+	return missing
+
+
+func _missing_summary(missing: Array) -> String:
+	return "%d missing (%s%s)" % [missing.size(), ", ".join(PackedStringArray(missing.slice(0, 8))), ", ..." if missing.size() > 8 else ""]
+
+
+# The drawn ids are published as null when the cut telemetry is not valid (seen
+# under the O2 forcing control); a null list is treated as no drawn nodes.
+func _drawn_ids(obs: Dictionary) -> Array:
+	var ids = obs.get("stats", {}).get("hlod_drawn_node_ids")
+	# Published as a packed array or an Array; anything else (null) is none.
+	if ids is Array or ids is PackedInt32Array or ids is PackedInt64Array:
+		return Array(ids)
+	return []
+
+
+func _drawn_nodes(obs: Dictionary) -> Array:
+	var nodes: Array = []
+	for id in _drawn_ids(obs):
+		if int(id) < obs.get("nodes", []).size():
+			nodes.append(obs["nodes"][int(id)])
+	return nodes
+
+
+# R1's expected LOD levels, from the tree and the asset alone (never the cut): the
+# levels of every node with a payload whose cell box meets the named region volume
+# recorded in the tree's own manifest. A box overlap can over-claim a level, which
+# leaves R1 NOT_RUN, never PASS.
+func _region_levels(obs: Dictionary, name: String) -> Dictionary:
+	var manifest = JSON.parse_string(FileAccess.get_file_as_string(str(_plan["world"]).get_basename() + ".manifest.json"))
+	if not manifest is Dictionary:
+		return {"error": "tree manifest unreadable"}
+	var volume = null
+	for v in manifest.get("build_params", {}).get("volumes", []):
+		if v.get("kind") == "region" and v.get("name") == name:
+			volume = v
+	if volume == null:
+		return {"error": "no region volume named " + name}
+	var t: Array = volume["transform"]
+	if t.slice(0, 9) != [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]:
+		return {"error": "region volume is not axis-aligned"}
+	var half = Vector3(volume["size"][0], volume["size"][1], volume["size"][2]) * 0.5
+	var low = Vector3(t[9], t[10], t[11]) - half
+	var high = Vector3(t[9], t[10], t[11]) + half
+	var levels: Array = []
+	var nodes: Array = obs.get("nodes", [])
+	for node in nodes:
+		var level = int(node["level"])
+		if int(node["splats"]) <= 0 or level in levels:
+			continue
+		var center = Vector3(node["center"][0], node["center"][1], node["center"][2])
+		var reach = Vector3.ONE * float(node["edge"]) * 0.5
+		var a = center - reach
+		var b = center + reach
+		if a.x <= high.x and b.x >= low.x and a.y <= high.y and b.y >= low.y and a.z <= high.z and b.z >= low.z:
+			levels.append(level)
+	levels.sort()
+	if nodes.is_empty() or levels.is_empty():
+		return {"error": "no tree node meets region " + name, "nodes": nodes.size()}
+	return {"levels": levels, "nodes": nodes.size(), "region": name, "low": [low.x, low.y, low.z], "high": [high.x, high.y, high.z]}
+
+
+
+# W1/W3 probes: leaf splats with a non-zero wind weight inside the wind fade
+# (gs_wind_distance_level_fade: full to 64 m, zero at 128 m and at height >= 4).
+# Frozen wind time leaves such splats statically displaced (ADR §7 W1 step 1).
+func _wind_keys(obs: Dictionary, pages: Dictionary, count: int = 16) -> Array:
+	var keys: Array = []
+	for id in _drawn_ids(obs):
+		var node = obs["nodes"][int(id)]
+		if int(node["level"]) != 0:
+			continue
+		for local in range(mini(int(node["splats"]), 64)):
+			var splat = _raw_splat(pages, node, local)
+			if splat.is_empty():
+				continue
+			var wind = (int(splat["semantic"]) >> 16) & 255
+			if wind > 0 and splat["position"].distance_to(_camera.global_position) < 64.0:
+				keys.append({"node": int(id), "local": local, "row": 0})
+				break
+		if keys.size() >= count:
+			break
+	return keys
+
+
+func _raw_splat(pages: Dictionary, node: Dictionary, local_index: int) -> Dictionary:
+	if local_index / PAGE_SPLATS >= node["pages"].size():
 		return {}
-	var index = int(node["pages"][local_index / 1024]) * 1024 + local_index % 1024
-	var at = index * 176
-	if at < 0 or at + 176 > bytes.size():
+	var page = int(node["pages"][local_index / PAGE_SPLATS])
+	if not pages.has(page):
+		return {}
+	var bytes: PackedByteArray = pages[page]
+	var at = (local_index % PAGE_SPLATS) * RAW_STRIDE
+	if at < 0 or at + RAW_STRIDE > bytes.size():
 		return {}
 	return {"position": _vec(bytes, at) + Vector3(node["center"][0], node["center"][1], node["center"][2]),
 		"opacity": bytes.decode_float(at + 12), "scale": _vec(bytes, at + 16),
@@ -537,7 +708,6 @@ func _wind_lod() -> void:
 	var fine = await _native("_test_gs_game_1_observe")
 	if fine.get("raw_payload") != true:
 		return
-	var bytes = await _buffer_bytes(fine["atlas_buffer"])
 	var drawn = fine.get("stats", {}).get("hlod_drawn_node_ids", [])
 	for parent in fine.get("nodes", []):
 		if not parent["resident"] or int(parent["child_count"]) == 0 or float(parent["eps"]) <= 0 or int(parent["level"]) >= 4:
@@ -549,6 +719,16 @@ func _wind_lod() -> void:
 			children.append(fine["nodes"][id])
 		if not all_drawn:
 			continue
+		# Parent: its first 64 splats; children: every splat the merge may have taken.
+		var bytes = await _atlas_pages(fine, [parent])
+		var child_bytes = await _atlas_pages(fine, children, 0)
+		# The merge oracle needs the whole child population: no truncated reads.
+		var missing = _atlas_missing(fine, [parent], bytes) + _atlas_missing(fine, children, child_bytes, 0)
+		if not missing.is_empty():
+			_raw["rows"]["W2"] = {"not_run_reason": "W2 atlas pages not read completely: %s" % _missing_summary(missing), "parent": int(parent["node"])}
+			_world.set_hlod_tau_px(0)
+			return
+		bytes.merge(child_bytes)
 		var center = Vector3(parent["center"][0], parent["center"][1], parent["center"][2])
 		for local in range(mini(int(parent["splats"]), 64)):
 			var p = _raw_splat(bytes, parent, local)
@@ -612,11 +792,24 @@ func _deformation_rows() -> void:
 	_pose_a()
 	await _settle()
 	var obs = await _native("_test_gs_game_1_observe")
-	var keys = _world_keys(obs)
+	if _drawn_ids(obs).is_empty():
+		# Seen under the O2 forcing control: the cut telemetry publishes no drawn
+		# ids, settle never completes and no probe can be selected. Name it.
+		var reason = "no drawn node ids published at pose A (cut telemetry not valid); probes cannot be selected"
+		for row in ["W3", "O2", "W4"]:
+			if not _raw["rows"].has(row):
+				_raw["rows"][row] = {"not_run_reason": reason}
+		return
+	var probe_pages = await _atlas_pages(obs, _drawn_nodes(obs))
+	# W3's world probes come from these pages; O2 uses instance probes only.
+	var w3_missing = _atlas_missing(obs, _drawn_nodes(obs), probe_pages)
+	var keys = _wind_keys(obs, probe_pages)
 	for key in obs.get("instance_probes", []):
 		if keys.size() < 64:
 			keys.append(key)
 	if keys.is_empty():
+		if not w3_missing.is_empty():
+			_raw["rows"]["W3"] = {"not_run_reason": "W3 atlas pages not read completely: %s" % _missing_summary(w3_missing)}
 		return
 	var moving = false
 	var capture = await _capture(keys, 0, -1, func():
@@ -646,7 +839,9 @@ func _deformation_rows() -> void:
 					if _objects[i].get_instance_id() == int(row_keys[row]):
 						var expected = _objects[i].global_transform * sample["local_rest"]
 						offsets.append(_camera.unproject_position(sample["colour"]).distance_to(_camera.unproject_position(expected)))
-	if not shadow_errors.is_empty():
+	if not w3_missing.is_empty():
+		_raw["rows"]["W3"] = {"not_run_reason": "W3 atlas pages not read completely: %s" % _missing_summary(w3_missing)}
+	elif not shadow_errors.is_empty():
 		_raw["rows"]["W3"] = {"errors_shadow_texels": shadow_errors, "samples": shadow_errors.size(), "capture": capture}
 	if moving and not offsets.is_empty() and not object_shadow.is_empty():
 		_raw["rows"]["O2"] = {"moving_opportunity": moving, "object_offsets_px": offsets, "caster_colour_offsets_texels": object_shadow, "capture": capture}
@@ -654,19 +849,27 @@ func _deformation_rows() -> void:
 	_camera.look_at_from_position(Vector3(0, 4, 180), Vector3(0, 1, 220), Vector3.UP)
 	await _settle()
 	obs = await _native("_test_gs_game_1_observe")
-	var bytes = await _buffer_bytes(obs["atlas_buffer"])
+	var bytes = await _atlas_pages(obs, _drawn_nodes(obs))
+	var w4_missing = _atlas_missing(obs, _drawn_nodes(obs), bytes)
+	if not w4_missing.is_empty():
+		_raw["rows"]["W4"] = {"not_run_reason": "W4 atlas pages not read completely: %s" % _missing_summary(w4_missing)}
+		return
 	keys = []
-	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
+	for id in _drawn_ids(obs):
 		var node = obs["nodes"][int(id)]
+		# One in-frustum probe per drawn node: 64 probes from the first drawn node
+		# all fell outside the view and none was colour-valid (local run, 0/64).
 		for local in range(mini(int(node["splats"]), 64)):
 			var splat = _raw_splat(bytes, node, local)
-			if not splat.is_empty() and ((int(splat["semantic"]) >> 16) & 255) == 0 and (int(splat["semantic"]) & 65535) == _regions[2]:
+			if not splat.is_empty() and ((int(splat["semantic"]) >> 16) & 255) == 0 and (int(splat["semantic"]) & 65535) == _regions[2] \
+					and _camera.is_position_in_frustum(splat["position"]):
 				keys.append({"node": int(id), "local": local, "row": 0})
-			if keys.size() == 64:
 				break
 		if keys.size() == 64:
 			break
-	if not keys.is_empty():
+	if keys.is_empty():
+		_raw["rows"]["W4"] = {"not_run_reason": "W4 found no in-frustum zero-weight rock-region probe"}
+	else:
 		capture = await _capture(keys)
 		var movement: Array = []
 		for sample in capture.get("samples", []):
@@ -674,6 +877,8 @@ func _deformation_rows() -> void:
 				movement.append(_camera.unproject_position(sample["colour"]).distance_to(_camera.unproject_position(sample["rest"])))
 		if not movement.is_empty():
 			_raw["rows"]["W4"] = {"weight_zero_displacement_px": movement, "samples": movement.size(), "capture": capture}
+		else:
+			_raw["rows"]["W4"] = {"not_run_reason": "W4 probes not colour-valid: 0/%d" % keys.size(), "capture": capture}
 
 
 func _shadow_pixels(light: Light3D) -> Dictionary:
@@ -743,15 +948,17 @@ func _regions_rows() -> void:
 		override.tint_strength = 0
 	var target = int(_regions[1])
 	var lods: Array = []
-	var expected_lods: Array = []
+	# ADR §7 R1 "at every LOD level": the levels are fixed from the tree before the
+	# sweep. A level the sweep cannot reach stays expected and is named below.
+	var tree = _region_levels(await _native("_test_gs_game_1_observe"), "mid")
+	var expected_lods: Array = tree.get("levels", [])
 	var observed_lods: Array = []
-	var obs = await _native("_test_gs_game_1_observe")
-	for node in obs.get("nodes", []):
-		if int(node["level"]) not in expected_lods:
-			expected_lods.append(int(node["level"]))
+	var obs: Dictionary = {}
 	for node in _objects:
 		node.visible = false
 	for tau in [0.05, 0.25, 1.0, 4.0, 16.0, 64.0, 256.0, 1024.0]:
+		if not expected_lods.is_empty() and expected_lods.all(func(l): return l in observed_lods):
+			break
 		_world.set_hlod_tau_px(tau)
 		await _settle()
 		obs = await _native("_test_gs_game_1_observe")
@@ -802,13 +1009,29 @@ func _regions_rows() -> void:
 				lods.append({"level": level, "region_pixels": region_pixels, "tinted_pixels": tinted, "foreign_pixels": foreign,
 					"reference_sha256": _sha(e), "actual_sha256": _sha(aa), "tau": tau, "isolated_level": level})
 
-	_raw["rows"]["R1"] = {"lods": lods, "expected_lods": expected_lods}
+	var unreached: Array = []
+	for level in expected_lods:
+		if level not in observed_lods:
+			unreached.append(level)
+	_raw["rows"]["R1"] = {"lods": lods, "expected_lods": expected_lods, "expected_source": "tree_region_volume",
+		"unreached_lods": unreached, "tree": tree}
+	if tree.has("error"):
+		_raw["rows"]["R1"]["not_run_reason"] = "R1 tree levels unknown: " + str(tree["error"])
+	elif not unreached.is_empty():
+		_raw["rows"]["R1"]["not_run_reason"] = "R1 tau sweep never drew target-region pixels at tree levels %s" % str(unreached)
 	_world.set_hlod_tau_px(0)
 	await _settle()
 	# Select actual target-region splats from resident raw pages.
 	obs = await _native("_test_gs_game_1_observe")
-	var bytes = await _buffer_bytes(obs["atlas_buffer"])
+	var bytes = await _atlas_pages(obs, _drawn_nodes(obs))
+	var missing = _atlas_missing(obs, _drawn_nodes(obs), bytes)
 	var keys: Array = []
+	if not missing.is_empty():
+		# R2's and R3's target-region probes come from these pages.
+		var reason = "atlas pages not read completely: %s" % _missing_summary(missing)
+		for row in ["R2", "R3"]:
+			_raw["rows"][row] = {"not_run_reason": row + " " + reason}
+		obs = {}
 	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
 		var node = obs["nodes"][int(id)]
 		for local in range(mini(int(node["splats"]), 64)):
@@ -832,6 +1055,8 @@ func _regions_rows() -> void:
 			_raw["rows"]["R2"] = {"set_frame": capture.get("armed_frame"),
 				"same_frame_effect": first_effect, "survives_far_evict_near": _green_capture(returned, false),
 				"first_capture": capture, "return_capture": returned, "churn": churn}
+		else:
+			_raw["rows"]["R2"] = {"not_run_reason": churn.get("not_run_reason", churn["error"]), "churn": churn}
 		for region in _regions:
 			_overrides[region].cast_shadow = int(region) == target
 		_overrides[target].opacity = 0
@@ -882,14 +1107,16 @@ void main() {
 		_stall_set = rd.uniform_set_create([uniform], _stall_shader, 0)
 		return {"ready": _stall_set.is_valid() and _stall_pipeline.is_valid()}
 	if action == "dispatch":
+		# The pipeline's push-constant block is 16 bytes (std430 rounding); a
+		# 4-byte push is refused and the dispatch never runs.
 		var push = PackedByteArray()
-		push.resize(4)
+		push.resize(16)
 		push.encode_u32(0, iterations)
 		rd.capture_timestamp("GS_GAME_1_STALL_BEGIN_%d" % serial)
 		var list = rd.compute_list_begin()
 		rd.compute_list_bind_compute_pipeline(list, _stall_pipeline)
 		rd.compute_list_bind_uniform_set(list, _stall_set, 0)
-		rd.compute_list_set_push_constant(list, push, 4)
+		rd.compute_list_set_push_constant(list, push, 16)
 		rd.compute_list_dispatch(list, 1, 1, 1)
 		rd.compute_list_end()
 		rd.capture_timestamp("GS_GAME_1_STALL_END_%d" % serial)
@@ -965,6 +1192,10 @@ func _sample_frames() -> void:
 	var ledger_peak = null
 	var ledger_verified = 0
 	var ledger_limits: Array = []
+	# The GS-pass GPU time (gpu_frame_ms) excludes Godot's own passes, shadow maps
+	# included. The viewport's whole measured GPU time is reported beside it as a
+	# separate field; P1's verdict does not read it.
+	RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
 	var start = Time.get_ticks_usec()
 	for sample in range(int(_plan["samples"])):
 		var before = Time.get_ticks_usec()
@@ -981,6 +1212,9 @@ func _sample_frames() -> void:
 		var rec = {"sample": sample, "input_digest": digest, "frame": frame,
 			"frame_ms": float(end - before) / 1000.0, "spawn": sample >= 600,
 			"gpu_frame_valid": false}
+		# Latest viewport measurement when this sample ended; it can lag the sample
+		# by the timestamp readback latency, so it is not frame-matched.
+		rec["viewport_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())
 		frames.append(rec)
 		if frame != null:
 			by_frame[int(frame)] = rec
