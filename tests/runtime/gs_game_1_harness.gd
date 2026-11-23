@@ -586,12 +586,43 @@ func _drawn_nodes(obs: Dictionary) -> Array:
 	return nodes
 
 
-func _has_region(pages: Dictionary, node: Dictionary, region: int) -> bool:
-	for local in range(int(node["splats"])):
-		var splat = _raw_splat(pages, node, local)
-		if not splat.is_empty() and (int(splat["semantic"]) & 65535) == region:
-			return true
-	return false
+# R1's expected LOD levels, from the tree and the asset alone (never the cut): the
+# levels of every node with a payload whose cell box meets the named region volume
+# recorded in the tree's own manifest. A box overlap can over-claim a level, which
+# leaves R1 NOT_RUN, never PASS.
+func _region_levels(obs: Dictionary, name: String) -> Dictionary:
+	var manifest = JSON.parse_string(FileAccess.get_file_as_string(str(_plan["world"]).get_basename() + ".manifest.json"))
+	if not manifest is Dictionary:
+		return {"error": "tree manifest unreadable"}
+	var volume = null
+	for v in manifest.get("build_params", {}).get("volumes", []):
+		if v.get("kind") == "region" and v.get("name") == name:
+			volume = v
+	if volume == null:
+		return {"error": "no region volume named " + name}
+	var t: Array = volume["transform"]
+	if t.slice(0, 9) != [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]:
+		return {"error": "region volume is not axis-aligned"}
+	var half = Vector3(volume["size"][0], volume["size"][1], volume["size"][2]) * 0.5
+	var low = Vector3(t[9], t[10], t[11]) - half
+	var high = Vector3(t[9], t[10], t[11]) + half
+	var levels: Array = []
+	var nodes: Array = obs.get("nodes", [])
+	for node in nodes:
+		var level = int(node["level"])
+		if int(node["splats"]) <= 0 or level in levels:
+			continue
+		var center = Vector3(node["center"][0], node["center"][1], node["center"][2])
+		var reach = Vector3.ONE * float(node["edge"]) * 0.5
+		var a = center - reach
+		var b = center + reach
+		if a.x <= high.x and b.x >= low.x and a.y <= high.y and b.y >= low.y and a.z <= high.z and b.z >= low.z:
+			levels.append(level)
+	levels.sort()
+	if nodes.is_empty() or levels.is_empty():
+		return {"error": "no tree node meets region " + name, "nodes": nodes.size()}
+	return {"levels": levels, "nodes": nodes.size(), "region": name, "low": [low.x, low.y, low.z], "high": [high.x, high.y, high.z]}
+
 
 
 # W1/W3 probes: leaf splats with a non-zero wind weight inside the wind fade
@@ -864,25 +895,20 @@ func _regions_rows() -> void:
 		override.tint_strength = 0
 	var target = int(_regions[1])
 	var lods: Array = []
-	var expected_lods: Array = []
+	# ADR §7 R1 "at every LOD level": the levels are fixed from the tree before the
+	# sweep. A level the sweep cannot reach stays expected and is named below.
+	var tree = _region_levels(await _native("_test_gs_game_1_observe"), "mid")
+	var expected_lods: Array = tree.get("levels", [])
 	var observed_lods: Array = []
 	var obs: Dictionary = {}
 	for node in _objects:
 		node.visible = false
 	for tau in [0.05, 0.25, 1.0, 4.0, 16.0, 64.0, 256.0, 1024.0]:
+		if not expected_lods.is_empty() and expected_lods.all(func(l): return l in observed_lods):
+			break
 		_world.set_hlod_tau_px(tau)
 		await _settle()
 		obs = await _native("_test_gs_game_1_observe")
-		# Expected levels are the ones this sweep actually draws with target-region
-		# splats in their payload, never every level of the tree (levels the cut
-		# never selects cannot be measured at any tau).
-		for node in _drawn_nodes(obs):
-			var level = int(node["level"])
-			if level in expected_lods:
-				continue
-			var pages = await _atlas_pages(obs, [node], 0)
-			if _has_region(pages, node, target):
-				expected_lods.append(level)
 		var drawn_levels: Array = []
 		for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
 			var level = int(obs["nodes"][int(id)]["level"])
@@ -930,7 +956,16 @@ func _regions_rows() -> void:
 				lods.append({"level": level, "region_pixels": region_pixels, "tinted_pixels": tinted, "foreign_pixels": foreign,
 					"reference_sha256": _sha(e), "actual_sha256": _sha(aa), "tau": tau, "isolated_level": level})
 
-	_raw["rows"]["R1"] = {"lods": lods, "expected_lods": expected_lods}
+	var unreached: Array = []
+	for level in expected_lods:
+		if level not in observed_lods:
+			unreached.append(level)
+	_raw["rows"]["R1"] = {"lods": lods, "expected_lods": expected_lods, "expected_source": "tree_region_volume",
+		"unreached_lods": unreached, "tree": tree}
+	if tree.has("error"):
+		_raw["rows"]["R1"]["not_run_reason"] = "R1 tree levels unknown: " + str(tree["error"])
+	elif not unreached.is_empty():
+		_raw["rows"]["R1"]["not_run_reason"] = "R1 tau sweep never drew target-region pixels at tree levels %s" % str(unreached)
 	_world.set_hlod_tau_px(0)
 	await _settle()
 	# Select actual target-region splats from resident raw pages.

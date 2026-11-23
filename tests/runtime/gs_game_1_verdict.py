@@ -19,6 +19,7 @@ HERE = Path(__file__).resolve().parent
 O6_LABEL = "APPROXIMATION: RTX 3080 with an 8 GB ledger cap; not the mid-range result"
 O1_STATE = "NOT EVALUATED: no triaged tolerance contract (Refs #1520)"
 MEASURED = "MEASURED (no ADR threshold)"
+R1_EXPECTED_SOURCE = "tree_region_volume"
 NO_CONTROL_PASS = "PASS (no forcing control, ADR §7)"
 ROW_IDS = ("P1", "P2", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3",
            "S1", "O1", "O2", "L1", "L2", "M1", "F3")
@@ -218,9 +219,17 @@ def judge(row, m, cap):
         # ADR §7 C1: 0 changed pixels in the first frame after admission.
         return ("PASS" if max(changed) == 0 else "FAIL"), {"changed_pixels": changed}
     if row == "R1":
+        # ADR §7 R1 "at every LOD level": the expected set must come from the tree,
+        # never from what the sweep drew, or an unreached level leaves the oracle.
+        if m.get("expected_source") != R1_EXPECTED_SOURCE:
+            raise Missing(f"R1 expected levels are not tree-derived (expected_source={m.get('expected_source')!r})")
         lods = sequence(m, "lods")
-        if sorted(number(l, "level") for l in lods) != sorted(numbers(m, "expected_lods")):
-            raise Missing("R1 missing a LOD level")
+        measured = sorted(number(l, "level") for l in lods)
+        expected = sorted(numbers(m, "expected_lods"))
+        if measured != expected:
+            missing = sorted(set(expected) - set(measured))
+            extra = sorted(set(measured) - set(expected))
+            raise Missing(f"R1 LOD levels not measured: {missing}; measured outside the tree set: {extra}")
         ok = True
         for l in lods:
             eligible = number(l, "region_pixels", positive=True)
