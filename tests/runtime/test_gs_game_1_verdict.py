@@ -264,8 +264,12 @@ class VerdictTests(unittest.TestCase):
             line = next(s for s in text.splitlines() if s.startswith(f"| {row} |"))
             quote = line.split("|")[3].strip()
             self.assertEqual(result["rows"][row]["adr_threshold"], quote)
-        expectations = json.loads((HERE / "gs_game_1_expectations.json").read_text())
+        expectations = json.loads((HERE / "gs_game_1_expectations.json").read_text(encoding="utf-8"))
         self.assertNotIn("upload_threshold", expectations)
+        # The control column too: a rewritten ADR control must reach the contract.
+        for row, contract in expectations["rows"].items():
+            line = next(s for s in text.splitlines() if s.startswith(f"| {row} |"))
+            self.assertEqual(contract["control_verbatim"], line.split("|")[4].strip(), row)
 
 
 if __name__ == "__main__":

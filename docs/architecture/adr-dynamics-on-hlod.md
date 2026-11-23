@@ -300,7 +300,7 @@ resident [I]. 20 bits would cost 32 MiB per world. Decided: 16 bits (O3).
 #### 6.3.1 Displacement [P]
 
 ```
-d(x_rest, t) = dir × A_row × W(splat) × F(x_rest, t) × fade(distance, level)
+d(x_rest, t) = dir × A_row × W(splat) × F(x_rest, t) × fade(distance)
 F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 ```
 
@@ -313,8 +313,19 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
   - A merged splat sits at the weighted mean of its members (`merge.cpp:468`) [V].
   - For a field whose wavelength is much longer than the node extent, its displacement equals the
     weighted mean of its children's to first order.
-  - For coarse nodes this no longer holds, so `fade` drives the weight to 0 above a level or
-    distance (Fortnite's WPO distance cutoff [Ext]). Coarse nodes with weight 0 are allowed.
+  - `fade` depends on **distance only** (owner, 2026-11-23): full weight to 64 m, 0 at 128 m
+    (Fortnite's WPO distance cutoff [Ext]). It never depends on the node's level. HLOD ties the
+    level to distance, so a level fade would change the amplitude whenever the cut switches LOD:
+    a parent would pop against the children it replaces.
+  - **Accepted approximation:** a coarse node drawn inside the fade (for example near the camera
+    under budget pressure) sways with its merged weight, the first-order weighted mean of its
+    members. Where its extent approaches the wavelength this differs from its children's mean
+    displacement; that error is accepted, not faded out.
+  - Superseded (WP2 W-S): a level ramp `1 - height/4` on top of the distance fade. It gave every
+    parent 25 % less amplitude than its children, against the first-order equality above. With a
+    non-vacuous probe (a height-1 parent 12 m from pose A), W2 measured 3.15 px with it
+    (parent 9.45 px, leaf children 12.60 px) and 0.001 px without it (local RTX 3090 run,
+    2026-11-23; not lane evidence).
 - **`W(splat)`:**
   - With `semantic_valid`, it is the baked `wind_weight`.
   - Without it (legacy), a **world** row does not sway under active project wind (O4). Wind is
@@ -374,7 +385,7 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 
 | Step | Content | Format | Effect |
 | --- | --- | --- | --- |
-| **W-S (S–M)** | Position phase without jitter; per-row opt-in, global refusal removed; global `D_max` inflation; caster deformation; distance and level fade; tie-break and caches per §6.5 | **none** | Wind runs on streamed worlds immediately, uniformly per row (legacy weight) |
+| **W-S (S–M)** | Position phase without jitter; per-row opt-in, global refusal removed; global `D_max` inflation; caster deformation; distance fade (§6.3.1; the level fade was removed 2026-11-23); tie-break and caches per §6.5 | **none** | Wind runs on streamed worlds immediately, uniformly per row (legacy weight) |
 | **W-F (M, inside WP3)** | Baked wind weight; `max_wind_weight` per node; node-scaled inflation | layout v2, GSQ v2, rebake | Trunks and rocks stay still while leaves sway; tighter bounds |
 
 ### 6.4 Runtime recolour, tint, emissive and hide (D4)
@@ -615,7 +626,7 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 | P2 | Dynamics overhead: dynamics on versus off, ratio over identical samples (percentiles are not additive) | ≤ +1.5 ms p95 | — (ratio row) |
 | H1 | Holes: `nonresident_drawn`; G16 missing-node fraction after settle | 0 / 0 % | a forced non-resident draw |
 | W1 | **Wind identity oracle** (below) | **0 changed frames** | forcing switch: address-keyed phase and tie-break restored |
-| W2 | Wind LOD consistency: parent displacement versus the weighted mean of its children, below the fade level | ≤ 0.5 px | fade disabled at coarse levels |
+| W2 | Wind LOD consistency: parent displacement versus the weighted mean of its children, inside the distance fade (children moving ≥ 1 px) | ≤ 0.5 px | parent-child agreement broken: interior nodes held still while leaves sway |
 | W3 | Wind shadow phase: caster displacement versus colour displacement | ≤ 1 shadow texel | caster without deformation |
 | W4 | Rigid region: splats with weight 0 move | 0 px | legacy opacity stiffness forced |
 | C1 | SH cache after readmission: pixels of a readmitted node versus a divisor-1 render of the same pose and drawn set | 0 changed pixels in the first frame after admission | invalidation switched off |
@@ -656,7 +667,7 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 | --- | --- | --- | --- | --- | --- |
 | WP0 | This ADR and the owner decisions in §11 | S | R0 | — | — |
 | **WP1** | SH colour cache cleared on atlas run (re)assignment (#1502; lands with this record, O10). Subpixel history and the tie-break from `(node index, local index)` follow if not in that change | **S** | R3 (renderer/shader) | no | — (can run in parallel with M3; it touches no world-cache source) |
-| **WP2 (W-S)** | Position phase without jitter; per-row wind and effector opt-in, global refusal removed; global `D_max` bound inflation; caster deformation with the frame's wind time; distance and level fade | **S–M** | R3 | no | WP1 (for W1); #1424 merged first (same caster code) |
+| **WP2 (W-S)** | Position phase without jitter; per-row wind and effector opt-in, global refusal removed; global `D_max` bound inflation; caster deformation with the frame's wind time; distance fade (§6.3.1) | **S–M** | R3 | no | WP1 (for W1); #1424 merged first (same caster code) |
 | **WP3 (format step)** | Layout v2 (`semantic`); GSQ v2 plane; V4 `max_wind_weight`; merge key `(cell, region)` and wind-weight aggregation; bake input (region and wind volumes, PLY properties); island extraction; pack into GPU padding; F3 measurement on T0 | **M** (M–L with tools) | R3 (format, bake) | **yes, once** | M3 done; format freeze between M3 and WP3 |
 | WP4 | Override table, application points, caster hide, public API (§6.4), doc classes | M | R3 + public API | no (needs WP3 data) | WP3 |
 | WP5 | Island authoring and helper (placement manifest → nodes) | S–M | R2 (editor) / R3 (bake side is inside WP3) | — | WP3 |

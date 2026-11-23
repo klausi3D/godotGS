@@ -51,9 +51,11 @@ float gs_wind_phase_noise(vec3 scene_rest_position) {
     return (lower * (1.0 - f.y) + upper * f.y) * 6.28318530718;
 }
 
-// Explicit W-S constants: full wind through 64 m, zero at 128 m; node height
-// 0 (leaf) has full weight, height >=4 has zero. Object rows have no HLOD
-// height and pass 0. This fade changes amplitude only, never the rest field.
+// Distance only (ADR dynamics §6.3.1, owner 2026-11-23): full wind through
+// 64 m, zero at 128 m. The node height never scales it: HLOD ties height to
+// distance, so a level fade would pop at every LOD switch, and a parent must
+// match its children's weighted mean to first order (§7 W2). `level` is used
+// only by the W2 forcing control below. The fade changes amplitude only.
 float gs_wind_distance_level_fade(vec3 rest_from_camera, uint level) {
 #ifdef GS_TESTS_ENABLED
 #ifdef GS_TEST_COARSE_FADE_ZERO
@@ -67,9 +69,7 @@ float gs_wind_distance_level_fade(vec3 rest_from_camera, uint level) {
 #endif
     float distance_to_camera = sqrt(rest_from_camera.x * rest_from_camera.x +
             rest_from_camera.y * rest_from_camera.y + rest_from_camera.z * rest_from_camera.z);
-    float distance_weight = clamp((128.0 - distance_to_camera) / 64.0, 0.0, 1.0);
-    float level_weight = clamp(1.0 - float(level) / 4.0, 0.0, 1.0);
-    return distance_weight * level_weight;
+    return clamp((128.0 - distance_to_camera) / 64.0, 0.0, 1.0);
 }
 
 float gs_wind_displacement_bound(float strength, float row_intensity, float effector_max_push) {
