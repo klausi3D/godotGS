@@ -56,8 +56,13 @@ float gs_wind_phase_noise(vec3 scene_rest_position) {
 // height and pass 0. This fade changes amplitude only, never the rest field.
 float gs_wind_distance_level_fade(vec3 rest_from_camera, uint level) {
 #ifdef GS_TESTS_ENABLED
-#ifdef GS_TEST_COARSE_FADE_OFF
-    if (level > 0u) { return 1.0; } // ADR §7 W2 forcing control only.
+#ifdef GS_TEST_COARSE_FADE_ZERO
+    // ADR §7 W2 forcing control only: every interior node (height > 0) is held
+    // still while leaves keep their displacement, so a height-1 parent misses the
+    // weighted mean of its leaf children by their whole displacement. The former
+    // switch (interiors at full weight) moved parent and children alike and could
+    // not turn W2 red.
+    if (level > 0u) { return 0.0; }
 #endif
 #endif
     float distance_to_camera = sqrt(rest_from_camera.x * rest_from_camera.x +

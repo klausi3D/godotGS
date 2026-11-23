@@ -701,6 +701,36 @@ func _cell(point: Vector3, center: Vector3, edge: float, eps: float) -> Vector3i
 	return Vector3i(((point - center + Vector3.ONE * edge * 0.5) / eps).floor())
 
 
+# W2 probe: a height-1 parent whose leaf children are drawn at pose A, inside the
+# wind distance fade (gs_wind_distance_level_fade: zero at 128 m), nearest first.
+# Run 45231549548 picked a parent ~270 m away: every displacement was 0, so the
+# row "passed" 0 px against 0 px. A probe whose children move less than
+# W2_MIN_CHILD_DISPLACEMENT_PX on screen is no evidence; the row is then NOT_RUN.
+const W2_MIN_CHILD_DISPLACEMENT_PX = 1.0
+const WIND_FADE_ZERO_M = 128.0
+
+
+func _w2_parents(fine: Dictionary) -> Array:
+	var drawn = _drawn_ids(fine)
+	var parents: Array = []
+	for parent in fine.get("nodes", []):
+		# Height 1: the children are leaves, so the W2 control (interiors held
+		# still) breaks the parent and not the children it is compared with.
+		if not parent["resident"] or int(parent["child_count"]) == 0 or float(parent["eps"]) <= 0 or int(parent["level"]) != 1:
+			continue
+		var center = Vector3(parent["center"][0], parent["center"][1], parent["center"][2])
+		var distance = center.distance_to(_camera.global_position)
+		if distance >= WIND_FADE_ZERO_M + float(parent["edge"]):
+			continue
+		var all_drawn = true
+		for id in range(int(parent["first_child"]), int(parent["first_child"]) + int(parent["child_count"])):
+			all_drawn = all_drawn and id in drawn
+		if all_drawn:
+			parents.append({"distance": distance, "node": parent})
+	parents.sort_custom(func(a, b): return a["distance"] < b["distance"])
+	return parents.map(func(p): return p["node"])
+
+
 func _wind_lod() -> void:
 	_pose_a()
 	_world.set_hlod_tau_px(0.1)
@@ -708,17 +738,14 @@ func _wind_lod() -> void:
 	var fine = await _native("_test_gs_game_1_observe")
 	if fine.get("raw_payload") != true:
 		return
-	var drawn = fine.get("stats", {}).get("hlod_drawn_node_ids", [])
-	for parent in fine.get("nodes", []):
-		if not parent["resident"] or int(parent["child_count"]) == 0 or float(parent["eps"]) <= 0 or int(parent["level"]) >= 4:
-			continue
+	var search_deadline = Time.get_ticks_msec() + DEADLINE_MS
+	var vacuous: Array = []
+	for parent in _w2_parents(fine):
+		if Time.get_ticks_msec() > search_deadline:
+			break
 		var children: Array = []
-		var all_drawn = true
 		for id in range(int(parent["first_child"]), int(parent["first_child"]) + int(parent["child_count"])):
-			all_drawn = all_drawn and id in drawn
 			children.append(fine["nodes"][id])
-		if not all_drawn:
-			continue
 		# Parent: its first 64 splats; children: every splat the merge may have taken.
 		var bytes = await _atlas_pages(fine, [parent])
 		var child_bytes = await _atlas_pages(fine, children, 0)
@@ -731,8 +758,11 @@ func _wind_lod() -> void:
 		bytes.merge(child_bytes)
 		var center = Vector3(parent["center"][0], parent["center"][1], parent["center"][2])
 		for local in range(mini(int(parent["splats"]), 64)):
+			if Time.get_ticks_msec() > search_deadline:
+				break
 			var p = _raw_splat(bytes, parent, local)
-			if p.is_empty():
+			# No wind weight or outside the distance fade: no displacement to compare.
+			if p.is_empty() or (int(p["semantic"]) >> 16) & 255 == 0 or p["position"].distance_to(_camera.global_position) >= WIND_FADE_ZERO_M:
 				continue
 			var cell = _cell(p["position"], center, parent["edge"], parent["eps"])
 			var keys: Array = []
@@ -761,6 +791,11 @@ func _wind_lod() -> void:
 					total += weights[k]
 			if total == 0 or child_capture.get("samples", []).size() != keys.size() or child_capture["samples"].any(func(v): return not v["colour_valid"]):
 				continue
+			var children_px = (sum / total).length()
+			if children_px < W2_MIN_CHILD_DISPLACEMENT_PX:
+				if vacuous.size() < 16:
+					vacuous.append({"parent": int(parent["node"]), "local": local, "children_displacement_px": children_px})
+				continue
 			var selected = false
 			var tau = 0.2
 			var deadline = Time.get_ticks_msec() + DEADLINE_MS
@@ -780,12 +815,22 @@ func _wind_lod() -> void:
 			for sample in parent_capture.get("samples", []):
 				if sample["colour_valid"]:
 					var delta = _camera.unproject_position(sample["colour"]) - _camera.unproject_position(sample["rest"])
+					var distance = p["position"].distance_to(_camera.global_position)
 					_raw["rows"]["W2"] = {"errors_px": [delta.distance_to(sum / total)], "samples": keys.size(),
 						"weights": weights, "parent": parent_capture, "children": child_capture,
-						"merge_eps": parent["eps"], "merge_cell": cell, "level": parent["level"]}
+						"merge_eps": parent["eps"], "merge_cell": cell, "level": parent["level"],
+						"parent_node": int(parent["node"]), "parent_local": local, "probe_distance_m": distance,
+						# Host mirror of the distance term of gs_wind_distance_level_fade.
+						"distance_fade": clampf((WIND_FADE_ZERO_M - distance) / 64.0, 0, 1),
+						"wind_weight": (int(p["semantic"]) >> 16) & 255,
+						"children_displacement_px": children_px, "parent_displacement_px": delta.length(),
+						"min_children_displacement_px": W2_MIN_CHILD_DISPLACEMENT_PX, "tau_px": tau,
+						"rejected_vacuous": vacuous}
 					_world.set_hlod_tau_px(0)
 					return
 	_world.set_hlod_tau_px(0)
+	_raw["rows"]["W2"] = {"not_run_reason": "W2 no non-vacuous probe: no height-1 parent inside the wind distance fade whose leaf children move >= %s px (ADR §7 W2)" % W2_MIN_CHILD_DISPLACEMENT_PX,
+		"rejected_vacuous": vacuous}
 
 
 func _deformation_rows() -> void:

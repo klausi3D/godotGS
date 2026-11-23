@@ -225,6 +225,30 @@ class ContractTests(unittest.TestCase):
         self.assertIn("_wind_keys(", self._harness_function("_deformation_rows"))
         self.assertNotIn("_world_keys(before)", self._harness_function("_identity"))
 
+    def test_w2_probe_is_non_vacuous_and_its_control_breaks_only_the_parent(self):
+        # Run 45231549548: the W2 parent was the first resident one in node order,
+        # ~270 m from pose A where the distance fade is 0; 0 px matched 0 px. The
+        # old control (interiors at full weight) moved parent and children alike.
+        parents = self._harness_function("_w2_parents")
+        self.assertIn('int(parent["level"]) != 1', parents)  # Leaf children only.
+        self.assertIn('parents.sort_custom(func(a, b): return a["distance"] < b["distance"])', parents)
+        w2 = self._harness_function("_wind_lod")
+        self.assertIn("for parent in _w2_parents(fine):", w2)
+        self.assertIn("if children_px < W2_MIN_CHILD_DISPLACEMENT_PX:", w2)
+        self.assertIn('"children_displacement_px": children_px', w2)
+        self.assertIn('"not_run_reason": "W2 no non-vacuous probe', w2)
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
+        floor = re.search(r"const W2_MIN_CHILD_DISPLACEMENT_PX = ([0-9.]+)", script)
+        self.assertIsNotNone(floor)
+        self.assertIn(f"W2_MIN_CHILD_DISPLACEMENT_PX = {floor.group(1)}", verdict_text)
+        shader = (ROOT / "modules/gaussian_splatting/shaders/includes/gs_deformation.glsl").read_text(encoding="utf-8")
+        control = shader.split("#ifdef GS_TEST_COARSE_FADE_ZERO", 1)[1].split("#endif", 1)[0]
+        self.assertIn("if (level > 0u) { return 0.0; }", control)
+        self.assertNotIn("GS_TEST_COARSE_FADE_OFF", shader)
+        header = (ROOT / "modules/gaussian_splatting/renderer/splat_identity_test_control.h").read_text(encoding="utf-8")
+        self.assertIn('if (force_coarse_fade_zero.load()) { result += "#define GS_TEST_COARSE_FADE_ZERO 1\\n"; }', header)
+
     def test_rows_without_full_churn_eviction_name_why(self):
         # Churn never evicts the whole pose-A set (44/63 at best locally), so W1,
         # C1 and R2 have no ADR §7 oracle; they must say so, not just be absent.

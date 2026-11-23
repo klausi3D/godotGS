@@ -33,7 +33,7 @@ def record():
         "P2": {"on": frames(13), "off": frames(12)},
         "H1": {"settled": True, "nonresident_drawn": 0, "missing_nodes": 0, "expected_nodes": 8},
         "W1": identity(),
-        "W2": {"errors_px": [0.1], "samples": 1},
+        "W2": {"errors_px": [0.1], "samples": 1, "children_displacement_px": 2.0, "distance_fade": 1.0},
         "W3": {"errors_shadow_texels": [0.1], "samples": 1},
         "W4": {"weight_zero_displacement_px": [0.0], "samples": 1},
         "C1": {"native_first_frame": {"frame": 20, "absent_at_arm": [2], "first_readmitted_nodes": [2], "drawn_digest": "abc"},
@@ -149,6 +149,26 @@ class VerdictTests(unittest.TestCase):
             r = record()
             r["rows"]["W1"]["measurement"]["arms"][0][field] = value
             self.assertNotEqual(self.evaluate(r)["rows"]["W1"]["state"], "PASS", field)
+
+    def test_w2_vacuous_probe_is_not_run_in_either_arm(self):
+        # Run 45231549548: a probe 270 m from pose A compared 0 px with 0 px and
+        # "passed"; its control could not be red either. Neither arm is evidence.
+        for arm in ("subject", "control"):
+            for field, value in (("children_displacement_px", 0.0), ("children_displacement_px", 0.999),
+                                 ("distance_fade", 0.0), ("children_displacement_px", None)):
+                with self.subTest(arm=arm, field=field, value=value):
+                    r = record()
+                    item = r["rows"]["W2"]
+                    m = item["measurement"] if arm == "subject" else item["control"]["measurement"]
+                    if value is None:
+                        del m[field]
+                    else:
+                        m[field] = value
+                    self.assertEqual(self.evaluate(r)["rows"]["W2"]["state"], "NOT_RUN")
+        # The floor itself is a pass condition, not a threshold change.
+        r = record()
+        r["rows"]["W2"]["measurement"]["children_displacement_px"] = 1.0
+        self.assertEqual(self.evaluate(r)["rows"]["W2"]["state"], "PASS")
 
     def test_c1_needs_native_first_readmission_and_reference(self):
         for field in ("native_first_frame", "native_reference_frame"):

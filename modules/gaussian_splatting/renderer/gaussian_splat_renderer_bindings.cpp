@@ -45,7 +45,7 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     using namespace GSSplatIdentityTestControl;
     set_force_address_keying(p_control == "W1");
     set_force_address_wind_phase(p_control == "W1");
-    force_coarse_fade_off.store(p_control == "W2");
+    force_coarse_fade_zero.store(p_control == "W2");
     force_caster_without_deformation.store(p_control == "W3");
     force_legacy_wind_weight.store(p_control == "W4");
     force_nonresident_draw.store(p_control == "H1");
@@ -73,7 +73,7 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     Dictionary switches;
     switches["H1"] = force_nonresident_draw.load();
     switches["W1"] = get_force_address_keying() && get_force_address_wind_phase();
-    switches["W2"] = force_coarse_fade_off.load();
+    switches["W2"] = force_coarse_fade_zero.load();
     switches["W3"] = force_caster_without_deformation.load();
     switches["W4"] = force_legacy_wind_weight.load();
     switches["C1"] = disable_cache_invalidation.load();
