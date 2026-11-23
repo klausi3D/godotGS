@@ -478,7 +478,10 @@ func _identity() -> void:
 		_pose_a()
 		var settled = await _settle()
 		var before = await _native("_test_gs_game_1_observe")
-		var keys = _wind_keys(before, await _atlas_pages(before, _drawn_nodes(before)))
+		var probe_pages = await _atlas_pages(before, _drawn_nodes(before))
+		# W1's wind_nonzero oracle selects its probes from these pages.
+		var missing = _atlas_missing(before, _drawn_nodes(before), probe_pages)
+		var keys = _wind_keys(before, probe_pages)
 		var capture = await _capture(keys, _regions[1]) if not keys.is_empty() else {}
 		var wind_nonzero = false
 		for sample in capture.get("samples", []):
@@ -530,7 +533,7 @@ func _identity() -> void:
 			"drawn_digest_before": before.get("stats", {}).get("hlod_drawn_node_digest"),
 			"drawn_digest_after": after.get("stats", {}).get("hlod_drawn_node_digest"),
 			"frames_compared": comparisons.size(), "changed_frames": changed, "comparisons": comparisons,
-			"baseline_sha256": _image_sha(image_a), "churn": churn})
+			"baseline_sha256": _image_sha(image_a), "churn": churn, "atlas_missing": missing})
 		if divisor == 8 and first != null and reference != null:
 			_raw["rows"]["C1"] = {"changed_pixels": [_count_diff(first, reference)],
 				"first_frame_after_admission": not first_proof.get("first_readmitted_nodes", []).is_empty(),
@@ -539,11 +542,16 @@ func _identity() -> void:
 				"same_drawn_digest": first_proof.get("drawn_digest") != null and first_proof.get("drawn_digest") == reference_proof.get("drawn_digest"),
 				"first_sha256": _image_sha(first), "reference_sha256": _image_sha(reference)}
 	_raw["rows"]["W1"] = {"arms": arms}
+	for arm in arms:
+		if not arm["atlas_missing"].is_empty():
+			_raw["rows"]["W1"]["not_run_reason"] = "W1 atlas pages not read completely: %s" % _missing_summary(arm["atlas_missing"])
+			break
 	# Without full eviction W1 and C1 have no oracle (ADR §7 W1 step 3); say why.
 	for arm in arms:
 		if arm["churn"].has("error"):
 			var reason = arm["churn"].get("not_run_reason", arm["churn"]["error"])
-			_raw["rows"]["W1"]["not_run_reason"] = reason
+			if not _raw["rows"]["W1"].has("not_run_reason"):
+				_raw["rows"]["W1"]["not_run_reason"] = reason
 			if not _raw["rows"].has("C1"):
 				_raw["rows"]["C1"] = {"not_run_reason": reason}
 			break
@@ -566,6 +574,31 @@ func _atlas_pages(obs: Dictionary, nodes: Array, max_local: int = 64) -> Diction
 				if bytes.size() == PAGE_SPLATS * RAW_STRIDE:
 					pages[page] = bytes
 	return pages
+
+
+# What a complete `_atlas_pages(obs, nodes, max_local)` read lacks: [] when every
+# page holding the requested splats arrived at full length. A short or failed read,
+# a node with fewer allocated pages than its splats need, or no raw atlas at all is
+# missing coverage. The row that reads the pages is then NOT_RUN, never judged on
+# whatever pages remained.
+func _atlas_missing(obs: Dictionary, nodes: Array, pages: Dictionary, max_local: int = 64) -> Array:
+	if int(obs.get("raw_stride", 0)) != RAW_STRIDE or obs.get("raw_payload") != true:
+		return ["no raw atlas payload"]
+	var missing: Array = []
+	for node in nodes:
+		var count = int(node["splats"]) if max_local <= 0 else mini(int(node["splats"]), max_local)
+		var need = (count + PAGE_SPLATS - 1) / PAGE_SPLATS
+		if node["pages"].size() < need:
+			missing.append("node %d: %d/%d pages allocated" % [int(node["node"]), node["pages"].size(), need])
+		for slot in range(mini(need, node["pages"].size())):
+			var page = int(node["pages"][slot])
+			if not pages.has(page):
+				missing.append("node %d page %d" % [int(node["node"]), page])
+	return missing
+
+
+func _missing_summary(missing: Array) -> String:
+	return "%d missing (%s%s)" % [missing.size(), ", ".join(PackedStringArray(missing.slice(0, 8))), ", ..." if missing.size() > 8 else ""]
 
 
 # The drawn ids are published as null when the cut telemetry is not valid (seen
@@ -686,7 +719,14 @@ func _wind_lod() -> void:
 			continue
 		# Parent: its first 64 splats; children: every splat the merge may have taken.
 		var bytes = await _atlas_pages(fine, [parent])
-		bytes.merge(await _atlas_pages(fine, children, 0))
+		var child_bytes = await _atlas_pages(fine, children, 0)
+		# The merge oracle needs the whole child population: no truncated reads.
+		var missing = _atlas_missing(fine, [parent], bytes) + _atlas_missing(fine, children, child_bytes, 0)
+		if not missing.is_empty():
+			_raw["rows"]["W2"] = {"not_run_reason": "W2 atlas pages not read completely: %s" % _missing_summary(missing), "parent": int(parent["node"])}
+			_world.set_hlod_tau_px(0)
+			return
+		bytes.merge(child_bytes)
 		var center = Vector3(parent["center"][0], parent["center"][1], parent["center"][2])
 		for local in range(mini(int(parent["splats"]), 64)):
 			var p = _raw_splat(bytes, parent, local)
@@ -758,11 +798,16 @@ func _deformation_rows() -> void:
 			if not _raw["rows"].has(row):
 				_raw["rows"][row] = {"not_run_reason": reason}
 		return
-	var keys = _wind_keys(obs, await _atlas_pages(obs, _drawn_nodes(obs)))
+	var probe_pages = await _atlas_pages(obs, _drawn_nodes(obs))
+	# W3's world probes come from these pages; O2 uses instance probes only.
+	var w3_missing = _atlas_missing(obs, _drawn_nodes(obs), probe_pages)
+	var keys = _wind_keys(obs, probe_pages)
 	for key in obs.get("instance_probes", []):
 		if keys.size() < 64:
 			keys.append(key)
 	if keys.is_empty():
+		if not w3_missing.is_empty():
+			_raw["rows"]["W3"] = {"not_run_reason": "W3 atlas pages not read completely: %s" % _missing_summary(w3_missing)}
 		return
 	var moving = false
 	var capture = await _capture(keys, 0, -1, func():
@@ -792,7 +837,9 @@ func _deformation_rows() -> void:
 					if _objects[i].get_instance_id() == int(row_keys[row]):
 						var expected = _objects[i].global_transform * sample["local_rest"]
 						offsets.append(_camera.unproject_position(sample["colour"]).distance_to(_camera.unproject_position(expected)))
-	if not shadow_errors.is_empty():
+	if not w3_missing.is_empty():
+		_raw["rows"]["W3"] = {"not_run_reason": "W3 atlas pages not read completely: %s" % _missing_summary(w3_missing)}
+	elif not shadow_errors.is_empty():
 		_raw["rows"]["W3"] = {"errors_shadow_texels": shadow_errors, "samples": shadow_errors.size(), "capture": capture}
 	if moving and not offsets.is_empty() and not object_shadow.is_empty():
 		_raw["rows"]["O2"] = {"moving_opportunity": moving, "object_offsets_px": offsets, "caster_colour_offsets_texels": object_shadow, "capture": capture}
@@ -801,6 +848,10 @@ func _deformation_rows() -> void:
 	await _settle()
 	obs = await _native("_test_gs_game_1_observe")
 	var bytes = await _atlas_pages(obs, _drawn_nodes(obs))
+	var w4_missing = _atlas_missing(obs, _drawn_nodes(obs), bytes)
+	if not w4_missing.is_empty():
+		_raw["rows"]["W4"] = {"not_run_reason": "W4 atlas pages not read completely: %s" % _missing_summary(w4_missing)}
+		return
 	keys = []
 	for id in _drawn_ids(obs):
 		var node = obs["nodes"][int(id)]
@@ -971,7 +1022,14 @@ func _regions_rows() -> void:
 	# Select actual target-region splats from resident raw pages.
 	obs = await _native("_test_gs_game_1_observe")
 	var bytes = await _atlas_pages(obs, _drawn_nodes(obs))
+	var missing = _atlas_missing(obs, _drawn_nodes(obs), bytes)
 	var keys: Array = []
+	if not missing.is_empty():
+		# R2's and R3's target-region probes come from these pages.
+		var reason = "atlas pages not read completely: %s" % _missing_summary(missing)
+		for row in ["R2", "R3"]:
+			_raw["rows"][row] = {"not_run_reason": row + " " + reason}
+		obs = {}
 	for id in obs.get("stats", {}).get("hlod_drawn_node_ids", []):
 		var node = obs["nodes"][int(id)]
 		for local in range(mini(int(node["splats"]), 64)):
