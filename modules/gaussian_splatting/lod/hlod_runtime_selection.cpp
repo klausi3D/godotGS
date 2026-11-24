@@ -18,7 +18,21 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	Vector<uint32_t> new_demand;
 	Vector<TransitionGroup> new_groups;
 	Vector<uint8_t> new_diagnostics;
-	if (!gs_resize_or_fail(new_demand, p_nodes, "HLOD cut demand") ||
+	Vector<float> new_fade, new_shown;
+	Vector<uint32_t> new_stamp, new_mark, new_prev;
+	Vector<FadeGroup> new_fade_groups, new_next_groups;
+	Vector<FadeMember> new_members, new_next_members;
+	const uint32_t group_cap = MIN(p_nodes, kMaxFadeGroups), member_cap = MIN(p_nodes, kMaxFadeMembers);
+	if (!gs_resize_or_fail(new_fade, p_nodes, "HLOD cut fade factors") ||
+			!gs_resize_or_fail(new_shown, p_nodes, "HLOD cut drawn weights") ||
+			!gs_resize_or_fail(new_stamp, p_nodes, "HLOD cut drawn stamps") ||
+			!gs_resize_or_fail(new_mark, p_nodes, "HLOD cut fade marks") ||
+			!gs_resize_or_fail(new_prev, p_nodes, "HLOD cut previous drawn set") ||
+			!gs_resize_or_fail(new_fade_groups, group_cap, "HLOD cut fade groups") ||
+			!gs_resize_or_fail(new_next_groups, group_cap, "HLOD cut fade groups") ||
+			!gs_resize_or_fail(new_members, member_cap, "HLOD cut fade members") ||
+			!gs_resize_or_fail(new_next_members, member_cap, "HLOD cut fade members") ||
+			!gs_resize_or_fail(new_demand, p_nodes, "HLOD cut demand") ||
 			!gs_resize_or_fail(new_groups, p_nodes, "HLOD cut transition groups") ||
 			!gs_resize_or_fail(new_diagnostics, p_nodes, "HLOD cut diagnostics") ||
 			!gs_resize_or_fail(new_heap, p_nodes, "HLOD cut heap") ||
@@ -36,6 +50,18 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	demand = std::move(new_demand);
 	demand_groups = std::move(new_groups);
 	diagnostics = std::move(new_diagnostics);
+	fade = std::move(new_fade);
+	new_stamp.fill(0);
+	new_mark.fill(0);
+	shown = std::move(new_shown);
+	drawn_stamp = std::move(new_stamp);
+	group_mark = std::move(new_mark);
+	prev_drawn = std::move(new_prev);
+	groups = std::move(new_fade_groups);
+	next_groups = std::move(new_next_groups);
+	members = std::move(new_members);
+	next_members = std::move(new_next_members);
+	prev_drawn_count = group_count = member_count = 0;
 	demand_size = 0;
 	capacity = p_nodes;
 	epoch = 0;
@@ -46,6 +72,9 @@ void CutHistory::invalidate() {
 	demand_size = 0;
 	refined.fill(0);
 	diagnostics.fill(0);
+	drawn_stamp.fill(0);
+	group_mark.fill(0);
+	prev_drawn_count = group_count = member_count = 0;
 	epoch = 0;
 }
 
@@ -55,6 +84,10 @@ uint64_t CutHistory::workspace_bytes(uint32_t p_nodes) {
 	if (!allocation_bytes(p_nodes, sizeof(uint32_t), one)) { return 0; } bytes += one * 3; // selection, positions and demand
 	if (!allocation_bytes(p_nodes, sizeof(uint64_t), one)) { return 0; } bytes += one;
 	if (!allocation_bytes(p_nodes, sizeof(TransitionGroup), one)) { return 0; } bytes += one;
+	if (!allocation_bytes(p_nodes, sizeof(float), one)) { return 0; } bytes += one * 2; // Fade factors, drawn weights (S6).
+	if (!allocation_bytes(p_nodes, sizeof(uint32_t), one)) { return 0; } bytes += one * 3; // Drawn stamps, marks, previous set.
+	if (!allocation_bytes(MIN(p_nodes, kMaxFadeGroups), sizeof(FadeGroup), one)) { return 0; } bytes += one * 2;
+	if (!allocation_bytes(MIN(p_nodes, kMaxFadeMembers), sizeof(FadeMember), one)) { return 0; } bytes += one * 2;
 	return bytes;
 }
 
@@ -65,6 +98,18 @@ uint64_t CutHistory::allocated_bytes() const {
 }
 
 CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request) {
+	if (p_request.fade_frames == 0) { return select_cut(p_data, p_request); }
+	if (epoch >= 0x7fffffffu) { invalidate(); } // Drawn stamps keep 31 epoch bits.
+	const uint64_t previous = epoch;
+	// The cut and its band fades are selected against the full caps, exactly as without the temporal fade: a fade never
+	// coarsens the cut (a fixed reserve did, and a budget-bound wall then let an object behind it show through). The old
+	// configurations of fading regions are drawn only from the headroom the cut leaves.
+	Result out = select_cut(p_data, p_request);
+	if (out.status == COMPLETE || out.status == EMPTY) { apply_temporal_fade(p_data, p_request, previous, out); }
+	return out;
+}
+
+CutHistory::Result CutHistory::select_cut(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request) {
 	Result out;
 	diagnostics.fill(0);
 	const uint32_t count = p_data.nodes.size();
@@ -152,8 +197,11 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		if (p_data.nodes[p_node].topology.child_count == 0) { return; }
 		const double e = error(p_node);
 		const bool was_refined = previous != 0 && refined[p_node] == previous;
-		if (!(e > 1.25 * p_request.tau_pixels || (was_refined && e > p_request.tau_pixels))) { return; }
-		heap.write[heap_count++] = { p_node, tie_of(p_node), e * (was_refined ? 1.25 : 1.0) };
+		// With the cross-fade the band is a blend, not hysteresis: every node above tau is a candidate.
+		const bool wanted = p_request.crossfade ? e > p_request.tau_pixels :
+				(e > kRefineBandFactor * p_request.tau_pixels || (was_refined && e > p_request.tau_pixels));
+		if (!wanted) { return; }
+		heap.write[heap_count++] = { p_node, tie_of(p_node), e * (was_refined ? kRefineBandFactor : 1.0) };
 		std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 	};
 	auto pages_of = [&](uint32_t p_node) -> uint64_t {
@@ -374,6 +422,10 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	// lower-priority group is not requested when the higher-priority one already uses the budget it needs.
 	int64_t plan_splats = 0, plan_count = 0;
 	double plan_cost = 0.0;
+	// Cross-fade (ADR 6.7): complete groups inside their band are deferred, in pop order, and admitted as fade pairs
+	// after the walk. They are stored at the back of the heap storage: each is a popped member of the cut and every
+	// heap entry is an unpopped one, so heap_count + deferred <= cut size <= node count and the two never meet.
+	uint32_t deferred = 0;
 	while (heap_count != 0) {
 		std::pop_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 		const uint32_t parent = heap[--heap_count].node;
@@ -405,6 +457,13 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		const uint32_t next_count = out.selected_count - 1 + visible_children;
 		const double next_cost = MAX(0.0, out.estimated_records - cost(parent)) + child_cost;
 		if (!std::isfinite(next_cost)) { out.status = INVALID; return out; }
+		if (complete && p_request.crossfade && error(parent) < kRefineBandFactor * p_request.tau_pixels) {
+			// Inside the band: defer before any cap or page predicate is charged; the pair is admitted, or refused,
+			// after every full refinement (below). A missing group takes the ordinary demand path instead.
+			if (heap_count >= count - deferred) { out.status = INVALID; out.selected_count = 0; return out; } // Unreachable (see above).
+			heap.write[count - 1 - deferred++] = { parent, tie_of(parent), error(parent) };
+			continue;
+		}
 		const bool pages_fit = transition_fits(parent, child_pages);
 		if (!complete) {
 			// Residency miss: the parent stays and the walk continues (unchanged). The whole transition is
@@ -462,7 +521,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		out.resident_refinement_bypass_over_budget |= out.closure_measured && out.demanded_closure_pages > out.page_budget;
 		if (previous != 0 && refined[parent] == previous) {
 			const double e = error(parent);
-			if (e > p_request.tau_pixels && e <= 1.25 * p_request.tau_pixels) {
+			if (e > p_request.tau_pixels && e <= kRefineBandFactor * p_request.tau_pixels) {
 				diagnostics.write[parent] |= HYSTERESIS_HELD;
 				++out.hysteresis_held_count;
 			}
@@ -470,6 +529,56 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		refined.write[parent] = epoch;
 		out.selected_splats = next_splats;
 		out.estimated_records = next_cost;
+	}
+	// Fade pairs (ADR 6.7), after every full refinement and in the walk's priority (pop) order. A pair keeps its parent
+	// drawn, so it charges the children on top of the current cut; the first pair that does not fit every cap stops the
+	// rest (the walk's first-refusal rule), and its parent is drawn alone.
+	for (uint32_t k = 0; k < deferred; ++k) {
+		const uint32_t parent = heap[count - 1 - k].node;
+		const double e = heap[count - 1 - k].priority;
+		const auto &n = p_data.nodes[parent].topology;
+		uint32_t children[gs_hlod::kMaxChildren];
+		uint32_t visible_children = 0;
+		uint64_t child_splats = 0, child_pages = 0;
+		double child_cost = 0.0;
+		for (uint32_t j = 0; j < n.child_count; ++j) {
+			const uint32_t child = n.first_child + j;
+			if (!visible(child)) { continue; }
+			children[visible_children++] = child;
+			child_splats += p_data.nodes[child].topology.payload_count;
+			child_pages += pages_of(child);
+			child_cost += cost(child);
+		}
+		const uint64_t next_splats = out.selected_splats + child_splats;
+		const uint32_t next_count = out.selected_count + visible_children;
+		const double next_cost = out.estimated_records + child_cost;
+		if (!std::isfinite(next_cost)) { out.status = INVALID; out.selected_count = 0; return out; }
+		const bool selection_cap_refused = next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > record_cap;
+		if (selection_cap_refused || !transition_fits(parent, child_pages)) {
+			out.budget_bound |= selection_cap_refused;
+			out.fade_refused = deferred - k;
+			refused(parent);
+			break;
+		}
+		const double t = (e - p_request.tau_pixels) / ((kRefineBandFactor - 1.0) * p_request.tau_pixels);
+		// Overlapping weights (fade_cover): the children come in to full before the parent starts to leave, so the pair
+		// never dips below one opaque layer (a plain t / 1 - t blend of two opaque layers is ~75% opaque mid-fade).
+		const float child_fade = fade_cover(t);
+		closure_pages += child_pages;
+		fade.write[parent] = fade_cover(1.0 - t);
+		diagnostics.write[parent] |= FADING;
+		for (uint32_t j = 0; j < visible_children; ++j) {
+			report_pages(children[j], RESIDENT_PAGE_ACCOUNTED);
+			selected.write[out.selected_count] = children[j];
+			selected_position.write[children[j]] = out.selected_count++;
+			fade.write[children[j]] = child_fade;
+			diagnostics.write[children[j]] |= FADING;
+		}
+		out.resident_refinement_bypass_over_budget |= out.closure_measured && out.demanded_closure_pages > out.page_budget;
+		refined.write[parent] = epoch;
+		out.selected_splats = next_splats;
+		out.estimated_records = next_cost;
+		++out.fade_pairs;
 	}
 	// Stable publication order, independent of heap storage and swap-removal order.
 	std::sort(selected.ptrw(), selected.ptrw() + out.selected_count);
@@ -491,5 +600,242 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		out.placement_reason = RESERVE_ROOT_ONLY;
 	}
 	return out;
+}
+
+// S6b temporal fade (CutRequest::fade_frames). Runs after a COMPLETE or EMPTY cut; owner thread, no allocation.
+// Notation: live = the cut of this selection with its band fades (weights in fade[] where FADING, else 1); shown = what
+// the previous selection drew (drawn_stamp, shown, prev_drawn). A group is a region (the subtree of its root) drawn as
+// fade_cover(t) x live + fade_cover(1 - t) x old, old being the configuration the region showed before it started to
+// change, frozen in the group's members. Per leaf each configuration covers once, so the blend covers between once and
+// twice and never less: no hole, and no see-through dip.
+void CutHistory::apply_temporal_fade(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request, uint64_t p_previous,
+		Result &r_out) {
+	const uint32_t count = p_data.nodes.size();
+	const uint32_t frames = p_request.fade_frames;
+	const uint32_t now = uint32_t(epoch);
+	const uint32_t prev_tag = p_previous != 0 ? uint32_t(p_previous & 0x7fffffffu) : 0x80000000u; // Unmatchable when none.
+	auto shown_last = [&](uint32_t p_node) { return (drawn_stamp[p_node] >> 1) == prev_tag; };
+	auto live_last = [&](uint32_t p_node) { return shown_last(p_node) && (drawn_stamp[p_node] & 1u); };
+	auto parent_of = [&](uint32_t p_node) {
+		const uint32_t parent = p_data.nodes[p_node].topology.parent;
+		return parent < count && parent != p_node ? parent : UINT32_MAX;
+	};
+	const uint32_t live_count = r_out.status == COMPLETE ? r_out.selected_count : 0u;
+	for (uint32_t i = 0; i < live_count; ++i) { selected_position.write[selected[i]] = i; }
+	auto in_live = [&](uint32_t p_node) {
+		const uint32_t pos = selected_position[p_node];
+		return pos < live_count && selected[pos] == p_node;
+	};
+	auto live_weight = [&](uint32_t p_node) { return diagnostics[p_node] & FADING ? fade[p_node] : 1.0f; };
+	auto age_t = [&](const FadeGroup &p_group) { return float(MIN(1.0, double(now - p_group.start + 1u) / double(frames))); };
+	// group_mark: low bits = 1 + group index of the groups of the previous selection; CANDIDATE and FINAL are scratch
+	// for this pass and are cleared before it returns.
+	constexpr uint32_t CANDIDATE = 0x80000000u, FINAL = 0x40000000u, SUBSUMED = 0x20000000u, INDEX = 0x1fffffffu;
+	// 1. Changed nodes -> candidate roots. Arrival: live now, not live before; its root is the nearest ancestor drawn
+	// before (a refinement, or a band fade starting). Departure: live before, not live now; its root is the nearest
+	// live ancestor (a merge). A change with neither (frustum entry or exit) starts nothing. Candidates use the heap
+	// storage, which select_cut no longer needs; each node is listed at most once (CANDIDATE), so count bounds them.
+	uint32_t candidate_count = 0;
+	auto add_candidate = [&](uint32_t p_node) {
+		if (group_mark[p_node] & CANDIDATE) { return; }
+		group_mark.write[p_node] |= CANDIDATE;
+		heap.write[candidate_count++].node = p_node;
+	};
+	for (uint32_t i = 0; i < live_count; ++i) {
+		const uint32_t node = selected[i];
+		if (live_last(node)) { continue; }
+		for (uint32_t a = parent_of(node); a != UINT32_MAX; a = parent_of(a)) {
+			if (shown_last(a)) { add_candidate(a); break; }
+		}
+	}
+	for (uint32_t i = 0; i < prev_drawn_count; ++i) {
+		const uint32_t node = prev_drawn[i];
+		if (!live_last(node) || in_live(node)) { continue; }
+		for (uint32_t a = parent_of(node); a != UINT32_MAX; a = parent_of(a)) {
+			if (in_live(a)) { add_candidate(a); break; }
+		}
+	}
+	// 2. Final roots: the highest candidate at or above each candidate. A change inside a region that is already fading
+	// starts nothing: it is part of that region's live configuration, drawn at fade_cover(t) over its old one, which
+	// still covers fully for the first half of the fade. A new region over fading ones subsumes them (below). Final roots
+	// go to the `tie` field from the back of the heap storage; the candidates use the `node` field from the front, so
+	// even overlapping slots never clobber each other.
+	uint32_t final_count = 0;
+	for (uint32_t c = 0; c < candidate_count; ++c) {
+		uint32_t top = heap[c].node;
+		for (uint32_t a = top; a != UINT32_MAX; a = parent_of(a)) {
+			if (group_mark[a] & (CANDIDATE | INDEX)) { top = a; }
+		}
+		if (group_mark[top] & INDEX) { continue; } // Inside (or at the root of) a fading region.
+		if (!(group_mark[top] & FINAL)) {
+			group_mark.write[top] |= FINAL;
+			heap.write[count - 1 - final_count++].tie = top;
+		}
+	}
+	auto final_root_of = [&](uint32_t p_node) {
+		uint32_t found = UINT32_MAX;
+		for (uint32_t a = p_node; a != UINT32_MAX; a = parent_of(a)) {
+			if (group_mark[a] & FINAL) { found = a; }
+		}
+		return found;
+	};
+	// Groups under a new root are subsumed: their old configuration (not their partial blend) becomes part of the new
+	// group's, so the frozen configuration of every region covers each leaf exactly once.
+	for (uint32_t g = 0; g < group_count; ++g) {
+		if (final_root_of(groups[g].root) != UINT32_MAX) { group_mark.write[groups[g].root] |= SUBSUMED; }
+	}
+	auto inside_subsumed = [&](uint32_t p_node) {
+		for (uint32_t a = p_node; a != UINT32_MAX; a = parent_of(a)) {
+			if (group_mark[a] & SUBSUMED) { return true; }
+		}
+		return false;
+	};
+	// The final root of every previously drawn node outside subsumed regions, once, in the heap storage's unused
+	// `priority` field (prev_drawn_count <= count); -1 for none.
+	for (uint32_t i = 0; final_count != 0 && i < prev_drawn_count; ++i) {
+		const uint32_t root = inside_subsumed(prev_drawn[i]) ? UINT32_MAX : final_root_of(prev_drawn[i]);
+		heap.write[i].priority = root == UINT32_MAX ? -1.0 : double(root);
+	}
+	// 3. Next group list: surviving groups (not subsumed, not finished) keep their members; new groups capture the shown
+	// configuration of their region now. Bounded: a group that does not fit the bookkeeping snaps.
+	uint32_t next_group_count = 0, next_member_count = 0;
+	const uint32_t group_cap = groups.size(), member_cap = members.size();
+	for (uint32_t g = 0; g < group_count; ++g) {
+		const FadeGroup &group = groups[g];
+		if (final_root_of(group.root) != UINT32_MAX) { continue; } // Subsumed: its members move to the new group below.
+		if (age_t(group) >= 1.0f) { continue; } // Finished: the region draws its live configuration.
+		FadeGroup kept = group;
+		kept.first_member = next_member_count;
+		for (uint32_t m = 0; m < group.member_count; ++m) { next_members.write[next_member_count++] = members[group.first_member + m]; }
+		next_groups.write[next_group_count++] = kept;
+	}
+	for (uint32_t f = 0; f < final_count; ++f) {
+		const uint32_t root = heap[count - 1 - f].tie;
+		if (next_group_count >= group_cap) { ++r_out.fade_snapped; continue; }
+		FadeGroup group;
+		group.root = root;
+		group.start = now;
+		group.first_member = next_member_count;
+		bool fits = true;
+		for (uint32_t i = 0; i < prev_drawn_count && fits; ++i) {
+			const uint32_t node = prev_drawn[i];
+			if (heap[i].priority != double(root)) { continue; }
+			if (next_member_count >= member_cap) { fits = false; break; }
+			next_members.write[next_member_count++] = { node, shown[node] };
+		}
+		for (uint32_t g = 0; g < group_count && fits; ++g) {
+			const FadeGroup &old = groups[g];
+			if (!(group_mark[old.root] & SUBSUMED) || final_root_of(old.root) != root) { continue; }
+			for (uint32_t m = 0; m < old.member_count; ++m) {
+				if (next_member_count >= member_cap) { fits = false; break; }
+				next_members.write[next_member_count++] = members[old.first_member + m];
+			}
+		}
+		group.member_count = next_member_count - group.first_member;
+		if (!fits) { next_member_count = group.first_member; ++r_out.fade_snapped; continue; }
+		if (group.member_count == 0) { continue; } // Nothing was shown there: nothing to fade from.
+		next_groups.write[next_group_count++] = group;
+	}
+	// Scratch marks off, and the index marks of the previous groups (rebuilt below for the admitted ones).
+	for (uint32_t c = 0; c < candidate_count; ++c) { group_mark.write[heap[c].node] = 0; }
+	for (uint32_t f = 0; f < final_count; ++f) { group_mark.write[heap[count - 1 - f].tie] = 0; }
+	for (uint32_t g = 0; g < group_count; ++g) { group_mark.write[groups[g].root] = 0; }
+	// 4. Admission from the headroom, oldest group first (the list keeps creation order): the old nodes a group draws on
+	// top of the cut must fit the caps together with the cut and the groups admitted before it.
+	auto node_cost = [&](uint32_t p_node) {
+		const auto &n = p_data.nodes[p_node];
+		const double dx = double(n.bounds_center.x) - p_request.camera.x;
+		const double dy = double(n.bounds_center.y) - p_request.camera.y;
+		const double dz = double(n.bounds_center.z) - p_request.camera.z;
+		const double surface = MAX(std::sqrt(dx * dx + dy * dy + dz * dz) - double(n.topology.radius), 1.0e-6);
+		const double d = MAX(surface, kCostInsideDistanceFraction * double(n.topology.radius));
+		return double(n.topology.payload_count) + n.footprint * p_request.focal_pixels * p_request.focal_pixels /
+				(d * d * p_request.tile_area);
+	};
+	auto usable = [&](const FadeMember &p_member, float p_t) {
+		const bool available = !p_request.resident || p_request.resident[p_member.node] != 0;
+		return available && !p_data.is_stale(p_member.node) && fade_cover(1.0 - p_t) * p_member.weight >= kFadeMinWeight;
+	};
+	const double record_cap = kRecordAdmissionFactor * p_request.record_budget;
+	uint64_t splats = r_out.selected_splats;
+	uint32_t nodes = live_count;
+	double records = r_out.estimated_records;
+	group_count = 0;
+	member_count = 0;
+	for (uint32_t g = 0; g < next_group_count; ++g) {
+		FadeGroup group = next_groups[g];
+		const float t = age_t(group);
+		uint64_t extra_splats = 0;
+		uint32_t extra_nodes = 0;
+		double extra_records = 0.0;
+		for (uint32_t m = 0; m < group.member_count; ++m) {
+			const FadeMember &member = next_members[group.first_member + m];
+			if (in_live(member.node) || !usable(member, t)) { continue; }
+			extra_splats += p_data.nodes[member.node].topology.payload_count;
+			extra_records += node_cost(member.node);
+			++extra_nodes;
+		}
+		if (splats + extra_splats > p_request.splat_budget || nodes + extra_nodes > p_request.node_budget ||
+				!std::isfinite(records + extra_records) || records + extra_records > record_cap) {
+			++r_out.fade_snapped; // Switched at once: the region draws its live configuration.
+			continue;
+		}
+		splats += extra_splats;
+		nodes += extra_nodes;
+		records += extra_records;
+		r_out.fade_extra_splats += extra_splats;
+		const uint32_t first = member_count;
+		for (uint32_t m = 0; m < group.member_count; ++m) { members.write[member_count++] = next_members[group.first_member + m]; }
+		group.first_member = first;
+		groups.write[group_count++] = group;
+		group_mark.write[group.root] = group_count; // 1 + index.
+	}
+	r_out.fade_groups = group_count;
+	// 5. Drawn weights. A live node inside a group region draws fade_cover(t) x its live weight, an old member
+	// fade_cover(1 - t) x its frozen weight; a node in both takes the larger. Every weight stays in [0, 1].
+	auto group_t_of = [&](uint32_t p_node) {
+		for (uint32_t a = p_node; a != UINT32_MAX; a = parent_of(a)) {
+			if (group_mark[a]) { return age_t(groups[group_mark[a] - 1]); }
+		}
+		return 1.0f;
+	};
+	for (uint32_t i = 0; i < live_count; ++i) {
+		const uint32_t node = selected[i];
+		fade.write[node] = fade_cover(group_t_of(node)) * live_weight(node);
+		diagnostics.write[node] |= FADING;
+	}
+	uint32_t drawn_count = live_count;
+	for (uint32_t g = 0; g < group_count; ++g) {
+		const FadeGroup &group = groups[g];
+		const float t = age_t(group);
+		for (uint32_t m = 0; m < group.member_count; ++m) {
+			const FadeMember &member = members[group.first_member + m];
+			if (!usable(member, t)) { continue; }
+			const float w = fade_cover(1.0 - t) * member.weight;
+			if (in_live(member.node)) {
+				// The same node in both configurations: it is one representation, drawn at the larger of its weights.
+				fade.write[member.node] = MAX(fade[member.node], w);
+				continue;
+			}
+			// Distinct from every live node and from the other groups' members (disjoint regions): drawn <= count.
+			selected.write[drawn_count++] = member.node;
+			fade.write[member.node] = w;
+			diagnostics.write[member.node] |= FADING;
+		}
+	}
+	r_out.selected_count = drawn_count;
+	r_out.selected_splats = splats;
+	r_out.estimated_records = records;
+	if (r_out.status == EMPTY && drawn_count != 0) { r_out.status = COMPLETE; }
+	// 6. Remember what was drawn: entries [0, live_count) are the live cut, the rest old members.
+	const uint32_t tag = (now & 0x7fffffffu) << 1;
+	for (uint32_t i = 0; i < drawn_count; ++i) {
+		const uint32_t node = selected[i];
+		drawn_stamp.write[node] = tag | (i < live_count ? 1u : 0u);
+		shown.write[node] = fade[node];
+		prev_drawn.write[i] = node;
+	}
+	prev_drawn_count = drawn_count;
+	std::sort(selected.ptrw(), selected.ptrw() + drawn_count); // Stable publication order.
 }
 }

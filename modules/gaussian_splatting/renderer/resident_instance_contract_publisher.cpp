@@ -3254,6 +3254,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     }
     spec.focal_pixels = std::abs(double(p_context.cull_projection.columns[1][1])) * p_context.viewport_size.y * 0.5;
     spec.tau_pixels = tau;
+    spec.crossfade = gs::settings::get_hlod_crossfade_enabled(ps);
+    spec.fade_frames = spec.crossfade ? gs_hlod_runtime::kDefaultFadeFrames : 0u;
     if (state.hlod_streaming) {
         // Plan the streamer's demand in atlas pages (ancestors of the cut included), not in splats.
         spec.page_splats = HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS;
@@ -3312,6 +3314,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         known_view.frustum_enabled = spec.frustum_enabled;
         known_view.focal_pixels = spec.focal_pixels;
         known_view.tau_pixels = spec.tau_pixels;
+        known_view.crossfade = spec.crossfade;
+        known_view.fade_frames = spec.fade_frames;
         known_view.record_budget = spec.caps.record_budget;
         known_view.tile_area = spec.tile_area;
         known_view.splat_budget = spec.caps.splat_budget;
@@ -3553,7 +3557,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // world's row (row 0, identity-placed). BV-04b: the record carries the node's HLOD level (height) so the
         // emit pass can count records per splat per level.
         const uint32_t level = input->nodes[node].topology.height;
-        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(gs_hlod_bundle::WORLD_ROW, node, outcome.records[i].camera_offset, level);
+        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(gs_hlod_bundle::WORLD_ROW, node, outcome.records[i].camera_offset, level,
+                outcome.records[i].fade);
         const uint32_t level_slot = gs_hlod_level_stat_slot(level);
         state.hlod_level_drawn_nodes[level_slot]++;
         state.hlod_level_drawn_splats[level_slot] += input->nodes[node].topology.payload_count;

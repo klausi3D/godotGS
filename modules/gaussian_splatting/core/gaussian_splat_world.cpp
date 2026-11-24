@@ -4,6 +4,7 @@
 #include "../io/gs_atomic_file_writer.h"
 #include "core/io/dir_access.h"
 #include "gaussian_splat_hlod_bake.h"
+#include "../lod/hlod_runtime_selection.h"
 #include "gaussian_splat_bake_semantics.h"
 #include "gaussian_splat_hlod_job.h"
 #include "gs_vector_alloc.h"
@@ -1264,9 +1265,11 @@ Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHl
             !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
             !charge(records.size(), sizeof(GaussianSplatHlodPagedSource::NodeRecord)) ||
             !charge(16u, p_source->get_max_record_bytes() + uint64_t(gs_hlod::kMaxNodeSplats) * 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
-            // Four complete cut histories (CutHistory::workspace_bytes is under 64 B a node), for THIS tree's node count:
-            // charging the structural node bound instead would cost every snapshot 256 MiB of the CPU budget.
-            !charge(uint64_t(hlod_tree.nodes.size()) * 4, 64)) {
+            // Four complete cut histories, for THIS tree's node count (charging the structural node bound instead would
+            // cost every snapshot 256 MiB of the CPU budget). Charged from CutHistory::workspace_bytes itself since the S6
+            // cross-fade state (drawn weights, stamps and the bounded fade groups) took it past the former 64 B a node.
+            !charge(4, gs_hlod_runtime::CutHistory::workspace_bytes(uint32_t(hlod_tree.nodes.size()))) ||
+            gs_hlod_runtime::CutHistory::workspace_bytes(uint32_t(hlod_tree.nodes.size())) == 0) {
         return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
     }
     next->source_world = Ref<Resource>(const_cast<GaussianSplatWorld *>(this));

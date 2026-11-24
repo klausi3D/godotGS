@@ -987,6 +987,12 @@ void main() {
     }
     uint identity_hash = gs_splat_identity_hash(selected_node.reserved_node_y, local_splat_index, instance.placement_key);
     vec3 hlod_camera_offset = selected.camera_offset.xyz;
+    // S6 cross-fade (ADR 6.7): a fading parent and its children are both drawn; the record's fade scales the stored
+    // opacity before every opacity consumer (alpha clip, wind/effectors, opacity-aware bounds, raster), so COUNT and
+    // EMIT see the same value. It depends on the record only, never on the atlas address (D1). Subpixel history is
+    // keyed by the identity hash and decided from the radius, so a fade never changes it. A fade of 0 never occurs
+    // (the selector admits pairs only for tau < e < h x tau); a non-finite or out-of-range value is clamped.
+    g.opacity *= clamp(selected.fade, 0.0, 1.0);
 #endif
 
     RegionOverrideGPU region_override = gs_region_resolve(instance, g.semantic, gaussian_idx);

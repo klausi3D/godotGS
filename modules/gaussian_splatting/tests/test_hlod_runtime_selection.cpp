@@ -97,11 +97,18 @@ TEST_CASE("[GaussianSplatting][HLOD] cut diagnostics distinguish history holds c
 	tree(data);
 	gs_hlod_runtime::CutHistory history;
 	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
-	// Historical workspace plus the explicitly admitted parallel transition descriptors.
-	uint64_t transitions = 0;
+	// Historical workspace plus the explicitly admitted parallel transition descriptors, and the S6 cross-fade state:
+	// fade factors and drawn weights (float), drawn stamps, marks and the previous drawn set (uint32), and the fade
+	// group and member lists, double-buffered (16 B and 8 B entries, at most kMaxFadeGroups / kMaxFadeMembers).
+	uint64_t transitions = 0, floats = 0, words = 0, fade_groups = 0, fade_members = 0;
 	CHECK(gs_hlod_runtime::allocation_bytes(7, sizeof(gs_hlod_runtime::TransitionGroup), transitions));
-	CHECK(gs_hlod_runtime::CutHistory::workspace_bytes(7) == 368 + transitions);
-	CHECK(history.allocated_bytes() == 392 + transitions); // Includes the 24-byte diagnostic allocation.
+	CHECK(gs_hlod_runtime::allocation_bytes(7, sizeof(float), floats));
+	CHECK(gs_hlod_runtime::allocation_bytes(7, sizeof(uint32_t), words));
+	CHECK(gs_hlod_runtime::allocation_bytes(7, 16, fade_groups));
+	CHECK(gs_hlod_runtime::allocation_bytes(7, 8, fade_members));
+	const uint64_t fade_state = 2 * floats + 3 * words + 2 * fade_groups + 2 * fade_members;
+	CHECK(gs_hlod_runtime::CutHistory::workspace_bytes(7) == 368 + transitions + fade_state);
+	CHECK(history.allocated_bytes() == 392 + transitions + fade_state); // Includes the 24-byte diagnostic allocation.
 	auto r = request();
 	uint8_t resident[7] = {1, 0, 1, 1, 1, 1, 1};
 	r.resident = resident; r.resident_count = 7;
@@ -1630,6 +1637,288 @@ TEST_CASE("[GaussianSplatting][HLOD] transition kinds and emission ordinals pres
 		CHECK(history.demand_transition(i).kind == (i < 2 ? TRANSITION_BOOTSTRAP : TRANSITION_REFINEMENT));
 		CHECK(history.demand_transition(i).ordinal == (i < 2 ? 0 : 2));
 		CHECK(history.demand_transition(i).parent == 1);
+	}
+}
+
+// S6 cross-fade (ADR 6.7). Draw weights of one selection: fade of every drawn node, 0 for the rest.
+static void cut_weights(const gs_hlod_runtime::CutHistory &p_history, const gs_hlod_runtime::CutHistory::Result &p_cut, float r_w[7]) {
+	for (int i = 0; i < 7; ++i) { r_w[i] = 0.0f; }
+	for (uint32_t i = 0; i < p_cut.selected_count; ++i) { r_w[p_history.selected_node(i)] = p_history.selected_fade(i); }
+}
+// Root 0 -> {1, 2}, 1 -> {3, 4}, 2 -> {5, 6}. Per leaf, the ancestor-or-self weights. Without a blend every leaf is
+// covered exactly once; a blend (fade_cover) covers it between once and twice, never less: no hole, no see-through dip.
+static float leaf_coverage(const float p_w[7], int p_leaf) { return p_w[p_leaf] + p_w[(p_leaf - 1) / 2] + p_w[0]; }
+static bool covered_once(const float p_w[7]) {
+	for (int leaf = 3; leaf < 7; ++leaf) {
+		if (std::abs(leaf_coverage(p_w, leaf) - 1.0f) > 1.0e-5f) { return false; }
+	}
+	return true;
+}
+static bool covered_once_to_twice(const float p_w[7], float p_tolerance = 1.0e-5f) {
+	for (int leaf = 3; leaf < 7; ++leaf) {
+		const float c = leaf_coverage(p_w, leaf);
+		if (c < 1.0f - p_tolerance || c > 2.0f + p_tolerance) { return false; }
+	}
+	return true;
+}
+// A slow dolly in (1% error per step) over both refinement bands. Returns the largest per-step weight change of any node.
+static float dolly_max_step(bool p_crossfade, uint32_t &r_fade_frames, bool &r_once, bool &r_once_to_twice) {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { return -1.0f; }
+	auto r = request();
+	r.crossfade = p_crossfade;
+	float prev[7], cur[7];
+	float max_step = 0.0f;
+	r_fade_frames = 0;
+	r_once = true;
+	r_once_to_twice = true;
+	bool first = true;
+	for (double f = 1.0; f < 20.0; f *= 1.01) { // Root band: 2.5 < f < 3.125; interior band: 5 < f < 6.25.
+		r.focal_pixels = f;
+		const auto cut = history.select(data, r);
+		if (cut.status != gs_hlod_runtime::CutHistory::COMPLETE) { return -1.0f; }
+		cut_weights(history, cut, cur);
+		r_once = r_once && covered_once(cur);
+		r_once_to_twice = r_once_to_twice && covered_once_to_twice(cur);
+		r_fade_frames += cut.fade_pairs != 0 ? 1u : 0u;
+		for (int i = 0; !first && i < 7; ++i) { max_step = MAX(max_step, std::abs(cur[i] - prev[i])); }
+		for (int i = 0; i < 7; ++i) { prev[i] = cur[i]; }
+		first = false;
+	}
+	return max_step;
+}
+TEST_CASE("[GaussianSplatting][HLOD] cross-fade turns the parent -> children switch of a dolly into a bounded blend (S6)") {
+	uint32_t fade_frames = 0;
+	bool once = false, once_to_twice = false;
+	// Red reference: without the cross-fade a node's weight jumps 0 -> 1 in one step (the pop).
+	const float hard = dolly_max_step(false, fade_frames, once, once_to_twice);
+	CHECK(hard == doctest::Approx(1.0f));
+	CHECK(fade_frames == 0);
+	CHECK(once);
+	const float blended = dolly_max_step(true, fade_frames, once, once_to_twice);
+	CHECK(blended >= 0.0f);
+	// 1% error change per step across a 25% band: t moves at most 0.05, fade_cover(t) at most 0.1. Never a jump.
+	CHECK(blended <= 0.1f + 1.0e-5f);
+	CHECK(fade_frames > 30); // Both bands are crossed inside the sweep.
+	CHECK(once_to_twice); // Every leaf is covered at least once at every step: no see-through mid-blend.
+	CHECK_FALSE(once); // The overlap is real: a plain t / 1 - t blend would cover exactly once (and dip in opacity).
+}
+TEST_CASE("[GaussianSplatting][HLOD] cross-fade weights follow the camera only: fixed pose, fixed blend, no history (S6)") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory warm, cold;
+	if (!warm.reserve(7) || !cold.reserve(7)) { FAIL("cut workspaces unavailable"); return; }
+	auto r = request();
+	r.crossfade = true;
+	r.focal_pixels = 15.0; // Warm history: everything refined.
+	warm.select(data, r);
+	r.focal_pixels = 2.8; // Root e = 1.12: inside its band, t = 0.48.
+	float reference[7];
+	const auto first = cold.select(data, r);
+	cut_weights(cold, first, reference);
+	CHECK(first.fade_pairs == 1);
+	CHECK(reference[0] == doctest::Approx(1.0f)); // fade_cover(0.52): the parent keeps full weight until t = 0.5.
+	CHECK(reference[1] == doctest::Approx(0.96f)); // fade_cover(0.48).
+	CHECK(reference[2] == doctest::Approx(0.96f));
+	for (int repeat = 0; repeat < 4; ++repeat) {
+		float a[7], b[7];
+		cut_weights(warm, warm.select(data, r), a); // A different history reaches the same blend at once.
+		cut_weights(cold, cold.select(data, r), b);
+		for (int i = 0; i < 7; ++i) {
+			CHECK(a[i] == reference[i]); // Bit-identical: a parked camera draws identical frames.
+			CHECK(b[i] == reference[i]);
+		}
+	}
+}
+TEST_CASE("[GaussianSplatting][HLOD] cross-fade pairs need complete children and fit every cap, else the parent is drawn alone (S6)") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.crossfade = true;
+	r.focal_pixels = 2.8; // Root in its band.
+	uint8_t resident[7] = { 1, 1, 0, 1, 1, 1, 1 };
+	r.resident = resident;
+	r.resident_count = 7;
+	auto missing = history.select(data, r);
+	CHECK(missing.fade_pairs == 0); // A fade starts only when the children are complete.
+	CHECK(missing.selected_count == 1);
+	CHECK(history.selected_fade(0) == 1.0f);
+	CHECK(history.demand_count() == 1); // The band already asks for the missing child (prefetch before the switch).
+	r.resident = nullptr;
+	r.splat_budget = 5; // Root (2) + children (2 + 2) = 6 does not fit.
+	auto refused = history.select(data, r);
+	CHECK(refused.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(refused.fade_pairs == 0);
+	CHECK(refused.fade_refused == 1);
+	CHECK(refused.budget_bound);
+	CHECK(refused.selected_count == 1);
+	CHECK(history.selected_fade(0) == 1.0f);
+	r.splat_budget = 6; // Exactly the pair.
+	auto fits = history.select(data, r);
+	CHECK(fits.fade_pairs == 1);
+	CHECK(fits.selected_splats == 6);
+	CHECK(fits.selected_count == 3);
+	// Without the cross-fade the same pose keeps the threshold hysteresis: a cold history draws the root alone.
+	gs_hlod_runtime::CutHistory hard;
+	if (!hard.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	r.crossfade = false;
+	auto plain = hard.select(data, r);
+	CHECK(plain.selected_count == 1);
+	CHECK(plain.fade_pairs == 0);
+}
+
+// S6b temporal fade. The synthetic tree with its parent links (the selector itself never reads them).
+static void parented_tree(GaussianSplatHlodRuntimeData &r_data) {
+	tree(r_data);
+	for (int i = 1; i < 7; ++i) { r_data.nodes.write[i].topology.parent = uint32_t((i - 1) / 2); }
+}
+struct FadeRun {
+	float max_step = 0.0f;
+	bool covered = true;
+	uint32_t fade_frames = 0;
+	uint32_t snapped = 0;
+	float last[7] = {};
+};
+static bool fade_step(gs_hlod_runtime::CutHistory &p_history, const GaussianSplatHlodRuntimeData &p_data,
+		const gs_hlod_runtime::CutRequest &p_request, FadeRun &r_run, bool p_first) {
+	const auto cut = p_history.select(p_data, p_request);
+	if (cut.status != gs_hlod_runtime::CutHistory::COMPLETE) { return false; }
+	float cur[7];
+	cut_weights(p_history, cut, cur);
+	// No leaf is ever covered less than once (an old node whose remaining weight falls below kFadeMinWeight is dropped:
+	// at most one per level on a path), and no node is drawn above full opacity. A band pair inside a fading region can
+	// cover a leaf more than twice for a few selections; over-coverage only adds layers of the same content.
+	for (int leaf = 3; leaf < 7; ++leaf) {
+		r_run.covered = r_run.covered && leaf_coverage(cur, leaf) >= 1.0f - 3.0f * gs_hlod_runtime::kFadeMinWeight;
+	}
+	for (int i = 0; i < 7; ++i) { r_run.covered = r_run.covered && cur[i] >= 0.0f && cur[i] <= 1.0f; }
+	r_run.fade_frames += cut.fade_groups != 0 ? 1u : 0u;
+	r_run.snapped += cut.fade_snapped;
+	for (int i = 0; i < 7; ++i) {
+		if (!p_first) { r_run.max_step = MAX(r_run.max_step, std::abs(cur[i] - r_run.last[i])); }
+		r_run.last[i] = cur[i];
+	}
+	return true;
+}
+TEST_CASE("[GaussianSplatting][HLOD] temporal fade blends a budget-driven switch over fade_frames selections (S6b)") {
+	GaussianSplatHlodRuntimeData data;
+	parented_tree(data);
+	for (const bool fading : { false, true }) {
+		gs_hlod_runtime::CutHistory history;
+		if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+		auto r = request();
+		r.focal_pixels = 15.0; // Every interior node wants refinement (e = 6 and 3); only the budget decides.
+		r.crossfade = fading;
+		r.fade_frames = fading ? 12u : 0u;
+		r.splat_budget = 3; // Root (2) only: its children (4) do not fit.
+		FadeRun run;
+		bool ok = true;
+		for (int frame = 0; frame < 3; ++frame) { ok = ok && fade_step(history, data, r, run, frame == 0); }
+		CHECK(run.last[0] == 1.0f);
+		r.splat_budget = 40; // The budget opens at a parked camera: the root -> leaves switch (two levels at once).
+		run.max_step = 0.0f;
+		for (int frame = 0; frame < 20; ++frame) { ok = ok && fade_step(history, data, r, run, false); }
+		CHECK(ok);
+		CHECK(run.covered); // Root and leaves overlap during the blend; no leaf is ever covered less than once.
+		CHECK(run.last[0] == 0.0f);
+		for (int leaf = 3; leaf < 7; ++leaf) { CHECK(run.last[leaf] == 1.0f); }
+		if (fading) {
+			CHECK(run.max_step <= 2.0f / 12.0f + 1.0e-6f); // One fade_cover step per selection, never a jump.
+			CHECK(run.fade_frames == 11); // 11 blended selections, then the leaves alone.
+			CHECK(run.snapped == 0);
+		} else {
+			CHECK(run.max_step == 1.0f); // Red reference: the hard switch.
+		}
+	}
+}
+TEST_CASE("[GaussianSplatting][HLOD] temporal fade never uncovers a leaf through nested changes, converges, and is identical once parked (S6b)") {
+	GaussianSplatHlodRuntimeData data;
+	parented_tree(data);
+	gs_hlod_runtime::CutHistory a, b;
+	if (!a.reserve(7) || !b.reserve(7)) { FAIL("cut workspaces unavailable"); return; }
+	auto r = request();
+	r.crossfade = true;
+	r.fade_frames = 12;
+	FadeRun ra, rb;
+	bool ok = true;
+	// History a: a dolly in and out (1.5% per selection) across both bands. A band lasts about 15 selections, so
+	// changes nest inside fading regions, regions subsume fading ones, and merges follow refinements on the way out.
+	r.splat_budget = 40;
+	int frame = 0;
+	for (double f = 1.0; f < 12.0; f *= 1.015, ++frame) {
+		r.focal_pixels = f;
+		ok = ok && fade_step(a, data, r, ra, frame == 0);
+	}
+	for (double f = 12.0; f > 1.0; f /= 1.015, ++frame) {
+		r.focal_pixels = f;
+		ok = ok && fade_step(a, data, r, ra, false);
+	}
+	CHECK(ok);
+	CHECK(ra.covered);
+	CHECK(ra.snapped == 0);
+	CHECK(ra.fade_frames > 0);
+	// A nested change inside a fading region joins its live side, which can still be partly drawn: bounded, well below
+	// the full step of 1 a hard switch makes.
+	CHECK(ra.max_step < 0.5f);
+	// Park both histories at one pose (b never moved). After fade_frames selections they draw identical weights, and
+	// every later selection repeats them bit for bit (the static-frame oracle).
+	r.focal_pixels = 5.6;
+	for (int k = 0; k < 13; ++k) {
+		ok = ok && fade_step(a, data, r, ra, false);
+		ok = ok && fade_step(b, data, r, rb, k == 0);
+	}
+	float parked[7];
+	for (int i = 0; i < 7; ++i) {
+		parked[i] = ra.last[i];
+		CHECK(ra.last[i] == rb.last[i]);
+	}
+	for (int k = 0; k < 5; ++k) {
+		ok = ok && fade_step(a, data, r, ra, false);
+		for (int i = 0; i < 7; ++i) { CHECK(ra.last[i] == parked[i]); }
+	}
+	CHECK(ok);
+}
+TEST_CASE("[GaussianSplatting][HLOD] temporal fade never coarsens the cut, draws old nodes from its headroom and snaps what does not fit (S6b)") {
+	GaussianSplatHlodRuntimeData data;
+	parented_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.focal_pixels = 15.0;
+	r.fade_frames = 12;
+	r.splat_budget = 3;
+	history.select(data, r); // The root alone.
+	// 40 splats: the cut refines to the four leaves (16), as without the fade. The old root (2) fits on top: a fade.
+	r.splat_budget = 40;
+	auto blended = history.select(data, r);
+	CHECK(blended.fade_groups == 1);
+	CHECK(blended.fade_snapped == 0);
+	CHECK(blended.fade_extra_splats == 2);
+	CHECK(blended.selected_splats == 18);
+	for (int k = 0; k < 12; ++k) { history.select(data, r); } // The fade completes: the leaves alone.
+	// 10 splats: the cut is {2, 3, 4} (10 splats, exactly the cap, and exactly the cut a history without the fade
+	// selects). Merging leaves 5 and 6 back into node 2 would draw them (8) on top: 18 > 10, so that region switches at
+	// once, counted, and only the cut is drawn.
+	r.splat_budget = 10;
+	auto snapped = history.select(data, r);
+	gs_hlod_runtime::CutHistory plain;
+	if (!plain.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto no_fade = r;
+	no_fade.fade_frames = 0;
+	const auto reference = plain.select(data, no_fade);
+	CHECK(snapped.fade_snapped == 1);
+	CHECK(snapped.fade_groups == 0);
+	CHECK(snapped.fade_extra_splats == 0);
+	CHECK(snapped.selected_splats == reference.selected_splats);
+	CHECK(snapped.selected_count == reference.selected_count);
+	CHECK(snapped.selected_count == 3);
+	for (uint32_t i = 0; i < snapped.selected_count; ++i) {
+		CHECK(history.selected_node(i) == plain.selected_node(i));
+		CHECK(history.selected_fade(i) == 1.0f);
 	}
 }
 }

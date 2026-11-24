@@ -201,7 +201,10 @@ inline void ContentIndex::query(uint32_t p_cell, const Vector3 &p_center, real_t
 // No camera, list upload/build counter, whole-cut revision, or dense row index in the content identity.
 inline uint64_t record_digest(const DrawnNodeGPU &p_draw, const Geometry &p_geometry, uint64_t p_row_digest) {
 	uint64_t digest = hash_value(p_row_digest, p_geometry.chunk_key);
-	digest = hash_value(digest, p_draw.fade);
+	// The caster draws a record iff fade >= GS_HLOD_SHADOW_CASTER_MIN_FADE (S6); only that predicate changes the map, so a
+	// cross-fade that moves every frame does not re-render shadows every frame.
+	const uint8_t casts = p_draw.fade >= GS_HLOD_SHADOW_CASTER_MIN_FADE ? 1u : 0u;
+	digest = hash_value(digest, casts);
 	digest = hash_value(digest, p_draw.level);
 	digest = hash_value(digest, p_geometry.payload);
 	for (int axis = 0; axis < 3; ++axis) {

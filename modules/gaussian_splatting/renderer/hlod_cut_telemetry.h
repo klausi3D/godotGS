@@ -2,6 +2,7 @@
 #define GS_HLOD_CUT_TELEMETRY_H
 
 #include "../lod/hlod_view_set.h"
+#include "core/templates/local_vector.h"
 #include "core/variant/variant.h"
 
 // Render-thread-owned, report-only snapshot of the same selection used for the world draw list.
@@ -9,6 +10,13 @@
 struct HlodCutTelemetry {
 	bool valid = false;
 	PackedInt32Array drawn_ids;
+	PackedFloat32Array drawn_fades; // Parallel to drawn_ids (sorted by id): the record's S6 fade (ADR 6.7).
+	uint32_t fade_pairs = 0;
+	uint32_t fade_refused = 0;
+	uint32_t fade_groups = 0;
+	uint32_t fade_snapped = 0;
+	uint64_t fade_snapped_total = 0; // Cumulative over captures, report only.
+	uint64_t fade_extra_splats = 0;
 	String drawn_digest;
 	PackedInt32Array hysteresis_held;
 	PackedInt32Array residency_missed;
@@ -23,6 +31,13 @@ struct HlodCutTelemetry {
 		const bool drawn_valid = valid && p_drawn_valid;
 		r_stats["hlod_drawn_node_ids"] = drawn_valid ? Variant(drawn_ids) : Variant();
 		r_stats["hlod_drawn_node_digest"] = drawn_valid ? Variant(drawn_digest) : Variant();
+		r_stats["hlod_drawn_node_fades"] = drawn_valid ? Variant(drawn_fades) : Variant();
+		r_stats["hlod_fade_pairs"] = valid ? Variant(int64_t(fade_pairs)) : Variant();
+		r_stats["hlod_fade_refused"] = valid ? Variant(int64_t(fade_refused)) : Variant();
+		r_stats["hlod_fade_groups"] = valid ? Variant(int64_t(fade_groups)) : Variant();
+		r_stats["hlod_fade_snapped"] = valid ? Variant(int64_t(fade_snapped)) : Variant();
+		r_stats["hlod_fade_snapped_total"] = Variant(int64_t(fade_snapped_total));
+		r_stats["hlod_fade_extra_splats"] = valid ? Variant(int64_t(fade_extra_splats)) : Variant();
 		r_stats["hlod_cut_hysteresis_held"] = valid ? Variant(hysteresis_held) : Variant();
 		r_stats["hlod_cut_budget_bound"] = valid ? Variant(budget_bound) : Variant();
 		r_stats["hlod_cut_first_cap_refused_node"] = valid ? Variant(first_cap_refused_node) : Variant();
@@ -43,9 +58,23 @@ struct HlodCutTelemetry {
 
 	void capture(const gs_hlod_runtime::CutHistory &p_history, const gs_hlod_runtime::CutHistory::Result &p_cut,
 			uint32_t p_nodes, const gs_hlod_runtime::DrawRecord *p_records, uint32_t p_count) {
+		// Report-only: sort ids with their record index so each fade stays with its id (a node is drawn once per cut).
+		LocalVector<uint64_t> order;
+		order.resize(p_count);
+		for (uint32_t i = 0; i < p_count; ++i) { order[i] = (uint64_t(p_records[i].node) << 32) | i; }
+		order.sort();
 		drawn_ids.resize(p_count);
-		for (uint32_t i = 0; i < p_count; ++i) { drawn_ids.set(i, int32_t(p_records[i].node)); }
-		drawn_ids.sort();
+		drawn_fades.resize(p_count);
+		for (uint32_t i = 0; i < p_count; ++i) {
+			drawn_ids.set(i, int32_t(order[i] >> 32));
+			drawn_fades.set(i, p_records[uint32_t(order[i])].fade);
+		}
+		fade_pairs = p_cut.fade_pairs;
+		fade_refused = p_cut.fade_refused;
+		fade_groups = p_cut.fade_groups;
+		fade_snapped = p_cut.fade_snapped;
+		fade_snapped_total += p_cut.fade_snapped;
+		fade_extra_splats = p_cut.fade_extra_splats;
 		// FNV-1a over sorted uint32 IDs encoded little-endian, independent of host byte order.
 		uint64_t digest = UINT64_C(14695981039346656037);
 		for (int32_t id : drawn_ids) {

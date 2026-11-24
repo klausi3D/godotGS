@@ -150,6 +150,12 @@ void main() {
         gs_caster_reject();
         return;
     }
+    // S6 cross-fade (ADR 6.7): this occluder is binary (alpha >= threshold), so a fade pair hands the shadow over at
+    // t = 0.5 instead of scaling opacity (which would open holes mid-fade). Same predicate as the refresh digest.
+    if (!(drawn.fade >= GS_HLOD_SHADOW_CASTER_MIN_FADE)) {
+        gs_caster_reject();
+        return;
+    }
     ChunkMetaGPU chunk = chunk_meta_buffer.chunk_meta[drawn.chunk_id];
     if (local_index >= chunk.splat_count) {
         gs_caster_reject();

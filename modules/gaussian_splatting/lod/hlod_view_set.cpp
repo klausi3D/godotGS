@@ -75,6 +75,8 @@ uint64_t policy_hash(const ViewSpec &p_spec, const Caps &p_instance_caps, double
 	h = mix(h, p_instance_caps.node_budget);
 	h = mix(h, bits_of(p_instance_caps.record_budget));
 	h = mix(h, bits_of(p_local_margin));
+	if (p_spec.crossfade) { h = mix(h, 0x58464144u); } // Band semantics differ (ADR 6.7); unchanged hash when off.
+	if (p_spec.fade_frames) { h = mix(h, 0x46414445u ^ p_spec.fade_frames); } // Fade length (S6b).
 	return h;
 }
 // Rank of every node's NodeKey (ties by index only when keys are identical, i.e. corrupt input).
@@ -719,6 +721,8 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			request.node_budget = std::min<uint32_t>(inst.caps.node_budget, slot.node_count);
 			request.page_splats = spec->page_splats;
 			request.page_budget = spec->page_budget;
+			request.crossfade = spec->crossfade;
+			request.fade_frames = spec->fade_frames;
 			request.tie_rank = slot.tie_rank.ptr();
 			request.tie_rank_count = slot.tie_rank.size();
 			if (asset.resident.size() != 0) {
@@ -741,6 +745,11 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.budget_bound = result.budget_bound || cut.budget_bound;
 			result.record_demand += cut.record_demand;
 			result.edit_forced = result.edit_forced || cut.edit_forced;
+			result.fade_pairs += cut.fade_pairs;
+			result.fade_refused += cut.fade_refused;
+			result.fade_groups += cut.fade_groups;
+			result.fade_snapped += cut.fade_snapped;
+			result.fade_extra_splats += cut.fade_extra_splats;
 			// An incomplete bootstrap is one bundle: demand and resident keeps must fit together.
 			// Publishing only some of its residency ownership would discard progress each frame.
 			const bool bootstrap_truncated = cut.status == CutHistory::BOOTSTRAP_MISSING_RESIDENCY &&
@@ -788,6 +797,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 						DrawRecord &rec = view.staging.write[staged];
 						rec.instance_key = inst.instance_key;
 						rec.node = slot.history.selected_node(k);
+						rec.fade = slot.history.selected_fade(k);
 						rec.version = NodeVersion{ asset.data->node_content_revision(rec.node), asset.bake_rule_revision };
 						if (!make_node_key(*asset.data.ptr(), rec.node, asset.asset_key, rec.key) ||
 								!gs_world_frame::camera_relative_offset(inst.placement, asset.data->nodes[rec.node].precise_center,
