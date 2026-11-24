@@ -1641,14 +1641,20 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 						"Global composite sort capacity %d needs a sort buffer above the RenderingDevice 32-bit size limit at radix_bits=%d workgroup_size=%d key_bits=%d, so no sorter can be built for it until the demand or the configuration changes",
 						int(resize_elements), int(g_gpu_sorting_config.radix_bits), int(g_gpu_sorting_config.workgroup_size), int(config_to_use.key_bits)));
 			} else {
-				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
-						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+				auto build_sorter = [&](uint32_t p_elements) -> Ref<IGPUSorter> {
+#ifdef TESTS_ENABLED
+					if (test_refuse_sorter_above_elements != 0 && p_elements > test_refuse_sorter_above_elements) {
+						return Ref<IGPUSorter>();
+					}
+#endif
+					return GPUSorterFactory::create_sorter(GPUSorterFactory::ALGORITHM_RADIX, device, p_elements, config_to_use);
+				};
+				Ref<IGPUSorter> created_sorter = build_sorter(resize_elements);
 				if (!created_sorter.is_valid() && resize_elements > exact_resize_elements) {
 					// The padding is optional (BV-10): a device limit it crosses (dispatch width,
 					// allocation) must not cost the grow itself. Retry at the exact request.
 					resize_elements = exact_resize_elements;
-					created_sorter = GPUSorterFactory::create_sorter(
-							GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+					created_sorter = build_sorter(resize_elements);
 				}
 				if (!created_sorter.is_valid()) {
 					handle_recreate_failure("Failed to create the global composite GPU sorter");

@@ -608,6 +608,63 @@ TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] the compositor scratch
     CHECK(after_clear == uint64_t(128) * 128 * 4);
 }
 
+// Codex F3: the route grows the overlap storage with slack, else exactly (resident_instance_contract_publisher.cpp, #1472).
+// A growth whose sorter cannot be built must not report success: the exact size must still be tried, the capacity must
+// hold what was reported, and a measured overflow whose growth failed must stay pending.
+TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] a refused padded overlap growth falls back to the exact size and reports only real growth") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GPU harness required"); return; }
+    ScopedSortDevice manager_device(rd);
+    const Vector2i view(256, 256);
+    const uint64_t headroom = uint64_t(1) << 30;
+    auto provisioned_tile = [&](Ref<TileRenderer> &r_tile) {
+        r_tile.instantiate();
+        return r_tile->initialize(rd, view) == OK && r_tile->provision_hlod_route(view, RD::DATA_FORMAT_MAX, 4096) == OK &&
+                r_tile->get_allocated_overlap_capacity() >= 4096u;
+    };
+    {
+        Ref<TileRenderer> tile;
+        if (!provisioned_tile(tile)) { FAIL("TileRenderer provisioning failed"); return; }
+        auto &sort = tile->_test_global_sort_resources();
+        const uint32_t before = tile->get_allocated_overlap_capacity();
+        const uint32_t exact = before * 2u;
+        const uint32_t padded = before * 3u;
+        // Premise: neither size is clamped by the configured cap, so the padded size really is the larger request.
+        if (tile->clamp_hlod_overlap_records(padded) != padded) { FAIL("max_overlap_records clamps the padded request"); return; }
+        sort.test_refuse_sorter_above_elements = exact; // the padded build fails; the exact one can be built
+        const bool grew = tile->ensure_hlod_overlap_capacity(padded, headroom) || tile->ensure_hlod_overlap_capacity(exact, headroom);
+        CHECK(grew);
+        CHECK(tile->get_allocated_overlap_capacity() >= exact);
+        CHECK(tile->get_allocated_overlap_capacity() < padded);
+        CHECK(sort.sorter.is_valid());
+        // Every build refused: nothing grows, and nothing may say it did.
+        const uint32_t held = tile->get_allocated_overlap_capacity();
+        sort.test_refuse_sorter_above_elements = held;
+        const bool refused_grew = tile->ensure_hlod_overlap_capacity(held * 3u, headroom) || tile->ensure_hlod_overlap_capacity(held * 2u, headroom);
+        CHECK_FALSE(refused_grew);
+        CHECK(tile->get_allocated_overlap_capacity() == held);
+        CHECK(sort.sorter.is_valid()); // the working sorter is kept
+        // Headroom too small for the exact size: refused before any allocation.
+        sort.test_refuse_sorter_above_elements = 0;
+        CHECK_FALSE(tile->ensure_hlod_overlap_capacity(held * 2u, uint64_t(held) * TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD));
+        CHECK(tile->get_allocated_overlap_capacity() == held);
+    }
+    {
+        Ref<TileRenderer> tile;
+        if (!provisioned_tile(tile)) { FAIL("TileRenderer provisioning failed"); return; }
+        auto &sort = tile->_test_global_sort_resources();
+        auto &overflow = tile->_test_async_readback().overflow_state;
+        const uint32_t before = tile->get_allocated_overlap_capacity();
+        overflow.first_frame_complete = true;
+        overflow.overflow_detected = true;
+        overflow.last_unclamped_total = before * 2u;
+        sort.test_refuse_sorter_above_elements = before; // every growth fails
+        CHECK_FALSE(tile->grow_hlod_overlap_storage(headroom));
+        CHECK(tile->get_allocated_overlap_capacity() == before);
+        CHECK(overflow.overflow_detected); // the measured demand is still pending, so the next safe point retries it
+    }
+}
+
 // Package E1 (V4 paged worlds) through the actual World3D entry. This harness has no render buffers, so what is proven
 // here is what does not need a present target: a paged world draws NOTHING from a stand-in (it has no canonical
 // payload and no warmup stub), says why, and the fallback for setups the HLOD route can never serve loads the payload

@@ -265,6 +265,10 @@ struct TileGlobalSortResources {
 	uint64_t resize_peak_bytes = 0;
 	uint64_t resize_preflight_refusals = 0;
 	bool resize_preflight_unverified_logged = false;
+#ifdef TESTS_ENABLED
+	// Test seam: a sorter build above this many elements fails as if create_sorter() could not allocate it (0 = off).
+	uint32_t test_refuse_sorter_above_elements = 0;
+#endif
 	uint64_t allocated_sort_bytes() const;
 	SortKeyConfig key_config;
 	RID keys_buffer;
