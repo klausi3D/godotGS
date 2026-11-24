@@ -6307,7 +6307,7 @@ resident [I]. 20 bits would cost 32 MiB per world. Decided: 16 bits (O3).</p>
 </ul>
 <h3 id="63-wind-model-for-games-d3">6.3 Wind model for games (D3)<a class="headerlink" href="#63-wind-model-for-games-d3" title="Permanent link">¶</a></h3>
 <h4 id="631-displacement-p">6.3.1 Displacement [P]<a class="headerlink" href="#631-displacement-p" title="Permanent link">¶</a></h4>
-<div class="highlight"><pre><span></span><code>d(x_rest, t) = dir × A_row × W(splat) × F(x_rest, t) × fade(distance, level)
+<div class="highlight"><pre><span></span><code>d(x_rest, t) = dir × A_row × W(splat) × F(x_rest, t) × fade(distance)
 F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 </code></pre></div>
 <ul>
@@ -6320,8 +6320,19 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 <li>A merged splat sits at the weighted mean of its members (<code>merge.cpp:468</code>) [V].</li>
 <li>For a field whose wavelength is much longer than the node extent, its displacement equals the
     weighted mean of its children's to first order.</li>
-<li>For coarse nodes this no longer holds, so <code>fade</code> drives the weight to 0 above a level or
-    distance (Fortnite's WPO distance cutoff [Ext]). Coarse nodes with weight 0 are allowed.</li>
+<li><code>fade</code> depends on <strong>distance only</strong> (owner, 2026-11-23): full weight to 64 m, 0 at 128 m
+    (Fortnite's WPO distance cutoff [Ext]). It never depends on the node's level. HLOD ties the
+    level to distance, so a level fade would change the amplitude whenever the cut switches LOD:
+    a parent would pop against the children it replaces.</li>
+<li><strong>Accepted approximation:</strong> a coarse node drawn inside the fade (for example near the camera
+    under budget pressure) sways with its merged weight, the first-order weighted mean of its
+    members. Where its extent approaches the wavelength this differs from its children's mean
+    displacement; that error is accepted, not faded out.</li>
+<li>Superseded (WP2 W-S): a level ramp <code>1 - height/4</code> on top of the distance fade. It gave every
+    parent 25 % less amplitude than its children, against the first-order equality above. With a
+    non-vacuous probe (a height-1 parent 12 m from pose A), W2 measured 3.15 px with it
+    (parent 9.45 px, leaf children 12.60 px) and 0.001 px without it (local RTX 3090 run,
+    2026-11-23; not lane evidence).</li>
 <li><strong><code>W(splat)</code>:</strong></li>
 <li>With <code>semantic_valid</code>, it is the baked <code>wind_weight</code>.</li>
 <li>Without it (legacy), a <strong>world</strong> row does not sway under active project wind (O4). Wind is
@@ -6390,7 +6401,7 @@ F(x, t)      = sin(k·x.xz + ω·t + φ_noise(x)) (+ optional gust term)
 <tbody>
 <tr>
 <td><strong>W-S (S–M)</strong></td>
-<td>Position phase without jitter; per-row opt-in, global refusal removed; global <code>D_max</code> inflation; caster deformation; distance and level fade; tie-break and caches per §6.5</td>
+<td>Position phase without jitter; per-row opt-in, global refusal removed; global <code>D_max</code> inflation; caster deformation; distance fade (§6.3.1; the level fade was removed 2026-11-23); tie-break and caches per §6.5</td>
 <td><strong>none</strong></td>
 <td>Wind runs on streamed worlds immediately, uniformly per row (legacy weight)</td>
 </tr>
@@ -6716,9 +6727,9 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 </tr>
 <tr>
 <td>W2</td>
-<td>Wind LOD consistency: parent displacement versus the weighted mean of its children, below the fade level</td>
+<td>Wind LOD consistency: parent displacement versus the weighted mean of its children, inside the distance fade (children moving ≥ 1 px)</td>
 <td>≤ 0.5 px</td>
-<td>fade disabled at coarse levels</td>
+<td>parent-child agreement broken: interior nodes held still while leaves sway</td>
 </tr>
 <tr>
 <td>W3</td>
@@ -6849,7 +6860,7 @@ one is available, the 3080 runner runs with the ledger limited to 8 GB, and ever
 </tr>
 <tr>
 <td><strong>WP2 (W-S)</strong></td>
-<td>Position phase without jitter; per-row wind and effector opt-in, global refusal removed; global <code>D_max</code> bound inflation; caster deformation with the frame's wind time; distance and level fade</td>
+<td>Position phase without jitter; per-row wind and effector opt-in, global refusal removed; global <code>D_max</code> bound inflation; caster deformation with the frame's wind time; distance fade (§6.3.1)</td>
 <td><strong>S–M</strong></td>
 <td>R3</td>
 <td>no</td>
@@ -7154,7 +7165,7 @@ accepted the recommended option of each question below. O6 stays open.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-11-22
+    Source updated: 2026-11-24
   </span>
 
     
