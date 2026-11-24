@@ -131,10 +131,17 @@ void NodeResidency::protect_drawn(const uint32_t *p_nodes, uint32_t p_count) {
 		uint32_t n = p_nodes[i];
 		bool first = true;
 		while (n < uint32_t(nodes.size())) {
-			Node &node = nodes.write[n];
-			if (!first && node.protected_frame == current_frame) {
-				break; // The rest of the chain was already marked by an earlier node this frame.
+			if (!first) {
+				if (nodes[n].refined_frame == current_frame) {
+					break; // The rest of the chain was already walked as ancestors this frame.
+				}
+				// A refined node: its whole child group, visible or not, is what keeps it refined.
+				nodes.write[n].refined_frame = current_frame;
+				for (uint32_t c = nodes[n].first_child; c != UINT32_MAX; c = nodes[c].next_sibling) {
+					nodes.write[c].last_needed_frame = current_frame;
+				}
 			}
+			Node &node = nodes.write[n];
 			node.protected_frame = current_frame;
 			node.last_drawn_frame = current_frame;
 			first = false;
@@ -307,11 +314,15 @@ uint32_t NodeResidency::evict_for(uint32_t p_pages, uint32_t p_exclude_parent) {
 	if (reclaimable < p_pages) {
 		return 0;
 	}
-	// Least recently drawn first, then the finest level (leaves) before interiors, then node index.
+	// Least recently used first (drawn, or needed as a child of a refined node), then the finest level (leaves)
+	// before interiors, then node index. A needed child outside the frustum is never drawn; ranked by its last
+	// draw alone it was the first victim, and its parent collapsed the frame the child came back into view.
 	std::sort(candidates.ptr(), candidates.ptr() + candidates.size(), [this](uint32_t a, uint32_t b) {
 		const Node &na = nodes[a];
 		const Node &nb = nodes[b];
-		if (na.last_drawn_frame != nb.last_drawn_frame) { return na.last_drawn_frame < nb.last_drawn_frame; }
+		const uint64_t used_a = MAX(na.last_drawn_frame, na.last_needed_frame);
+		const uint64_t used_b = MAX(nb.last_drawn_frame, nb.last_needed_frame);
+		if (used_a != used_b) { return used_a < used_b; }
 		if (na.height != nb.height) { return na.height < nb.height; }
 		return a < b;
 	});
