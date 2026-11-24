@@ -39,6 +39,7 @@
 #include "core/variant/dictionary.h"
 
 #include <atomic>
+#include <limits>
 #include <memory>
 #ifdef TESTS_ENABLED
 #include "core/os/semaphore.h"
@@ -181,6 +182,15 @@ public:
 		uint64_t payload_largest_read_bytes = 0;
 		// Peak bytes of packed payloads held on the CPU after their read, waiting for the per-frame upload budget.
 		uint64_t payload_ready_bytes_peak = 0;
+		// Service order (ADR adr-hlod-streaming.md 6.6), report-only. Every ordinary upload completion is counted; it is
+		// an inversion when a node demanded this frame and still LOADING (queued, reading, or decoded and waiting for
+		// upload) had a strictly larger current demand priority. A ready inversion is the subset where such a node was
+		// already decoded and could have been uploaded instead. A start inversion is a read started while a strictly
+		// higher-priority ticket stayed queued. False until the first update(); a missing sample is not a zero.
+		bool priority_measured = false;
+		bool priority_fifo_forced = false; // TESTS_ENABLED forcing control GODOTGS_TEST_HLOD_FIFO_SERVICE=1 (pre-fix order).
+		uint64_t priority_uploads_total = 0, priority_inversions_total = 0, priority_ready_inversions_total = 0;
+		uint64_t priority_jobs_started_total = 0, priority_start_inversions_total = 0;
 		// Package F1.
 		bool edit_staged = false;
 		uint32_t edit_shadow_ready = 0; // Packed payloads waiting for (or part-way through) transfer in update().
@@ -427,6 +437,10 @@ public:
 	void capture_placement_reserve(const gs_hlod_runtime::CutHistory::Result &p_cut);
 	const Telemetry &get_telemetry() const { return telemetry; }
 	Array get_pressure_eviction_events() const; // Current-frame batch only; probe retains its capped history.
+	// Report-only: this frame's ordinary upload completions in service order, each {node, priority, rank,
+	// requested_frame, uploaded_frame, inversion, ready_inversion}. Priority is the current demand priority (pixels).
+	Array get_upload_events() const;
+	uint64_t get_frame() const { return frame; }
 	Variant get_payload_telemetry() const; // Null when this route has no measured page store.
 	bool root_failed() const { return residency.root_permanently_failed(); }
 	uint64_t atlas_bytes_capacity() const { return uint64_t(cfg.atlas_pages) * cfg.page_splats * record_stride(); }
@@ -634,6 +648,25 @@ private:
 			const void *p_payload = nullptr);
 #endif
 	void refresh_telemetry();
+	// Service order (ADR 6.6). Every update() re-derives each node's priority from THIS frame's demand; nodes not
+	// demanded this frame rank last. Ties: earlier position in the priority-sorted demand, then node id.
+	struct ServiceState {
+		float priority = 0.0f;
+		uint32_t rank = UINT32_MAX;
+		uint64_t frame = UINT64_MAX; // Frame whose demand set priority/rank; anything else is "not demanded now".
+		uint64_t requested_frame = 0; // Report-only: frame the current request was issued.
+	};
+	struct ServiceKey {
+		float priority = -std::numeric_limits<float>::infinity();
+		uint32_t rank = UINT32_MAX;
+	};
+	ServiceKey service_key(uint32_t p_node) const;
+	static bool serves_before(const ServiceKey &p_a, uint32_t p_node_a, const ServiceKey &p_b, uint32_t p_node_b);
+	void prioritize_demand(); // Stable: groups stay whole, equal priorities keep their emission order.
+	void stamp_demand_priority();
+	void prioritize_queues(); // pending (reads not started) and ready (decoded, waiting for upload).
+	void observe_upload_service(uint32_t p_node, uint32_t p_ready_index);
+	void observe_job_start(const gs_hlod_runtime::NodeResidency::Ticket &p_ticket, uint32_t p_rest);
 	void record_upload_slice(PackResult &p_result, uint64_t p_started_nsec, uint64_t p_bytes);
 	void record_upload_completion(const PackResult &p_result);
 
@@ -708,6 +741,19 @@ private:
 	uint64_t gate_counted_frame = UINT64_MAX;
 	mutable uint64_t eviction_export_frame = UINT64_MAX, eviction_export_total = UINT64_MAX;
 	mutable Array eviction_export; // Cached bounded current-frame report batch, never worker-owned.
+	// Render-thread owned, sized by init() to the node count.
+	Vector<ServiceState> service;
+	uint64_t service_rank_frame = UINT64_MAX;
+	uint32_t service_next_rank = 0;
+	bool fifo_service = false; // TESTS_ENABLED forcing control only; always false otherwise.
+	struct UploadEvent {
+		uint32_t node = UINT32_MAX, rank = UINT32_MAX;
+		float priority = 0.0f;
+		uint64_t requested_frame = 0, uploaded_frame = 0;
+		bool inversion = false, ready_inversion = false;
+	};
+	LocalVector<UploadEvent> upload_events; // This frame's completions; cleared when the frame advances.
+	uint64_t upload_events_frame = UINT64_MAX;
 	Telemetry telemetry;
 };
 

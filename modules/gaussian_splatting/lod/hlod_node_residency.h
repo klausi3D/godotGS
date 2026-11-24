@@ -215,8 +215,12 @@ public:
 	uint64_t frame() const { return current_frame; }
 
 	// Protection (ADR 14.1): union over admitted views of drawn versions and their fallback coverage.
-	// Marks each node and all of its ancestors, and stamps them as drawn this frame. Call once per admitted
-	// view per frame, after its selection.
+	// Marks each node and all of its ancestors, and stamps them as drawn this frame. Every child of an ancestor
+	// (a refined node) is stamped as needed this frame, including children outside the frustum: the selector
+	// refines a parent only while all of its visible children are resident, so a child evicted while out of view
+	// collapses the parent's whole subtree to the parent the frame it re-enters the view. Needed children stay
+	// evictable, after every node that was neither drawn nor needed more recently. Call once per admitted view
+	// per frame, after its selection.
 	void protect_drawn(const uint32_t *p_nodes, uint32_t p_count);
 	bool is_protected(uint32_t p_node) const;
 	// Report-only: marks parents of currently missing demanded children, so resident siblings can be
@@ -347,6 +351,10 @@ private:
 		uint64_t alloc_key = 0; // Unique per allocation, so a retiring run is never confused with a new one.
 		uint64_t request_generation = 0; // Bootstrap may reserve a generation before issuing its ticket.
 		uint64_t last_drawn_frame = 0;
+		// Last frame this node was a child of a refined node (a strict ancestor of a drawn node), visible or not. Its
+		// parent can only stay refined while it is resident, so eviction ranks it as recently used (see evict_for()).
+		uint64_t last_needed_frame = 0;
+		uint64_t refined_frame = UINT64_MAX; // == current_frame once protect_drawn() walked it as an ancestor.
 		uint64_t last_demand_frame = 0;
 		uint64_t protected_frame = UINT64_MAX; // == current_frame while protected.
 		// Owner-thread transition leases are independent of the non-revocable drawn stamp above.
@@ -452,7 +460,8 @@ private:
 	static constexpr uint32_t CANCELLED_WINDOW = 256;
 	LocalVector<uint64_t> cancelled_generations;
 	uint32_t cancelled_next = 0;
-	// Evicts unprotected RESIDENT nodes (LRU, then finest level, then node index) until `p_pages` pages are
+	// Evicts unprotected RESIDENT nodes (least recently drawn or needed by a refined parent, then finest level, then
+	// node index) until `p_pages` pages are
 	// free or pending retirement. Returns the number of evictions; bounded by evictions_per_frame.
 	uint32_t evict_for(uint32_t p_pages, uint32_t p_exclude_parent);
 

@@ -1606,6 +1606,16 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["payload_telemetry"] = resource_state.hlod_streamer->get_payload_telemetry();
         const HlodNodeStreamer::Telemetry &t = resource_state.hlod_streamer->get_telemetry();
         stats["hlod_stream_frames"] = int64_t(resource_state.hlod_stream_frames);
+        // Service order (ADR adr-hlod-streaming.md 6.6), report-only. Null until the first update: absent is not zero.
+        stats["hlod_stream_frame"] = int64_t(resource_state.hlod_streamer->get_frame());
+        stats["hlod_stream_priority_measured"] = t.priority_measured;
+        stats["hlod_stream_priority_service_order"] = t.priority_measured ? Variant(t.priority_fifo_forced ? "fifo_forced" : "priority") : Variant();
+        stats["hlod_stream_priority_uploads_total"] = t.priority_measured ? Variant(int64_t(t.priority_uploads_total)) : Variant();
+        stats["hlod_stream_priority_inversions_total"] = t.priority_measured ? Variant(int64_t(t.priority_inversions_total)) : Variant();
+        stats["hlod_stream_priority_ready_inversions_total"] = t.priority_measured ? Variant(int64_t(t.priority_ready_inversions_total)) : Variant();
+        stats["hlod_stream_priority_jobs_started_total"] = t.priority_measured ? Variant(int64_t(t.priority_jobs_started_total)) : Variant();
+        stats["hlod_stream_priority_start_inversions_total"] = t.priority_measured ? Variant(int64_t(t.priority_start_inversions_total)) : Variant();
+        stats["hlod_stream_upload_events"] = resource_state.hlod_streamer->get_upload_events();
         stats["hlod_stream_ready_frames"] = resource_state.hlod_stream_ready_frames;
         stats["hlod_stream_loading_frames"] = resource_state.hlod_stream_loading_frames;
         stats["hlod_stream_first_ready_frame"] = resource_state.hlod_stream_first_ready_frame;
