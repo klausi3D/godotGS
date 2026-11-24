@@ -11,10 +11,11 @@ var searchData=
   ['bootstrap_5fmissing_5fresidency_8',['BOOTSTRAP_MISSING_RESIDENCY',['../classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044a8ba6acf4ddd433064d76e9fa3858dbf2',1,'gs_hlod_runtime::CutHistory']]],
   ['brush_5faccumulation_9',['BRUSH_ACCUMULATION',['../painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7a25a78d5038330122ed1c3ceb2fc51198',1,'painterly_renderer_interfaces.h']]],
   ['buffer_5ffree_10',['BUFFER_FREE',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a984940fa64ab3666bb7b62aa2d5477c3',1,'GaussianMemoryStream']]],
-  ['buffer_5fready_11',['BUFFER_READY',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162aa407fb559fc01f5b7292acf8e9416ab4',1,'GaussianMemoryStream']]],
-  ['buffer_5frendering_12',['BUFFER_RENDERING',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a88a674beda804d97ae9ba8c69bb10b26',1,'GaussianMemoryStream']]],
-  ['buffer_5fuploading_13',['BUFFER_UPLOADING',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a81171ebea12043f0b13dbd560ea9450c',1,'GaussianMemoryStream']]],
-  ['build_5fstreamed_14',['BUILD_STREAMED',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1af37530c5ebd5141995bca94cb66e1b0a',1,'GaussianSplatRenderer']]],
-  ['build_5fwhole_5ftree_15',['BUILD_WHOLE_TREE',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1ae512c719886b9325f41cfecd0b720c55',1,'GaussianSplatRenderer']]],
-  ['bundle_5fchanged_16',['BUNDLE_CHANGED',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a66ed569ab071ac98e5d4491a39188981',1,'gs_shadow_caster']]]
+  ['buffer_5flimit_11',['BUFFER_LIMIT',['../classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a85555e185170d6d8e219800781a48477',1,'DeviceVramLedger']]],
+  ['buffer_5fready_12',['BUFFER_READY',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162aa407fb559fc01f5b7292acf8e9416ab4',1,'GaussianMemoryStream']]],
+  ['buffer_5frendering_13',['BUFFER_RENDERING',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a88a674beda804d97ae9ba8c69bb10b26',1,'GaussianMemoryStream']]],
+  ['buffer_5fuploading_14',['BUFFER_UPLOADING',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a81171ebea12043f0b13dbd560ea9450c',1,'GaussianMemoryStream']]],
+  ['build_5fstreamed_15',['BUILD_STREAMED',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1af37530c5ebd5141995bca94cb66e1b0a',1,'GaussianSplatRenderer']]],
+  ['build_5fwhole_5ftree_16',['BUILD_WHOLE_TREE',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1ae512c719886b9325f41cfecd0b720c55',1,'GaussianSplatRenderer']]],
+  ['bundle_5fchanged_17',['BUNDLE_CHANGED',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a66ed569ab071ac98e5d4491a39188981',1,'gs_shadow_caster']]]
 ];

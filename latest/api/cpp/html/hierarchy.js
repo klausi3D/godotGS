@@ -746,6 +746,7 @@ var hierarchy =
     [ "PayloadReadService::Stats", "structPayloadReadService_1_1Stats.html", null ],
     [ "PayloadPageStore::StoredPage", "classPayloadPageStore_1_1StoredPage.html", null ],
     [ "GaussianMemoryStream::StreamBuffer", "structGaussianMemoryStream_1_1StreamBuffer.html", null ],
+    [ "DeviceVramLedger::StreamedAtlasLimit", "structDeviceVramLedger_1_1StreamedAtlasLimit.html", null ],
     [ "StreamingAnalyticsFrame", "classStreamingAnalyticsFrame.html", null ],
     [ "GaussianStreamingTypes::StreamingChunk", "structGaussianStreamingTypes_1_1StreamingChunk.html", null ],
     [ "StreamingChunkBakeRecord", "structStreamingChunkBakeRecord.html", null ],

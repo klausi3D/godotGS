@@ -1,6 +1,7 @@
 var structGPUSortingPipeline_1_1InstancePipelineInputs =
 [
     [ "atlas_gaussian_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#aa54d36449a89f61e322439491c5ead8c", null ],
+    [ "atlas_record_count", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#abc80a1b3250f8e6f4f48619ae801d722", null ],
     [ "chunk_dispatch_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a2876e2b8853eeca12c292b08169c7c8c", null ],
     [ "chunk_meta_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a55c13014b793544c09415943cad1e71a", null ],
     [ "counter_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a86c6ea6e4ee47ae7d82840e849eba558", null ],

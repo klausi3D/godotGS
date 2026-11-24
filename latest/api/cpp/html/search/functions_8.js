@@ -84,8 +84,9 @@ var searchData=
   ['hlod_5fstream_5fcommit_5fboundary_81',['hlod_stream_commit_boundary',['../classGaussianSplatRenderer.html#aac19d2246a8c3e31d0e3b6e16d477ce6',1,'GaussianSplatRenderer']]],
   ['hlod_5fstream_5fpage_5fbudget_82',['hlod_stream_page_budget',['../namespaceResidentAtlasBudget.html#a9c71b9075ddfd2139f3c1b5491e9c4de',1,'ResidentAtlasBudget']]],
   ['hlod_5fstream_5fpage_5fbudget_5fwith_5finstances_83',['hlod_stream_page_budget_with_instances',['../namespaceResidentAtlasBudget.html#a0ed7164ee5d02f1faf4a8c6f03eda808',1,'ResidentAtlasBudget']]],
-  ['hlod_5fstreaming_5funsupported_5freason_84',['hlod_streaming_unsupported_reason',['../classGaussianSplatRenderer.html#a8aab70c47cdf1e92d0802bae6622ba48',1,'GaussianSplatRenderer']]],
-  ['hlod_5fview_5fgrid_5faction_85',['hlod_view_grid_action',['../namespaceResidentAtlasBudget.html#af7123abf6b7bd6a83e49ae34dfa23194',1,'ResidentAtlasBudget']]],
-  ['hlod_5fview_5fgrid_5foutstanding_5fbytes_86',['hlod_view_grid_outstanding_bytes',['../namespaceResidentAtlasBudget.html#a88a0d9e18b7afcf3bf2a272648c36d40',1,'ResidentAtlasBudget']]],
-  ['hlod_5fview_5fkey_87',['hlod_view_key',['../classRenderFrameContextManager.html#a57f88360b465bc7dba03efa70b67b83e',1,'RenderFrameContextManager']]]
+  ['hlod_5fstreamed_5fframe_5freserve_5fbytes_84',['hlod_streamed_frame_reserve_bytes',['../namespaceResidentAtlasBudget.html#aae6c5e0bfaa7a0227c5f7b89d798e5f9',1,'ResidentAtlasBudget']]],
+  ['hlod_5fstreaming_5funsupported_5freason_85',['hlod_streaming_unsupported_reason',['../classGaussianSplatRenderer.html#a8aab70c47cdf1e92d0802bae6622ba48',1,'GaussianSplatRenderer']]],
+  ['hlod_5fview_5fgrid_5faction_86',['hlod_view_grid_action',['../namespaceResidentAtlasBudget.html#af7123abf6b7bd6a83e49ae34dfa23194',1,'ResidentAtlasBudget']]],
+  ['hlod_5fview_5fgrid_5foutstanding_5fbytes_87',['hlod_view_grid_outstanding_bytes',['../namespaceResidentAtlasBudget.html#a88a0d9e18b7afcf3bf2a272648c36d40',1,'ResidentAtlasBudget']]],
+  ['hlod_5fview_5fkey_88',['hlod_view_key',['../classRenderFrameContextManager.html#a57f88360b465bc7dba03efa70b67b83e',1,'RenderFrameContextManager']]]
 ];

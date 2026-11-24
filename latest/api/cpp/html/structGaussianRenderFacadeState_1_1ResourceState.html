@@ -119,6 +119,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a029170fac790ffdf825d64603763b9d7" id="r_a029170fac790ffdf825d64603763b9d7"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianRenderFacadeState_1_1HlodBundle.html">HlodBundle</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a029170fac790ffdf825d64603763b9d7">hlod_relative</a></td></tr>
 <tr class="memitem:a1b7abafa267a84f9a9fb9919c027fb30" id="r_a1b7abafa267a84f9a9fb9919c027fb30"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b7abafa267a84f9a9fb9919c027fb30">hlod_streaming</a> = false</td></tr>
 <tr class="memitem:aa962bd5633bdb974e7ff2234415b05df" id="r_aa962bd5633bdb974e7ff2234415b05df"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa962bd5633bdb974e7ff2234415b05df">hlod_stream_atlas_records</a> = 0</td></tr>
+<tr class="memitem:acefaefc5c4540b7c46d8972fb18d8290" id="r_acefaefc5c4540b7c46d8972fb18d8290"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acefaefc5c4540b7c46d8972fb18d8290">hlod_stream_atlas_limit_bytes</a> = 0</td></tr>
+<tr class="memitem:abfa39310f782f52422f448f7807f9ef1" id="r_abfa39310f782f52422f448f7807f9ef1"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abfa39310f782f52422f448f7807f9ef1">hlod_stream_atlas_limit_bound</a> = 0</td></tr>
 <tr class="memitem:af6f0500f1526c558637a0e0af823571b" id="r_af6f0500f1526c558637a0e0af823571b"><td class="memItemLeft" align="right" valign="top">std::unique_ptr&lt; <a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af6f0500f1526c558637a0e0af823571b">hlod_page_store</a></td></tr>
 <tr class="memitem:aa434100f50aeba278eb93c348bfdf448" id="r_aa434100f50aeba278eb93c348bfdf448"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classHlodNodeStreamer.html">HlodNodeStreamer</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa434100f50aeba278eb93c348bfdf448">hlod_streamer</a></td></tr>
 <tr class="memitem:a720bf329abc00fda721c64b1d9f971fb" id="r_a720bf329abc00fda721c64b1d9f971fb"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a720bf329abc00fda721c64b1d9f971fb">hlod_committed_edit</a></td></tr>
@@ -1631,6 +1633,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">Ref&lt;<a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a>&gt; GaussianRenderFacadeState::ResourceState::hlod_snapshot</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abfa39310f782f52422f448f7807f9ef1" name="abfa39310f782f52422f448f7807f9ef1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abfa39310f782f52422f448f7807f9ef1">&#9670;&#160;</a></span>hlod_stream_atlas_limit_bound</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint8_t GaussianRenderFacadeState::ResourceState::hlod_stream_atlas_limit_bound = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acefaefc5c4540b7c46d8972fb18d8290" name="acefaefc5c4540b7c46d8972fb18d8290"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acefaefc5c4540b7c46d8972fb18d8290">&#9670;&#160;</a></span>hlod_stream_atlas_limit_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderFacadeState::ResourceState::hlod_stream_atlas_limit_bytes = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

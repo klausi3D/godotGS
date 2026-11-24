@@ -1,5 +1,6 @@
 var structInstanceDepthParamsGPU =
 [
+    [ "atlas_info", "structInstanceDepthParamsGPU.html#a15e11e3b0d60a7f6215789809bca1e38", null ],
     [ "camera_position_ortho", "structInstanceDepthParamsGPU.html#a778f63040503feadcf145b13e29c56f8", null ],
     [ "consume_overflow_flag", "structInstanceDepthParamsGPU.html#af0b444a00bd10c1e178d68a983e080f1", null ],
     [ "cull_frustum_radius", "structInstanceDepthParamsGPU.html#a2783e2881020c2654e858e2845b2bd62", null ],

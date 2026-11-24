@@ -1,5 +1,12 @@
 var NAVTREEINDEX16 =
 {
+"classResourceFormatLoaderImportedGaussianSplatWorld.html#afb6c11aa9e215245b221b61ac86bd3ae":[1,0,245,1],
+"classResourceFormatSaverGaussianSplatWorld.html":[1,0,246],
+"classResourceFormatSaverGaussianSplatWorld.html#a08c4e99fa62b7901d6d710c19f3cda95":[1,0,246,0],
+"classResourceFormatSaverGaussianSplatWorld.html#a08c4e99fa62b7901d6d710c19f3cda95a8e8fcb1ef5e3d9bdf981760b4c244d06":[1,0,246,0,1],
+"classResourceFormatSaverGaussianSplatWorld.html#a08c4e99fa62b7901d6d710c19f3cda95a9295a632c6af77e12d9c4a8fa3c07fae":[1,0,246,0,3],
+"classResourceFormatSaverGaussianSplatWorld.html#a08c4e99fa62b7901d6d710c19f3cda95aba7884db19a5c328fb770c173d551ca3":[1,0,246,0,0],
+"classResourceFormatSaverGaussianSplatWorld.html#a08c4e99fa62b7901d6d710c19f3cda95af779eff43dbd6ff207b6414ea09b6f45":[1,0,246,0,2],
 "classResourceFormatSaverGaussianSplatWorld.html#a9b5b6d91ebf2e50a77b871d19449e211":[1,0,246,2],
 "classResourceFormatSaverGaussianSplatWorld.html#a9d4beccd64f56a899cda1a6bca4e9c81":[1,0,246,1],
 "classResourceFormatSaverGaussianSplatWorld.html#a9f61abfed9c729b1d9a21c321e083aba":[1,0,246,6],
@@ -242,12 +249,5 @@ var NAVTREEINDEX16 =
 "classStreamingUploadPipeline.html#a2d79a5c05f8fd7e2e7bb01542e359b4c":[1,0,289,34],
 "classStreamingUploadPipeline.html#a2ea87444f8300a75e1637bfa68bd95ee":[1,0,289,72],
 "classStreamingUploadPipeline.html#a2f60a79e1acba3fe62cf9d0e06e6ae17":[1,0,289,73],
-"classStreamingUploadPipeline.html#a31d3caf43e4c0bec15683748cfdbf03a":[1,0,289,80],
-"classStreamingUploadPipeline.html#a36ba234465645927c164397036b7661d":[1,0,289,85],
-"classStreamingUploadPipeline.html#a39c846e47f157e31af1dee67064da41f":[1,0,289,28],
-"classStreamingUploadPipeline.html#a3a80def6fe4ca6e58890cb1cf93ed0d0":[1,0,289,41],
-"classStreamingUploadPipeline.html#a3bd8188df540b4d88138d1b405d7383a":[1,0,289,23],
-"classStreamingUploadPipeline.html#a3cb4534cada293e78df95e0559a15dd1":[1,0,289,61],
-"classStreamingUploadPipeline.html#a3ced5bc5819cd2ac5755cf018897d486":[1,0,289,58],
-"classStreamingUploadPipeline.html#a3f2982806450f4e19354d932e7d73bc0":[1,0,289,18]
+"classStreamingUploadPipeline.html#a31d3caf43e4c0bec15683748cfdbf03a":[1,0,289,80]
 };

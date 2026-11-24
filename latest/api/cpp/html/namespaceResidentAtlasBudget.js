@@ -22,6 +22,7 @@ var namespaceResidentAtlasBudget =
     [ "hlod_should_stream", "namespaceResidentAtlasBudget.html#ad0750e28216f6a1b3884121950b49467", null ],
     [ "hlod_stream_page_budget", "namespaceResidentAtlasBudget.html#a9c71b9075ddfd2139f3c1b5491e9c4de", null ],
     [ "hlod_stream_page_budget_with_instances", "namespaceResidentAtlasBudget.html#a0ed7164ee5d02f1faf4a8c6f03eda808", null ],
+    [ "hlod_streamed_frame_reserve_bytes", "namespaceResidentAtlasBudget.html#aae6c5e0bfaa7a0227c5f7b89d798e5f9", null ],
     [ "hlod_view_grid_action", "namespaceResidentAtlasBudget.html#af7123abf6b7bd6a83e49ae34dfa23194", null ],
     [ "hlod_view_grid_outstanding_bytes", "namespaceResidentAtlasBudget.html#a88a0d9e18b7afcf3bf2a272648c36d40", null ],
     [ "resident_asset_budget", "namespaceResidentAtlasBudget.html#a6c541683989a5def86d639ba7c05515d", null ],

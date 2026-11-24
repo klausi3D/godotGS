@@ -1,5 +1,12 @@
 var NAVTREEINDEX21 =
 {
+"functions_vars_n.html":[1,3,2,14],
+"functions_vars_o.html":[1,3,2,15],
+"functions_vars_p.html":[1,3,2,16],
+"functions_vars_q.html":[1,3,2,17],
+"functions_vars_r.html":[1,3,2,18],
+"functions_vars_s.html":[1,3,2,19],
+"functions_vars_t.html":[1,3,2,20],
 "functions_vars_u.html":[1,3,2,21],
 "functions_vars_v.html":[1,3,2,22],
 "functions_vars_w.html":[1,3,2,23],
@@ -242,12 +249,5 @@ var NAVTREEINDEX21 =
 "gaussian__splat__renderer_8cpp.html#ab01191949fd6e29d089589ed66f31e57":[2,0,0,0,12,10,1],
 "gaussian__splat__renderer_8h.html":[2,0,0,0,12,11],
 "gaussian__splat__renderer_8h.html#a4039fce2530c1c7851359a019083dc4e":[2,0,0,0,12,11,17],
-"gaussian__splat__renderer_8h.html#a52e9d3edb4122afeafe1470b71ef297e":[2,0,0,0,12,11,18],
-"gaussian__splat__renderer_8h.html#abdccc7c36d478bac1efbd76b1d50c47a":[2,0,0,0,12,11,19],
-"gaussian__splat__renderer_8h_source.html":[2,0,0,0,12,11],
-"gaussian__splat__renderer__bindings_8cpp.html":[2,0,0,0,12,12],
-"gaussian__splat__scene__director_8cpp.html":[2,0,0,0,3,47],
-"gaussian__splat__scene__director_8h.html":[2,0,0,0,3,48],
-"gaussian__splat__scene__director_8h_source.html":[2,0,0,0,3,48],
-"gaussian__splat__settings__manager_8cpp.html":[2,0,0,0,3,49]
+"gaussian__splat__renderer_8h.html#a52e9d3edb4122afeafe1470b71ef297e":[2,0,0,0,12,11,18]
 };

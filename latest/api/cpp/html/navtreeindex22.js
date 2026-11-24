@@ -1,5 +1,12 @@
 var NAVTREEINDEX22 =
 {
+"gaussian__splat__renderer_8h.html#abdccc7c36d478bac1efbd76b1d50c47a":[2,0,0,0,12,11,19],
+"gaussian__splat__renderer_8h_source.html":[2,0,0,0,12,11],
+"gaussian__splat__renderer__bindings_8cpp.html":[2,0,0,0,12,12],
+"gaussian__splat__scene__director_8cpp.html":[2,0,0,0,3,47],
+"gaussian__splat__scene__director_8h.html":[2,0,0,0,3,48],
+"gaussian__splat__scene__director_8h_source.html":[2,0,0,0,3,48],
+"gaussian__splat__settings__manager_8cpp.html":[2,0,0,0,3,49],
 "gaussian__splat__settings__manager_8cpp.html#ad22edb694004011325a5dd94942160ce":[2,0,0,0,3,49,0],
 "gaussian__splat__settings__manager_8h.html":[2,0,0,0,3,50],
 "gaussian__splat__settings__manager_8h.html#ad22edb694004011325a5dd94942160ce":[2,0,0,0,3,50,2],
@@ -242,12 +249,5 @@ var NAVTREEINDEX22 =
 "gs__upload__sizing_8h.html":[2,0,0,0,3,61],
 "gs__upload__sizing_8h_source.html":[2,0,0,0,3,61],
 "gs__vector__alloc_8h.html":[2,0,0,0,3,62],
-"gs__vector__alloc_8h.html#a9c0e37e188716357d5e621ce104991a9":[2,0,0,0,3,62,0],
-"gs__vector__alloc_8h_source.html":[2,0,0,0,3,62],
-"gs__wind__bounds_8h.html":[2,0,0,0,12,32],
-"gs__wind__bounds_8h_source.html":[2,0,0,0,12,32],
-"gs__world__generator_8cpp.html":[2,0,0,0,6,22],
-"gs__world__generator_8h.html":[2,0,0,0,6,23],
-"gs__world__generator_8h_source.html":[2,0,0,0,6,23],
-"gs__world__writer_8cpp.html":[2,0,0,0,6,24]
+"gs__vector__alloc_8h.html#a9c0e37e188716357d5e621ce104991a9":[2,0,0,0,3,62,0]
 };

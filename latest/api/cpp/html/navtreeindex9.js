@@ -1,5 +1,12 @@
 var NAVTREEINDEX9 =
 {
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a75bd2d2224879d35d071ccc3eb606e0e":[0,0,12,27,7],
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a75bd2d2224879d35d071ccc3eb606e0e":[1,0,9,26,7],
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a7c1f5742cb535a0c9a4d06a0139c5d18":[0,0,12,27,9],
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a7c1f5742cb535a0c9a4d06a0139c5d18":[1,0,9,26,9],
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a8512ee0b8635538cda51ccb8d0584b16":[0,0,12,27,31],
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a8512ee0b8635538cda51ccb8d0584b16":[1,0,9,26,31],
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a8ea544b48cd8c369eec74fe4f65b55e3":[0,0,12,27,32],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a8ea544b48cd8c369eec74fe4f65b55e3":[1,0,9,26,32],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a8ed3377de1dce0c096fbc61bdead0996":[0,0,12,27,4],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a8ed3377de1dce0c096fbc61bdead0996":[1,0,9,26,4],
@@ -242,12 +249,5 @@ var NAVTREEINDEX9 =
 "classGaussianStreamingSystem.html#a217730ba2716c395aa8c6a4279adcf20":[1,0,123,74],
 "classGaussianStreamingSystem.html#a2335c5833179e8c03b316a876c55d1da":[1,0,123,68],
 "classGaussianStreamingSystem.html#a259624ed8743a7fc399f7afb96a7b996":[1,0,123,69],
-"classGaussianStreamingSystem.html#a26e4115125b8aefd33a7bb93987fee6e":[1,0,123,56],
-"classGaussianStreamingSystem.html#a270e8e6f658dfbdc82f6471130c350f2":[1,0,123,20],
-"classGaussianStreamingSystem.html#a273d6d28cdd262a310d9c752f4f673f7":[1,0,123,34],
-"classGaussianStreamingSystem.html#a27557525eb8d9d00429f9eaec4737784":[1,0,123,9],
-"classGaussianStreamingSystem.html#a2982b5cc33001c345e9e4b1a1dfd225f":[1,0,123,65],
-"classGaussianStreamingSystem.html#a2d2756064dbbc5d6d97dd1661c99b8d3":[1,0,123,84],
-"classGaussianStreamingSystem.html#a2eefefb5b5b5c4c2dad4cd1600442516":[1,0,123,31],
-"classGaussianStreamingSystem.html#a2f0af5c352e8ca44fd86f31bb9a7fae0":[1,0,123,113]
+"classGaussianStreamingSystem.html#a26e4115125b8aefd33a7bb93987fee6e":[1,0,123,56]
 };

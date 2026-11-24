@@ -1,5 +1,12 @@
 var NAVTREEINDEX7 =
 {
+"classGaussianSplatRenderer.html#aff9b54979d6c711437ce733ba59ebe82":[1,0,113,441],
+"classGaussianSplatRenderer.html#affcea0a29ee7beafd2cabfdce25f7d68":[1,0,113,370],
+"classGaussianSplatRenderer_1_1FrameStateProvider.html":[1,0,113,7],
+"classGaussianSplatRenderer_1_1FrameStateProvider.html#a0644f2079905dadd343c8c99900fc764":[1,0,113,7,2],
+"classGaussianSplatRenderer_1_1FrameStateProvider.html#a0d8d2c9d622e39b714e8d056f32499b2":[1,0,113,7,16],
+"classGaussianSplatRenderer_1_1FrameStateProvider.html#a183240915fab8d22f7468a020f793a7a":[1,0,113,7,1],
+"classGaussianSplatRenderer_1_1FrameStateProvider.html#a1bd3c9a473169b8068b39c0d02846137":[1,0,113,7,6],
 "classGaussianSplatRenderer_1_1FrameStateProvider.html#a4032e8cf13432bf420e75d4a751fb5f0":[1,0,113,7,0],
 "classGaussianSplatRenderer_1_1FrameStateProvider.html#a4820a145702dd311bc0a38fbf6b3b736":[1,0,113,7,4],
 "classGaussianSplatRenderer_1_1FrameStateProvider.html#a52fdce47707c2ab8a86107f97a9214de":[1,0,113,7,11],
@@ -242,12 +249,5 @@ var NAVTREEINDEX7 =
 "classGaussianSplatWorld.html#a6810948383154cc06e648c37deb59a51":[1,0,118,28],
 "classGaussianSplatWorld.html#a6e9fe19e2518e3d32dd4d3d85bb86d31":[1,0,118,7],
 "classGaussianSplatWorld.html#a6ef04a7a32fa2283f352210345bec52d":[1,0,118,46],
-"classGaussianSplatWorld.html#a6f147b2db0492ae56af3966df1784d7f":[1,0,118,1],
-"classGaussianSplatWorld.html#a713349167f77ca11ad95c070c36811d2":[1,0,118,0],
-"classGaussianSplatWorld.html#a769445adfd0033916330faf1c097ccd4":[1,0,118,32],
-"classGaussianSplatWorld.html#a7b04e560ed87faa07003739fa1ecf629":[1,0,118,47],
-"classGaussianSplatWorld.html#a8daa3127255ef55a1e128f13fc67f4f0":[1,0,118,48],
-"classGaussianSplatWorld.html#a952c0bb1c193d2318cd11f15a618406b":[1,0,118,22],
-"classGaussianSplatWorld.html#a9cc51385fb9217b377821e9a1310ad19":[1,0,118,41],
-"classGaussianSplatWorld.html#aa1cb93a47b4370bdf213aa060f4cebca":[1,0,118,11]
+"classGaussianSplatWorld.html#a6f147b2db0492ae56af3966df1784d7f":[1,0,118,1]
 };

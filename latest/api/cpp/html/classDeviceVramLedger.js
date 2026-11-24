@@ -1,5 +1,6 @@
 var classDeviceVramLedger =
 [
+    [ "StreamedAtlasLimit", "structDeviceVramLedger_1_1StreamedAtlasLimit.html", "structDeviceVramLedger_1_1StreamedAtlasLimit" ],
     [ "Snapshot", "structDeviceVramLedger_1_1Snapshot.html", "structDeviceVramLedger_1_1Snapshot" ],
     [ "ScopedReservation", "classDeviceVramLedger_1_1ScopedReservation.html", "classDeviceVramLedger_1_1ScopedReservation" ],
     [ "Category", "classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6", [
@@ -14,6 +15,14 @@ var classDeviceVramLedger =
       [ "SHADOW_CASTER", "classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6aa633521688ebe28619a31f4f0c253b64", null ],
       [ "CHUNK_POOL", "classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6abcb17cc54fcd13f45223a4c499d7144c", null ],
       [ "CATEGORY_COUNT", "classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6a1b86c2b34e6d3c0282210cb2f34afddf", null ]
+    ] ],
+    [ "StreamedAtlasBound", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69", [
+      [ "NONE", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69ab50339a10e1de285ac99d4c3990b8693", null ],
+      [ "LEDGER_SHARE", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69aaa806ba724e3de6a87efe5e62578065e", null ],
+      [ "UNKNOWN_HEAP", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a5d9e1c5b843821d984195539a9f8763b", null ],
+      [ "OVERRIDE", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a3a5974efbe92686d30f0261a204e6ee7", null ],
+      [ "BUFFER_LIMIT", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a85555e185170d6d8e219800781a48477", null ],
+      [ "NO_LEDGER_SHARE", "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a7c0a12c8c1d101fa5b1e3c70e6967f9a", null ]
     ] ],
     [ "admit_device_bytes", "classDeviceVramLedger.html#ae959c064081bc19a0fc3afb5e540cfd4", null ],
     [ "atlas_limit", "classDeviceVramLedger.html#a43acb8799e64462db0235f2058fd2e63", null ],

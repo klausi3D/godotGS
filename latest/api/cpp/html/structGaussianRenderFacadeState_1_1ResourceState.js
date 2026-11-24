@@ -97,6 +97,8 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_shadow_view_draws", "structGaussianRenderFacadeState_1_1ResourceState.html#a00dd2ca42f552ed3e9702d13261c6076", null ],
     [ "hlod_shadow_view_list", "structGaussianRenderFacadeState_1_1ResourceState.html#a0386ce7b517482eb99a2f33b36394629", null ],
     [ "hlod_snapshot", "structGaussianRenderFacadeState_1_1ResourceState.html#ab1acbcd2768548e2e2a30f1127df2527", null ],
+    [ "hlod_stream_atlas_limit_bound", "structGaussianRenderFacadeState_1_1ResourceState.html#abfa39310f782f52422f448f7807f9ef1", null ],
+    [ "hlod_stream_atlas_limit_bytes", "structGaussianRenderFacadeState_1_1ResourceState.html#acefaefc5c4540b7c46d8972fb18d8290", null ],
     [ "hlod_stream_atlas_records", "structGaussianRenderFacadeState_1_1ResourceState.html#aa962bd5633bdb974e7ff2234415b05df", null ],
     [ "hlod_stream_first_ready_frame", "structGaussianRenderFacadeState_1_1ResourceState.html#a9d9803b71af7109c42f2a98618408453", null ],
     [ "hlod_stream_frames", "structGaussianRenderFacadeState_1_1ResourceState.html#a033ef61a6545f2e99882396fd0bcf4cb", null ],

@@ -1,6 +1,7 @@
 var structGsSplatShadowCaster_1_1Inputs =
 [
     [ "atlas_gaussian_buffer", "structGsSplatShadowCaster_1_1Inputs.html#a5fa413e7b7dc39f10479e9c717386a25", null ],
+    [ "atlas_record_count", "structGsSplatShadowCaster_1_1Inputs.html#ada17e4c3746f63b9a9111fc84ea3fbc4", null ],
     [ "chunk_meta_buffer", "structGsSplatShadowCaster_1_1Inputs.html#a780decaf4951dfdfa935a26e31eab038", null ],
     [ "deformation", "structGsSplatShadowCaster_1_1Inputs.html#a3be47e0ac4959e09fa0d7578ea38d512", null ],
     [ "draw_count", "structGsSplatShadowCaster_1_1Inputs.html#a2e06a3257a6d36e07b978791e34f10ec", null ],

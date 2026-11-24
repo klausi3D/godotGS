@@ -13,5 +13,6 @@ var searchData=
   ['other_10',['OTHER',['../namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561a03570470bad94692ce93e32700d2e1cb',1,'gs_layout_hint::OTHER'],['../render__streaming__orchestrator_8cpp.html#a88958f1a30737454cd46d6e0109c0134a03570470bad94692ce93e32700d2e1cb',1,'OTHER:&#160;render_streaming_orchestrator.cpp']]],
   ['output_5fcompositor_5funavailable_11',['OUTPUT_COMPOSITOR_UNAVAILABLE',['../namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27a9004779bf02d7e6012fbdbf267bb616c',1,'GaussianRenderPipeline']]],
   ['over_5fcpu_5fbudget_12',['OVER_CPU_BUDGET',['../namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9eaed2e823bcbd37a9170187f058b4a9687',1,'gs_hlod_runtime']]],
-  ['overlap_13',['OVERLAP',['../classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6a3080d33bada8533f1fa862c456fb1169',1,'DeviceVramLedger']]]
+  ['overlap_13',['OVERLAP',['../classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6a3080d33bada8533f1fa862c456fb1169',1,'DeviceVramLedger']]],
+  ['override_14',['OVERRIDE',['../classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a3a5974efbe92686d30f0261a204e6ee7',1,'DeviceVramLedger']]]
 ];

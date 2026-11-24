@@ -1,5 +1,12 @@
 var NAVTREEINDEX24 =
 {
+"namespaceGaussianSplatting.html#a1559a7b50f472064a9961d6dd38c58ca":[0,0,12,82],
+"namespaceGaussianSplatting.html#a18418190d754f3d0424255f4e07c7ab1":[0,0,12,112],
+"namespaceGaussianSplatting.html#a1b14825de218568e7550559505c9fbdc":[0,0,12,113],
+"namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47":[0,0,12,89],
+"namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a166d20aa6a9e4682ff7109afa8946dad":[0,0,12,89,2],
+"namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a6fa9b12f12b20b64444789b4bbae210f":[0,0,12,89,1],
+"namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a7a1920d61156abc05a60135aefe8bc67":[0,0,12,89,0],
 "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85a":[0,0,12,91],
 "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa2542227e2d23e596ef1c61fcabd1207d":[0,0,12,91,2],
 "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa8d6b5cada83510220f59e00ce86d4d92":[0,0,12,91,0],
@@ -242,12 +249,5 @@ var NAVTREEINDEX24 =
 "namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701e":[0,0,14,13],
 "namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea154d28037a18820a9258b68fd24f709d":[0,0,14,13,1],
 "namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea1f6982a780ead3c0748b0d0fcbecd9ed":[0,0,14,13,3],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea2a7f996293c23d1b8d8569c4f22a2c56":[0,0,14,13,0],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea9b7de3d54b4382b0ca569397ae3d8ceb":[0,0,14,13,2],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701eaba560bb8707abd0468672e2bcc6a91b5":[0,0,14,13,4],
-"namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94f":[0,0,14,14],
-"namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa0cb609e6658fdeb7eb5f1c3034fad34d":[0,0,14,14,0],
-"namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa2b3e0fa778cd551c882fa4ef3de5657c":[0,0,14,14,4],
-"namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa576067eb9273848d087ac6f1020628d1":[0,0,14,14,3],
-"namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa8e611285c92a4c4153012a693825eb7a":[0,0,14,14,1]
+"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea2a7f996293c23d1b8d8569c4f22a2c56":[0,0,14,13,0]
 };

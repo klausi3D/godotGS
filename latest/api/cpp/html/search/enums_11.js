@@ -24,12 +24,13 @@ var searchData=
   ['stageerrorcode_21',['StageErrorCode',['../namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66',1,'GaussianSplatting::ComputeInfrastructure']]],
   ['stagestatus_22',['StageStatus',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946',1,'GaussianRenderPipeline::StageResult']]],
   ['state_23',['State',['../classGSAtomicFileTransaction.html#aeed58611bb5ab01eb0f118d07d5e842b',1,'GSAtomicFileTransaction::State'],['../classgs__world__writer_1_1Writer.html#a11338e9bac65a12690482f3d15890a14',1,'gs_world_writer::Writer::State'],['../classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28',1,'gs_hlod_runtime::NodeResidency::State'],['../structGaussianRenderFrame_1_1ErrorRecoveryStateMachine.html#a5ff0e41bfcc6cf3b8a10dde67ec303ac',1,'GaussianRenderFrame::ErrorRecoveryStateMachine::State'],['../classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28',1,'NodeResidency::State']]],
-  ['streamingreadinessstate_24',['StreamingReadinessState',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97f',1,'render_streaming_orchestrator.cpp']]],
-  ['streaminguploadcompletionmode_25',['StreamingUploadCompletionMode',['../namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701e',1,'GaussianStreamingTypes']]],
-  ['streaminguploadlifecyclestate_26',['StreamingUploadLifecycleState',['../namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94f',1,'GaussianStreamingTypes']]],
-  ['stylepreset_27',['StylePreset',['../classPainterlyMaterial.html#a16d60e38368200c91d13eed76502a2f7',1,'PainterlyMaterial']]],
-  ['subgroupprefixmode_28',['SubgroupPrefixMode',['../structGPUSortingConfig.html#abe79287de1d3073e1a23585da1959b1e',1,'GPUSortingConfig']]],
-  ['submissionresidencyhint_29',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]],
-  ['submitresult_30',['SubmitResult',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82ea',1,'PayloadReadService']]],
-  ['supportkind_31',['SupportKind',['../namespacegs__shadow__face__cull.html#a3a45704828d7a23165854f8b54aa2009',1,'gs_shadow_face_cull']]]
+  ['streamedatlasbound_24',['StreamedAtlasBound',['../classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69',1,'DeviceVramLedger']]],
+  ['streamingreadinessstate_25',['StreamingReadinessState',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97f',1,'render_streaming_orchestrator.cpp']]],
+  ['streaminguploadcompletionmode_26',['StreamingUploadCompletionMode',['../namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701e',1,'GaussianStreamingTypes']]],
+  ['streaminguploadlifecyclestate_27',['StreamingUploadLifecycleState',['../namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94f',1,'GaussianStreamingTypes']]],
+  ['stylepreset_28',['StylePreset',['../classPainterlyMaterial.html#a16d60e38368200c91d13eed76502a2f7',1,'PainterlyMaterial']]],
+  ['subgroupprefixmode_29',['SubgroupPrefixMode',['../structGPUSortingConfig.html#abe79287de1d3073e1a23585da1959b1e',1,'GPUSortingConfig']]],
+  ['submissionresidencyhint_30',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]],
+  ['submitresult_31',['SubmitResult',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82ea',1,'PayloadReadService']]],
+  ['supportkind_32',['SupportKind',['../namespacegs__shadow__face__cull.html#a3a45704828d7a23165854f8b54aa2009',1,'gs_shadow_face_cull']]]
 ];
