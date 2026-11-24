@@ -45,7 +45,7 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     using namespace GSSplatIdentityTestControl;
     set_force_address_keying(p_control == "W1");
     set_force_address_wind_phase(p_control == "W1");
-    force_coarse_fade_off.store(p_control == "W2");
+    force_coarse_fade_zero.store(p_control == "W2");
     force_caster_without_deformation.store(p_control == "W3");
     force_legacy_wind_weight.store(p_control == "W4");
     force_nonresident_draw.store(p_control == "H1");
@@ -73,7 +73,7 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_control(const String &p_contro
     Dictionary switches;
     switches["H1"] = force_nonresident_draw.load();
     switches["W1"] = get_force_address_keying() && get_force_address_wind_phase();
-    switches["W2"] = force_coarse_fade_off.load();
+    switches["W2"] = force_coarse_fade_zero.load();
     switches["W3"] = force_caster_without_deformation.load();
     switches["W4"] = force_legacy_wind_weight.load();
     switches["C1"] = disable_cache_invalidation.load();
@@ -268,10 +268,45 @@ Dictionary GaussianSplatRenderer::_test_gs_game_1_observe() {
             Array page_values;
             if (residency.page_allocation(node, pages, base)) { for (uint32_t page : pages) { page_values.push_back(page); } }
             entry["pages"] = page_values;
+            // Churn diagnosis: what holds a resident node (is_protected() inputs, LRU key).
+            gs_hlod_runtime::NodeResidency::TestHold hold;
+            if (residency.test_hold(node, hold)) {
+                Dictionary held;
+                held["leases"] = hold.leases;
+                held["sibling_leases"] = hold.sibling_leases;
+                held["last_drawn_frame"] = int64_t(hold.last_drawn_frame);
+                held["drawn_this_frame"] = hold.drawn_this_frame;
+                held["edit_hold"] = hold.edit_hold;
+                held["pinned_root"] = hold.pinned_root;
+                entry["hold"] = held;
+            }
             nodes.push_back(entry);
         }
+        result["residency_frame"] = int64_t(residency.frame());
     }
     result["nodes"] = nodes;
+    return result;
+}
+
+// ADR §7 W1 step 3: evicts the given nodes through the residency's own evict(), the call the LRU makes under
+// page pressure. It refuses protected nodes (drawn this frame or their ancestors, leased, edit-held, the root)
+// and non-resident ones; the run retires and the streamer clears the node metadata as for any eviction.
+Dictionary GaussianSplatRenderer::_test_gs_game_1_evict(const Array &p_nodes) {
+    Dictionary result;
+    auto *server = RenderingServer::get_singleton();
+    if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
+    auto &state = get_resource_state();
+    if (state.hlod_streamer.is_null()) { result["error"] = "streamer_absent"; return result; }
+    Array evicted, refused;
+    for (int i = 0; i < p_nodes.size(); ++i) {
+        const Variant value = p_nodes[i];
+        if (value.get_type() != Variant::INT || int64_t(value) < 0 || int64_t(value) > UINT32_MAX) { result["error"] = "node_range"; return result; }
+        const uint32_t node = uint32_t(int64_t(value));
+        if (state.hlod_streamer->_test_evict_node(node) == OK) { evicted.push_back(node); } else { refused.push_back(node); }
+    }
+    invalidate_cached_render();
+    result["evicted"] = evicted;
+    result["refused"] = refused;
     return result;
 }
 
@@ -320,6 +355,7 @@ void GaussianSplatRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_test_gs_game_1_image_request", "absent_nodes", "pose"), &GaussianSplatRenderer::_test_gs_game_1_image_request);
     ClassDB::bind_method(D_METHOD("_test_gs_game_1_image_poll"), &GaussianSplatRenderer::_test_gs_game_1_image_poll);
     ClassDB::bind_method(D_METHOD("_test_gs_game_1_observe"), &GaussianSplatRenderer::_test_gs_game_1_observe);
+    ClassDB::bind_method(D_METHOD("_test_gs_game_1_evict", "nodes"), &GaussianSplatRenderer::_test_gs_game_1_evict);
     ClassDB::bind_method(D_METHOD("_test_gs_game_1_expected_regions", "enabled"), &GaussianSplatRenderer::_test_gs_game_1_expected_regions);
     ClassDB::bind_method(D_METHOD("_test_gs_game_1_clear"), &GaussianSplatRenderer::_test_gs_game_1_clear);
 #endif

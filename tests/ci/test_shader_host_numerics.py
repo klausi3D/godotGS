@@ -1068,15 +1068,20 @@ class HlodWindFieldTests(unittest.TestCase):
         for path in (ROOT / "modules/gaussian_splatting/compute/depth_compute.glsl", SHADERS_DIR / "tile_binning.glsl"):
             self.assertNotIn("uint stable_seed", path.read_text(encoding="utf-8"))
 
-    def test_fade_reaches_zero_at_distance_and_coarse_level(self) -> None:
+    def test_fade_is_by_distance_only(self) -> None:
+        # ADR dynamics §6.3.1 (owner 2026-11-23): no level term. The former ramp
+        # 1 - height/4 zeroed height 4 and gave each parent 25 % less sway than
+        # its children, which W2 measures.
         fade = self.program.fn("gs_wind_distance_level_fade")
         vec3 = self.program.namespace["vec3"]
         self.assertEqual(fade(vec3(0.0), glsl.U32(0)), 1.0)
         self.assertEqual(fade(vec3(64.0, 0.0, 0.0), glsl.U32(0)), 1.0)
         self.assertEqual(fade(vec3(128.0, 0.0, 0.0), glsl.U32(0)), 0.0)
-        self.assertEqual(fade(vec3(0.0), glsl.U32(4)), 0.0)
-        self.assertGreater(fade(vec3(96.0, 0.0, 0.0), glsl.U32(2)), 0.0)
-        self.assertLess(fade(vec3(96.0, 0.0, 0.0), glsl.U32(2)), 1.0)
+        self.assertEqual(fade(vec3(96.0, 0.0, 0.0), glsl.U32(0)), 0.5)
+        for rest in (vec3(0.0), vec3(64.0, 0.0, 0.0), vec3(0.0, 0.0, 96.0), vec3(128.0, 0.0, 0.0)):
+            leaf = fade(rest, glsl.U32(0))
+            for level in (1, 2, 3, 4, 7, 31):
+                self.assertEqual(fade(rest, glsl.U32(level)), leaf, level)
 
     def test_displacement_bound_dominates_signed_wind_and_effector_push(self) -> None:
         bound = self.program.fn("gs_wind_displacement_bound")
@@ -1249,9 +1254,13 @@ class B3WindWeightTests(unittest.TestCase):
         pixels_per_unit = 1080.0 / (2.0 * math.tan(math.radians(35.0)) * 8.0)
         child_mean = (move(children[0], 0) + move(children[1], 255)) / 2.0
         self.assertLessEqual(abs(move(parent, 128) - child_mean) * pixels_per_unit, 0.5)
-        fade = p.fn("gs_wind_distance_level_fade")(parent, glsl.U32(4))
-        self.assertEqual(move(parent, 128, fade), 0.0)
-        self.assertGreater(abs(move(parent, 128, 1.0)) * pixels_per_unit, 0.5, "coarse fade forcing must be observable")
+        # Parent (height 1) and leaf children share one distance fade: still within 0.5 px.
+        fade = p.fn("gs_wind_distance_level_fade")
+        child_mean = (move(children[0], 0, fade(children[0], glsl.U32(0)))
+                      + move(children[1], 255, fade(children[1], glsl.U32(0)))) / 2.0
+        self.assertLessEqual(abs(move(parent, 128, fade(parent, glsl.U32(1))) - child_mean) * pixels_per_unit, 0.5)
+        # The W2 control holds the parent still; the children keep moving.
+        self.assertGreater(abs(child_mean) * pixels_per_unit, 0.5, "parent-only forcing must be observable")
 
     def test_every_payload_route_passes_semantic_to_the_shared_helper(self):
         paths = ("compute/depth_compute.glsl", "shaders/tile_binning.glsl", "shaders/gs_shadow_caster.glsl")

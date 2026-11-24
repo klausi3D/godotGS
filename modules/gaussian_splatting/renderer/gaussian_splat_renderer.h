@@ -882,6 +882,7 @@ public:
     Dictionary _test_gs_game_1_image_poll();
     void _test_gs_game_1_publish_image(const RasterStageOutput &p_output);
     Dictionary _test_gs_game_1_observe();
+    Dictionary _test_gs_game_1_evict(const Array &p_nodes);
     bool _test_gs_game_1_expected_regions(bool p_enabled);
     void _test_gs_game_1_clear();
     void _test_gs_game_1_clear_resources();

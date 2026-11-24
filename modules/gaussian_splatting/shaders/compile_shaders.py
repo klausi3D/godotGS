@@ -158,7 +158,7 @@ TILE_DIAGNOSTICS_OFF = ("GS_DEBUG_COUNTERS_DISABLED=1",)
 GAME_TEST_VARIANTS = (
     ("capture", ()),
     ("address_phase", ("GS_TEST_ADDRESS_IDENTITY=1", "GS_TEST_ADDRESS_WIND_PHASE=1")),
-    ("coarse_fade_off", ("GS_TEST_COARSE_FADE_OFF=1",)),
+    ("coarse_fade_zero", ("GS_TEST_COARSE_FADE_ZERO=1",)),
     ("caster_rest", ("GS_TEST_CASTER_WITHOUT_DEFORMATION=1",)),
     ("legacy_weight", ("GS_TEST_LEGACY_WIND_WEIGHT=1",)),
     ("expected_region", ("GS_GAME_1_EXPECTED_REGION_KEY=1",)),

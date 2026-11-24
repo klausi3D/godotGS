@@ -25,7 +25,7 @@
     "W2": {
       "source": "docs/architecture/adr-dynamics-on-hlod.md §7 W2",
       "threshold_verbatim": "≤ 0.5 px",
-      "control_verbatim": "fade disabled at coarse levels"
+      "control_verbatim": "parent-child agreement broken: interior nodes held still while leaves sway"
     },
     "W3": {
       "source": "docs/architecture/adr-dynamics-on-hlod.md §7 W3",

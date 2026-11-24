@@ -24,6 +24,9 @@ NO_CONTROL_PASS = "PASS (no forcing control, ADR §7)"
 ROW_IDS = ("P1", "P2", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3",
            "S1", "O1", "O2", "L1", "L2", "M1", "F3")
 CONTROLLED = ("P1", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3", "S1", "O2")
+# W2 probes whose leaf children move less than this on screen are vacuous; the
+# harness (gs_game_1_harness.gd) uses the same floor when it selects the probe.
+W2_MIN_CHILD_DISPLACEMENT_PX = 1.0
 
 
 class Missing(ValueError):
@@ -193,6 +196,12 @@ def judge(row, m, cap):
             changed.append(count)
         # ADR §7 W1: **0 changed frames**, on both required arms.
         return ("PASS" if max(changed) == 0 else "FAIL"), {"changed_frames": changed, "arms": arms}
+    if row == "W2":
+        # A probe whose children do not move compares 0 px with 0 px (run
+        # 45231549548: 270 m from pose A, outside the distance fade). Such a
+        # probe cannot fail, so it is no evidence for either arm.
+        if number(m, "children_displacement_px") < W2_MIN_CHILD_DISPLACEMENT_PX or number(m, "distance_fade") <= 0:
+            raise Missing("W2 probe vacuous: children displacement below 1 px or outside the distance fade")
     if row in ("W2", "W3", "W4", "O2"):
         # ADR §7 W2 ≤ 0.5 px; W3 ≤ 1 shadow texel; W4 0 px;
         # O2 ≤ 0.5 px object offset, moving caster vs colour ≤ 1 texel.

@@ -68,7 +68,17 @@ TEST_CASE("[GaussianSplatting][HLOD][Deformation] phase depends only on scene re
 	}
 	CHECK(Math::abs(wind_phase_noise(rest + Vector3(0.001f, 0.0f, 0.0f)) - reference) < 0.001f);
 	CHECK(wind_distance_level_fade(Vector3(128.0f, 0.0f, 0.0f), 0) == 0.0f);
-	CHECK(wind_distance_level_fade(Vector3(), 4) == 0.0f);
+	// ADR dynamics §6.3.1: the fade is by distance only. The former height-4 zero
+	// (a level ramp 1 - height/4) made a parent sway 25 % less than its children.
+	const Vector3 distances[] = { Vector3(), Vector3(64.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 96.0f), Vector3(128.0f, 0.0f, 0.0f) };
+	for (const Vector3 &distance : distances) {
+		const float leaf = wind_distance_level_fade(distance, 0);
+		for (uint32_t level : { 1u, 2u, 3u, 4u, 7u, 31u }) {
+			CHECK(wind_distance_level_fade(distance, level) == leaf);
+		}
+	}
+	CHECK(wind_distance_level_fade(Vector3(), 4) == 1.0f);
+	CHECK(wind_distance_level_fade(Vector3(0.0f, 0.0f, 96.0f), 4) == 0.5f);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][Deformation] caster and colour use the same current frame wind sample") {

@@ -225,6 +225,30 @@ class ContractTests(unittest.TestCase):
         self.assertIn("_wind_keys(", self._harness_function("_deformation_rows"))
         self.assertNotIn("_world_keys(before)", self._harness_function("_identity"))
 
+    def test_w2_probe_is_non_vacuous_and_its_control_breaks_only_the_parent(self):
+        # Run 45231549548: the W2 parent was the first resident one in node order,
+        # ~270 m from pose A where the distance fade is 0; 0 px matched 0 px. The
+        # old control (interiors at full weight) moved parent and children alike.
+        parents = self._harness_function("_w2_parents")
+        self.assertIn('int(parent["level"]) != 1', parents)  # Leaf children only.
+        self.assertIn('parents.sort_custom(func(a, b): return a["distance"] < b["distance"])', parents)
+        w2 = self._harness_function("_wind_lod")
+        self.assertIn("for parent in _w2_parents(fine):", w2)
+        self.assertIn("if children_px < W2_MIN_CHILD_DISPLACEMENT_PX:", w2)
+        self.assertIn('"children_displacement_px": children_px', w2)
+        self.assertIn('"not_run_reason": "W2 no non-vacuous probe', w2)
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
+        floor = re.search(r"const W2_MIN_CHILD_DISPLACEMENT_PX = ([0-9.]+)", script)
+        self.assertIsNotNone(floor)
+        self.assertIn(f"W2_MIN_CHILD_DISPLACEMENT_PX = {floor.group(1)}", verdict_text)
+        shader = (ROOT / "modules/gaussian_splatting/shaders/includes/gs_deformation.glsl").read_text(encoding="utf-8")
+        control = shader.split("#ifdef GS_TEST_COARSE_FADE_ZERO", 1)[1].split("#endif", 1)[0]
+        self.assertIn("if (level > 0u) { return 0.0; }", control)
+        self.assertNotIn("GS_TEST_COARSE_FADE_OFF", shader)
+        header = (ROOT / "modules/gaussian_splatting/renderer/splat_identity_test_control.h").read_text(encoding="utf-8")
+        self.assertIn('if (force_coarse_fade_zero.load()) { result += "#define GS_TEST_COARSE_FADE_ZERO 1\\n"; }', header)
+
     def test_rows_without_full_churn_eviction_name_why(self):
         # Churn never evicts the whole pose-A set (44/63 at best locally), so W1,
         # C1 and R2 have no ADR §7 oracle; they must say so, not just be absent.
@@ -236,8 +260,40 @@ class ContractTests(unittest.TestCase):
         self.assertIn('_raw["rows"]["W1"]["not_run_reason"] = reason', identity)
         self.assertIn('_raw["rows"]["C1"] = {"not_run_reason": reason}', identity)
         self.assertIn('_raw["rows"]["R2"] = {"not_run_reason":', self._harness_function("_regions_rows"))
-        # The scene's atlas budget and the churn poses are unchanged (P1/M1 keep them).
-        self.assertIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+        # The churn stands behind the pose-A camera and looks away from what pose A
+        # draws: poses looking through the centre redrew pose A's nodes, so the LRU
+        # (atlas full, no leases) kept them.
+        self.assertIn("for pose in _churn_poses():", churn)
+        self.assertIn("Vector3(pose.x, 1, pose.z) + outward * 100", churn)
+        poses = self._harness_function("_churn_poses")
+        self.assertIn("for radius in [230.0, 180.0, 120.0, 60.0]:", poses)
+        self.assertIn("var angle = deg_to_rad(15.0 * step)", poses)  # Within 60 degrees of +z.
+        self.assertIn("for step in range(-4, 5):", poses)
+        self.assertIn("if radius < 130 and absi(step) > 3:", poses)
+        self.assertNotIn("Vector3(-x * 0.7, 1, -z * 0.7)", churn)
+        # The scene's atlas budget is unchanged (P1/M1 keep it): the churn sets nothing.
+        self.assertNotIn("_setting(", churn)
+        self.assertNotIn("atlas_vram_budget", churn)
+        # Per-pose residency counters tell an LRU from pinned or leaked nodes.
+        self.assertIn('"residency": _churn_counters(obs, ids)', churn)
+        script = (ROOT / "tests/runtime/gs_game_1_harness.gd").read_text(encoding="utf-8")
+        for key in ("hlod_stream_pages_free", "hlod_stream_evicted_total", "hlod_stream_allocation_refused_total",
+                    "hlod_stream_allocation_protected_capacity_total"):
+            self.assertIn(f'"{key}"', script)
+        counters = self._harness_function("_churn_counters")
+        for key in ("leases", "edit_hold", "drawn_this_frame", "last_drawn_frame"):
+            self.assertIn(f'"{key}": hold.get("{key}")', counters)
+        bridge = (ROOT / "modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp").read_text(encoding="utf-8")
+        self.assertIn("residency.test_hold(node, hold)", bridge)
+        # Eviction is forced only through the residency's own evict() (refuses protected
+        # nodes), after page pressure, for pose-A nodes still resident; recorded per pose.
+        self.assertIn('forced = await _native("_test_gs_game_1_evict", [still])', churn)
+        self.assertIn('"absent_before_forcing": lru_evicted, "forced": forced', churn)
+        evict = bridge.split("Dictionary GaussianSplatRenderer::_test_gs_game_1_evict(", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("state.hlod_streamer->_test_evict_node(node) == OK", evict)
+        streamer = (ROOT / "modules/gaussian_splatting/renderer/hlod_node_streamer.cpp").read_text(encoding="utf-8")
+        self.assertIn("return residency.evict(p_node) ? OK : ERR_BUSY;", streamer)
+        self.assertIn('ClassDB::bind_method(D_METHOD("_test_gs_game_1_evict", "nodes")', bridge)
 
     def test_w4_probes_are_in_view_and_a_missing_row_names_why(self):
         # Locally all 64 W4 probes came from the first drawn node, outside the
