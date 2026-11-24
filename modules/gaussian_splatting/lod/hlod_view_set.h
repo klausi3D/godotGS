@@ -292,7 +292,8 @@ private:
 		uint64_t instance_key = 0;
 		uint32_t node_count = 0;
 		uint64_t content_revision = 0;
-		uint64_t policy = 0;
+		uint64_t policy = 0; // refinement_policy_hash: a change drops the whole history.
+		uint64_t cap_policy = 0; // cap_policy_hash: a change drops the refinement stamps only (S6b fades continue).
 		CutHistory history;
 		CutHistory::Result last_cut;
 		Vector<uint32_t> tie_rank; // Rank of each node's NodeKey: array-order independent tie-break.

@@ -9,10 +9,14 @@ high-frequency real-scan texture is as large as the switch itself.
 
 Per step i (frames i-1 -> i):
   1. Event. The weight of a node is its draw fade (1 for a plain record, 0 when not drawn). Every node
-     whose weight changed is grouped under its highest changed ancestor (the transition's parent). Only
-     LOD transitions count: the group must hold a node whose weight moved opposite to the parent's (a
-     parent -> children switch, a children -> parent merge, or one step of a cross-fade). Groups that
-     only enter or leave the frustum are frustum events, not pops, and are skipped.
+     whose weight changed is grouped under its highest ancestor that changed or is drawn in either frame
+     (the transition's parent). Only LOD transitions count: a changed node must overlap another level of
+     its own region, i.e. an ancestor or a descendant of it is drawn in one of the two frames (a parent ->
+     children switch, a children -> parent merge, or any step of a fade). The fade's weights overlap
+     (fade_cover = min(1, 2t) for each side): the children rise while the parent holds 1, then the parent
+     falls while the children hold 1, so parent and children never move in opposite directions within a
+     frame pair, and every step of the fade is an event of its parent. A node entering or leaving the
+     frustum with no other level of its region drawn is a frustum event, not a pop, and is skipped.
      The event's size is the largest weight change in the group (1.0 for a hard switch).
   2. Footprint. The event parent's world AABB (nodes.json) projected with the step's camera, as a
      clipped screen rectangle at the shot's resolution (skipped when it covers over half the frame).
@@ -83,24 +87,32 @@ def ancestors(nodes, n):
 
 
 def events_between(nodes, w_prev, w_cur):
-    """Group the nodes whose weight changed under their highest changed ancestor; keep LOD transitions."""
+    """Group the nodes whose weight changed under the transition's parent; keep LOD transitions (see step 1)."""
     changed = {}
     for n in set(w_prev) | set(w_cur):
         dw = w_cur.get(n, 0.0) - w_prev.get(n, 0.0)
         if abs(dw) > WEIGHT_EPS:
             changed[n] = dw
+    drawn = {n for w in (w_prev, w_cur) for n, v in w.items() if v > WEIGHT_EPS}
+    drawn_below = set()  # Nodes with a drawn descendant in either frame.
+    for n in drawn:
+        for a in ancestors(nodes, n):
+            if a in drawn_below:
+                break  # Its ancestors were marked with it.
+            drawn_below.add(a)
     groups = {}
     for n, dw in changed.items():
+        up = ancestors(nodes, n)
         root = n
-        for a in ancestors(nodes, n):
-            if a in changed:
+        for a in up:
+            if a in changed or a in drawn:
                 root = a
-        g = groups.setdefault(root, {"parent": root, "members": 0, "max_dw": 0.0, "opposite": False})
+        g = groups.setdefault(root, {"parent": root, "members": 0, "max_dw": 0.0, "lod": False})
         g["members"] += 1
         g["max_dw"] = max(g["max_dw"], abs(dw))
-        if n != root and dw * changed[root] < 0:
-            g["opposite"] = True
-    return [g for g in groups.values() if g["opposite"]], set(changed)
+        if n in drawn_below or any(a in drawn for a in up):
+            g["lod"] = True
+    return [g for g in groups.values() if g["lod"]], set(changed)
 
 
 def project_rect(aabb_min, aabb_size, cam_pos, look_at, fov_deg, width, height, near):

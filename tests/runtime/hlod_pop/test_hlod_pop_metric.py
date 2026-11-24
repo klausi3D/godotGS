@@ -77,18 +77,48 @@ class PopMetricTests(unittest.TestCase):
         self.assertTrue(events[0]["scored"])
         self.assertEqual(summary["control_pops"], 0)
 
-    def test_the_same_change_spread_over_a_fade_is_not_a_pop(self):
-        frames = 12
+    # The implemented blend (CutRequest::fade_frames, hlod_runtime_selection.h fade_cover): overlapping weights, the
+    # incoming side at min(1, 2t), the outgoing side at min(1, 2(1 - t)), t = age / FADE_FRAMES. The children rise while
+    # the parent stays at 1, then the parent falls while the children stay at 1: never opposite in one frame pair.
+    FADE_FRAMES = 16
 
-        def t(i):
-            return min(1.0, max(0.0, (i - SWITCH + 1) / frames))
-        events, summary = self.run_metric(
-            lambda i: {n: w for n, w in ((0, 1.0 - t(i)), (1, t(i)), (2, t(i))) if w > 0.0},
-            lambda i: POP_LEVEL * t(i))
-        self.assertGreaterEqual(summary["lod_events"], frames - 1)
+    @staticmethod
+    def fade_cover(p):
+        return min(1.0, max(0.0, 2.0 * p))
+
+    def fade_t(self, i):
+        return min(1.0, max(0.0, (i - SWITCH + 1) / self.FADE_FRAMES))
+
+    def fade_weights(self, i):
+        t = self.fade_t(i)
+        w = {0: self.fade_cover(1.0 - t), 1: self.fade_cover(t), 2: self.fade_cover(t)}
+        return {n: v for n, v in w.items() if v > 0.0}
+
+    def test_every_step_of_a_complete_overlapping_fade_is_a_lod_event(self):
+        # Codex P2 on #1542: the opposite-direction predicate found no event in a complete fade of the implemented curve,
+        # so nothing during a fade was ever scored. Every selection of the fade changes a weight: each is an event.
+        events = []
+        for i in range(SWITCH, SWITCH + self.FADE_FRAMES):
+            events.extend(metric.events_between(nodes(), self.fade_weights(i - 1), self.fade_weights(i))[0])
+        self.assertEqual(len(events), self.FADE_FRAMES)
+        self.assertTrue(all(e["parent"] == 0 for e in events))  # Grouped under the transition's parent: its footprint.
+        self.assertTrue(all(e["max_dw"] < 0.999 for e in events))
+
+    def test_the_same_change_spread_over_a_fade_is_scored_and_not_a_pop(self):
+        events, summary = self.run_metric(self.fade_weights, lambda i: POP_LEVEL * self.fade_t(i))
+        self.assertEqual(summary["lod_events"], self.FADE_FRAMES)
         self.assertEqual(summary["hard_switch_events"], 0)
-        self.assertGreater(summary["scored_events"], 0)
+        self.assertEqual(summary["scored_events"], self.FADE_FRAMES)
         self.assertEqual(summary["pops"], 0)
+
+    def test_a_discontinuity_inside_a_fade_is_scored_as_a_pop(self):
+        # The same fade, but the image jumps by a hard switch's worth in one frame mid-fade (what the fade exists to
+        # prevent). The metric must see it: it scores the fade's own frames.
+        jump = SWITCH + self.FADE_FRAMES // 2
+        events, summary = self.run_metric(self.fade_weights, lambda i: POP_LEVEL * self.fade_t(i) + (POP_LEVEL if i >= jump else 0.0))
+        self.assertEqual(summary["hard_switch_events"], 0)
+        pops = [e for e in events if e["pop"]]
+        self.assertEqual([e["step"] for e in pops], [jump])  # Only the jump; the fade's smooth steps stay quiet.
 
     def test_camera_motion_alone_is_not_a_pop(self):
         _, summary = self.run_metric(lambda i: {0: 1.0}, lambda i: 0.0)

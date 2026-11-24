@@ -141,7 +141,12 @@ public:
 	// ordinary transition actually taken solely in the history band, never a bootstrap expansion.
 	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node] & (HYSTERESIS_HELD | RESIDENCY_MISSED | MISS_DEMANDED); }
 	bool reserve(uint32_t p_nodes);
+	// Drops everything: refinement stamps, demand and the S6b temporal fade history (what was drawn, fading groups).
 	void invalidate();
+	// Drops the refinement stamps and demand only. The temporal fade history stays, so a cut change caused by new caps
+	// (instances entering or leaving the view re-divide the reserve) blends when the caps leave headroom for it, and a
+	// running fade continues (thread 4676033881 on #1542). The epoch keeps counting: the drawn stamps stay comparable.
+	void invalidate_refinement();
 	// Desired(view) (ADR 14.1), ordered by the selector's own refinement priority (highest first): the
 	// non-resident visible children of every parent whose replacement the quality rule asked for and whose
 	// whole transition fits every cap, plus the root when it is not resident. Children of one parent are

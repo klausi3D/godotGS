@@ -1933,4 +1933,71 @@ TEST_CASE("[GaussianSplatting][HLOD] temporal fade never coarsens the cut, draws
 		CHECK(history.selected_fade(i) == 1.0f);
 	}
 }
+// Thread 4677949866. A spread tree: root 0 at x = 0, interiors 1 and 2 at x = -3 and +3, leaves beside them. The plane
+// x <= 0 sees the root and the left branch only; without it everything is visible.
+static void spread_tree(GaussianSplatHlodRuntimeData &r_data) {
+	parented_tree(r_data);
+	const float x_of[7] = { 0.0f, -3.0f, 3.0f, -3.5f, -2.5f, 2.5f, 3.5f };
+	for (int i = 0; i < 7; ++i) {
+		auto &n = r_data.nodes.write[i];
+		n.bounds_center = Vector3(x_of[i], 0, -10);
+		n.topology.radius = i == 0 ? 4.0f : (i < 3 ? 1.0f : 0.5f);
+	}
+	r_data.prepare_placement_reserve();
+}
+static void left_half(gs_hlod_runtime::CutRequest &r_request, bool p_on) {
+	r_request.frustum_enabled = p_on;
+	r_request.frustum[0] = Plane(Vector3(1, 0, 0), 0);
+	for (int p = 1; p < 6; ++p) { r_request.frustum[p] = Plane(Vector3(0, 1, 0), 1.0e6); }
+}
+TEST_CASE("[GaussianSplatting][HLOD] temporal merge from a frustum-filtered cut keeps a newly exposed branch fully opaque (S6b)") {
+	GaussianSplatHlodRuntimeData data;
+	spread_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.fade_frames = 12;
+	left_half(r, true);
+	// Root error 4 x 4 / (10 - 4) = 2.7 > 1.25 x tau: refined. Node 1: 2 x 4 / (sqrt(109) - 1) = 0.77: not refined. Node 2
+	// is outside the plane, so the drawn cut is {1} alone.
+	r.focal_pixels = 4.0;
+	for (int k = 0; k < 14; ++k) { history.select(data, r); }
+	float w[7];
+	auto parked = history.select(data, r);
+	cut_weights(history, parked, w);
+	CHECK(parked.selected_count == 1);
+	CHECK(w[1] == 1.0f);
+	// Dolly out: root error 4 x 1 / 6 = 0.67 < tau, it no longer refines. A merge to the root whose old configuration is {1}.
+	r.focal_pixels = 1.0;
+	auto merge = history.select(data, r);
+	cut_weights(history, merge, w);
+	CHECK(merge.fade_groups == 1);
+	CHECK(w[1] == 1.0f); // The old child keeps full weight for the first half of the fade.
+	CHECK(w[0] > 0.0f);
+	CHECK(w[0] < 1.0f); // The visible region is covered by the old child, so the root fades in over it.
+	// Pan: the right branch comes into view mid-fade. No old member covers it, so the root, the only node drawing it,
+	// must be fully opaque there.
+	left_half(r, false);
+	auto pan = history.select(data, r);
+	cut_weights(history, pan, w);
+	CHECK(pan.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(w[0] == 1.0f);
+	for (int leaf = 5; leaf < 7; ++leaf) { CHECK(leaf_coverage(w, leaf) >= 1.0f); }
+	for (int leaf = 3; leaf < 5; ++leaf) { CHECK(leaf_coverage(w, leaf) >= 1.0f); }
+	for (int i = 0; i < 7; ++i) { CHECK(w[i] <= 1.0f); }
+	// The old left child still fades out over it: the region that was covered keeps blending, no pop.
+	CHECK(w[1] > 0.0f);
+	// Control: a pan that exposes nothing new keeps the root fading (the fix is not a blanket snap).
+	gs_hlod_runtime::CutHistory control;
+	if (!control.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	left_half(r, true);
+	r.focal_pixels = 4.0;
+	for (int k = 0; k < 15; ++k) { control.select(data, r); }
+	r.focal_pixels = 1.0;
+	control.select(data, r);
+	auto still = control.select(data, r);
+	cut_weights(control, still, w);
+	CHECK(w[0] < 1.0f);
+	CHECK(w[1] == 1.0f);
+}
 }

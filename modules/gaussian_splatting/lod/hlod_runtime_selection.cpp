@@ -78,6 +78,14 @@ void CutHistory::invalidate() {
 	epoch = 0;
 }
 
+void CutHistory::invalidate_refinement() {
+	// A stamp of 0 never equals the previous epoch of a selection (>= 1 once any selection ran), so no node counts as
+	// refined last time. drawn_stamp, shown, prev_drawn and the fade groups are untouched.
+	demand_size = 0;
+	refined.fill(0);
+	diagnostics.fill(0);
+}
+
 uint64_t CutHistory::workspace_bytes(uint32_t p_nodes) {
 	uint64_t bytes = 0, one = 0;
 	if (!allocation_bytes(p_nodes, sizeof(Candidate), one)) { return 0; } bytes += one;
@@ -793,17 +801,77 @@ void CutHistory::apply_temporal_fade(const GaussianSplatHlodRuntimeData &p_data,
 	r_out.fade_groups = group_count;
 	// 5. Drawn weights. A live node inside a group region draws fade_cover(t) x its live weight, an old member
 	// fade_cover(1 - t) x its frozen weight; a node in both takes the larger. Every weight stays in [0, 1].
-	auto group_t_of = [&](uint32_t p_node) {
+	auto group_of = [&](uint32_t p_node) {
 		for (uint32_t a = p_node; a != UINT32_MAX; a = parent_of(a)) {
-			if (group_mark[a]) { return age_t(groups[group_mark[a] - 1]); }
+			if (group_mark[a] & INDEX) { return (group_mark[a] & INDEX) - 1u; }
 		}
-		return 1.0f;
+		return UINT32_MAX;
 	};
+	// Coverage (thread 4677949866 on #1542). The live side fades in at fade_cover(t) only where the group's old
+	// configuration still draws: a live node is covered when an old member is its ancestor-or-self, or when every
+	// branch under it that is visible now reaches an old member. The old configuration of a frustum-filtered cut holds
+	// only what was visible; a branch the camera exposes mid-fade is covered by no member, and a live node over it keeps
+	// its full live weight there (the old members still fade out over it, so coverage stays between once and twice).
+	// A member dropped below kFadeMinWeight still counts as cover (it is negligible, not missing); a non-resident or
+	// stale one does not draw and does not. Marks use spare high bits of group_mark (clean here), cleared below.
+	constexpr uint32_t OLD_MEMBER = CANDIDATE, MEMBER_BELOW = FINAL;
+	auto drawable = [&](const FadeMember &p_member) {
+		return (!p_request.resident || p_request.resident[p_member.node] != 0) && !p_data.is_stale(p_member.node);
+	};
+	auto mark_members = [&](bool p_set) {
+		for (uint32_t g = 0; g < group_count; ++g) {
+			const FadeGroup &group = groups[g];
+			for (uint32_t m = 0; m < group.member_count; ++m) {
+				const FadeMember &member = members[group.first_member + m];
+				if (!drawable(member)) { continue; }
+				group_mark.write[member.node] = p_set ? (group_mark[member.node] | OLD_MEMBER) : (group_mark[member.node] & ~OLD_MEMBER);
+				// The chain up to the group root (members lie in its subtree); shared tails stop the walk.
+				for (uint32_t a = member.node; a != group.root;) {
+					a = parent_of(a);
+					if (a == UINT32_MAX || bool(group_mark[a] & MEMBER_BELOW) == p_set) { break; }
+					group_mark.write[a] = p_set ? (group_mark[a] | MEMBER_BELOW) : (group_mark[a] & ~MEMBER_BELOW);
+				}
+			}
+		}
+	};
+	auto visible = [&](uint32_t p_node) {
+		const auto &n = p_data.nodes[p_node];
+		if (!p_request.frustum_enabled) { return true; }
+		for (const Plane &plane : p_request.frustum) {
+			if (plane.distance_to(n.bounds_center) > n.topology.radius) { return false; }
+		}
+		return true;
+	};
+	auto covered = [&](uint32_t p_node, uint32_t p_root) {
+		for (uint32_t a = p_node; a != UINT32_MAX; a = parent_of(a)) {
+			if (group_mark[a] & OLD_MEMBER) { return true; }
+			if (a == p_root) { break; }
+		}
+		// Depth-first over the visible subtree, in the heap storage (free after step 3; one entry per node at most).
+		uint32_t stack = 0;
+		heap.write[stack++].node = p_node;
+		while (stack != 0) {
+			const uint32_t n = heap[--stack].node;
+			if (group_mark[n] & OLD_MEMBER) { continue; }
+			if (!(group_mark[n] & MEMBER_BELOW)) { return false; } // A visible branch no old member reaches.
+			const auto &topology = p_data.nodes[n].topology;
+			for (uint32_t j = 0; j < topology.child_count; ++j) {
+				const uint32_t child = topology.first_child + j;
+				if (child < count && visible(child)) { heap.write[stack++].node = child; }
+			}
+		}
+		return true;
+	};
+	mark_members(true);
 	for (uint32_t i = 0; i < live_count; ++i) {
 		const uint32_t node = selected[i];
-		fade.write[node] = fade_cover(group_t_of(node)) * live_weight(node);
+		const uint32_t g = group_of(node);
+		const float t = g == UINT32_MAX ? 1.0f : age_t(groups[g]);
+		const bool blend = t < 1.0f && covered(node, groups[g].root);
+		fade.write[node] = (blend ? fade_cover(t) : 1.0f) * live_weight(node);
 		diagnostics.write[node] |= FADING;
 	}
+	mark_members(false);
 	uint32_t drawn_count = live_count;
 	for (uint32_t g = 0; g < group_count; ++g) {
 		const FadeGroup &group = groups[g];

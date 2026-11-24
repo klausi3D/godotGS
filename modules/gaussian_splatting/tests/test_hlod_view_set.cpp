@@ -872,6 +872,70 @@ TEST_CASE("[GaussianSplatting][HLOD] a changed tau invalidates the refinement hi
 	run(set, snap, results);
 	CHECK(same(nodes_of(set, 1), { 1, 2 }));
 }
+// Thread 4676033881: instances entering or leaving the view change the world's splat and record caps every frame they
+// do (prepare_hlod_frame), and the caps are part of the policy hash. A cap-only change must not erase the temporal fade
+// history: the cut change it causes blends when the headroom allows, and a running fade is not cut off.
+static float drawn_fade(const ViewSet &p_set, uint64_t p_view, uint32_t p_node) {
+	uint32_t n = 0;
+	const DrawRecord *r = p_set.drawn(p_view, n);
+	for (uint32_t i = 0; r && i < n; ++i) {
+		if (r[i].node == p_node) { return r[i].fade; }
+	}
+	return 0.0f;
+}
+static Vector<uint32_t> sorted_nodes_of(const ViewSet &p_set, uint64_t p_view) {
+	Vector<uint32_t> out = nodes_of(p_set, p_view);
+	out.sort();
+	return out;
+}
+TEST_CASE("[GaussianSplatting][HLOD] a cap-only policy change keeps the temporal fade history: the switch it causes blends (S6b)") {
+	auto tree = make_tree(IDENT);
+	ViewSpec v = perspective(1);
+	v.fade_frames = 12;
+	auto snap = snapshot(tree);
+	snap.instances.write[0].caps = caps(3); // Root only (2 splats): its children (4) do not fit.
+	ViewSet set;
+	CHECK(set.admit_view(snap, v).status == ViewSet::ADMITTED);
+	snap.views.push_back(v);
+	Vector<ViewSet::ViewResult> results;
+	for (int k = 0; k < 3; ++k) { run(set, snap, results); }
+	CHECK(same(nodes_of(set, 1), { 0 }));
+	CHECK(drawn_fade(set, 1, 0) == 1.0f);
+	// Only the caps change (an instance entering the view frees reserve): the cut refines to the leaves (16 splats) and
+	// the old root (2) fits the headroom, so the root -> leaves switch blends instead of popping.
+	snap.instances.write[0].caps = caps(100);
+	run(set, snap, results);
+	const ViewSet::ViewResult *first = result_of(results, 1);
+	if (!first) { FAIL("view result missing"); return; }
+	CHECK(first->fade_groups == 1);
+	CHECK(first->fade_snapped == 0);
+	CHECK(same(sorted_nodes_of(set, 1), { 0, 3, 4, 5, 6 })); // Cut plus the old root, in any publication order.
+	CHECK(drawn_fade(set, 1, 0) == 1.0f); // fade_cover(1 - 1/12): the old root keeps full weight for half the fade.
+	const float leaf_first = drawn_fade(set, 1, 3);
+	CHECK(leaf_first > 0.0f);
+	CHECK(leaf_first < 1.0f);
+	// A second cap-only change mid-fade (another instance leaves; the cut and the headroom still fit) continues the fade.
+	snap.instances.write[0].caps = caps(90);
+	run(set, snap, results);
+	const ViewSet::ViewResult *second = result_of(results, 1);
+	if (!second) { FAIL("view result missing"); return; }
+	CHECK(second->fade_groups == 1);
+	CHECK(same(sorted_nodes_of(set, 1), { 0, 3, 4, 5, 6 })); // Cut plus the old root, in any publication order.
+	CHECK(drawn_fade(set, 1, 3) > leaf_first); // The running fade advanced; it was not restarted or cut off.
+	CHECK(drawn_fade(set, 1, 3) < 1.0f);
+	for (int k = 0; k < 12; ++k) { run(set, snap, results); }
+	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 })); // Converged: the leaves alone, at full weight.
+	CHECK(drawn_fade(set, 1, 3) == 1.0f);
+	// A refinement-policy change (tau) still drops the whole history: the new cut is drawn at once, never blended from
+	// a configuration selected under another error threshold.
+	snap.views.write[0].tau_pixels = 22;
+	run(set, snap, results);
+	const ViewSet::ViewResult *policy = result_of(results, 1);
+	if (!policy) { FAIL("view result missing"); return; }
+	CHECK(policy->fade_groups == 0);
+	CHECK(same(nodes_of(set, 1), { 1, 2 }));
+	CHECK(drawn_fade(set, 1, 1) == 1.0f);
+}
 
 TEST_CASE("[GaussianSplatting][HLOD] a snapshot that outgrows a view's reservation is reported, not failed, until re-admitted") {
 	auto tree = make_tree(IDENT);

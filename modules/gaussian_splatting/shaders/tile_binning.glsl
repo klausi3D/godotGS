@@ -954,6 +954,7 @@ void main() {
     vec4 local_rotation = g.rotation;
 #endif
 
+    float hlod_record_fade = 1.0; // S6 record fade (ADR 6.7); 1 off the HLOD route.
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
     if (splat_ref_idx >= uint(hlod_draw_entry_buffer.draw_entries.length())) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
@@ -987,12 +988,13 @@ void main() {
     }
     uint identity_hash = gs_splat_identity_hash(selected_node.reserved_node_y, local_splat_index, instance.placement_key);
     vec3 hlod_camera_offset = selected.camera_offset.xyz;
-    // S6 cross-fade (ADR 6.7): a fading parent and its children are both drawn; the record's fade scales the stored
-    // opacity before every opacity consumer (alpha clip, wind/effectors, opacity-aware bounds, raster), so COUNT and
-    // EMIT see the same value. It depends on the record only, never on the atlas address (D1). Subpixel history is
-    // keyed by the identity hash and decided from the radius, so a fade never changes it. A fade of 0 never occurs
-    // (the selector admits pairs only for tau < e < h x tau); a non-finite or out-of-range value is clamped.
-    g.opacity *= clamp(selected.fade, 0.0, 1.0);
+    // S6 cross-fade (ADR 6.7): a fading parent and its children are both drawn; the record's fade is an opacity factor
+    // of the record. It scales the opacity every colour consumer sees (alpha clip, opacity-aware bounds, raster), so
+    // COUNT and EMIT see the same value, but never the positional deformation: the legacy wind weight depends on the
+    // stored opacity, and depth (sort) and the shadow caster deform with it, so the fade is applied after the deformation
+    // (below). It depends on the record only, never on the atlas address (D1). Subpixel history is keyed by the identity
+    // hash and decided from the radius, so a fade never changes it. A non-finite or out-of-range value is clamped.
+    hlod_record_fade = clamp(selected.fade, 0.0, 1.0);
 #endif
 
     RegionOverrideGPU region_override = gs_region_resolve(instance, g.semantic, gaussian_idx);
@@ -1003,7 +1005,7 @@ void main() {
     // Optional per-splat alpha clip. It runs before world transform/projection
     // only when projects opt into an aggressive threshold. The default stays 0
     // so opacity_multiplier can still recover low-opacity real-scan splats.
-    if (g.opacity <= gs_get_alpha_clip()) {
+    if (g.opacity * hlod_record_fade <= gs_get_alpha_clip()) {
         return;
     }
 
@@ -1060,8 +1062,12 @@ void main() {
             params.effector_opacity_configs,
             frame_anchor,
             deformation_fade);
+    // The record fade after the deformation: effector opacity is a product with the stored opacity, so this equals
+    // deforming the faded opacity for colour while the position stays the one depth and the caster compute.
+    deformation.opacity *= hlod_record_fade;
+    g.opacity *= hlod_record_fade;
     world_position = deformation.position;
-    vec3 world_scale = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u
+    vec3 world_scale =(instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u
             ? local_scale
             : local_scale * uniform_scale;
     vec4 world_rotation = (instance_flags & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0u
