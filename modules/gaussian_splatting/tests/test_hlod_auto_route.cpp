@@ -42,6 +42,8 @@ using gs_hlod_auto_route::residency_hint_resident;
 
 static const char *CUT_KEY = LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH;
 static const char *ROUTE_KEY = "rendering/gaussian_splatting/streaming/route_policy";
+// Spelled out (not the header constant) so that the red half of the budget case compiles on a base without the setting.
+static const char *MATERIALIZE_BUDGET_KEY = "rendering/gaussian_splatting/lod/hlod_paged_materialize_ram_budget_mb";
 
 TEST_CASE("[GaussianSplatting][HLOD] automatic route: the plan over tree x payload x opt-out x paged x route policy x transform x domain") {
 	const char *domains[] = { nullptr, "lod_disabled", "painterly_enabled", "shadow_instance_filter" };
@@ -198,6 +200,7 @@ struct RouteCase {
 	GaussianSplatWorld3D::WindMode wind_mode = GaussianSplatWorld3D::WIND_MODE_AUTO;
 	bool effectors = false;
 	String demote_cause; // non-empty: then call the submission's demotion callback with it, as the renderer's request does
+	int64_t materialize_budget_mb = -1; // >= 0: lod/hlod_paged_materialize_ram_budget_mb for the case; -1: left as it is
 };
 
 struct RouteResult {
@@ -234,6 +237,9 @@ static RouteResult run_case(const RouteCase &p_case) {
 	const Variant prev_wind = ps->get_setting(wind_key), prev_effectors = ps->get_setting(effectors_key);
 	ps->set_setting(wind_key, p_case.wind);
 	ps->set_setting(effectors_key, p_case.effectors);
+	const bool had_budget = ps->has_setting(MATERIALIZE_BUDGET_KEY);
+	const Variant prev_budget = had_budget ? ps->get_setting(MATERIALIZE_BUDGET_KEY) : Variant();
+	if (p_case.materialize_budget_mb >= 0) { ps->set_setting(MATERIALIZE_BUDGET_KEY, p_case.materialize_budget_mb); }
 	String path;
 	const bool previous_quantized = g_quantization_config.per_chunk_quantization;
 	g_quantization_config.per_chunk_quantization = p_case.quantized;
@@ -302,6 +308,7 @@ static RouteResult run_case(const RouteCase &p_case) {
 	if (had_route) { ps->set_setting(ROUTE_KEY, prev_route); } else { ps->clear(ROUTE_KEY); }
 	ps->set_setting(wind_key, prev_wind);
 	ps->set_setting(effectors_key, prev_effectors);
+	if (had_budget) { ps->set_setting(MATERIALIZE_BUDGET_KEY, prev_budget); } else { ps->clear(MATERIALIZE_BUDGET_KEY); }
 	result.has_snapshot = result.submission.hlod_snapshot.is_valid();
 	result.snapshot_paged = result.has_snapshot && result.submission.hlod_snapshot->is_paged();
 	result.submission.hlod_snapshot.unref();
@@ -663,6 +670,82 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: 
 		CHECK_FALSE(r.has_snapshot);
 		CHECK(r.submission.hlod_reason == String("hlod_auto_route_demoted:quantized_mixed_dc_node"));
 		CHECK(r.submission.desired_residency_hint == STREAMING);
+	}
+}
+
+// MF-1 (production review 2026-11-25, ADR beyond-VRAM I-8): every route by which the node loads a V4 paged world into
+// memory (the opt-out, a setup the HLOD route never serves, a demotion, quantization over a mixed-DC tree) is held to
+// lod/hlod_paged_materialize_ram_budget_mb. Over the budget the world stays paged and says so; it never loads. On a base
+// without the budget every case below loads the payload (still_paged false): red by assertion.
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: a paged world never loads into memory beyond the RAM budget") {
+	const String OVER = "hlod_paged_materialize_over_ram_budget";
+	struct Named {
+		const char *what;
+		RouteCase c;
+	};
+	LocalVector<Named> cases;
+	{
+		Named n{ "opt-out", RouteCase() };
+		n.c.opt_out = true;
+		cases.push_back(n);
+	}
+	{
+		Named n{ "lod disabled at submission", RouteCase() };
+		n.c.lod_disabled = true;
+		cases.push_back(n);
+	}
+	{
+		Named n{ "quantized mixed dc", RouteCase() };
+		n.c.mixed_dc = true;
+		n.c.quantized = true;
+		cases.push_back(n);
+	}
+	{
+		Named n{ "demotion lod_disabled", RouteCase() };
+		n.c.demote_cause = "lod_disabled";
+		cases.push_back(n);
+	}
+	{
+		Named n{ "demotion painterly", RouteCase() };
+		n.c.demote_cause = "painterly_enabled";
+		cases.push_back(n);
+	}
+	for (Named &n : cases) {
+		n.c.tree = Tree::PAGED;
+		// 1. Budget 0 (never load): the world stays paged, loads nothing, and the reason says why.
+		RouteCase over = n.c;
+		over.materialize_budget_mb = 0;
+		const RouteResult r = run_case(over);
+		if (!r.ok) { FAIL(n.what, ": ", r.failure); continue; }
+		CHECK_MESSAGE(r.still_paged, String(String(n.what) + ": a paged world loaded its payload into memory beyond the RAM budget"));
+		CHECK_MESSAGE(r.world_count == 0, n.what);
+		if (n.c.demote_cause.is_empty()) {
+			// Known at submission: no snapshot route to stay on, so nothing draws, with the reason.
+			CHECK_MESSAGE(!r.has_snapshot, n.what);
+			CHECK_MESSAGE(r.submission.hlod_reason == OVER, String(String(n.what) + ": reason " + r.submission.hlod_reason));
+		} else {
+			// A late refusal: the demotion is refused, the world keeps its HLOD route (the refused frames draw nothing,
+			// with their own reason) instead of being demoted to a route that draws nothing for good.
+			CHECK_MESSAGE(r.has_snapshot, n.what);
+			CHECK_MESSAGE(!r.submission.hlod_reason.begins_with(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX), String(String(n.what) + ": reason " + r.submission.hlod_reason));
+		}
+		// 2. The legal route (discrimination): the same case at the default budget loads the small fixture as before.
+		const RouteResult d = run_case(n.c);
+		if (!d.ok) { FAIL(n.what, " (default budget): ", d.failure); continue; }
+		CHECK_MESSAGE(!d.still_paged, String(String(n.what) + ": the default budget refused a fixture of a few splats"));
+		CHECK_MESSAGE(d.world_count > 0, n.what);
+	}
+	{
+		// The budget concerns loading only: a resident world with a tree demotes as before at budget 0 (nothing to load).
+		RouteCase c;
+		c.tree = Tree::RESIDENT;
+		c.demote_cause = "lod_disabled";
+		c.materialize_budget_mb = 0;
+		const RouteResult r = run_case(c);
+		if (!r.ok) { FAIL("resident demotion: ", r.failure); return; }
+		CHECK_FALSE(r.has_snapshot);
+		CHECK(r.submission.hlod_reason == String("hlod_auto_route_demoted:lod_disabled"));
+		CHECK(r.world_count > 0);
 	}
 }
 
