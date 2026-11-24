@@ -59,25 +59,39 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][BV-17] the relative dept
     const RID pipeline = resources.keep(rd->compute_pipeline_create(shader));
     if (!pipeline.is_valid()) { FAIL("BV-17 depth pipeline"); return; }
 
-    // An atlas one page past 2^31 bytes of 176 B records, the size the reef world failed at, and one splat in its last page.
+    // An atlas of 176 B records two pages past the page that straddles 2^31 bytes (the reef world failed at 2,148,450,304 B).
+    // The drawn splat is the first record of the last page, whose own byte offset is above 2^31; the first record of the
+    // straddling page (below 2^31) holds a decoy at another depth, so reading the wrong record shows in the depth key.
+    const uint64_t signed_limit = uint64_t(1) << 31;
     const uint64_t page_bytes = uint64_t(sizeof(PackedGaussian)) * GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
-    const uint32_t pages = uint32_t((uint64_t(1) << 31) / page_bytes + 1u);
+    const uint32_t pages = uint32_t(signed_limit / page_bytes + 2u);
     const uint64_t atlas_bytes = uint64_t(pages) * page_bytes;
     const uint32_t atlas_records = pages * GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS;
     const uint32_t page = pages - 1u;
     const uint64_t record_offset = uint64_t(page) * page_bytes;
-    if (atlas_bytes <= (uint64_t(1) << 31) || record_offset + page_bytes <= (uint64_t(1) << 31) ||
-            atlas_bytes > DeviceVramLedger::kMaxAtlasBufferBytes) {
+    const uint64_t decoy_offset = record_offset - page_bytes;
+    CHECK(record_offset > signed_limit);
+    CHECK(decoy_offset < signed_limit);
+    if (record_offset <= signed_limit || decoy_offset >= signed_limit) {
+        FAIL("BV-17 drawn record ", record_offset, " B must be above 2^31 and the decoy ", decoy_offset, " B below it");
+        return;
+    }
+    if (atlas_bytes > DeviceVramLedger::kMaxAtlasBufferBytes) {
         FAIL("BV-17 fixture is not an atlas above 2^31 bytes within one buffer: ", atlas_bytes, " B");
         return;
     }
     const RID atlas = resources.keep(rd->storage_buffer_create(uint32_t(atlas_bytes)));
     if (!atlas.is_valid()) { FAIL("BV-17 could not create a ", atlas_bytes, " B atlas buffer"); return; }
-    Gaussian g = {}; g.position = Vector3(0, 0, -5); g.scale = Vector3(.05, .05, .05); g.rotation = Quaternion(); g.opacity = 1;
-    g.semantic = gaussian_pack_semantic(1, 0);
-    PackedGaussian raw; SHCompressionMetrics metrics;
-    pack_gaussian(g, raw, metrics, nullptr, 0, 0, 0);
-    if (rd->buffer_update(atlas, uint32_t(record_offset), sizeof(raw), &raw) != OK) { FAIL("BV-17 record upload above 2^31"); return; }
+    const float record_depth = 7.25f, decoy_depth = 3.5f;
+    auto upload = [&](uint64_t p_offset, float p_depth) {
+        Gaussian g = {}; g.position = Vector3(0, 0, -p_depth); g.scale = Vector3(.05, .05, .05); g.rotation = Quaternion(); g.opacity = 1;
+        g.semantic = gaussian_pack_semantic(1, 0);
+        PackedGaussian raw; SHCompressionMetrics metrics;
+        pack_gaussian(g, raw, metrics, nullptr, 0, 0, 0);
+        return rd->buffer_update(atlas, uint32_t(p_offset), sizeof(raw), &raw) == OK;
+    };
+    if (!upload(record_offset, record_depth)) { FAIL("BV-17 record upload above 2^31"); return; }
+    if (!upload(decoy_offset, decoy_depth)) { FAIL("BV-17 decoy upload below 2^31"); return; }
 
     InstanceDataGPU row = {}; row.rotation[3] = row.inv_rotation[3] = row.translation_scale[3] = row.params[0] = 1;
     row.placement_pad[0] = 2;
@@ -121,7 +135,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][BV-17] the relative dept
     rd->compute_list_dispatch(list, 1, 1, 1); rd->compute_list_end();
     const Vector<uint8_t> counts = rd->buffer_get_data(counter_buffer);
     const Vector<uint8_t> refs = rd->buffer_get_data(ref_buffer);
-    if (counts.size() != sizeof(zeros) || refs.size() < int(sizeof(uint32_t) * 2)) { FAIL("BV-17 readback"); return; }
+    const Vector<uint8_t> keys = rd->buffer_get_data(key_buffer);
+    if (counts.size() != sizeof(zeros) || refs.size() < int(sizeof(uint32_t) * 2) || keys.size() != sizeof(zeros)) {
+        FAIL("BV-17 readback"); return;
+    }
     uint32_t counter[2]; memcpy(counter, counts.ptr(), sizeof(counter));
     // The splat above 2^31 bytes is accepted, not rejected as out of the atlas (overflowed_splats).
     CHECK(counter[0] == 1u);
@@ -129,4 +146,11 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][BV-17] the relative dept
     // And the splat ref names that record.
     SplatRefGPU ref; memcpy(&ref, refs.ptr(), MIN(sizeof(ref), size_t(refs.size())));
     CHECK(gs_splat_ref::gs_splat_ref_atlas_index(ref.atlas_index) == page * GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS);
+    // And the depth key carries that record's depth (7.25), not the decoy's (3.5) or an empty record's.
+    uint32_t key[2]; memcpy(key, keys.ptr(), sizeof(key));
+    const uint32_t depth_bits = (key[1] & 0x80000000u) ? (key[1] ^ 0x80000000u) : ~key[1];
+    float drawn_depth = 0.0f; memcpy(&drawn_depth, &depth_bits, sizeof(drawn_depth));
+    CHECK(key[1] == GaussianSplatting::float_to_sortable_uint(drawn_depth));
+    CHECK(Math::abs(drawn_depth - record_depth) < 1e-3f);
+    CHECK(Math::abs(drawn_depth - decoy_depth) > 1.0f);
 }
