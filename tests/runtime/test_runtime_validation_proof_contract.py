@@ -2634,7 +2634,7 @@ def _hlod_async_observation_contract_errors(script: str, native: str) -> list[st
     observe = script.split("func _observe_publication(deadline: int,", 1)[1].split("\n\nfunc ", 1)[0]
     dispatch = script.split("func _read_publication_on_render_thread(", 1)[1].split("\n\nfunc ", 1)[0]
     if "const TIMEOUT_MSEC := 10_000" not in script or "while Time.get_ticks_msec() < deadline:" not in observe:
-        errors.append("original overall deadline must bound polling")
+        errors.append("the caller's deadline must bound polling")
     if "TIMEOUT_MSEC" in observe or re.search(r"deadline\s*=", observe):
         errors.append("polling must not reset its deadline")
     if not re.search(r"await publication_observed\s*\n\s*if Time.get_ticks_msec\(\) >= deadline:\s*\n\s*return", observe):
@@ -2662,6 +2662,10 @@ def _hlod_async_observation_contract_errors(script: str, native: str) -> list[st
             or 'int(observation.get("readback_poll_renderer_frame", -1)) >= int(observation.get("copy_renderer_frame", 0))' not in check):
         errors.append("copy renderer frame must match frozen stats and precede its poll")
     wait = script.split("func _wait_publication(", 1)[1].split("\n\nfunc ", 1)[0]
+    # Each publication step takes one deadline before its request (_step_deadline); the wait for it never refreshes
+    # it, or a transition that never completes would retry forever.
+    if "TIMEOUT_MSEC" in wait or "_step_deadline" in wait or re.search(r"deadline\s*=", wait):
+        errors.append("a step's wait must not reset its deadline")
     if not re.search(r'if observation.has\("error"\):\s*\n\s*if bool\(observation.get\("fatal", false\)\):\s*\n\s*_fail\([^\n]+\)\s*\n\s*return \{\}', wait):
         errors.append("admitted readback failures must end the test before warmup retry")
     observer = native.split("Dictionary GaussianSplatRenderer::test_observe_hlod_publication(", 1)[1].split(
@@ -2701,6 +2705,8 @@ class HlodAsyncObservationSourceContractTests(unittest.TestCase):
             self.script.replace("if Time.get_ticks_msec() >= deadline:\n\t\t\treturn", "if false:\n\t\t\treturn", 1),
             self.script.replace("var request_id := 0", "var request_id := 0\n\tdeadline = Time.get_ticks_msec() + TIMEOUT_MSEC", 1),
             self.script.replace("await _observe_publication(deadline)", "await _observe_publication(Time.get_ticks_msec() + TIMEOUT_MSEC)", 1),
+            self.script.replace("\t\tawait RenderingServer.frame_post_draw\n\t\tvar observation := await _observe_publication(deadline)",
+                                "\t\tdeadline = _step_deadline()\n\t\tawait RenderingServer.frame_post_draw\n\t\tvar observation := await _observe_publication(deadline)", 1),
         )
         for changed in mutations:
             with self.subTest(changed=changed != self.script):
