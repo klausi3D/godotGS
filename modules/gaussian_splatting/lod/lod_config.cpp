@@ -400,6 +400,9 @@ void register_lod_project_settings() {
     // On by default: the automatic HLOD route (lod/hlod_auto_route.h). false is the explicit opt-out.
     GLOBAL_DEF(LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH, true);
     GLOBAL_DEF(LOD_CONFIG_HLOD_TAU_PATH, 1.0f);
+    // S6 (ADR 6.7): the HLOD parent -> children switch is an opacity cross-fade over the refinement band. false restores
+    // the hard switch with threshold hysteresis.
+    GLOBAL_DEF(LOD_CONFIG_HLOD_CROSSFADE_PATH, true);
 
     // Global importance-cull threshold behind the per-renderer
     // cull/importance_threshold override. GPUCuller reads this key

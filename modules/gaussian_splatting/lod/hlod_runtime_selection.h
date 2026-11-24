@@ -14,6 +14,21 @@ constexpr double kCostInsideDistanceFraction = 0.25;
 // The admission factor of the overlap-record cap (ADR 6.5): a cut is admitted while its record estimate stays within this
 // fraction of the record budget (the allocated overlap storage). The estimate is a heuristic, so the rest is its margin.
 constexpr double kRecordAdmissionFactor = 0.8;
+// Refinement band factor h (ADR 6.4, 6.7): a node with tau < e <= h x tau sits in its band. Without the cross-fade the
+// band is threshold hysteresis; with it (CutRequest::crossfade) the band is the parent -> children blend.
+constexpr double kRefineBandFactor = 1.25;
+// An old-configuration node whose remaining weight would fall below this is dropped rather than drawn.
+constexpr float kFadeMinWeight = 1.0f / 64.0f;
+// Bounded fade bookkeeping per history: groups and old-configuration members beyond these snap (hard switch, counted).
+constexpr uint32_t kMaxFadeGroups = 4096;
+constexpr uint32_t kMaxFadeMembers = 32768;
+// The route's fade length in selections (about 0.27 s at 60 fps).
+constexpr uint32_t kDefaultFadeFrames = 16;
+// Weight of one side of a blend at progress p (0..1): overlapping, so the incoming side reaches full weight at p = 0.5
+// and the outgoing side keeps it until then. Two configurations each cover a leaf once; drawn at fade_cover(p) and
+// fade_cover(1 - p) they cover it between once and twice, never less, so an opaque surface never turns see-through
+// mid-blend (a p / 1 - p blend of two opaque layers is only ~75% opaque at p = 0.5).
+inline float fade_cover(double p_progress) { return float(CLAMP(2.0 * p_progress, 0.0, 1.0)); }
 
 struct CutRequest {
 	Vector3 camera;
@@ -40,6 +55,24 @@ struct CutRequest {
 	// The mandatory root uses physical page_budget.
 	uint32_t page_splats = 0;
 	uint64_t page_budget = 0;
+	// S6 cross-fade (ADR 6.7). A node is refined whenever e > tau. Inside its band (tau < e < h x tau) the node and its
+	// complete visible children are drawn together: with t = (e - tau) / ((h - 1) x tau), children at fade_cover(t), the
+	// node at fade_cover(1 - t).
+	// t is a function of the camera only, so a parked camera holds a fixed blend. Fade pairs are admitted after every
+	// full refinement, in refinement priority order, while the pair fits every cap; the first that does not fit stops
+	// them, and its node is drawn alone (a hard switch). Children of a fade pair are not refined further.
+	// false keeps the threshold hysteresis of ADR 6.4 (1) and draws every node at fade 1.
+	bool crossfade = false;
+	// S6b temporal fade. 0: off. Otherwise every change of the drawn configuration (a refinement, a merge, a budget or
+	// residency driven switch, the start or end of a band fade) is blended over this many selections: the changed region
+	// (the highest node whose subtree changed) is drawn as fade_cover(t) x (live configuration) + fade_cover(1 - t) x (the
+	// configuration drawn before the change), t = age / fade_frames. A region over fading ones subsumes them; further
+	// changes inside a fading region join its live configuration. Per leaf the weights cover between once and twice.
+	// The cut is selected exactly as without the fade (full caps); the old configuration is drawn only from the cap
+	// headroom the cut leaves (splats, nodes, records). A region that does not fit is switched at once and counted
+	// (fade_snapped), so fades never feed back into the cut. Depends on the selection sequence, not on wall clock
+	// or atlas placement; a parked camera draws identical frames once fade_frames selections have passed.
+	uint32_t fade_frames = 0;
 };
 
 // One complete view history. All storage is admitted before rendering; select() never
@@ -97,13 +130,23 @@ public:
 		bool bootstrap_bypass_over_budget = false;
 		bool resident_refinement_bypass_over_budget = false;
 		uint32_t page_refused_groups = 0; // Ready or missing child groups whose page-cap predicate failed (root included).
+		uint32_t fade_pairs = 0; // Cross-fade: parents drawn together with their fading children (ADR 6.7).
+		uint32_t fade_refused = 0; // Cross-fade: band transitions a cap refused; drawn as their coarse node.
+		uint32_t fade_groups = 0; // S6b: regions blending this selection.
+		uint32_t fade_snapped = 0; // S6b: regions switched at once (cap headroom or bookkeeping bound).
+		uint64_t fade_extra_splats = 0; // S6b: splats of old-configuration nodes drawn on top of the cut (in selected_splats).
 	};
 	enum DiagnosticFlag : uint8_t { HYSTERESIS_HELD = 1, RESIDENCY_MISSED = 2, MISS_DEMANDED = 4 };
 	// Per-node flags, valid until the next select/invalidate/reserve. HYSTERESIS_HELD means an
 	// ordinary transition actually taken solely in the history band, never a bootstrap expansion.
 	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node] & (HYSTERESIS_HELD | RESIDENCY_MISSED | MISS_DEMANDED); }
 	bool reserve(uint32_t p_nodes);
+	// Drops everything: refinement stamps, demand and the S6b temporal fade history (what was drawn, fading groups).
 	void invalidate();
+	// Drops the refinement stamps and demand only. The temporal fade history stays, so a cut change caused by new caps
+	// (instances entering or leaving the view re-divide the reserve) blends when the caps leave headroom for it, and a
+	// running fade continues (thread 4676033881 on #1542). The epoch keeps counting: the drawn stamps stay comparable.
+	void invalidate_refinement();
 	// Desired(view) (ADR 14.1), ordered by the selector's own refinement priority (highest first): the
 	// non-resident visible children of every parent whose replacement the quality rule asked for and whose
 	// whole transition fits every cap, plus the root when it is not resident. Children of one parent are
@@ -120,18 +163,39 @@ public:
 	// Valid until the next select(); 0 for every other status.
 	uint32_t partial_frontier_count() const { return partial_size; }
 	uint32_t partial_frontier_node(uint32_t p_index) const { return selected[p_index]; }
+	// With fade_frames != 0 the published set is the cut plus the old configuration of fading regions; the
+	// selected_*() accessors and selected_count/selected_splats/estimated_records describe that drawn set.
 	Result select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request);
 	uint32_t selected_node(uint32_t p_index) const { return selected[p_index]; }
+	// Draw fade of a selected node (ADR 6.7): 1 unless it belongs to a fade pair of this selection.
+	float selected_fade(uint32_t p_index) const {
+		const uint32_t node = selected[p_index];
+		return diagnostics[node] & FADING ? fade[node] : 1.0f;
+	}
 	uint64_t allocated_bytes() const;
-	// Selection workspace charge (CowData-rounded); 0 if the count overflows. The existing diagnostic
+	// Selection workspace charge (CowData-rounded, fade factors included); 0 if the count overflows. The existing diagnostic
 	// byte (also holding the page-plan bit) stays excluded to preserve the charge; allocated_bytes() includes it.
 	static uint64_t workspace_bytes(uint32_t p_nodes);
 
 private:
+	Result select_cut(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request);
+	void apply_temporal_fade(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request, uint64_t p_previous, Result &r_out);
+	struct FadeGroup { uint32_t root = 0; uint32_t start = 0; uint32_t first_member = 0; uint32_t member_count = 0; };
+	struct FadeMember { uint32_t node = 0; float weight = 0.0f; };
+	Vector<uint32_t> drawn_stamp; // Per node: low 32 bits of the epoch of the last selection that drew it.
+	Vector<float> shown; // Per node: weight drawn by that selection.
+	Vector<uint32_t> group_mark; // Per node: 1 + index of the fade group rooted here, else 0. Clean between selections.
+	Vector<uint32_t> prev_drawn; // The previous selection's drawn nodes.
+	uint32_t prev_drawn_count = 0;
+	Vector<FadeGroup> groups, next_groups;
+	Vector<FadeMember> members, next_members;
+	uint32_t group_count = 0, member_count = 0;
 	// Spare bits in already admitted diagnostic scratch; no additional allocation or admission charge.
 	enum PageDiagnosticFlag : uint8_t { PAGE_ACCOUNTED = 8, BOOTSTRAP_PAGE_ACCOUNTED = 16, RESIDENT_PAGE_ACCOUNTED = 32 };
 	// Separate policy bit in the same preallocated byte: an emitted group's pages are reserved exactly once.
 	enum PagePlanFlag : uint8_t { TRANSITION_PLANNED = 64 };
+	// The node is part of an admitted fade pair of this selection; `fade` holds its factor. Cleared per selection.
+	enum FadeFlag : uint8_t { FADING = 128 };
 	struct Candidate { uint32_t node = 0; uint32_t tie = 0; double priority = 0.0; };
 	Vector<Candidate> heap;
 	Vector<uint32_t> selected;
@@ -140,6 +204,7 @@ private:
 	Vector<uint32_t> demand;
 	Vector<TransitionGroup> demand_groups; // Parallel to demand; admitted before select(), owner-thread only.
 	Vector<uint8_t> diagnostics; // Preallocated; cleared per selection. Only TRANSITION_PLANNED participates in admission.
+	Vector<float> fade; // Per node; valid only where diagnostics has FADING.
 	uint32_t demand_size = 0;
 	uint32_t partial_size = 0;
 	uint64_t epoch = 0;

@@ -2145,4 +2145,39 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] edit commit swaps page lists and
 	check_page_tables(res, none);
 }
 
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a cross-fade keeps the parent and its children resident and protected for the whole fade (S6)") {
+	// Root of a 3-level tree: centre (20, 0, -10), radius 20, geometric error 4, so e = 4 f / (|c| - 20) and its band
+	// 1 < e < 1.25 is about 0.59 < f < 0.74 for the camera at the origin.
+	Sim sim;
+	if (!sim.init(3, 64)) { FAIL("residency setup failed"); return; }
+	sim.req.crossfade = true;
+	sim.req.focal_pixels = 0.3; // Below the band: the root alone.
+	for (int guard = 0; guard < 4 && sim.drawn != std::vector<uint32_t>{ 0 }; ++guard) {
+		sim.step();
+		sim.arrive_all();
+	}
+	if (sim.drawn != std::vector<uint32_t>{ 0 }) { FAIL("root never became drawable"); return; }
+	uint32_t fade_frames = 0;
+	for (double f = 0.3; f < 1.0; f *= 1.01) { // A slow dolly in across the band; every request arrives one frame late.
+		sim.req.focal_pixels = f;
+		sim.step();
+		CHECK(every_drawn_resident(sim));
+		if (sim.cut.fade_pairs != 0) {
+			++fade_frames;
+			// The pair is the parent plus its children, all drawn this frame, all protected against this frame's requests.
+			CHECK(sim.drawn == std::vector<uint32_t>{ 0, 1, 2 });
+			for (uint32_t n : { 0u, 1u, 2u }) {
+				CHECK(sim.res.is_protected(n));
+				CHECK(sim.res.state(n) == Residency::RESIDENT);
+			}
+			CHECK_FALSE(sim.res.evict(0));
+			CHECK_FALSE(sim.res.evict(1));
+		}
+		sim.arrive_all();
+	}
+	CHECK(fade_frames > 10);
+	CHECK(sim.drawn == std::vector<uint32_t>{ 1, 2 }); // Past the band: the children alone.
+}
+
 }

@@ -146,7 +146,7 @@ struct VisibleChunkRefGPU {
 struct DrawnNodeGPU {
     uint instance_id;
     uint chunk_id;
-    float fade;              // Reserved for the S6 cross-fade; written as 1.0 and not read yet
+    float fade;              // S6/S6b fade (ADR 6.7, 6.7.1): opacity factor of the record; 1 when not blending
     uint level;              // BV-04b: HLOD level (node height, 0 = leaf); GS_DRAWN_NODE_LEVEL_NONE for objects
     vec4 camera_offset;      // xyz = R s c + T - camera (double on the CPU, float last), w = 0
 };
@@ -164,6 +164,9 @@ struct InstanceGradingGPU {
     vec4 primary;
     vec4 secondary;
 };
+
+// A record casts a splat shadow iff its fade >= this (binary occluder; see gaussian_gpu_layout.h).
+const float GS_HLOD_SHADOW_CASTER_MIN_FADE = 0.5;
 
 const uint GS_INSTANCE_DATA_GPU_SIZE = 128u;
 const uint GS_ASSET_LOD_RANGE_GPU_SIZE = 8u;

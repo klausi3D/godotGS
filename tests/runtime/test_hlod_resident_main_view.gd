@@ -250,6 +250,16 @@ func _check_current_gpu_count(observation: Dictionary, expected_count: int, acti
 	return _check(async_count.has("valid") and int(async_count.get("sample_pass_frame", -1)) >= 0 and int(async_count["sample_pass_frame"]) <= int(gpu["pass_frame"]) and int(async_count.get("element_count", -1)) >= 0, "Separate async count provenance missing")
 
 
+# Each transition of the publication proof is its own asynchronous wait with its own wall-clock bound (tests/AGENTS.md):
+# take the deadline immediately before requesting the change, so the bake, the rebuild frame and the readback all count.
+# One shared bound over the whole serial proof (startup warm-up, orthographic fallback and 21 transitions, ~0.3 s each
+# on a dev build) made the verdict a function of runner speed times step count: on the GPU runner the last step
+# (the multi-level LOD fixture) intermittently ran out of the shared 10 s while every transition completed in the same
+# renderer frames as on a passing run (#1542). The bound per step is the scenario's TIMEOUT_MSEC, unchanged.
+func _step_deadline() -> int:
+	return Time.get_ticks_msec() + TIMEOUT_MSEC
+
+
 func _wait_publication(source: GaussianData, count: int, active: bool, reason: String, deadline: int, after_frame: int, instance_before: Dictionary = {}) -> Dictionary:
 	while Time.get_ticks_msec() < deadline:
 		await RenderingServer.frame_post_draw
@@ -305,6 +315,8 @@ func _wait_publication(source: GaussianData, count: int, active: bool, reason: S
 		if not _check_current_gpu_count(observation, int(stats["hlod_selected_splats"]) if active else count, active):
 			return {}
 		_last_publication_engine_frame = int(observation["engine_frame"])
+		# Report-only margin of this step to its own bound, so CI shows how close a runner comes to it.
+		_metrics["publication_step_margins"].append({"reason": reason, "frame_count": int(stats["frame_count"]), "remaining_msec": deadline - Time.get_ticks_msec()})
 		return observation
 	_fail("Publication transition did not complete within deadline: %s" % reason)
 	return {}
@@ -344,7 +356,7 @@ func _replace_transition_world(serial: int) -> GaussianSplatWorld:
 	return world
 
 
-func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
+func _run_publication_and_lod_proof(camera: Camera3D) -> bool:
 	for method in ["test_set_hlod_publication_failure", "test_observe_hlod_publication", "test_hlod_foreign_device_publication", "test_set_hlod_grading", "test_bake_hlod_small_leaf_fixture"]:
 		if not _check(_renderer.has_method(method), "Required native test hook missing: %s" % method):
 			return false
@@ -352,6 +364,9 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 	_last_publication_engine_frame = int(_metrics["orthographic_samples"][-1]["engine_frame"])
 	_metrics["publication_transitions"] = []
 	_metrics["identity_transitions"] = []
+	_metrics["publication_step_margins"] = []
+	# Every request below takes a fresh step deadline right before the change (see _step_deadline).
+	var deadline := _step_deadline()
 	var world := _replace_transition_world(1)
 	if world == null:
 		return false
@@ -360,6 +375,7 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 		return false
 	var failure_reasons := ["canonical_sort_capacity_warmup", "resource_ledger_warmup_or_unavailable", "hlod_candidate_memory_limit", "hlod_candidate_allocation_failed", "hlod_candidate_readiness_or_memory_failed"]
 	for failure in range(1, 6):
+		deadline = _step_deadline()
 		_renderer.test_set_hlod_publication_failure(failure)
 		world = _replace_transition_world(failure + 1)
 		if world == null:
@@ -371,6 +387,7 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 			return false
 		if not _check(refused["source_first_order_count"] == 3 and refused["source_high_order_count"] == 12, "Transition must preserve complete SH3 payload"):
 			return false
+		deadline = _step_deadline()
 		_renderer.test_set_hlod_publication_failure(0)
 		var recovered := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(refused["stats"]["frame_count"]))
 		if recovered.is_empty():
@@ -383,6 +400,7 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 	# must also invalidate retained contracts before a failed rebuild.
 	var previous_max := _renderer.get_max_splats()
 	for change in ["instance", "grading", "capacity"]:
+		deadline = _step_deadline()
 		_renderer.test_set_hlod_publication_failure(4)
 		if change == "instance":
 			# The world row is identity even when world opacity changes. Exercise
@@ -422,22 +440,26 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 			if not _check(refused["relative_capacity"] == 1, "Capacity control did not take effect"):
 				return false
 			_renderer.set_max_splats(previous_max)
+		deadline = _step_deadline()
 		_renderer.test_set_hlod_publication_failure(0)
 		var recovered := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(refused["stats"]["frame_count"]))
 		if recovered.is_empty():
 			return false
 		_metrics["identity_transitions"].append({"change": change, "before": before, "refused": refused, "recovered": recovered})
 		before = recovered
+	deadline = _step_deadline()
 	var foreign := await _observe_publication(deadline, true)
 	if not _check(not foreign.has("error") and int(foreign.get("original_device", 0)) != 0 and int(foreign.get("foreign_device", 0)) != 0 and foreign.get("original_device") != foreign.get("foreign_device"), "Actual second RenderingDevice probe missing"):
 		return false
 	if not _check(not foreign["publication_succeeded"] and not foreign["prepared_retained"], "Foreign device published or retained first-device HLOD resources"):
 		return false
+	deadline = _step_deadline()
 	var device_recovered := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(before["stats"]["frame_count"]))
 	if device_recovered.is_empty():
 		return false
 	_metrics["device_transition"] = {"before": before, "foreign": foreign, "recovered": device_recovered}
 	# Existing real baker, only a smaller leaf size for a bounded multi-level fixture.
+	deadline = _step_deadline()
 	var parent_world := _renderer.test_bake_hlod_small_leaf_fixture(_transition_data(0, 8)) as GaussianSplatWorld
 	if not _check(parent_world != null and parent_world.has_hlod_tree(), "Actual multi-level fixture bake failed"):
 		return false
@@ -449,10 +471,12 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 		return false
 	if not _check(int(lod_on["stats"]["hlod_selected_parents"]) > 0 and int(lod_on["stats"]["hlod_selected_splats"]) < 8, "LOD-on fixture did not select a reduced parent representation"):
 		return false
+	deadline = _step_deadline()
 	_node.set_lod_enabled(false)
 	var lod_off := await _wait_publication(parent_world.gaussian_data, 8, false, "lod_disabled_canonical_leaves", deadline, int(lod_on["stats"]["frame_count"]))
 	if lod_off.is_empty():
 		return false
+	deadline = _step_deadline()
 	_node.set_lod_enabled(true)
 	var lod_reenabled := await _wait_publication(parent_world.gaussian_data, 8, true, "active", deadline, int(lod_off["stats"]["frame_count"]))
 	if lod_reenabled.is_empty():
@@ -460,7 +484,7 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 	if not _check(int(lod_reenabled["stats"]["hlod_selected_parents"]) > 0 and int(lod_reenabled["stats"]["hlod_selected_splats"]) < 8, "LOD re-enable did not restore parent selection"):
 		return false
 	_metrics["lod_policy_transition"] = {"on": lod_on, "off": lod_off, "reenabled": lod_reenabled}
-	return _check(Time.get_ticks_msec() < deadline, "Publication and LOD proof completed after its deadline")
+	return _check(Time.get_ticks_msec() < deadline, "Publication and LOD proof completed after its step deadline")
 
 
 func _run() -> void:
@@ -580,10 +604,9 @@ func _run() -> void:
 		var fallback_proved := await _check_orthographic_fallback(camera, rd, sample, deadline)
 		if not fallback_proved:
 			return
-		var transitions_proved := await _run_publication_and_lod_proof(camera, deadline)
+		# The main-view and orthographic phases above are bound by `deadline`; each publication step binds its own.
+		var transitions_proved := await _run_publication_and_lod_proof(camera)
 		if not transitions_proved:
-			return
-		if not _check(Time.get_ticks_msec() < deadline, "Proof completed after its deadline"):
 			return
 		# PR1b: the world and 8 moving node instances in one frame (own wall-clock bound, WI_TIMEOUT_MSEC per mode).
 		var world_instances_proved := await _run_world_plus_instances_proof()

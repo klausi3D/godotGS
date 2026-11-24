@@ -19,12 +19,13 @@ namespace gs_hlod_gpu {
 // never into the shared ChunkMetaGPU payload.
 // `p_level` (BV-04b) is the HLOD level of a world node (its tree height, 0 = leaf); object (instance) records keep
 // GS_DRAWN_NODE_LEVEL_NONE. Only the emit pass's records-per-level counters read it.
+// `p_fade` (S6, ADR 6.7) scales the record's splat opacity in tile_binning; casters use it as a binary predicate.
 inline DrawnNodeGPU make_drawn_node(uint32_t p_instance_id, uint32_t p_chunk_id, const Vector3 &p_camera_offset,
-		uint32_t p_level = GS_DRAWN_NODE_LEVEL_NONE) {
+		uint32_t p_level = GS_DRAWN_NODE_LEVEL_NONE, float p_fade = 1.0f) {
 	DrawnNodeGPU node = {};
 	node.instance_id = p_instance_id;
 	node.chunk_id = p_chunk_id;
-	node.fade = 1.0f; // S6 cross-fade is not wired; fully opaque.
+	node.fade = p_fade; // S6 cross-fade (ADR 6.7): DrawRecord::fade; 1 outside a fade pair.
 	node.level = p_level;
 	node.camera_offset[0] = p_camera_offset.x;
 	node.camera_offset[1] = p_camera_offset.y;

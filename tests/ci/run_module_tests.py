@@ -107,6 +107,8 @@ BEYOND_VRAM_LANE_TEST_SCRIPTS = (
     ROOT / "tests" / "runtime" / "flythrough" / "test_compare_shared_layers_t0.py",
     ROOT / "tests" / "runtime" / "flythrough" / "test_shared_layers_t0.py",
     ROOT / "tests" / "runtime" / "flythrough" / "test_hlod_cut_telemetry.py",
+    # S6b: the per-transition HLOD pop metric (constructed dollies; real-scan captures stay local).
+    ROOT / "tests" / "runtime" / "hlod_pop" / "test_hlod_pop_metric.py",
 )
 # BV-09: the no-loosening guard of the beyond-VRAM thresholds file (ADR section 8.4).
 FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_flythrough_thresholds.py"

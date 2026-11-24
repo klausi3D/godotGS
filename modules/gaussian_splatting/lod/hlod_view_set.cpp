@@ -65,16 +65,27 @@ uint64_t bits_of(double p_value) {
 	memcpy(&bits, &p_value, sizeof(bits));
 	return bits;
 }
-// Everything that, when changed, makes the previous frame's refinement stamps meaningless. Mirrors the
-// renderer's policy hash (tau, capacities, record budget) and adds the tile area.
-uint64_t policy_hash(const ViewSpec &p_spec, const Caps &p_instance_caps, double p_local_margin) {
+// Everything that changes how a node's error is measured or blended (tau, tile area, displacement margin, band and
+// fade semantics). A change makes the previous frames meaningless: the refinement stamps and the temporal fade history
+// are both dropped (a configuration selected under another threshold is not blended from).
+uint64_t refinement_policy_hash(const ViewSpec &p_spec, double p_local_margin) {
 	uint64_t h = 0x484c4f44u;
 	h = mix(h, bits_of(p_spec.tau_pixels));
 	h = mix(h, bits_of(p_spec.tile_area));
+	h = mix(h, bits_of(p_local_margin));
+	if (p_spec.crossfade) { h = mix(h, 0x58464144u); } // Band semantics differ (ADR 6.7); unchanged hash when off.
+	if (p_spec.fade_frames) { h = mix(h, 0x46414445u ^ p_spec.fade_frames); } // Fade length (S6b).
+	return h;
+}
+// The instance caps (splat, node and record budgets). They change whenever instances enter or leave the view
+// (prepare_hlod_frame re-divides the reserve), which changes what the cut can afford, not how it is measured: the
+// refinement stamps are dropped as before, the temporal fade history is kept, so the cut change blends when the new
+// caps leave headroom for it (thread 4676033881 on #1542).
+uint64_t cap_policy_hash(const Caps &p_instance_caps) {
+	uint64_t h = 0x43415053u;
 	h = mix(h, p_instance_caps.splat_budget);
 	h = mix(h, p_instance_caps.node_budget);
 	h = mix(h, bits_of(p_instance_caps.record_budget));
-	h = mix(h, bits_of(p_local_margin));
 	return h;
 }
 // Rank of every node's NodeKey (ties by index only when keys are identical, i.e. corrupt input).
@@ -349,6 +360,7 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 					slot.tie_rank = old.tie_rank;
 					slot.content_revision = old.content_revision;
 					slot.policy = old.policy;
+					slot.cap_policy = old.cap_policy;
 					slot.displacement_source = old.displacement_source;
 					slot.displacement_data = old.displacement_data;
 					slot.displacement_source_revision = old.displacement_source_revision;
@@ -705,11 +717,15 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			const SnapshotInstance &inst = p_snapshot.instances[order[i]];
 			const SnapshotAsset &asset = p_snapshot.assets[inst.asset_index];
 			InstanceSlot &slot = view.slots.write[i];
-			const uint64_t policy = policy_hash(*spec, inst.caps, inst.displacement_margin > 0.0 ? slot.displacement_local_margin : 0.0);
+			const uint64_t policy = refinement_policy_hash(*spec, inst.displacement_margin > 0.0 ? slot.displacement_local_margin : 0.0);
+			const uint64_t cap_policy = cap_policy_hash(inst.caps);
 			if (slot.policy != policy) {
-				slot.history.invalidate(); // tau, tile area or caps changed: old stamps do not apply.
-				slot.policy = policy;
+				slot.history.invalidate(); // tau, tile area, margin or fade semantics changed: no old stamp or blend applies.
+			} else if (slot.cap_policy != cap_policy) {
+				slot.history.invalidate_refinement(); // Caps only: old stamps do not apply, the fade history does.
 			}
+			slot.policy = policy;
+			slot.cap_policy = cap_policy;
 			// Camera and frustum in the instance frame (rigid + uniform scale: error and distance scale together).
 			Transform3D frame_transform;
 			if (!inst.placement.to_frame_transform(p_snapshot.origin, frame_transform)) { any_failed = true; continue; }
@@ -736,6 +752,8 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			request.node_budget = std::min<uint32_t>(inst.caps.node_budget, slot.node_count);
 			request.page_splats = spec->page_splats;
 			request.page_budget = spec->page_budget;
+			request.crossfade = spec->crossfade;
+			request.fade_frames = spec->fade_frames;
 			request.tie_rank = slot.tie_rank.ptr();
 			request.tie_rank_count = slot.tie_rank.size();
 			if (asset.resident.size() != 0) {
@@ -758,6 +776,11 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.budget_bound = result.budget_bound || cut.budget_bound;
 			result.record_demand += cut.record_demand;
 			result.edit_forced = result.edit_forced || cut.edit_forced;
+			result.fade_pairs += cut.fade_pairs;
+			result.fade_refused += cut.fade_refused;
+			result.fade_groups += cut.fade_groups;
+			result.fade_snapped += cut.fade_snapped;
+			result.fade_extra_splats += cut.fade_extra_splats;
 			// An incomplete bootstrap is one bundle: demand and resident keeps must fit together.
 			// Publishing only some of its residency ownership would discard progress each frame.
 			const bool bootstrap_truncated = cut.status == CutHistory::BOOTSTRAP_MISSING_RESIDENCY &&
@@ -806,6 +829,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 						DrawRecord &rec = view.staging.write[staged];
 						rec.instance_key = inst.instance_key;
 						rec.node = slot.history.selected_node(k);
+						rec.fade = slot.history.selected_fade(k);
 						rec.version = NodeVersion{ asset.data->node_content_revision(rec.node), asset.bake_rule_revision };
 						if (!make_node_key(*asset.data.ptr(), rec.node, asset.asset_key, rec.key) ||
 								!gs_world_frame::camera_relative_offset(inst.placement, asset.data->nodes[rec.node].precise_center,

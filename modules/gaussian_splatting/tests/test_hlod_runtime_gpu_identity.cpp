@@ -6,6 +6,7 @@
 #include "../lod/hlod_page_pool.h"
 #include "../shaders/gs_shadow_caster.glsl.gen.h"
 #include "../shaders/tile_binning.glsl.gen.h"
+#include "../compute/depth_compute.glsl.gen.h"
 #include "../renderer/tile_renderer.h"
 #include "../renderer/instance_pipeline_contract.h"
 #include "../renderer/gaussian_gpu_layout.h"
@@ -1486,3 +1487,137 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] production binning shade
     CHECK(body.find("vec3 gs_hlod_level_tint_color(vec3 p_color, uint p_level)") >= 0);
 }
 } // namespace TestHlodLevelTint
+
+namespace TestHlodFadeWind {
+// Thread 4673737518: the S6 record fade is an opacity factor of the drawn record, never an input of the positional
+// deformation. The legacy wind weight is 0.2 + 0.8 x (1 - opacity); depth (sort) and the shadow caster deform with the
+// stored opacity, so a colour pass that deforms with the faded opacity draws a fading splat where it was not sorted.
+// Executes the production statements of both passes, from the HLOD record read to the displaced position, with the
+// real deformation chain (gs_deformation.glsl as inlined in each production stage). Only buffer-bound helpers are
+// stubbed: region table neutral, alpha clip 0, camera-relative position = rest + per-draw offset.
+static String production_compute_body(ShaderRD &p_source) {
+    Vector<String> variants;
+    variants.push_back(String());
+    p_source.initialize(variants);
+    const RID version = p_source.version_create();
+    if (!version.is_valid()) { return String(); }
+    const Vector<String> stages = p_source.version_build_variant_stage_sources(version, 0);
+    p_source.version_free(version);
+    return stages.size() > RD::SHADER_STAGE_COMPUTE ? stages[RD::SHADER_STAGE_COMPUTE] : String();
+}
+// Text from the first `p_from` through the first `p_to` after it; empty when either is missing.
+static String span_of(const String &p_body, const String &p_from, const String &p_to) {
+    const int from = p_body.find(p_from);
+    const int to = from < 0 ? -1 : p_body.find(p_to, from);
+    return to < 0 ? String() : p_body.substr(from, to + p_to.length() - from);
+}
+static String harness(const String &p_body, const String &p_locals, const String &p_span, const String &p_store) {
+    String defines;
+    const int main_at = p_body.find("void main()");
+    const Vector<String> lines = p_body.substr(0, main_at < 0 ? p_body.length() : main_at).split("\n");
+    for (const String &line : lines) {
+        const String s = line.strip_edges();
+        if (s.begins_with("#define GS_SEMANTIC_") || s.begins_with("#define GS_INSTANCE_WIND_MODE_") ||
+                s.begins_with("#define GS_DRAWN_NODE_LEVEL_NONE") || s.begins_with("const uint GS_REGION_") ||
+                s.begins_with("const uint GS_INSTANCE_FLAG_")) {
+            defines += s + "\n";
+        }
+    }
+    const int chain_from = p_body.find("uint gs_wind_hash_u32(uint v) {");
+    const int apply_at = chain_from < 0 ? -1 : p_body.find("GSDeformationResult gs_apply_wind_deformation(", chain_from);
+    const int chain_end = apply_at < 0 ? -1 : p_body.find("\n}\n", apply_at);
+    if (chain_end < 0 || p_span.is_empty()) { return String(); }
+    return String("#version 450\n#define GS_HLOD_RELATIVE_PAYLOAD 1\n#define GS_MAX_SPHERE_EFFECTORS 4\n") + defines +
+            "layout(local_size_x = 1) in;\n"
+            "layout(set = 0, binding = 0, std430) buffer GsTestOut { vec4 v[]; } gs_test_out;\n"
+            "struct RegionOverrideGPU { uint flags; vec4 emissive_opacity; };\n"
+            "struct GsTestSplat { float opacity; uint semantic; };\n"
+            "struct GsTestDrawn { uint instance_id; float fade; uint level; vec4 camera_offset; };\n"
+            "struct GsTestInstance { uvec4 ids; vec4 translation_scale; vec4 rotation; vec4 params; vec4 wind_params; vec4 effect_params; };\n"
+            "struct GsTestParams { vec4 camera_position; vec4 camera_position_ortho; vec4 wind_dir_strength; vec4 wind_time_config;\n"
+            "    vec4 effector_meta; vec4 effector_spheres[4]; vec4 effector_configs[4]; vec4 effector_opacity_configs[4]; };\n"
+            "RegionOverrideGPU gs_region_resolve(GsTestInstance p_i, uint p_s, uint p_a) { return RegionOverrideGPU(0u, vec4(0.0)); }\n"
+            "vec4 gs_region_emissive_opacity(vec4 p_e) { return vec4(0.0, 0.0, 0.0, 1.0); }\n"
+            "uint gs_region_wind_semantic(uint p_s, uint p_f) { return p_s; }\n"
+            "float gs_get_alpha_clip() { return 0.0; }\n"
+            "vec3 gs_hlod_camera_relative_position(vec3 p_p, uint p_f, vec4 p_r, float p_s, vec3 p_o) { return p_p + p_o; }\n" +
+            p_body.substr(chain_from, chain_end + 3 - chain_from) +
+            "void main() {\n"
+            "    gs_test_out.v[0] = vec4(-1.0e30);\n"
+            "    GsTestInstance instance;\n"
+            "    instance.ids = uvec4(0u); instance.translation_scale = vec4(0.0, 0.0, 0.0, 1.0); instance.rotation = vec4(0.0, 0.0, 0.0, 1.0);\n"
+            "    instance.params = vec4(1.0, 1.0, 1.0, float(GS_INSTANCE_WIND_MODE_INHERIT));\n"
+            "    instance.wind_params = vec4(0.0); instance.effect_params = vec4(0.0);\n"
+            "    GsTestParams params;\n"
+            "    params.camera_position = vec4(0.0); params.camera_position_ortho = vec4(0.0);\n"
+            "    params.wind_dir_strength = vec4(1.0, 0.0, 0.0, 0.5); params.wind_time_config = vec4(1.57079632679, 1.0, 0.0, 1.0);\n"
+            "    params.effector_meta = vec4(0.0);\n"
+            "    for (int i = 0; i < 4; ++i) { params.effector_spheres[i] = vec4(0.0); params.effector_configs[i] = vec4(0.0); params.effector_opacity_configs[i] = vec4(0.0); }\n"
+            "    vec3 local_position = vec3(0.0, 0.0, 0.5);\n"
+            "    GsTestDrawn drawn = GsTestDrawn(0u, gs_test_out.v[1].x, 0u, vec4(0.0));\n"
+            "    GsTestSplat splat = GsTestSplat(1.0, 0u);\n" +
+            p_locals + p_span + "\n" + p_store + "}\n";
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] a fading record under legacy wind is displaced exactly where depth sorts it") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("RenderingDevice required to execute the production colour and depth statements"); return; }
+    TestA2History::Resources resources{ rd, {} };
+    TileBinningShaderRD colour_source;
+    DepthComputeShaderRD depth_source;
+    const String colour_body = production_compute_body(colour_source);
+    const String depth_body = production_compute_body(depth_source);
+    if (colour_body.is_empty() || depth_body.is_empty()) { FAIL("production colour or depth compute stage unavailable"); return; }
+    // Colour: every statement from the HLOD record read to the displaced position (record fade, region gate, alpha clip,
+    // wind level, deformation). The span opens inside the HLOD block, so the harness reopens it.
+    const String colour_span = span_of(colour_body, "    vec3 hlod_camera_offset = selected.camera_offset.xyz;", "    world_position = deformation.position;");
+    const String depth_span = span_of(depth_body, "    RegionOverrideGPU region_override = gs_region_resolve(instance, gaussian.semantic, atlas_index);",
+            "    world_position = deformation.position;");
+    if (colour_span.is_empty() || depth_span.is_empty()) { FAIL("production colour or depth deformation statements missing"); return; }
+    CHECK(colour_span.contains("selected.fade")); // The record fade is among the executed colour statements.
+    const String store = "    gs_test_out.v[0] = vec4(world_position, deformation.opacity);\n";
+    const String colour = harness(colour_body,
+            "    GsTestDrawn selected = drawn; GsTestSplat g = splat; uint gaussian_idx = 7u; float hlod_record_fade = 1.0;\n"
+            "#if defined(GS_HLOD_RELATIVE_PAYLOAD)\n",
+            colour_span, store);
+    const String depth = harness(depth_body, "    GsTestDrawn visible_chunk = drawn; GsTestSplat gaussian = splat; uint atlas_index = 7u;\n",
+            depth_span, store);
+    if (colour.is_empty() || depth.is_empty()) { FAIL("production deformation chain missing"); return; }
+    const float fades[3] = { 1.0f, 0.75f, 0.5f };
+    float out[2][3][4] = {}; // [colour, depth][fade][displaced xyz, opacity]
+    for (int pass = 0; pass < 2; ++pass) {
+        String error;
+        const RID shader = resources.keep(ShaderCompilationHelper::compile_shader_on_device(rd, pass == 0 ? colour : depth,
+                pass == 0 ? "hlod_fade_wind_colour" : "hlod_fade_wind_depth", Vector<String>(), &error));
+        if (!shader.is_valid()) { FAIL("harness compilation failed: ", error.utf8().get_data()); return; }
+        const RID pipeline = resources.keep(rd->compute_pipeline_create(shader));
+        const RID buffer = resources.buffer(8 * sizeof(float));
+        const RID set = buffer.is_valid() ? resources.set(shader, buffer) : RID();
+        if (!pipeline.is_valid() || !set.is_valid()) { FAIL("harness resources missing"); return; }
+        for (int sample = 0; sample < 3; ++sample) {
+            const float in[8] = { 0.0f, 0.0f, 0.0f, 0.0f, fades[sample], 0.0f, 0.0f, 0.0f };
+            if (rd->buffer_update(buffer, 0, sizeof(in), in) != OK) { FAIL("harness upload failed"); return; }
+            const RD::ComputeListID list = rd->compute_list_begin();
+            rd->compute_list_bind_compute_pipeline(list, pipeline);
+            rd->compute_list_bind_uniform_set(list, set, 0);
+            rd->compute_list_dispatch(list, 1, 1, 1);
+            rd->compute_list_end();
+            const Vector<uint8_t> bytes = rd->buffer_get_data(buffer, 0, 4 * sizeof(float));
+            if (bytes.size() != int(4 * sizeof(float))) { FAIL("harness readback incomplete"); return; }
+            memcpy(out[pass][sample], bytes.ptr(), sizeof(out[pass][sample]));
+            if (!(out[pass][sample][0] > -1.0e29f)) { FAIL("pass ", pass, " returned before the displaced position, fade ", fades[sample]); return; }
+        }
+    }
+    // Legacy wind is active: depth moves the splat off its rest position (0, 0, 0.5), so a weight change is visible.
+    CHECK(std::abs(out[1][0][0]) > 0.05f);
+    for (int sample = 0; sample < 3; ++sample) {
+        CAPTURE(fades[sample]);
+        // Colour draws the splat at its sort (depth) position whatever the record fade.
+        CHECK(std::abs(out[0][sample][0] - out[1][sample][0]) <= 1.0e-6f);
+        CHECK(std::abs(out[0][sample][1] - out[1][sample][1]) <= 1.0e-6f);
+        CHECK(std::abs(out[0][sample][2] - out[1][sample][2]) <= 1.0e-6f);
+        // The fade still reaches the colour opacity, and only it.
+        CHECK(std::abs(out[0][sample][3] - fades[sample] * out[1][sample][3]) <= 1.0e-6f);
+    }
+}
+} // namespace TestHlodFadeWind

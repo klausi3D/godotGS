@@ -112,6 +112,8 @@ struct ViewSpec {
 	// Residency page plan (see CutRequest::page_splats); 0 disables it.
 	uint32_t page_splats = 0;
 	uint64_t page_budget = 0;
+	bool crossfade = false; // CutRequest::crossfade (ADR 6.7) for every instance of this view.
+	uint32_t fade_frames = 0; // CutRequest::fade_frames (S6b) for every instance of this view.
 };
 
 struct ResidencyBudget {
@@ -144,6 +146,8 @@ struct DrawRecord {
 	// node centre and converted to float last. View dependent, so it lives here and never in shared payloads.
 	// Valid only for the origin revision reported by drawn_origin_revision().
 	Vector3 camera_offset;
+	// Draw fade (ADR 6.7): 1 unless the record belongs to a fade pair (CutHistory::selected_fade). Opacity factor.
+	float fade = 1.0f;
 };
 
 // Desired(view), demand only (ADR 14.1): a node the quality rule wants resident that is not. It carries no
@@ -195,6 +199,11 @@ public:
 		bool budget_bound = false;
 		double record_demand = 0.0; // Summed CutHistory::Result::record_demand (#1472); 0: the record cap refused nothing.
 		bool edit_forced = false; // Package F1: a stale ancestor of an edited leaf was replaced by its children in this cut.
+		uint32_t fade_pairs = 0; // Summed CutHistory::Result::fade_pairs (ADR 6.7).
+		uint32_t fade_refused = 0; // Summed CutHistory::Result::fade_refused.
+		uint32_t fade_groups = 0; // Summed CutHistory::Result::fade_groups (S6b).
+		uint32_t fade_snapped = 0; // Summed CutHistory::Result::fade_snapped.
+		uint64_t fade_extra_splats = 0; // Summed CutHistory::Result::fade_extra_splats.
 		uint64_t draw_generation = 0; // Bumped only when a new complete draw set is published.
 		uint64_t origin_revision = 0; // Origin revision this selection was computed against.
 		bool origin_changed = false; // The revision differs from the previous selection: histories were invalidated.
@@ -283,7 +292,8 @@ private:
 		uint64_t instance_key = 0;
 		uint32_t node_count = 0;
 		uint64_t content_revision = 0;
-		uint64_t policy = 0;
+		uint64_t policy = 0; // refinement_policy_hash: a change drops the whole history.
+		uint64_t cap_policy = 0; // cap_policy_hash: a change drops the refinement stamps only (S6b fades continue).
 		CutHistory history;
 		CutHistory::Result last_cut;
 		Vector<uint32_t> tie_rank; // Rank of each node's NodeKey: array-order independent tie-break.

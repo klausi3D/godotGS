@@ -302,7 +302,7 @@ static_assert(offsetof(VisibleChunkRefGPU, chunk_id) == 4, "VisibleChunkRefGPU.c
 struct alignas(16) DrawnNodeGPU {
     uint32_t instance_id;
     uint32_t chunk_id;
-    float fade;                  // Reserved for the S6 cross-fade; written as 1.0 and not read yet
+    float fade;                  // S6/S6b fade (ADR 6.7, 6.7.1): opacity factor of the record; 1 when not blending
     uint32_t level;              // BV-04b: HLOD level (node height, 0 = leaf); GS_DRAWN_NODE_LEVEL_NONE for object records
     float camera_offset[4];      // xyz = camera-relative node offset, w = 0
 };
@@ -313,6 +313,13 @@ static_assert(offsetof(DrawnNodeGPU, instance_id) == 0, "DrawnNodeGPU.instance_i
 static_assert(offsetof(DrawnNodeGPU, chunk_id) == 4, "DrawnNodeGPU.chunk_id offset mismatch");
 static_assert(offsetof(DrawnNodeGPU, fade) == 8, "DrawnNodeGPU.fade offset mismatch");
 static_assert(offsetof(DrawnNodeGPU, level) == 12, "DrawnNodeGPU.level offset mismatch");
+
+// S6 cross-fade, shadow casters (ADR 6.7): the caster raster is a binary alpha-threshold occluder, so scaling a fading
+// pair's opacity would open holes in the shadow mid-fade. A record casts iff its fade >= this value: the parent casts
+// until t = 0.5 and its children from t = 0.5 (both at exactly 0.5). When a region restarts mid-blend (S6b) its old and
+// new weights can both sit below 0.5 for a few frames; the caster then misses that region briefly (known limitation). Mirrors GS_HLOD_SHADOW_CASTER_MIN_FADE in
+// shaders/includes/gs_instance_layout.glsl; the shadow refresh digest hashes the same predicate.
+static constexpr float GS_HLOD_SHADOW_CASTER_MIN_FADE = 0.5f;
 
 // BV-04b: records per splat per HLOD level. The tile_binning EMIT pass of the HLOD route adds, per
 // splat that reaches it, its emitted overlap records and 1 to the slot of its draw record's level

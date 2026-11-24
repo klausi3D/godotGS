@@ -409,6 +409,11 @@ inline bool get_hlod_runtime_cut_enabled(ProjectSettings *p_ps) {
     return get_bool(p_ps, "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled", true);
 }
 
+// S6 cross-fade of HLOD transitions (ADR 6.7); the fallback matches the registration in lod/lod_config.cpp.
+inline bool get_hlod_crossfade_enabled(ProjectSettings *p_ps) {
+    return get_bool(p_ps, "rendering/gaussian_splatting/lod/hlod_crossfade_enabled", true);
+}
+
 inline float get_hlod_tau_px(ProjectSettings *p_ps) {
     const float tau = get_float(p_ps, "rendering/gaussian_splatting/lod/hlod_tau_px", 1.0f);
     if (!Math::is_finite(tau) || tau <= 0.0f) {
