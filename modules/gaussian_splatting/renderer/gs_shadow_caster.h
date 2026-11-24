@@ -42,6 +42,7 @@ public:
 
 	struct Inputs {
 		RID atlas_gaussian_buffer;
+		uint32_t atlas_record_count = 0; // The records the atlas buffer holds; 0 = unknown (the shader uses the array length).
 		RID instance_buffer;
         RID region_override_buffer;
 		RID chunk_meta_buffer;

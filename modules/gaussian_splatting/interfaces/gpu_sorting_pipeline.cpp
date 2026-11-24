@@ -2528,6 +2528,8 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     // Buffer capacity used as structural guard in depth_compute.glsl.
     // Actual dispatch is GPU-driven via instance_chunk_dispatch.glsl.
     params.visible_chunk_count = MIN(inputs.visible_chunk_count, inputs.max_visible_chunks);
+    // BV-17: the HLOD page lookup is bounded by this count, not by the atlas array length (wrong above 2^31 bytes).
+    params.atlas_info[0] = inputs.atlas_record_count;
     params.max_visible_splats = max_visible_splats;
     params.pad0 = group_x;
     // C4b (G4), Channel B: request the clamp shader to reset its sticky overflow_flag when the

@@ -1243,6 +1243,8 @@ void GaussianSplatManager::initialize_module() {
 	//   >0 = pin an explicit atlas byte budget; forces the importance-LOD clamp even on a
 	//     capable GPU. Useful to cap resident VRAM on a known target and to validate the
 	//     clamp on real-scan content. See renderer/resident_atlas_budget.h.
+	//   A streamed HLOD world's atlas (BV-17) is a share of the device ledger by default; >0 pins it
+	//     in either direction, clamped to one storage buffer. See renderer/device_vram_ledger.h.
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb",
 			PROPERTY_HINT_RANGE, "0,8192,1"), 0);
 

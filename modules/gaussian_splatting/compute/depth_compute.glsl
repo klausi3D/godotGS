@@ -101,6 +101,7 @@ layout(set = 0, binding = 9, std140) uniform Params {
     vec4 camera_position_ortho; // xyz = camera position, w = orthographic flag
     vec4 cull_screen_distance; // x = pixel_scale_y, y = tiny_splat_radius_px, z = min_screen_threshold_px, w = max_distance_sq
     vec4 cull_frustum_radius; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy
+    uvec4 atlas_info; // x = atlas records (0 = unknown); see InstanceDepthParamsGPU::atlas_info.
 } params;
 
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
@@ -173,7 +174,9 @@ void main() {
             return;
         }
         uint page = hlod_page_table.pages[base + local_page];
-        uint atlas_count = uint(atlas_gaussian_buffer.gaussians.length());
+        // The host's record count, not gaussians.length(): the array length of an atlas binding above 2^31 bytes is wrong
+        // on the RTX 3090 (Windows, Vulkan), which rejected every splat (BV-17). The length stays the fallback.
+        uint atlas_count = params.atlas_info.x != 0u ? params.atlas_info.x : uint(atlas_gaussian_buffer.gaussians.length());
         if (atlas_count == 0u || page > ((atlas_count - 1u) >> GS_HLOD_PAGE_SHIFT)) {
             atomicAdd(counters.overflowed_splats, 1u);
             return;

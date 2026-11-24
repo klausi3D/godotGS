@@ -1827,6 +1827,7 @@ struct RenderPipelineStages::SortStage {
 				if (input_domain_chunk) {
 					GPUSortingPipeline::InstancePipelineInputs instance_inputs;
 					instance_inputs.atlas_gaussian_buffer = buffers.atlas_gaussian_buffer;
+					instance_inputs.atlas_record_count = buffers.atlas_gaussian_count;
 					instance_inputs.quantization_buffer = buffers.quantization_required ? buffers.quantization_buffer : RID();
 					instance_inputs.instance_buffer = buffers.instance_buffer;
                     instance_inputs.region_override_buffer = renderer->get_region_override_buffer();

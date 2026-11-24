@@ -176,8 +176,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU][C] R3 hidden regions all
             }
             const RID caster_set = resources.keep(rd->uniform_set_create(caster_uniforms,caster_shader,0));
             if (!caster_set.is_valid()) { FAIL("C R3 raw caster uniform set"); return; }
-            struct CasterPush { float matrix[16]; float viewport[4]; uint32_t counts[4]; } push{};
-            static_assert(sizeof(CasterPush) == 96, "C caster push layout");
+            // atlas[0] = 0: the shader bounds by the array length (BV-17 fallback; this atlas is far below 2^31 bytes).
+            struct CasterPush { float matrix[16]; float viewport[4]; uint32_t counts[4]; uint32_t atlas[4]; } push{};
+            static_assert(sizeof(CasterPush) == 112, "C caster push layout");
             static_assert(sizeof(CasterPush) % 16 == 0, "C caster push alignment");
             for (int axis=0;axis<4;++axis) { push.matrix[axis*5] = 1; }
             push.viewport[0] = push.viewport[1] = 64;

@@ -98,6 +98,10 @@ struct ResourceState {
     // streamer decides which nodes are resident. Empty/false for the whole-tree bundle.
     bool hlod_streaming = false;
     uint32_t hlod_stream_atlas_records = 0;
+    // BV-17: the streamed atlas byte limit the last streamed publication priced its pages against, and what bound it
+    // (DeviceVramLedger::StreamedAtlasBound). Published as hlod_stream_atlas_limit_bytes / _bound; 0 / NONE otherwise.
+    uint64_t hlod_stream_atlas_limit_bytes = 0;
+    uint8_t hlod_stream_atlas_limit_bound = 0;
     // Render-thread-owned V4 runtime service. Declared before the streamer so
     // destruction drains workers before the store. Explicit teardown keeps the
     // same order; worker calls use the store's own mutex, never this owner slot.

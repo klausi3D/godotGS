@@ -48,8 +48,67 @@ public:
 	// Below this floor a reported device heap is treated as unknown: a degenerate small-positive value would otherwise
 	// clamp every budget to nonsense.
 	static constexpr uint64_t kMinTrustedDeviceBytes = uint64_t(256) * 1024 * 1024;
-	// Absolute single-upload staging ceiling of the resident atlas; a budget only ever tightens beneath it.
+	// Absolute single-upload staging ceiling of the resident atlas; a budget only ever tightens beneath it. It bounds the
+	// resident route and the whole-tree HLOD bundle (one-shot uploads). A STREAMED HLOD atlas is not bound by it: it
+	// uploads page runs under the per-frame byte cap (ADR adr-beyond-vram-worlds.md D-3, BV-17); see streamed_atlas_limit_for_device.
 	static constexpr uint64_t kResidentStagingCeilingBytes = uint64_t(2) * 1024 * 1024 * 1024;
+	// The byte limit of the one atlas storage buffer: every HLOD bundle buffer is created with a 32-bit size
+	// (hlod_create_buffer), and RenderingDevice exposes no maxStorageBufferRange query (ADR BV-33); the RTX 3090 reports
+	// 4294967295. The shaders bound the atlas with the host's record count (InstanceDepthParamsGPU::atlas_info,
+	// ShadowCasterPushConstant::atlas), never with gaussians.length(): on the RTX 3090 (Windows, Vulkan) the array length
+	// of an atlas binding above 2^31 bytes is wrong, and a streamed atlas of 2,148,450,304 B drew nothing (ADR K8, BV-17).
+	static constexpr uint64_t kMaxAtlasBufferBytes = UINT32_MAX;
+
+	// What bounds the atlas of a streamed HLOD world. Published as hlod_stream_atlas_limit_bound.
+	enum class StreamedAtlasBound : uint8_t {
+		NONE = 0, // No streamed bundle.
+		LEDGER_SHARE, // The GS ledger limit minus the route's frame reserve: the default on a trusted heap.
+		UNKNOWN_HEAP, // Unknown or untrusted heap: the staging ceiling, as before (fail closed).
+		OVERRIDE, // resident/atlas_vram_budget_override_mb, in either direction.
+		BUFFER_LIMIT, // Clamped to one storage buffer (kMaxAtlasBufferBytes).
+		NO_LEDGER_SHARE, // The frame reserve alone fills the ledger limit: no page is admissible, the publication refuses.
+	};
+	static const char *streamed_atlas_bound_name(StreamedAtlasBound p_bound) {
+		switch (p_bound) {
+			case StreamedAtlasBound::NONE: return "none";
+			case StreamedAtlasBound::LEDGER_SHARE: return "ledger_share";
+			case StreamedAtlasBound::UNKNOWN_HEAP: return "unknown_heap_staging_ceiling";
+			case StreamedAtlasBound::OVERRIDE: return "override";
+			case StreamedAtlasBound::BUFFER_LIMIT: return "buffer_limit";
+			case StreamedAtlasBound::NO_LEDGER_SHARE: return "no_ledger_share";
+		}
+		return "invalid";
+	}
+	struct StreamedAtlasLimit {
+		uint64_t bytes = 0;
+		StreamedAtlasBound bound = StreamedAtlasBound::NONE;
+	};
+
+	// Byte cap of the atlas of a STREAMED HLOD world (BV-17), a share of the GS ledger limit:
+	//  - The engine and the driver keep the 1 - kGsDeviceShare reserve outside the ledger (D-11).
+	//  - Inside the ledger, `p_frame_reserve_bytes` is what the route's frame buffers can claim next to the pool: the overlap
+	//    storage at its configured cap and the sort at the route's capacity (the publisher derives it from the same charges
+	//    the ledger admits them with). The pool gets the rest. Per-record frame scratch (SH colour cache, subpixel history)
+	//    and the live bytes stay with the page budget's ledger term (ResidentAtlasBudget::hlod_stream_page_budget).
+	//  - An unknown or untrusted heap keeps the staging ceiling (fail closed, as before).
+	//  - override_mb > 0 pins the cap in either direction; the page budget's ledger term still bounds the pool.
+	//  - Never above one storage buffer (`p_max_buffer_bytes`).
+	// The result depends only on the heap, the settings and the reserve, so a prepared bundle sees the same value.
+	static StreamedAtlasLimit streamed_atlas_limit_for_device(uint64_t p_device_heap_bytes, uint64_t p_ledger_limit_bytes,
+			uint32_t p_override_mb, uint64_t p_frame_reserve_bytes, uint64_t p_max_buffer_bytes = kMaxAtlasBufferBytes,
+			uint64_t p_staging_ceiling_bytes = kResidentStagingCeilingBytes, uint64_t p_min_trusted_bytes = kMinTrustedDeviceBytes) {
+		StreamedAtlasLimit out;
+		if (p_override_mb > 0) {
+			out = { uint64_t(p_override_mb) * 1024u * 1024u, StreamedAtlasBound::OVERRIDE };
+		} else if (p_device_heap_bytes >= p_min_trusted_bytes) {
+			if (p_ledger_limit_bytes <= p_frame_reserve_bytes) { return { 0, StreamedAtlasBound::NO_LEDGER_SHARE }; }
+			out = { p_ledger_limit_bytes - p_frame_reserve_bytes, StreamedAtlasBound::LEDGER_SHARE };
+		} else {
+			out = { p_staging_ceiling_bytes, StreamedAtlasBound::UNKNOWN_HEAP };
+		}
+		if (out.bytes > p_max_buffer_bytes) { out = { p_max_buffer_bytes, StreamedAtlasBound::BUFFER_LIMIT }; }
+		return out;
+	}
 
 	// Byte cap of a packed resident atlas.
 	//  - An unknown or untrusted heap keeps the staging ceiling (do-no-harm on UMA/iGPU/software/non-Vulkan).
@@ -140,7 +199,6 @@ public:
 	uint64_t atlas_limit(uint32_t p_override_mb) const {
 		return atlas_limit_for_device(device_heap_bytes.load(std::memory_order_relaxed), p_override_mb);
 	}
-
 	void observe_device_bytes(uint64_t p_bytes) {
 		device_bytes.store(p_bytes, std::memory_order_relaxed);
 		device_observed.store(true, std::memory_order_relaxed);

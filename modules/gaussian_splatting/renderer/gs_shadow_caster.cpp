@@ -15,13 +15,16 @@
 
 namespace {
 
-// Mirror of `Params` in shaders/gs_shadow_caster.glsl (std430 push constant, 96 bytes).
+// Mirror of `Params` in shaders/gs_shadow_caster.glsl (std430 push constant, 112 bytes).
 struct ShadowCasterPushConstant {
 	float light_from_frame[16]; // Column-major mat4.
 	float viewport[4]; // xy = atlas rect size, z = alpha threshold, w = low-pass dilation (texels^2).
 	uint32_t counts[4]; // x = draw records, y = slot stride, z = projection mode (0/1/2), w = opacity multiplier (float bits).
+	// x = the records the atlas buffer holds (0 = unknown: the array length); yzw unused. Bounds the atlas index instead of
+	// gaussians.length(), which is wrong for an atlas binding above 2^31 bytes on the RTX 3090 (BV-17).
+	uint32_t atlas[4];
 };
-static_assert(sizeof(ShadowCasterPushConstant) == 96, "ShadowCasterPushConstant must match gs_shadow_caster.glsl Params");
+static_assert(sizeof(ShadowCasterPushConstant) == 112, "ShadowCasterPushConstant must match gs_shadow_caster.glsl Params");
 static_assert(sizeof(ShadowCasterPushConstant) % 16 == 0, "Push constants are reflected in 16-byte units");
 
 RD::Uniform storage_uniform(uint32_t p_binding, RID p_buffer) {
@@ -344,6 +347,7 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 	// A non-finite value casts nothing rather than everything.
 	const float opacity_multiplier = Math::is_finite(p_inputs.opacity_multiplier) ? MAX(p_inputs.opacity_multiplier, 0.0f) : 0.0f;
 	memcpy(&push.counts[3], &opacity_multiplier, sizeof(float));
+	push.atlas[0] = p_inputs.atlas_record_count;
 
 	RD::DrawListID draw_list = p_device->draw_list_begin(p_shadow_framebuffer, RD::DRAW_DEFAULT_ALL, VectorView<Color>(), 0.0f, 0,
 			Rect2(p_atlas_rect));

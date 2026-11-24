@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `202` documented functions, `37` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `202` documented functions, `37` undocumented functions, `80` documented uniform fields, `119` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -228,6 +228,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>counts</code></pre></td>
       <td><pre><code>uvec4</code></pre></td>
       <td>x = draw records, y = slot stride, z = ortho (0), pancake (1), perspective (2), w = opacity float bits</td>
+    </tr>
+    <tr>
+      <td><pre><code>atlas</code></pre></td>
+      <td><pre><code>uvec4</code></pre></td>
+      <td>x = atlas records (0 = unknown); see ShadowCasterPushConstant::atlas</td>
     </tr>
   </tbody>
 </table>
@@ -2099,6 +2104,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>cull_frustum_radius</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
       <td>x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy</td>
+    </tr>
+    <tr>
+      <td><pre><code>atlas_info</code></pre></td>
+      <td><pre><code>uvec4</code></pre></td>
+      <td>x = atlas records (0 = unknown); see InstanceDepthParamsGPU::atlas_info.</td>
     </tr>
   </tbody>
 </table>

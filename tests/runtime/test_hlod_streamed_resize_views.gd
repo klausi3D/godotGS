@@ -334,6 +334,14 @@ func _run() -> void:
 	if not _check(staged_bytes + atlas_bytes <= device_bytes,
 			"Streamed atlas was staged from host memory: %d B staged of a %d B bundle whose streamed atlas is %d B" % [staged_bytes, device_bytes, atlas_bytes]):
 		return
+	# BV-17: the streamed atlas is priced against the override (16 MiB above), named as such, and holds no more than it.
+	var limit_bytes := int(bundle_stats.get("hlod_stream_atlas_limit_bytes", -1))
+	var limit_bound := String(bundle_stats.get("hlod_stream_atlas_limit_bound", ""))
+	_metrics["stream_atlas_limit_bytes"] = limit_bytes
+	_metrics["stream_atlas_limit_bound"] = limit_bound
+	if not _check(limit_bound == "override" and limit_bytes == 16 * 1024 * 1024 and atlas_bytes <= limit_bytes,
+			"Streamed atlas limit is not the 16 MiB override (limit %d B, bound '%s', atlas %d B)" % [limit_bytes, limit_bound, atlas_bytes]):
+		return
 
 	# 1. A held resize (the F1 repro): drawn at a size other than the startup size, and again at the startup size.
 	_set_size(Vector2i(256, 144))
