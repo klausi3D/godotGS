@@ -5,6 +5,8 @@
 #include "core/templates/local_vector.h"
 #include "core/variant/variant.h"
 
+#include <cstring>
+
 // Render-thread-owned, report-only snapshot of the same selection used for the world draw list.
 // The selector's diagnostic scratch is preallocated. Packed exports use COW when readers retain stats.
 struct HlodCutTelemetry {
@@ -75,12 +77,25 @@ struct HlodCutTelemetry {
 		fade_snapped = p_cut.fade_snapped;
 		fade_snapped_total += p_cut.fade_snapped;
 		fade_extra_splats = p_cut.fade_extra_splats;
-		// FNV-1a over sorted uint32 IDs encoded little-endian, independent of host byte order.
+		// FNV-1a over sorted uint32 IDs encoded little-endian, independent of host byte order. A record that is blending
+		// (S6/S6b fade != 1) also hashes its fade's bits after its ID: the digest names what is drawn, so it keeps
+		// changing while a fade is in flight and a "stable digest" settle waits for the blend to finish. With no blend
+		// every fade is 1 and the digest is exactly the ID-only digest.
 		uint64_t digest = UINT64_C(14695981039346656037);
-		for (int32_t id : drawn_ids) {
+		auto mix_u32 = [&digest](uint32_t p_value) {
 			for (uint32_t shift = 0; shift < 32; shift += 8) {
-				digest ^= (uint32_t(id) >> shift) & 0xffu;
+				digest ^= (p_value >> shift) & 0xffu;
 				digest *= UINT64_C(1099511628211);
+			}
+		};
+		for (int i = 0; i < drawn_ids.size(); ++i) {
+			mix_u32(uint32_t(drawn_ids[i]));
+			const float f = drawn_fades[i];
+			if (f != 1.0f) {
+				uint32_t bits = 0;
+				memcpy(&bits, &f, sizeof(bits));
+				mix_u32(0xFADEFADEu);
+				mix_u32(bits);
 			}
 		}
 		drawn_digest = String::num_uint64(digest, 16).lpad(16, "0"); // pad_zeros() would pad after a leading hex letter.

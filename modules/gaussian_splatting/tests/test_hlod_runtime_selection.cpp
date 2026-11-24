@@ -211,6 +211,18 @@ TEST_CASE("[GaussianSplatting][HLOD] cut telemetry hashes sorted IDs and replace
 	std::swap(records[0], records[1]);
 	telemetry.capture(history, cut, 7, records, 3);
 	CHECK(telemetry.drawn_digest == digest);
+	// A blending record (fade != 1) changes the digest; the same IDs at fade 1 give the ID-only digest back.
+	records[2].fade = 0.5f;
+	telemetry.capture(history, cut, 7, records, 3);
+	CHECK(telemetry.drawn_digest != digest);
+	const String half = telemetry.drawn_digest;
+	records[2].fade = 0.75f;
+	telemetry.capture(history, cut, 7, records, 3);
+	CHECK(telemetry.drawn_digest != half);
+	CHECK(telemetry.drawn_digest != digest);
+	records[2].fade = 1.0f;
+	telemetry.capture(history, cut, 7, records, 3);
+	CHECK(telemetry.drawn_digest == digest);
 	records[0].node = 1;
 	telemetry.capture(history, cut, 7, records, 3);
 	CHECK(telemetry.drawn_digest != digest);
