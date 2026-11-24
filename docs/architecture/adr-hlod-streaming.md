@@ -671,7 +671,7 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
   ~9 dB advantage is simply more, smaller steps. Test 9 therefore also bounds the mid-fade
   state against both ends.
 
-#### 6.7.1 Proposed amendment S6b: temporal fade (implemented behind the same setting; needs a decision)
+#### 6.7.1 Amendment S6b: temporal fade (approved 2026-11-24, behind the same setting)
 
 The band fade above covers only switches that happen inside the band. On the 55.6 M-splat reef
 world every observed switch happens outside it: on a 1,600-step dolly (30 m to 6 m), 1,554 steps
@@ -701,6 +701,28 @@ them. S6b adds a blend in time for every change of the drawn set:
   placement. A parked camera draws identical frames once `fade_frames` selections have passed.
 - **Shadows.** The splat shadow caster is a binary alpha-threshold occluder, so it does not scale
   opacity by the fade: a record casts iff its fade is at least 0.5.
+- **Prior art.**
+  - Unreal's "Dithered LOD Transition" draws both LODs during a time-based transition and
+    splits them with a screen-space dither mask.
+  - Cesium for Unreal ramps a dithered opacity mask over time from the old tile to the new one
+    ([Cesium, 2022](https://cesium.com/blog/2022/10/20/smoother-lod-transitions-in-cesium-for-unreal/)).
+    It is the closest analogue to streamed HLOD tiles.
+  - Nanite avoids cross-fades altogether: it keeps the cluster error below a pixel and lets TAA
+    hide the switch
+    ([forum thread](https://forums.unrealengine.com/t/does-nanite-has-dithered-lods-enabled-by-default/1538462)).
+
+  S6b keeps the time-based, both-representations approach, but blends with overlapping alpha
+  weights (`min(1, 2t)`) instead of a binary dither:
+  - Splats are already alpha-blended and depth-sorted, so weights compose with the blend we
+    already do.
+  - A dither would add stochastic per-pixel noise.
+  - A dither needs a per-splat or per-pixel random key. Keyed by atlas address, it would break
+    the D1 determinism requirement (#1535): the same cut must render the same image wherever its
+    pages sit. Keyed by identity, it would still flicker under TAA-free rendering.
+  - §5.6 measured hash-dither fades as no better than a hard switch.
+
+  The long-term alternative is Nanite-style: a cut fine enough that the switch error stays below
+  a pixel. On budget-bound views that needs more budget or cheaper splats, so S6b bridges the gap.
 
 ### 6.8 The resident route (decision 4, slice S5)
 
