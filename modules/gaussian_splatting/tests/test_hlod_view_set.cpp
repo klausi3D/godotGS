@@ -1409,6 +1409,42 @@ TEST_CASE("[GaussianSplatting][HLOD] Desired(view) lists missing nodes as demand
 	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
 	CHECK(desired_of(set, 1).size() == 0);
 }
+TEST_CASE("[GaussianSplatting][HLOD][StreamPriority] Desired(view) carries each transition's current projected error as its service priority") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree);
+	ViewSet set;
+	const ViewSpec view = perspective(1);
+	CHECK(set.admit_view(snap, view).status == ViewSet::ADMITTED);
+	snap.views.push_back(view);
+	Vector<ViewSet::ViewResult> results;
+	Vector<uint8_t> resident;
+	resident.resize(7);
+	resident.fill(0);
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	uint32_t count = 0;
+	const DesiredRecord *want = set.desired(1, count);
+	if (!want || count != 1) { FAIL("expected the root as the only demand, got ", count); return; }
+	CHECK(want[0].transition.priority == std::numeric_limits<float>::infinity()); // Readiness outranks every refinement.
+	// Root, 1 and 2 resident: the demand is the two child groups of 1 and 2, each worth its parent's error.
+	resident.write[0] = resident.write[1] = resident.write[2] = 1;
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	want = set.desired(1, count);
+	if (!want || count == 0) { FAIL("expected refinement demand"); return; }
+	for (uint32_t i = 0; i < count; ++i) {
+		const auto &g = want[i].transition;
+		if (g.kind != TRANSITION_REFINEMENT || g.parent >= uint32_t(tree->nodes.size())) { FAIL("unexpected demand kind"); return; }
+		// Independent oracle: e = geometric_error x f / max(|centre - camera| - radius, 1e-6), the selector's metric.
+		const auto &n = tree->nodes[g.parent];
+		const double d = MAX(double((n.bounds_center - view.camera).length()) - double(n.topology.radius), 1.0e-6);
+		const double e = double(n.topology.geometric_error) * view.focal_pixels / d;
+		CHECK(std::isfinite(g.priority));
+		CHECK(g.priority > 0.0f);
+		CHECK(double(g.priority) == doctest::Approx(e).epsilon(1e-5));
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] Desired(view) separates the nodes to request from the resident frontier to keep") {
 	auto tree = make_tree(IDENT);
 	tree->nodes.write[0].topology.payload_count = 100;

@@ -169,6 +169,23 @@ bool ViewSet::view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uin
 	return true;
 }
 
+// Service priority of one demanded transition (ADR adr-hlod-streaming.md 6.6: missing children are requested in
+// refinement-priority order). A refinement is worth its parent's projected screen-space error this frame,
+// e = geometric_error x f_px / max(dist - radius, eps), the selector's own metric (hlod_runtime_selection.cpp) in the
+// same instance frame. The root and the bootstrap frontier gate readiness: nothing of the view draws until they are
+// resident, so they outrank every refinement. Errors of different instances are in the same pixels and compare.
+static float demand_priority(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request, const TransitionGroup &p_group) {
+	if (p_group.kind == TRANSITION_ROOT || p_group.kind == TRANSITION_BOOTSTRAP) { return std::numeric_limits<float>::infinity(); }
+	if (p_group.kind != TRANSITION_REFINEMENT || p_group.parent >= uint32_t(p_data.nodes.size())) { return 0.0f; }
+	const auto &n = p_data.nodes[p_group.parent];
+	const double dx = double(n.bounds_center.x) - p_request.camera.x;
+	const double dy = double(n.bounds_center.y) - p_request.camera.y;
+	const double dz = double(n.bounds_center.z) - p_request.camera.z;
+	const double distance = MAX(std::sqrt(dx * dx + dy * dy + dz * dz) - double(n.topology.radius), 1.0e-6);
+	const double e = double(n.topology.geometric_error) * p_request.focal_pixels / distance;
+	return std::isfinite(e) ? float(e) : 0.0f;
+}
+
 // A new edit revision (package F1) invalidates a slot's hysteresis exactly like a new source revision does; an
 // unedited snapshot keeps its source revision unchanged.
 static uint64_t snapshot_content_key(const GaussianSplatHlodRuntimeData &p_data) {
@@ -770,6 +787,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				want.node = slot.history.demand_node(k);
 				want.keep = false;
 				want.transition = slot.history.demand_transition(k);
+				want.transition.priority = demand_priority(selection_data, request, want.transition);
 			}
 			for (uint32_t k = 0; !bootstrap_truncated && k < slot.history.partial_frontier_count(); ++k) {
 				if (view.desired_count >= uint32_t(view.desired.size())) { result.desired_truncated = true; break; }
