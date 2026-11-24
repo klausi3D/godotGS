@@ -1,5 +1,7 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html#a4004212799747876676957500a90f5e9":[1,0,9,1,5,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html":[0,0,12,2,7],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html":[1,0,9,1,7],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a01dff86caa219adffd40643618df1353":[0,0,12,2,7,0],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a01dff86caa219adffd40643618df1353":[1,0,9,1,7,0],
@@ -247,7 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a4d3fbe8c1dd887f9acb9dcd77cb40e16":[1,0,9,15,0,1],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a96fd08e0cb2856872a3c986407b88ef9":[0,0,12,16,0,2],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a96fd08e0cb2856872a3c986407b88ef9":[1,0,9,15,0,2],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[0,0,12,16,0,3],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[1,0,9,15,0,3],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[0,0,12,16,0,0]
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[0,0,12,16,0,3]
 };

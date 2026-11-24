@@ -1,5 +1,14 @@
 var NAVTREEINDEX53 =
 {
+"structPackedGaussianQuantized.html#a99c59f7596e92a6237a944dd44a2e635":[1,0,193,6],
+"structPackedGaussianQuantized.html#aa62c5e8f9c0bd158e43fca6b62181d53":[1,0,193,12],
+"structPackedGaussianQuantized.html#aac060848632fa5a46ae5ed87275df74a":[1,0,193,9],
+"structPackedGaussianQuantized.html#ab936e86ce2a20ca0dbab798da729f0be":[1,0,193,4],
+"structPackedGaussianQuantized.html#ac44bcb5da5cd716c375f4cc2cf80ef63":[1,0,193,0],
+"structPackedGaussianQuantized.html#adc23d4344d06b9922288c732a0494a0b":[1,0,193,11],
+"structPackedGaussianQuantized.html#ae21c8d66fec1c8f228276fc69666947a":[1,0,193,8],
+"structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564":[1,0,193,13],
+"structPackedGaussianQuantized.html#af63c9d92beca143ce98794d4923f9038":[1,0,193,1],
 "structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d":[1,0,193,10],
 "structPackedSphericalHarmonics.html":[1,0,194],
 "structPackedSphericalHarmonics.html#aa95e0a0f86965e209f621cd8eb456a46":[1,0,194,0],
@@ -240,14 +249,5 @@ var NAVTREEINDEX53 =
 "structQuantizationConfig.html#a0c2f18e735471b2a1afbc5259db00416":[1,0,214,7],
 "structQuantizationConfig.html#a20842636b8e25ff8efc979c017f0aec6":[1,0,214,12],
 "structQuantizationConfig.html#a2fa680b92fdc5d974592010528dde34d":[1,0,214,3],
-"structQuantizationConfig.html#a511fcc008c0a65eccaf45c2da746c638":[1,0,214,14],
-"structQuantizationConfig.html#a53a7e1144e18e8a2fe187adb7602b3c2":[1,0,214,1],
-"structQuantizationConfig.html#a53f855c0fccb3140841202018ff7c1d4":[1,0,214,8],
-"structQuantizationConfig.html#a5486daf725537d4bb7aedb9e274b63ea":[1,0,214,11],
-"structQuantizationConfig.html#a566679c3074bf837e315cda90fed2313":[1,0,214,13],
-"structQuantizationConfig.html#a6b2f2cfd560db6981b4bba4cdefa3ea7":[1,0,214,6],
-"structQuantizationConfig.html#a7fc069bd99f08bd9802a3c6fa10f8a56":[1,0,214,4],
-"structQuantizationConfig.html#a81621b07338b6554f8270edd6bfeee6f":[1,0,214,10],
-"structQuantizationConfig.html#aa210f350da9a1a1a96d0e1cd90c61344":[1,0,214,2],
-"structQuantizationConfig.html#aa4f106bf3b8f69b6770c2b1553fa7996":[1,0,214,9]
+"structQuantizationConfig.html#a511fcc008c0a65eccaf45c2da746c638":[1,0,214,14]
 };

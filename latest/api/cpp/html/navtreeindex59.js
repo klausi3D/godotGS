@@ -1,5 +1,14 @@
 var NAVTREEINDEX59 =
 {
+"structVisibleChunkRefGPU.html#ae6ac66c291c3c8fc0dc1817920f91bf2":[1,0,303,0],
+"struct__GSAtomicNoRenameGuard.html":[1,0,36],
+"struct__GSAtomicNoRenameGuard.html#a7582b0c51cb6fe8e7408f751f1fe7b56":[1,0,36,0],
+"structgs_1_1ModuleStringNames.html":[0,0,16,2],
+"structgs_1_1ModuleStringNames.html":[1,0,11,1],
+"structgs_1_1ModuleStringNames.html#a14fcd82dc9649a73331c0bd7a39dc7e5":[0,0,16,2,1],
+"structgs_1_1ModuleStringNames.html#a14fcd82dc9649a73331c0bd7a39dc7e5":[1,0,11,1,1],
+"structgs_1_1ModuleStringNames.html#a6638b993ca1e40f1f33b9a0858c14343":[0,0,16,2,5],
+"structgs_1_1ModuleStringNames.html#a6638b993ca1e40f1f33b9a0858c14343":[1,0,11,1,5],
 "structgs_1_1ModuleStringNames.html#a7c81be351278dea32cd17342d9339269":[0,0,16,2,3],
 "structgs_1_1ModuleStringNames.html#a7c81be351278dea32cd17342d9339269":[1,0,11,1,3],
 "structgs_1_1ModuleStringNames.html#a913199498a8359ac1fe84a303bf675e6":[0,0,16,2,0],
@@ -240,14 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__hlod_1_1InteriorBakeParams.html#a365c16158502843dd76adde1cf4307a7":[1,0,14,14,5],
 "structgs__hlod_1_1InteriorBakeParams.html#a8c21be1a78e1945a2218ea2a4172a75b":[0,0,21,14,3],
 "structgs__hlod_1_1InteriorBakeParams.html#a8c21be1a78e1945a2218ea2a4172a75b":[1,0,14,14,3],
-"structgs__hlod_1_1InteriorBakeParams.html#aa19f6cb231cdbc21309cb5e349558f9f":[0,0,21,14,4],
-"structgs__hlod_1_1InteriorBakeParams.html#aa19f6cb231cdbc21309cb5e349558f9f":[1,0,14,14,4],
-"structgs__hlod_1_1InteriorBakeParams.html#adc43eacdf943a672cdc69020065eb309":[0,0,21,14,2],
-"structgs__hlod_1_1InteriorBakeParams.html#adc43eacdf943a672cdc69020065eb309":[1,0,14,14,2],
-"structgs__hlod_1_1InteriorBakeParams.html#ae4bb96cd447968e0fa28877e5faa6325":[0,0,21,14,0],
-"structgs__hlod_1_1InteriorBakeParams.html#ae4bb96cd447968e0fa28877e5faa6325":[1,0,14,14,0],
-"structgs__hlod_1_1InteriorBakeParams.html#af87ecfc90fd460f22799f5d16d9c3b2a":[0,0,21,14,1],
-"structgs__hlod_1_1InteriorBakeParams.html#af87ecfc90fd460f22799f5d16d9c3b2a":[1,0,14,14,1],
-"structgs__hlod_1_1InteriorBakeResult.html":[0,0,21,16],
-"structgs__hlod_1_1InteriorBakeResult.html":[1,0,14,16]
+"structgs__hlod_1_1InteriorBakeParams.html#aa19f6cb231cdbc21309cb5e349558f9f":[0,0,21,14,4]
 };

@@ -1,5 +1,16 @@
 var NAVTREEINDEX65 =
 {
+"structgs__shadow__caster_1_1FrameStats.html#a569bdc4b790255d96bf3822dfcf9f085":[1,0,20,6,13],
+"structgs__shadow__caster_1_1FrameStats.html#a7d71b2168f8f94a003b56d57b9d9a6fc":[0,0,30,6,0],
+"structgs__shadow__caster_1_1FrameStats.html#a7d71b2168f8f94a003b56d57b9d9a6fc":[1,0,20,6,0],
+"structgs__shadow__caster_1_1FrameStats.html#a7eb229533e6a87cc53bdd3f6c33c6e80":[0,0,30,6,1],
+"structgs__shadow__caster_1_1FrameStats.html#a7eb229533e6a87cc53bdd3f6c33c6e80":[1,0,20,6,1],
+"structgs__shadow__caster_1_1FrameStats.html#a965d8ed1b9b3f015901b238648769b56":[0,0,30,6,3],
+"structgs__shadow__caster_1_1FrameStats.html#a965d8ed1b9b3f015901b238648769b56":[1,0,20,6,3],
+"structgs__shadow__caster_1_1FrameStats.html#a9c7dbc4dccab4061b082a92884d157f3":[0,0,30,6,2],
+"structgs__shadow__caster_1_1FrameStats.html#a9c7dbc4dccab4061b082a92884d157f3":[1,0,20,6,2],
+"structgs__shadow__caster_1_1FrameStats.html#aad9ed3004bfa9b56bf47dc45e17c3e89":[0,0,30,6,6],
+"structgs__shadow__caster_1_1FrameStats.html#aad9ed3004bfa9b56bf47dc45e17c3e89":[1,0,20,6,6],
 "structgs__shadow__caster_1_1FrameStats.html#ab3cadcf521bc6171c5d472b75511417c":[0,0,30,6,12],
 "structgs__shadow__caster_1_1FrameStats.html#ab3cadcf521bc6171c5d472b75511417c":[1,0,20,6,12],
 "structgs__shadow__caster_1_1FrameStats.html#acb1a284a36279ad0bd8f52a5ba8d5760":[0,0,30,6,8],
@@ -238,16 +249,5 @@ var NAVTREEINDEX65 =
 "structgs__shadow__refresh_1_1PublishedContent.html#ab952237398e1421ed78d002f57c526a0":[1,0,22,1,1],
 "structgs__shadow__refresh_1_1PublishedContent.html#ae8f0ba691a4b9fbf3304f71541db9c20":[0,0,32,1,3],
 "structgs__shadow__refresh_1_1PublishedContent.html#ae8f0ba691a4b9fbf3304f71541db9c20":[1,0,22,1,3],
-"structgs__shadow__refresh_1_1SpatialRecord.html":[0,0,32,2],
-"structgs__shadow__refresh_1_1SpatialRecord.html":[1,0,22,2],
-"structgs__shadow__refresh_1_1SpatialRecord.html#a45b31ff8871e105bd437c79621ca50c2":[0,0,32,2,3],
-"structgs__shadow__refresh_1_1SpatialRecord.html#a45b31ff8871e105bd437c79621ca50c2":[1,0,22,2,3],
-"structgs__shadow__refresh_1_1SpatialRecord.html#a6bce6109aeed29218a8e59ac39676018":[0,0,32,2,0],
-"structgs__shadow__refresh_1_1SpatialRecord.html#a6bce6109aeed29218a8e59ac39676018":[1,0,22,2,0],
-"structgs__shadow__refresh_1_1SpatialRecord.html#a92fdfa55eaa1d12e20a73ba235bf9972":[0,0,32,2,1],
-"structgs__shadow__refresh_1_1SpatialRecord.html#a92fdfa55eaa1d12e20a73ba235bf9972":[1,0,22,2,1],
-"structgs__shadow__refresh_1_1SpatialRecord.html#ab154f0bdc2eb54392e87458083205ad5":[0,0,32,2,2],
-"structgs__shadow__refresh_1_1SpatialRecord.html#ab154f0bdc2eb54392e87458083205ad5":[1,0,22,2,2],
-"structgs__sort__policy_1_1ReadbackPolicy.html":[0,0,33,0],
-"structgs__sort__policy_1_1ReadbackPolicy.html":[1,0,23,0]
+"structgs__shadow__refresh_1_1SpatialRecord.html":[0,0,32,2]
 };

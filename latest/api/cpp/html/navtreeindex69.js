@@ -1,5 +1,16 @@
 var NAVTREEINDEX69 =
 {
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#af1cca115159c3f24f10a66a7d1035519":[1,0,31,15,0,7],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html":[0,0,43,15,0,1],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html":[1,0,31,15,0,1],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a1bf49272841f0cac339d6eb5e8ca1c1d":[0,0,43,15,0,1,0],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a1bf49272841f0cac339d6eb5e8ca1c1d":[1,0,31,15,0,1,0],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a1cbb5fcde69032f8ade56c151c7f8ede":[0,0,43,15,0,1,5],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a1cbb5fcde69032f8ade56c151c7f8ede":[1,0,31,15,0,1,5],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a797fd5210f6f12201f45a42e1ab856e7":[0,0,43,15,0,1,3],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a797fd5210f6f12201f45a42e1ab856e7":[1,0,31,15,0,1,3],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a8cc61070b7e091b8eee53a3c1add9294":[0,0,43,15,0,1,4],
+"structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#a8cc61070b7e091b8eee53a3c1add9294":[1,0,31,15,0,1,4],
 "structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#aad19f2ec74e980cfef26130fe9aaba2f":[0,0,43,15,0,1,2],
 "structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#aad19f2ec74e980cfef26130fe9aaba2f":[1,0,31,15,0,1,2],
 "structgs__world__writer_1_1WriterV4_1_1Impl_1_1Segment.html#ab2baa10bbf3315ef14e51ceef72e750c":[0,0,43,15,0,1,1],
@@ -238,16 +249,5 @@ var NAVTREEINDEX69 =
 "tile__render__async__readback_8h.html":[2,0,0,0,12,113],
 "tile__render__async__readback_8h_source.html":[2,0,0,0,12,113],
 "tile__render__binning_8cpp.html":[2,0,0,0,12,114],
-"tile__render__debug__stats_8cpp.html":[2,0,0,0,12,115],
-"tile__render__prefix__scan_8cpp.html":[2,0,0,0,12,116],
-"tile__render__rasterizer__stage_8cpp.html":[2,0,0,0,12,117],
-"tile__render__resolve_8cpp.html":[2,0,0,0,12,118],
-"tile__render__resources_8cpp.html":[2,0,0,0,12,119],
-"tile__render__resources_8h.html":[2,0,0,0,12,120],
-"tile__render__resources_8h_source.html":[2,0,0,0,12,120],
-"tile__render__stages_8cpp.html":[2,0,0,0,12,121],
-"tile__render__stages_8h.html":[2,0,0,0,12,122],
-"tile__render__stages_8h_source.html":[2,0,0,0,12,122],
-"tile__render__types_8h.html":[2,0,0,0,12,123],
-"tile__render__types_8h_source.html":[2,0,0,0,12,123]
+"tile__render__debug__stats_8cpp.html":[2,0,0,0,12,115]
 };

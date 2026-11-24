@@ -1,5 +1,7 @@
 var NAVTREEINDEX36 =
 {
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#aed44686615bff1d01f2b9a42fbc872f8":[0,0,6,2,69],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#aed44686615bff1d01f2b9a42fbc872f8":[1,0,5,2,69],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#aee68527730978ef6678af45ae3d4592e":[0,0,6,2,63],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#aee68527730978ef6678af45ae3d4592e":[1,0,5,2,63],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#af0b8557404815aa4b2f69e2d863f8dea":[0,0,6,2,93],
@@ -247,7 +249,5 @@ var NAVTREEINDEX36 =
 "structGaussianRenderPipeline_1_1RenderRouteDecision.html#a2cda8ca1dbdc470728bb094f64565664":[0,0,7,1,6],
 "structGaussianRenderPipeline_1_1RenderRouteDecision.html#a2cda8ca1dbdc470728bb094f64565664":[1,0,6,1,6],
 "structGaussianRenderPipeline_1_1RenderRouteDecision.html#a300cc0e4d22ab7749d1ac6282e74d861":[0,0,7,1,3],
-"structGaussianRenderPipeline_1_1RenderRouteDecision.html#a300cc0e4d22ab7749d1ac6282e74d861":[1,0,6,1,3],
-"structGaussianRenderPipeline_1_1RenderRouteDecision.html#a36201dc0ee64e3ec4407b5a237f68d15":[0,0,7,1,5],
-"structGaussianRenderPipeline_1_1RenderRouteDecision.html#a36201dc0ee64e3ec4407b5a237f68d15":[1,0,6,1,5]
+"structGaussianRenderPipeline_1_1RenderRouteDecision.html#a300cc0e4d22ab7749d1ac6282e74d861":[1,0,6,1,3]
 };

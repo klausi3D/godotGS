@@ -1,5 +1,7 @@
 var NAVTREEINDEX43 =
 {
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[1,0,9,15,0,3],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[0,0,12,16,0,0],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[1,0,9,15,0,0],
 "structGaussianSplatting_1_1PainterlyMetadata.html":[0,0,12,12],
 "structGaussianSplatting_1_1PainterlyMetadata.html":[1,0,9,11],
@@ -247,7 +249,5 @@ var NAVTREEINDEX43 =
 "structGaussianSplatting_1_1TileDensityMetrics.html":[1,0,9,67],
 "structGaussianSplatting_1_1TileDensityMetrics.html#a26b7dd92f4bf1375168b6eb97b6b725e":[0,0,12,68,5],
 "structGaussianSplatting_1_1TileDensityMetrics.html#a26b7dd92f4bf1375168b6eb97b6b725e":[1,0,9,67,5],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a35902837d8204679f23e89bc8870338b":[0,0,12,68,3],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a35902837d8204679f23e89bc8870338b":[1,0,9,67,3],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a47f7c224290d510cb370f01c2ec90e71":[0,0,12,68,2]
+"structGaussianSplatting_1_1TileDensityMetrics.html#a35902837d8204679f23e89bc8870338b":[0,0,12,68,3]
 };

@@ -1,5 +1,7 @@
 var NAVTREEINDEX22 =
 {
+"gaussian__splat__settings__manager_8cpp.html#ad22edb694004011325a5dd94942160ce":[2,0,0,0,3,49,0],
+"gaussian__splat__settings__manager_8h.html":[2,0,0,0,3,50],
 "gaussian__splat__settings__manager_8h.html#ad22edb694004011325a5dd94942160ce":[2,0,0,0,3,50,2],
 "gaussian__splat__settings__manager_8h_source.html":[2,0,0,0,3,50],
 "gaussian__splat__source__path_8h.html":[2,0,0,0,3,51],
@@ -247,7 +249,5 @@ var NAVTREEINDEX22 =
 "gs__world__generator_8cpp.html":[2,0,0,0,6,22],
 "gs__world__generator_8h.html":[2,0,0,0,6,23],
 "gs__world__generator_8h_source.html":[2,0,0,0,6,23],
-"gs__world__writer_8cpp.html":[2,0,0,0,6,24],
-"gs__world__writer_8h.html":[2,0,0,0,6,25],
-"gs__world__writer_8h_source.html":[2,0,0,0,6,25]
+"gs__world__writer_8cpp.html":[2,0,0,0,6,24]
 };

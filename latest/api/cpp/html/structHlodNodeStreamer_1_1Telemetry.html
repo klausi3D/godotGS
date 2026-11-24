@@ -167,6 +167,13 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a9e43b61fdedecae826fbea44bb00a20e" id="r_a9e43b61fdedecae826fbea44bb00a20e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e43b61fdedecae826fbea44bb00a20e">payload_in_flight_bytes_peak</a> = 0</td></tr>
 <tr class="memitem:a809555d69852bfbadca03f9a37ae2f2d" id="r_a809555d69852bfbadca03f9a37ae2f2d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a809555d69852bfbadca03f9a37ae2f2d">payload_largest_read_bytes</a> = 0</td></tr>
 <tr class="memitem:a80ca97f8e32d355972700b61259f60e4" id="r_a80ca97f8e32d355972700b61259f60e4"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a80ca97f8e32d355972700b61259f60e4">payload_ready_bytes_peak</a> = 0</td></tr>
+<tr class="memitem:a179c3fed53da110aa29542e741f5d3f7" id="r_a179c3fed53da110aa29542e741f5d3f7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a179c3fed53da110aa29542e741f5d3f7">priority_measured</a> = false</td></tr>
+<tr class="memitem:a1e76f6ad8b932b860fba6862b724c393" id="r_a1e76f6ad8b932b860fba6862b724c393"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e76f6ad8b932b860fba6862b724c393">priority_fifo_forced</a> = false</td></tr>
+<tr class="memitem:aa400e95245444b232a80a3285f13c2df" id="r_aa400e95245444b232a80a3285f13c2df"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa400e95245444b232a80a3285f13c2df">priority_uploads_total</a> = 0</td></tr>
+<tr class="memitem:a5ba628f177c9d5a288dee2322a18f1ca" id="r_a5ba628f177c9d5a288dee2322a18f1ca"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5ba628f177c9d5a288dee2322a18f1ca">priority_inversions_total</a> = 0</td></tr>
+<tr class="memitem:a00eff2aad77c7d2fe4ccb92d218bfb7a" id="r_a00eff2aad77c7d2fe4ccb92d218bfb7a"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a00eff2aad77c7d2fe4ccb92d218bfb7a">priority_ready_inversions_total</a> = 0</td></tr>
+<tr class="memitem:a3abf3ee0872df0bc21f632472acf2df5" id="r_a3abf3ee0872df0bc21f632472acf2df5"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3abf3ee0872df0bc21f632472acf2df5">priority_jobs_started_total</a> = 0</td></tr>
+<tr class="memitem:aae1f9a39a81cc8d660e7727971993858" id="r_aae1f9a39a81cc8d660e7727971993858"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aae1f9a39a81cc8d660e7727971993858">priority_start_inversions_total</a> = 0</td></tr>
 <tr class="memitem:a8fe3566fcb61f2aba08cc0c744aa257e" id="r_a8fe3566fcb61f2aba08cc0c744aa257e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8fe3566fcb61f2aba08cc0c744aa257e">edit_staged</a> = false</td></tr>
 <tr class="memitem:ad981886a5811ebe1e39b3c427519d178" id="r_ad981886a5811ebe1e39b3c427519d178"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad981886a5811ebe1e39b3c427519d178">edit_shadow_ready</a> = 0</td></tr>
 <tr class="memitem:afac0b5a37efdccb43434d06691c9eafc" id="r_afac0b5a37efdccb43434d06691c9eafc"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afac0b5a37efdccb43434d06691c9eafc">edit_shadow_transferred</a> = 0</td></tr>
@@ -1172,6 +1179,104 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool HlodNodeStreamer::Telemetry::pressure_measured = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1e76f6ad8b932b860fba6862b724c393" name="a1e76f6ad8b932b860fba6862b724c393"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1e76f6ad8b932b860fba6862b724c393">&#9670;&#160;</a></span>priority_fifo_forced</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool HlodNodeStreamer::Telemetry::priority_fifo_forced = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5ba628f177c9d5a288dee2322a18f1ca" name="a5ba628f177c9d5a288dee2322a18f1ca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5ba628f177c9d5a288dee2322a18f1ca">&#9670;&#160;</a></span>priority_inversions_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::priority_inversions_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3abf3ee0872df0bc21f632472acf2df5" name="a3abf3ee0872df0bc21f632472acf2df5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3abf3ee0872df0bc21f632472acf2df5">&#9670;&#160;</a></span>priority_jobs_started_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::priority_jobs_started_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a179c3fed53da110aa29542e741f5d3f7" name="a179c3fed53da110aa29542e741f5d3f7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a179c3fed53da110aa29542e741f5d3f7">&#9670;&#160;</a></span>priority_measured</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool HlodNodeStreamer::Telemetry::priority_measured = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a00eff2aad77c7d2fe4ccb92d218bfb7a" name="a00eff2aad77c7d2fe4ccb92d218bfb7a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a00eff2aad77c7d2fe4ccb92d218bfb7a">&#9670;&#160;</a></span>priority_ready_inversions_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::priority_ready_inversions_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aae1f9a39a81cc8d660e7727971993858" name="aae1f9a39a81cc8d660e7727971993858"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aae1f9a39a81cc8d660e7727971993858">&#9670;&#160;</a></span>priority_start_inversions_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::priority_start_inversions_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa400e95245444b232a80a3285f13c2df" name="aa400e95245444b232a80a3285f13c2df"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa400e95245444b232a80a3285f13c2df">&#9670;&#160;</a></span>priority_uploads_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::priority_uploads_total = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

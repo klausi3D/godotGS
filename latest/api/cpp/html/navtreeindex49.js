@@ -1,5 +1,7 @@
 var NAVTREEINDEX49 =
 {
+"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a0d1a579740cc1b03411a54081a7297b5":[1,0,10,10,2],
+"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a1ce855909e8eb7d03658ec59d7901eda":[0,0,14,10,5],
 "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a1ce855909e8eb7d03658ec59d7901eda":[1,0,10,10,5],
 "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a54c7c698e9c8295d2123c7e44cf5d374":[0,0,14,10,1],
 "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a54c7c698e9c8295d2123c7e44cf5d374":[1,0,10,10,1],
@@ -247,7 +249,5 @@ var NAVTREEINDEX49 =
 "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#a4f0a22ee410f58677e24a09288982a80":[1,0,10,11,3],
 "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#abda2af6d9201f164f4ffb7db1710dab6":[0,0,14,11,5],
 "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#abda2af6d9201f164f4ffb7db1710dab6":[1,0,10,11,5],
-"structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ac92c5e7031be385ea82feab9f8f1d63d":[0,0,14,11,1],
-"structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ac92c5e7031be385ea82feab9f8f1d63d":[1,0,10,11,1],
-"structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ae25eedc89907b35efc38e3ad863d828c":[0,0,14,11,4]
+"structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ac92c5e7031be385ea82feab9f8f1d63d":[0,0,14,11,1]
 };

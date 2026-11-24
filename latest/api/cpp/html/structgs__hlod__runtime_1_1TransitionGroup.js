@@ -4,5 +4,6 @@ var structgs__hlod__runtime_1_1TransitionGroup =
     [ "kind", "structgs__hlod__runtime_1_1TransitionGroup.html#aa77fa40d19545b8b52172e8f419e7053", null ],
     [ "ordinal", "structgs__hlod__runtime_1_1TransitionGroup.html#a3a0a0f5952dff862c054662a09362f16", null ],
     [ "parent", "structgs__hlod__runtime_1_1TransitionGroup.html#ad9a686530289fd080b709796468c2618", null ],
+    [ "priority", "structgs__hlod__runtime_1_1TransitionGroup.html#a17ecc1f573d473ad2d63d5e80c3987ca", null ],
     [ "visible_mask", "structgs__hlod__runtime_1_1TransitionGroup.html#adf45374e01dbefe53d3df15f2e56920f", null ]
 ];

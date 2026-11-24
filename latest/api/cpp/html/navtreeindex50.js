@@ -1,5 +1,7 @@
 var NAVTREEINDEX50 =
 {
+"structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ac92c5e7031be385ea82feab9f8f1d63d":[1,0,10,11,1],
+"structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ae25eedc89907b35efc38e3ad863d828c":[0,0,14,11,4],
 "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ae25eedc89907b35efc38e3ad863d828c":[1,0,10,11,4],
 "structGaussianStreamingTypes_1_1RequestedChunkState.html":[0,0,14,2],
 "structGaussianStreamingTypes_1_1RequestedChunkState.html":[1,0,10,2],
@@ -247,7 +249,5 @@ var NAVTREEINDEX50 =
 "structGsSplatShadowCaster_1_1DeformationUniform.html#a6d2a5911671cdb9878ef76cf3880630d":[1,0,139,0,0],
 "structGsSplatShadowCaster_1_1DeformationUniform.html#a8eee593d7892662950e1ae8cc47f2853":[1,0,139,0,6],
 "structGsSplatShadowCaster_1_1DeformationUniform.html#ade9f82d07b8a4a0a47fd155ea0d38a0d":[1,0,139,0,2],
-"structGsSplatShadowCaster_1_1Inputs.html":[1,0,139,1],
-"structGsSplatShadowCaster_1_1Inputs.html#a1d91c203917731feca8e1d5704bf35a2":[1,0,139,1,12],
-"structGsSplatShadowCaster_1_1Inputs.html#a1f9997016c486f83bd2202b64f578f98":[1,0,139,1,11]
+"structGsSplatShadowCaster_1_1Inputs.html":[1,0,139,1]
 };

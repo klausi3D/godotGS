@@ -1,5 +1,7 @@
 var NAVTREEINDEX23 =
 {
+"gs__world__writer_8h.html":[2,0,0,0,6,25],
+"gs__world__writer_8h_source.html":[2,0,0,0,6,25],
 "gs__world__writer__v4_8cpp.html":[2,0,0,0,6,26],
 "gs__world__writer__v4_8h.html":[2,0,0,0,6,27],
 "gs__world__writer__v4_8h_source.html":[2,0,0,0,6,27],
@@ -247,7 +249,5 @@ var NAVTREEINDEX23 =
 "namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47":[0,0,12,89],
 "namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a166d20aa6a9e4682ff7109afa8946dad":[0,0,12,89,2],
 "namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a6fa9b12f12b20b64444789b4bbae210f":[0,0,12,89,1],
-"namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a7a1920d61156abc05a60135aefe8bc67":[0,0,12,89,0],
-"namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85a":[0,0,12,91],
-"namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa2542227e2d23e596ef1c61fcabd1207d":[0,0,12,91,2]
+"namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a7a1920d61156abc05a60135aefe8bc67":[0,0,12,89,0]
 };
