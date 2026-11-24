@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 243,
-    "sha256": "a85f0283eafa976528cca0edf928ff868a64e0911d5e38e6a4771e61af3651c1",
-    "sha256_last_changed_by": "HLOD S6b review fixes (#1542): add one fading-record wind position case (production colour and depth statements give the same displaced position under a record fade) to the existing GpuSorting batch. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Filters, required batches, waivers, thresholds and gates unchanged. Previous: Shadow split PR0 (merged over master's D1 HLOD distance-cull and HLOD level tint cases): add one per-view caster list depth-identity case (byte-identical shadow depth from whole vs per-view lists, with an unsafe-cull negative control) to the existing GpuSorting batch. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Filters, required batches, waivers, thresholds and gates unchanged.",
+    "test_count": 244,
+    "sha256": "b0781c4b83066dfd7947a9a89227fef8c4980e5610236eb8666e6f7f54ff90ed",
+    "sha256_last_changed_by": "Merge of master (BV-17 atlas ceiling: one HLOD relative depth-pass case above 2^31 bytes of a streamed atlas) into HLOD S6b (#1542: one fading-record wind position case); both cases in the existing GpuSorting batch. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot on the merged tree. Filters, required batches, waivers, thresholds and gates unchanged.",
     "deferred_tags_any": [
       "Importer"
     ],

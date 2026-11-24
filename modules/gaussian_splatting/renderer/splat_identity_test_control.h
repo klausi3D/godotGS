@@ -49,7 +49,7 @@ inline constexpr uint32_t capture_shadow_frame_offset = capture_header_bytes + s
 inline RID capture_buffer;
 inline uint64_t capture_device_id = 0;
 inline std::atomic<bool> force_address_wind_phase{ false };
-inline std::atomic<bool> force_coarse_fade_off{ false };
+inline std::atomic<bool> force_coarse_fade_zero{ false };
 inline std::atomic<bool> force_caster_without_deformation{ false };
 inline std::atomic<bool> force_legacy_wind_weight{ false };
 inline std::atomic<bool> capture_enabled{ false };
@@ -74,7 +74,7 @@ inline void set_force_address_wind_phase(bool p_enabled) { force_address_wind_ph
 inline bool get_force_address_wind_phase() { return force_address_wind_phase.load(); }
 inline uint32_t shader_variant() {
     return uint32_t(get_force_address_keying()) | (uint32_t(get_force_address_wind_phase()) << 1) |
-            (uint32_t(force_coarse_fade_off.load()) << 2) | (uint32_t(force_caster_without_deformation.load()) << 3) |
+            (uint32_t(force_coarse_fade_zero.load()) << 2) | (uint32_t(force_caster_without_deformation.load()) << 3) |
             (uint32_t(force_legacy_wind_weight.load()) << 4) | (uint32_t(capture_enabled.load()) << 5) |
             (uint32_t(expected_region_key.load()) << 6);
 }
@@ -82,7 +82,7 @@ inline String shader_defines() {
     String result = "#define GS_TESTS_ENABLED 1\n#define GS_TEST_REGION_CONTROLS 1\n";
     if (get_force_address_keying()) { result += "#define GS_TEST_ADDRESS_IDENTITY 1\n"; }
     if (get_force_address_wind_phase()) { result += "#define GS_TEST_ADDRESS_WIND_PHASE 1\n"; }
-    if (force_coarse_fade_off.load()) { result += "#define GS_TEST_COARSE_FADE_OFF 1\n"; }
+    if (force_coarse_fade_zero.load()) { result += "#define GS_TEST_COARSE_FADE_ZERO 1\n"; }
     if (force_caster_without_deformation.load()) { result += "#define GS_TEST_CASTER_WITHOUT_DEFORMATION 1\n"; }
     if (force_legacy_wind_weight.load()) { result += "#define GS_TEST_LEGACY_WIND_WEIGHT 1\n"; }
     if (capture_enabled.load()) { result += "#define GS_GAME_1_CAPTURE 1\n"; }

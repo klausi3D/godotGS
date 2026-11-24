@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `202` documented functions, `37` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `202` documented functions, `37` undocumented functions, `80` documented uniform fields, `119` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -228,6 +228,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>counts</code></pre></td>
       <td><pre><code>uvec4</code></pre></td>
       <td>x = draw records, y = slot stride, z = ortho (0), pancake (1), perspective (2), w = opacity float bits</td>
+    </tr>
+    <tr>
+      <td><pre><code>atlas</code></pre></td>
+      <td><pre><code>uvec4</code></pre></td>
+      <td>x = atlas records (0 = unknown); see ShadowCasterPushConstant::atlas</td>
     </tr>
   </tbody>
 </table>
@@ -464,7 +469,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     </tr>
     <tr>
       <td><pre><code>gs_wind_distance_level_fade(vec3 rest_from_camera, uint level)</code></pre></td>
-      <td>Explicit W-S constants: full wind through 64 m, zero at 128 m; node height 0 (leaf) has full weight, height >=4 has zero. Object rows have no HLOD height and pass 0. This fade changes amplitude only, never the rest field.</td>
+      <td>Distance only (ADR dynamics §6.3.1, owner 2026-11-23): full wind through 64 m, zero at 128 m. The node height never scales it: HLOD ties height to distance, so a level fade would pop at every LOD switch, and a parent must match its children's weighted mean to first order (§7 W2). `level` is used only by the W2 forcing control below. The fade changes amplitude only.</td>
     </tr>
     <tr>
       <td><pre><code>gs_decode_instance_wind_mode(float encoded_mode)</code></pre></td>
@@ -2099,6 +2104,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>cull_frustum_radius</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
       <td>x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy</td>
+    </tr>
+    <tr>
+      <td><pre><code>atlas_info</code></pre></td>
+      <td><pre><code>uvec4</code></pre></td>
+      <td>x = atlas records (0 = unknown); see InstanceDepthParamsGPU::atlas_info.</td>
     </tr>
   </tbody>
 </table>

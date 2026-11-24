@@ -2302,6 +2302,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         }
         GsSplatShadowCaster::Inputs inputs;
         inputs.atlas_gaussian_buffer = buffers.atlas_gaussian_buffer;
+        inputs.atlas_record_count = buffers.atlas_gaussian_count;
         inputs.instance_buffer = buffers.instance_buffer;
         inputs.region_override_buffer = get_region_override_buffer();
         inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;

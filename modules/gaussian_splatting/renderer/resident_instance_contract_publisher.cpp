@@ -220,6 +220,19 @@ uint64_t hlod_owned_cap_for(bool p_streaming, uint64_t p_ledger_limit) {
             p_ledger_limit);
 }
 
+// BV-17: the atlas limit of a streamed HLOD world, a share of the ledger limit (DeviceVramLedger::streamed_atlas_limit_for_device).
+// The frame reserve is the overlap storage at its configured cap and the sort at `p_sort_capacity`, priced with the ledger's
+// own charges. Without a tile renderer nothing can be priced: everything is reserved (no share, refused with a named reason).
+DeviceVramLedger::StreamedAtlasLimit hlod_streamed_atlas_limit(uint64_t p_device_heap_bytes, uint64_t p_ledger_limit_bytes,
+        uint32_t p_override_mb, const Ref<TileRenderer> &p_tile, uint32_t p_sort_capacity) {
+    uint64_t reserve = UINT64_MAX;
+    if (p_tile.is_valid()) {
+        reserve = ResidentAtlasBudget::hlod_streamed_frame_reserve_bytes(p_tile->clamp_hlod_overlap_records(UINT32_MAX),
+                TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD, p_sort_capacity, p_tile->get_hlod_overlap_bytes_per_record() / 2u);
+    }
+    return DeviceVramLedger::streamed_atlas_limit_for_device(p_device_heap_bytes, p_ledger_limit_bytes, p_override_mb, reserve);
+}
+
 } // namespace
 
 namespace ResidentInstanceContractPublisher {
@@ -1738,6 +1751,8 @@ void GaussianSplatRenderer::release_hlod_resources(bool p_renderer_teardown) {
     state.device_vram_ledger.clear_hlod_reports();
     state.hlod_streaming = false;
     state.hlod_stream_atlas_records = 0;
+    state.hlod_stream_atlas_limit_bytes = 0;
+    state.hlod_stream_atlas_limit_bound = 0;
     state.hlod_stream_ready_frames = state.hlod_stream_loading_frames = state.hlod_stream_first_ready_frame = 0;
     state.hlod_stream_frames = 0;
     state.hlod_prepared_snapshot.unref();
@@ -1869,7 +1884,10 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     const uint64_t budget = rd->get_device_memory_budget();
     const uint64_t limit = DeviceVramLedger::gs_limit_for_device(budget, GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT);
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
-    const uint64_t atlas_limit = DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
+    // A streamed atlas is held to the limit its pages were priced against (BV-17), a whole tree to the resident one.
+    const uint64_t atlas_limit = streaming
+            ? hlod_streamed_atlas_limit(budget, limit, override_mb, tile_renderer_state.renderer, relative_capacity).bytes
+            : DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
     uint64_t bytes = 0;
     const bool fits = ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + MAX(region.records, region.reserved_records)) *
                     (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
@@ -2673,7 +2691,18 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         // defaults give 128 MiB / 2 = 64 MiB staging, above 32 MiB, and a
         // 32-thread runner keeps 16 job slots; no chunk tuning is adopted.
         uint64_t candidate_bytes = whole_candidate_bytes;
+        DeviceVramLedger::StreamedAtlasLimit stream_atlas;
         if (streaming) {
+            // BV-17: a streamed atlas is priced against its share of the ledger limit, not the 2 GiB staging ceiling of a
+            // one-shot upload (atlas_limit above still decides whether the whole tree fits and bounds a whole-tree bundle).
+            stream_atlas = hlod_streamed_atlas_limit(rd->get_device_memory_budget(), route_limit, atlas_override,
+                    tile_renderer_state.renderer, relative_capacity);
+            if (stream_atlas.bound == DeviceVramLedger::StreamedAtlasBound::NO_LEDGER_SHARE) {
+                state.hlod_stream_atlas_limit_bytes = 0;
+                state.hlod_stream_atlas_limit_bound = uint8_t(stream_atlas.bound);
+                state.hlod_reason = "hlod_stream_atlas_no_ledger_share";
+                return 0;
+            }
             uint64_t node_pages = 0;
             for (int n = 0; n < served->nodes.size(); ++n) {
                 node_pages += (uint64_t(served->nodes[n].topology.payload_count) + stream_config.page_splats - 1u) / stream_config.page_splats;
@@ -2690,13 +2719,13 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             uint64_t scratch_fixed = 0, scratch_per_record = 0;
             TileRenderer::get_hlod_scratch_reservation(relative_capacity, scratch_fixed, scratch_per_record);
             // PR1b: the instance region's records get their frame scratch too (prepare_hlod_scratch sizes it from world + region).
-            uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(atlas_limit, region.records,
+            uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(stream_atlas.bytes, region.records,
                     record_stride, stream_config.page_splats,
                     node_pages, fixed_bytes, hlod_owned_cap_for(true, route_limit), route_limit, device_bytes,
                     scratch_fixed, scratch_per_record, page_bookkeeping_bytes);
             // Remove ONLY the tree cap to expose unused pages inside the existing
             // atlas/owned/ledger/scratch envelope. Tail placement never raises it.
-            const uint64_t page_budget = ResidentAtlasBudget::hlod_stream_page_budget(atlas_limit, record_stride, stream_config.page_splats,
+            const uint64_t page_budget = ResidentAtlasBudget::hlod_stream_page_budget(stream_atlas.bytes, record_stride, stream_config.page_splats,
                     UINT64_MAX, fixed_bytes - region.records * record_stride, hlod_owned_cap_for(true, route_limit), route_limit,
                     device_bytes, scratch_fixed, scratch_per_record, page_bookkeeping_bytes);
             const auto placement = gs_hlod_bundle::place_object_tail(node_pages, page_budget, gs::settings::get_uint(stream_settings,
@@ -2836,6 +2865,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         state.hlod_relative = std::move(relative);
         state.hlod_streaming = streaming;
         state.hlod_stream_atlas_records = stream_records;
+        state.hlod_stream_atlas_limit_bytes = streaming ? stream_atlas.bytes : 0u;
+        state.hlod_stream_atlas_limit_bound = uint8_t(streaming ? stream_atlas.bound : DeviceVramLedger::StreamedAtlasBound::NONE);
         state.hlod_page_store = std::move(page_store);
         state.hlod_streamer = streamer;
         if (served->has_edits()) { ++state.hlod_edit_rebuilds; }

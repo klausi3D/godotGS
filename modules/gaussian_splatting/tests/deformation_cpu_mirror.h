@@ -56,9 +56,10 @@ inline float wind_phase_noise(const Vector3 &scene_rest_position) {
 	return (lower * (1.0f - fz) + upper * fz) * 6.28318530718f;
 }
 
+// Distance only (ADR dynamics §6.3.1): the level is accepted and ignored, like the GLSL.
 inline float wind_distance_level_fade(const Vector3 &rest_from_camera, uint32_t level) {
-	return CLAMP((128.0f - float(rest_from_camera.length())) / 64.0f, 0.0f, 1.0f) *
-			CLAMP(1.0f - float(level) / 4.0f, 0.0f, 1.0f);
+	(void)level;
+	return CLAMP((128.0f - float(rest_from_camera.length())) / 64.0f, 0.0f, 1.0f);
 }
 
 inline float splat_wind_weight(uint32_t semantic, float opacity, WindMode mode, bool force_legacy = false) {

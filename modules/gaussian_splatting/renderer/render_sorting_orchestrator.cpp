@@ -98,6 +98,7 @@ static void _set_instance_sort_inputs(const GaussianSplatRenderer::InstancePipel
 		GaussianSplatRenderer *p_renderer, uint32_t p_visible_chunk_count) {
 	GPUSortingPipeline::InstancePipelineInputs instance_inputs;
 	instance_inputs.atlas_gaussian_buffer = p_buffers.atlas_gaussian_buffer;
+	instance_inputs.atlas_record_count = p_buffers.atlas_gaussian_count;
 	instance_inputs.quantization_buffer = p_buffers.quantization_required ? p_buffers.quantization_buffer : RID();
 	instance_inputs.instance_buffer = p_buffers.instance_buffer;
                     instance_inputs.region_override_buffer = p_renderer->get_region_override_buffer();

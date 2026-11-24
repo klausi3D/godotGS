@@ -1160,8 +1160,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] noncontiguous page place
         }
         const RID set = resources.retain(rd->uniform_set_create(uniforms, shader, 0));
         if (!set.is_valid()) { FAIL("page-table draw uniform set unavailable"); return; }
-        struct Push { float matrix[16]; float viewport[4]; uint32_t counts[4]; } push{};
-        static_assert(sizeof(Push) == 96, "shadow page-table test push layout");
+        // atlas[0] = 0: the shader bounds by the array length (BV-17 fallback; this atlas is far below 2^31 bytes).
+        struct Push { float matrix[16]; float viewport[4]; uint32_t counts[4]; uint32_t atlas[4]; } push{};
+        static_assert(sizeof(Push) == 112, "shadow page-table test push layout");
         for (uint32_t axis = 0; axis < 4; ++axis) { push.matrix[axis * 5] = 1.0f; }
         // Fold the old record camera into the light transform, as the real renderer does.
         if (pass >= 5) { push.matrix[12] = previous_camera_x; }

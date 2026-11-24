@@ -73,6 +73,7 @@ layout(push_constant, std430) uniform Params {
     mat4 light_from_frame;  // Godot shadow clip transform of a camera-relative position
     vec4 viewport;          // xy = atlas rect size in texels, z = alpha threshold, w = low-pass dilation (texels^2)
     uvec4 counts;           // x = draw records, y = slot stride, z = ortho (0), pancake (1), perspective (2), w = opacity float bits
+    uvec4 atlas;            // x = atlas records (0 = unknown); see ShadowCasterPushConstant::atlas
 } params;
 
 layout(location = 0) out vec2 v_sigma_uv; // Fragment position in units of sigma along the ellipse's eigen axes.
@@ -162,6 +163,9 @@ void main() {
         return;
     }
     uint atlas_index = chunk.atlas_base + local_index;
+    // The host's record count, not gaussians.length(): the array length of an atlas binding above 2^31 bytes is wrong on
+    // the RTX 3090 (Windows, Vulkan), which rejected every splat (BV-17). The length stays the fallback.
+    uint atlas_count = params.atlas.x != 0u ? params.atlas.x : uint(atlas_gaussian_buffer.gaussians.length());
     if (chunk.page_table_ref != 0u) {
         uint base = chunk.page_table_ref - 1u;
         uint local_page = local_index >> GS_HLOD_PAGE_SHIFT;
@@ -170,7 +174,6 @@ void main() {
             return;
         }
         uint page = hlod_page_table.pages[base + local_page];
-        uint atlas_count = uint(atlas_gaussian_buffer.gaussians.length());
         if (atlas_count == 0u || page > ((atlas_count - 1u) >> GS_HLOD_PAGE_SHIFT)) {
             gs_caster_reject();
             return;
@@ -180,7 +183,7 @@ void main() {
         gs_caster_reject();
         return;
     }
-    if (atlas_index >= uint(atlas_gaussian_buffer.gaussians.length())) {
+    if (atlas_index >= atlas_count) {
         gs_caster_reject();
         return;
     }
@@ -381,6 +384,7 @@ layout(push_constant, std430) uniform Params {
     mat4 light_from_frame;
     vec4 viewport;
     uvec4 counts;
+    uvec4 atlas;
 } params;
 
 void main() {

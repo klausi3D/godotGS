@@ -181,6 +181,9 @@ public:
     // so the node instances' record reserve is held next to the world's, instead of being taken out of a storage that only
     // grows on a measured overflow (a world cut pinned coarse by the reserve never overflows). Returns true when it grew.
     bool ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom);
+    // The headroom both growths charge per record: keys and values (8 B each), tile ranges and scan scratch, as a full new
+    // allocation. The streamed HLOD atlas limit reserves the overlap storage at its cap with the same charge (BV-17).
+    static constexpr uint64_t HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD = 32u;
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
