@@ -464,7 +464,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     </tr>
     <tr>
       <td><pre><code>gs_wind_distance_level_fade(vec3 rest_from_camera, uint level)</code></pre></td>
-      <td>Explicit W-S constants: full wind through 64 m, zero at 128 m; node height 0 (leaf) has full weight, height >=4 has zero. Object rows have no HLOD height and pass 0. This fade changes amplitude only, never the rest field.</td>
+      <td>Distance only (ADR dynamics §6.3.1, owner 2026-11-23): full wind through 64 m, zero at 128 m. The node height never scales it: HLOD ties height to distance, so a level fade would pop at every LOD switch, and a parent must match its children's weighted mean to first order (§7 W2). `level` is used only by the W2 forcing control below. The fade changes amplitude only.</td>
     </tr>
     <tr>
       <td><pre><code>gs_decode_instance_wind_mode(float encoded_mode)</code></pre></td>
