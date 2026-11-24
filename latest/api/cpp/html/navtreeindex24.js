@@ -1,5 +1,10 @@
 var NAVTREEINDEX24 =
 {
+"namespaceGaussianSplatting.html#a0b5f323ab32f932701c2b3c02aafb9ae":[0,0,12,138],
+"namespaceGaussianSplatting.html#a0e092045a4ca3ec8d4a66fd6eb62430c":[0,0,12,104],
+"namespaceGaussianSplatting.html#a0f76538ec79b7081126e86da672e5dca":[0,0,12,122],
+"namespaceGaussianSplatting.html#a100859413391be23236e51dec6f52480":[0,0,12,102],
+"namespaceGaussianSplatting.html#a121ee4a1b5e4522e99a7c7d47aabe9f6":[0,0,12,111],
 "namespaceGaussianSplatting.html#a1559a7b50f472064a9961d6dd38c58ca":[0,0,12,82],
 "namespaceGaussianSplatting.html#a18418190d754f3d0424255f4e07c7ab1":[0,0,12,112],
 "namespaceGaussianSplatting.html#a1b14825de218568e7550559505c9fbdc":[0,0,12,113],
@@ -244,10 +249,5 @@ var NAVTREEINDEX24 =
 "namespaceGaussianSplatting_1_1ScenePayload.html#a8bc4d6f347e1d745459498cfa5737ccc":[0,0,12,1,1],
 "namespaceGaussianSplatting_1_1ScenePayload.html#abfcadee9379b5fd769c53dc036a799c6":[0,0,12,1,4],
 "namespaceGaussianSplatting_1_1ScenePayload.html#aefd30d2b1b759a0963db5c0a679388d6":[0,0,12,1,3],
-"namespaceGaussianStreamingTypes.html":[0,0,14],
-"namespaceGaussianStreamingTypes.html#a1e19a7e201898597752749afa8da3778":[0,0,14,15],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701e":[0,0,14,13],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea154d28037a18820a9258b68fd24f709d":[0,0,14,13,1],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea1f6982a780ead3c0748b0d0fcbecd9ed":[0,0,14,13,3],
-"namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701ea2a7f996293c23d1b8d8569c4f22a2c56":[0,0,14,13,0]
+"namespaceGaussianStreamingTypes.html":[0,0,14]
 };

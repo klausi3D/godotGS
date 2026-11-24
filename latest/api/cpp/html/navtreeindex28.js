@@ -1,5 +1,17 @@
 var NAVTREEINDEX28 =
 {
+"painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7":[2,0,0,0,5,24,6],
+"painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7a25a78d5038330122ed1c3ceb2fc51198":[2,0,0,0,5,24,6,2],
+"painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7a79deb9c350a6a53e35e56983ce7a90f1":[2,0,0,0,5,24,6,1],
+"painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7ab8ca96a596ee9ceedcf3a3ba9972b41c":[2,0,0,0,5,24,6,0],
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2a":[2,0,0,0,5,24,7],
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aa04bd834032febb3fda8c6936ee140949":[2,0,0,0,5,24,7,0],
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aa4905ac9d6a22bdfc1ae096094ce6248d":[2,0,0,0,5,24,7,4],
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aa5b81b38b5a1ee735270a64dfca07763d":[2,0,0,0,5,24,7,3],
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aa6563b7570ee4add31ffc4e94fa86b6fb":[2,0,0,0,5,24,7,2],
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aaaa1780b4fcce2d5d9af13dc25386d111":[2,0,0,0,5,24,7,1],
+"painterly__renderer__interfaces_8h_source.html":[2,0,0,0,5,24],
+"performance__monitors_8cpp.html":[2,0,0,0,3,67],
 "performance__monitors_8h.html":[2,0,0,0,3,68],
 "performance__monitors_8h_source.html":[2,0,0,0,3,68],
 "pipeline__feature__set_8cpp.html":[2,0,0,0,12,50],
@@ -237,17 +249,5 @@ var NAVTREEINDEX28 =
 "splat-c-types_8h_source.html":[2,0,0,0,14,0,3],
 "splat-extensions_8h.html":[2,0,0,0,14,0,4],
 "splat-extensions_8h.html#a34d3a3c9560c58af236202d09d563b1e":[2,0,0,0,14,0,4,3],
-"splat-extensions_8h_source.html":[2,0,0,0,14,0,4],
-"splat-types_8h.html":[2,0,0,0,14,0,5],
-"splat-types_8h_source.html":[2,0,0,0,14,0,5],
-"splat-utils_8h.html":[2,0,0,0,14,0,6],
-"splat-utils_8h_source.html":[2,0,0,0,14,0,6],
-"splat__count__sample_8h.html":[2,0,0,0,5,31],
-"splat__count__sample_8h_source.html":[2,0,0,0,5,31],
-"splat__identity_8h.html":[2,0,0,0,12,105],
-"splat__identity_8h_source.html":[2,0,0,0,12,105],
-"splat__identity__test__control_8h.html":[2,0,0,0,12,106],
-"splat__identity__test__control_8h_source.html":[2,0,0,0,12,106],
-"splat__ref__encoding_8h.html":[2,0,0,0,12,107],
-"splat__ref__encoding_8h.html#aac3beb997cfb28446ada332d14002112":[2,0,0,0,12,107,1]
+"splat-extensions_8h_source.html":[2,0,0,0,14,0,4]
 };

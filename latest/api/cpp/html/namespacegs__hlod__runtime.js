@@ -46,11 +46,17 @@ var namespacegs__hlod__runtime =
     [ "classify_load_error", "namespacegs__hlod__runtime.html#a951ce7420d909229aea9446e13b651cf", null ],
     [ "collect_edited_since", "namespacegs__hlod__runtime.html#abd7c436fb4d163d664ecf98e96282dab", null ],
     [ "edit_status_name", "namespacegs__hlod__runtime.html#a6cb82adb5c380c5fb8b89fcd23d2caee", null ],
+    [ "fade_cover", "namespacegs__hlod__runtime.html#ae69119f437dcdbcf45faf16c2d326f58", null ],
     [ "make_edited_snapshot", "namespacegs__hlod__runtime.html#a5e8c6ffc065d98ac885eed70663401e8", null ],
     [ "make_node_infos", "namespacegs__hlod__runtime.html#aac6bda8b9962836f0bc125a4b49322ee", null ],
     [ "make_node_key", "namespacegs__hlod__runtime.html#a18ae358510bd7acac4c6f2a8a56200f0", null ],
     [ "rebase_edited_snapshot", "namespacegs__hlod__runtime.html#af5fbea107bc9dd60f16dbba3c3de7787", null ],
     [ "source_admission_refusal", "namespacegs__hlod__runtime.html#a1e87014962341bef2f3e7bb03881f5cb", null ],
     [ "kCostInsideDistanceFraction", "namespacegs__hlod__runtime.html#adf9500d54376ed2d50f9d5ffe7663888", null ],
-    [ "kRecordAdmissionFactor", "namespacegs__hlod__runtime.html#a3c5b428a2efa22c196a93dd4b24c3aed", null ]
+    [ "kDefaultFadeFrames", "namespacegs__hlod__runtime.html#ae7d071134a27014f023b0bcbc5ff4a26", null ],
+    [ "kFadeMinWeight", "namespacegs__hlod__runtime.html#a31b0ed652e42488c1aff603802597707", null ],
+    [ "kMaxFadeGroups", "namespacegs__hlod__runtime.html#a386ed286b248cf37581fc6941aa937f7", null ],
+    [ "kMaxFadeMembers", "namespacegs__hlod__runtime.html#ae70255d9b2be934075a98f79a9a5018b", null ],
+    [ "kRecordAdmissionFactor", "namespacegs__hlod__runtime.html#a3c5b428a2efa22c196a93dd4b24c3aed", null ],
+    [ "kRefineBandFactor", "namespacegs__hlod__runtime.html#a04b541eaeb616d5d5e5b9767c576cafc", null ]
 ];

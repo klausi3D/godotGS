@@ -1,6 +1,8 @@
 var structgs__hlod__runtime_1_1CutRequest =
 [
     [ "camera", "structgs__hlod__runtime_1_1CutRequest.html#a38fd71df763d278a2224915f96826b92", null ],
+    [ "crossfade", "structgs__hlod__runtime_1_1CutRequest.html#a3f62379a9db420f506acc3fd028a788f", null ],
+    [ "fade_frames", "structgs__hlod__runtime_1_1CutRequest.html#a28fa2ed96eca3476ce6ded8b10969d25", null ],
     [ "focal_pixels", "structgs__hlod__runtime_1_1CutRequest.html#ab807a76ce8171859af7e231b6cf33ae2", null ],
     [ "frustum", "structgs__hlod__runtime_1_1CutRequest.html#a4ed4929e8966bf199d3fe66fd2e40b2d", null ],
     [ "frustum_enabled", "structgs__hlod__runtime_1_1CutRequest.html#ad051673cf17bb4730c6fd3e3ec8810dd", null ],

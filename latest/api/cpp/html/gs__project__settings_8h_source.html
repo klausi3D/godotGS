@@ -400,24 +400,32 @@ $(function(){initNavTree('gs__project__settings_8h_source.html','',''); });
 <div class="line"><a id="l00410" name="l00410"></a><span class="lineno">  410</span>}</div>
 </div>
 <div class="line"><a id="l00411" name="l00411"></a><span class="lineno">  411</span> </div>
-<div class="foldopen" id="foldopen00412" data-start="{" data-end="}">
-<div class="line"><a id="l00412" name="l00412"></a><span class="lineno"><a class="line" href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">  412</a></span><span class="keyword">inline</span> <span class="keywordtype">float</span> <a class="code hl_function" href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">get_hlod_tau_px</a>(ProjectSettings *p_ps) {</div>
-<div class="line"><a id="l00413" name="l00413"></a><span class="lineno">  413</span>    <span class="keyword">const</span> <span class="keywordtype">float</span> tau = get_float(p_ps, <span class="stringliteral">&quot;rendering/gaussian_splatting/lod/hlod_tau_px&quot;</span>, 1.0f);</div>
-<div class="line"><a id="l00414" name="l00414"></a><span class="lineno">  414</span>    <span class="keywordflow">if</span> (!Math::is_finite(tau) || tau &lt;= 0.0f) {</div>
-<div class="line"><a id="l00415" name="l00415"></a><span class="lineno">  415</span>        WARN_PRINT_ONCE(<span class="stringliteral">&quot;Invalid HLOD pixel threshold; using the documented 1px default.&quot;</span>);</div>
-<div class="line"><a id="l00416" name="l00416"></a><span class="lineno">  416</span>        <span class="keywordflow">return</span> 1.0f;</div>
-<div class="line"><a id="l00417" name="l00417"></a><span class="lineno">  417</span>    }</div>
-<div class="line"><a id="l00418" name="l00418"></a><span class="lineno">  418</span>    <span class="keywordflow">return</span> tau;</div>
-<div class="line"><a id="l00419" name="l00419"></a><span class="lineno">  419</span>}</div>
+<div class="line"><a id="l00412" name="l00412"></a><span class="lineno">  412</span><span class="comment">// S6 cross-fade of HLOD transitions (ADR 6.7); the fallback matches the registration in lod/lod_config.cpp.</span></div>
+<div class="foldopen" id="foldopen00413" data-start="{" data-end="}">
+<div class="line"><a id="l00413" name="l00413"></a><span class="lineno"><a class="line" href="namespacegs_1_1settings.html#a49537021caf262dac86e938e8421bb60">  413</a></span><span class="keyword">inline</span> <span class="keywordtype">bool</span> <a class="code hl_function" href="namespacegs_1_1settings.html#a49537021caf262dac86e938e8421bb60">get_hlod_crossfade_enabled</a>(ProjectSettings *p_ps) {</div>
+<div class="line"><a id="l00414" name="l00414"></a><span class="lineno">  414</span>    <span class="keywordflow">return</span> get_bool(p_ps, <span class="stringliteral">&quot;rendering/gaussian_splatting/lod/hlod_crossfade_enabled&quot;</span>, <span class="keyword">true</span>);</div>
+<div class="line"><a id="l00415" name="l00415"></a><span class="lineno">  415</span>}</div>
 </div>
-<div class="line"><a id="l00420" name="l00420"></a><span class="lineno">  420</span> </div>
-<div class="line"><a id="l00421" name="l00421"></a><span class="lineno">  421</span>} <span class="comment">// namespace settings</span></div>
+<div class="line"><a id="l00416" name="l00416"></a><span class="lineno">  416</span> </div>
+<div class="foldopen" id="foldopen00417" data-start="{" data-end="}">
+<div class="line"><a id="l00417" name="l00417"></a><span class="lineno"><a class="line" href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">  417</a></span><span class="keyword">inline</span> <span class="keywordtype">float</span> <a class="code hl_function" href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">get_hlod_tau_px</a>(ProjectSettings *p_ps) {</div>
+<div class="line"><a id="l00418" name="l00418"></a><span class="lineno">  418</span>    <span class="keyword">const</span> <span class="keywordtype">float</span> tau = get_float(p_ps, <span class="stringliteral">&quot;rendering/gaussian_splatting/lod/hlod_tau_px&quot;</span>, 1.0f);</div>
+<div class="line"><a id="l00419" name="l00419"></a><span class="lineno">  419</span>    <span class="keywordflow">if</span> (!Math::is_finite(tau) || tau &lt;= 0.0f) {</div>
+<div class="line"><a id="l00420" name="l00420"></a><span class="lineno">  420</span>        WARN_PRINT_ONCE(<span class="stringliteral">&quot;Invalid HLOD pixel threshold; using the documented 1px default.&quot;</span>);</div>
+<div class="line"><a id="l00421" name="l00421"></a><span class="lineno">  421</span>        <span class="keywordflow">return</span> 1.0f;</div>
+<div class="line"><a id="l00422" name="l00422"></a><span class="lineno">  422</span>    }</div>
+<div class="line"><a id="l00423" name="l00423"></a><span class="lineno">  423</span>    <span class="keywordflow">return</span> tau;</div>
+<div class="line"><a id="l00424" name="l00424"></a><span class="lineno">  424</span>}</div>
 </div>
-<div class="line"><a id="l00422" name="l00422"></a><span class="lineno">  422</span>} <span class="comment">// namespace gs</span></div>
+<div class="line"><a id="l00425" name="l00425"></a><span class="lineno">  425</span> </div>
+<div class="line"><a id="l00426" name="l00426"></a><span class="lineno">  426</span>} <span class="comment">// namespace settings</span></div>
 </div>
-<div class="line"><a id="l00423" name="l00423"></a><span class="lineno">  423</span> </div>
-<div class="line"><a id="l00424" name="l00424"></a><span class="lineno">  424</span><span class="preprocessor">#endif </span><span class="comment">// GS_PROJECT_SETTINGS_H</span></div>
+<div class="line"><a id="l00427" name="l00427"></a><span class="lineno">  427</span>} <span class="comment">// namespace gs</span></div>
+</div>
+<div class="line"><a id="l00428" name="l00428"></a><span class="lineno">  428</span> </div>
+<div class="line"><a id="l00429" name="l00429"></a><span class="lineno">  429</span><span class="preprocessor">#endif </span><span class="comment">// GS_PROJECT_SETTINGS_H</span></div>
 <div class="ttc" id="anamespacegs_1_1settings_html"><div class="ttname"><a href="namespacegs_1_1settings.html">gs::settings</a></div><div class="ttdef"><b>Definition</b> gs_project_settings.h:42</div></div>
+<div class="ttc" id="anamespacegs_1_1settings_html_a49537021caf262dac86e938e8421bb60"><div class="ttname"><a href="namespacegs_1_1settings.html#a49537021caf262dac86e938e8421bb60">gs::settings::get_hlod_crossfade_enabled</a></div><div class="ttdeci">bool get_hlod_crossfade_enabled(ProjectSettings *p_ps)</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:413</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_a4f906fcb1a752c90c5d062aa4a756215"><div class="ttname"><a href="namespacegs_1_1settings.html#a4f906fcb1a752c90c5d062aa4a756215">gs::settings::REGION_WIND_ENABLED_PROPERTY</a></div><div class="ttdeci">constexpr const char * REGION_WIND_ENABLED_PROPERTY</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:49</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_a50461f851713d4c8fac1bb7def85a859"><div class="ttname"><a href="namespacegs_1_1settings.html#a50461f851713d4c8fac1bb7def85a859">gs::settings::WIND_WEIGHT_PROPERTY</a></div><div class="ttdeci">constexpr const char * WIND_WEIGHT_PROPERTY</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:51</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_aa27837ccd5814217365e11a518ac303e"><div class="ttname"><a href="namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303e">gs::settings::GSStreamingRoutePolicy</a></div><div class="ttdeci">GSStreamingRoutePolicy</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:218</div></div>
@@ -425,7 +433,7 @@ $(function(){initNavTree('gs__project__settings_8h_source.html','',''); });
 <div class="ttc" id="anamespacegs_1_1settings_html_aa27837ccd5814217365e11a518ac303eabf314684d6b75e1f14d6de1328bbf999"><div class="ttname"><a href="namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303eabf314684d6b75e1f14d6de1328bbf999">gs::settings::GS_ROUTE_RESIDENT</a></div><div class="ttdeci">@ GS_ROUTE_RESIDENT</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:219</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_aa88dc1e7b4b78333bebd3786020f8f7f"><div class="ttname"><a href="namespacegs_1_1settings.html#aa88dc1e7b4b78333bebd3786020f8f7f">gs::settings::WIND_ENABLED_PATH</a></div><div class="ttdeci">constexpr const char * WIND_ENABLED_PATH</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:46</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_ab80a8a2f092f535a0e426647d13b93f2"><div class="ttname"><a href="namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2">gs::settings::get_hlod_runtime_cut_enabled</a></div><div class="ttdeci">bool get_hlod_runtime_cut_enabled(ProjectSettings *p_ps)</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:408</div></div>
-<div class="ttc" id="anamespacegs_1_1settings_html_ab92300a72b06e29f307ccf3df62781d0"><div class="ttname"><a href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">gs::settings::get_hlod_tau_px</a></div><div class="ttdeci">float get_hlod_tau_px(ProjectSettings *p_ps)</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:412</div></div>
+<div class="ttc" id="anamespacegs_1_1settings_html_ab92300a72b06e29f307ccf3df62781d0"><div class="ttname"><a href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">gs::settings::get_hlod_tau_px</a></div><div class="ttdeci">float get_hlod_tau_px(ProjectSettings *p_ps)</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:417</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_abb5e26ec48228190914e0edb88c6af6e"><div class="ttname"><a href="namespacegs_1_1settings.html#abb5e26ec48228190914e0edb88c6af6e">gs::settings::WORLD_WIND_INTENSITY_PROPERTY</a></div><div class="ttdeci">constexpr const char * WORLD_WIND_INTENSITY_PROPERTY</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:48</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_ad6779fd9bb6584d646d7eb075434f91c"><div class="ttname"><a href="namespacegs_1_1settings.html#ad6779fd9bb6584d646d7eb075434f91c">gs::settings::WORLD_WIND_MODE_PROPERTY</a></div><div class="ttdeci">constexpr const char * WORLD_WIND_MODE_PROPERTY</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:47</div></div>
 <div class="ttc" id="anamespacegs_html"><div class="ttname"><a href="namespacegs.html">gs</a></div><div class="ttdef"><b>Definition</b> gs_project_settings.h:24</div></div>

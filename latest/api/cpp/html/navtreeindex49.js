@@ -1,5 +1,17 @@
 var NAVTREEINDEX49 =
 {
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a780b9af12b80d744ea05ecb8eca0c5da":[1,0,10,4,5],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a81420f617cca47ac29d7c5a12c955fa0":[0,0,14,4,13],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a81420f617cca47ac29d7c5a12c955fa0":[1,0,10,4,13],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a9e22b81ab5b84dcb748ca8406e202e43":[0,0,14,4,2],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a9e22b81ab5b84dcb748ca8406e202e43":[1,0,10,4,2],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#ab3621cdf2e8021aa94da9c674ba8ebd2":[0,0,14,4,0],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#ab3621cdf2e8021aa94da9c674ba8ebd2":[1,0,10,4,0],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#aba90bb94b709ba58cc7295f1502fe52d":[0,0,14,4,11],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#aba90bb94b709ba58cc7295f1502fe52d":[1,0,10,4,11],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#ac218818105d93763b6e0f9b0cabd2b2c":[0,0,14,4,7],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#ac218818105d93763b6e0f9b0cabd2b2c":[1,0,10,4,7],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#ac82060d825b69650b383137e5ef0d32f":[0,0,14,4,9],
 "structGaussianStreamingTypes_1_1AssetRegistryState.html#ac82060d825b69650b383137e5ef0d32f":[1,0,10,4,9],
 "structGaussianStreamingTypes_1_1AssetRegistryState.html#ad8fd044f1a01dacb4f1054e69be331f6":[0,0,14,4,3],
 "structGaussianStreamingTypes_1_1AssetRegistryState.html#ad8fd044f1a01dacb4f1054e69be331f6":[1,0,10,4,3],
@@ -237,17 +249,5 @@ var NAVTREEINDEX49 =
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html":[1,0,10,9,0],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a344c6939bce2cfd18f52cc24a4c33c53":[0,0,14,9,0,0],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a344c6939bce2cfd18f52cc24a4c33c53":[1,0,10,9,0,0],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a409537651b030a32d4973ee46c460fdc":[0,0,14,9,0,4],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a409537651b030a32d4973ee46c460fdc":[1,0,10,9,0,4],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a799b7952b9652e28e93a1ec537c555fc":[0,0,14,9,0,5],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a799b7952b9652e28e93a1ec537c555fc":[1,0,10,9,0,5],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a94d0f77a74ce7dffcbc06063fd39a3d8":[0,0,14,9,0,1],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a94d0f77a74ce7dffcbc06063fd39a3d8":[1,0,10,9,0,1],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aeb33d78f8498990ce1c892a5af8258bf":[0,0,14,9,0,3],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aeb33d78f8498990ce1c892a5af8258bf":[1,0,10,9,0,3],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aee50579319ae1c6f77d263f6f0740586":[0,0,14,9,0,2],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aee50579319ae1c6f77d263f6f0740586":[1,0,10,9,0,2],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#af7561f3014fecf03ca5dd11ff4146c7c":[0,0,14,9,0,6],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#af7561f3014fecf03ca5dd11ff4146c7c":[1,0,10,9,0,6],
-"structGaussianStreamingTypes_1_1FrameData.html":[0,0,14,6]
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a409537651b030a32d4973ee46c460fdc":[0,0,14,9,0,4]
 };

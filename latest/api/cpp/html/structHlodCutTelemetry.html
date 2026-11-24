@@ -108,6 +108,13 @@ Public Member Functions</h2></td></tr>
 Public Attributes</h2></td></tr>
 <tr class="memitem:ab3c58744326f1e2256d87ac4097f2526" id="r_ab3c58744326f1e2256d87ac4097f2526"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab3c58744326f1e2256d87ac4097f2526">valid</a> = false</td></tr>
 <tr class="memitem:a532ac74c699578d0b1b3a67611d274ea" id="r_a532ac74c699578d0b1b3a67611d274ea"><td class="memItemLeft" align="right" valign="top">PackedInt32Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a532ac74c699578d0b1b3a67611d274ea">drawn_ids</a></td></tr>
+<tr class="memitem:ae72d922b3176868d232fcb76afa8393c" id="r_ae72d922b3176868d232fcb76afa8393c"><td class="memItemLeft" align="right" valign="top">PackedFloat32Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae72d922b3176868d232fcb76afa8393c">drawn_fades</a></td></tr>
+<tr class="memitem:a0ff89217eb85dd95978c36557fdff39c" id="r_a0ff89217eb85dd95978c36557fdff39c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0ff89217eb85dd95978c36557fdff39c">fade_pairs</a> = 0</td></tr>
+<tr class="memitem:a75d0e221cda756b5e64c56315e586d84" id="r_a75d0e221cda756b5e64c56315e586d84"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a75d0e221cda756b5e64c56315e586d84">fade_refused</a> = 0</td></tr>
+<tr class="memitem:abe0b18797e93fd29c51d0b155ba36840" id="r_abe0b18797e93fd29c51d0b155ba36840"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe0b18797e93fd29c51d0b155ba36840">fade_groups</a> = 0</td></tr>
+<tr class="memitem:add0eaf868259c0306ca09e8d93509396" id="r_add0eaf868259c0306ca09e8d93509396"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#add0eaf868259c0306ca09e8d93509396">fade_snapped</a> = 0</td></tr>
+<tr class="memitem:ad54a45570ebc3655f593c53902899325" id="r_ad54a45570ebc3655f593c53902899325"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad54a45570ebc3655f593c53902899325">fade_snapped_total</a> = 0</td></tr>
+<tr class="memitem:ad863973738d645aed73d546c8d0c3e47" id="r_ad863973738d645aed73d546c8d0c3e47"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad863973738d645aed73d546c8d0c3e47">fade_extra_splats</a> = 0</td></tr>
 <tr class="memitem:a528619bbfd27559fa5374c525bfd4d16" id="r_a528619bbfd27559fa5374c525bfd4d16"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a528619bbfd27559fa5374c525bfd4d16">drawn_digest</a></td></tr>
 <tr class="memitem:a3486ff8b7c9368cdced28226cbb176b9" id="r_a3486ff8b7c9368cdced28226cbb176b9"><td class="memItemLeft" align="right" valign="top">PackedInt32Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3486ff8b7c9368cdced28226cbb176b9">hysteresis_held</a></td></tr>
 <tr class="memitem:a7c43da0ae832becc8bd42d1a13a54096" id="r_a7c43da0ae832becc8bd42d1a13a54096"><td class="memItemLeft" align="right" valign="top">PackedInt32Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7c43da0ae832becc8bd42d1a13a54096">residency_missed</a></td></tr>
@@ -220,6 +227,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ae72d922b3176868d232fcb76afa8393c" name="ae72d922b3176868d232fcb76afa8393c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae72d922b3176868d232fcb76afa8393c">&#9670;&#160;</a></span>drawn_fades</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">PackedFloat32Array HlodCutTelemetry::drawn_fades</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a532ac74c699578d0b1b3a67611d274ea" name="a532ac74c699578d0b1b3a67611d274ea"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a532ac74c699578d0b1b3a67611d274ea">&#9670;&#160;</a></span>drawn_ids</h2>
 
@@ -228,6 +249,90 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">PackedInt32Array HlodCutTelemetry::drawn_ids</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad863973738d645aed73d546c8d0c3e47" name="ad863973738d645aed73d546c8d0c3e47"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad863973738d645aed73d546c8d0c3e47">&#9670;&#160;</a></span>fade_extra_splats</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodCutTelemetry::fade_extra_splats = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abe0b18797e93fd29c51d0b155ba36840" name="abe0b18797e93fd29c51d0b155ba36840"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abe0b18797e93fd29c51d0b155ba36840">&#9670;&#160;</a></span>fade_groups</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodCutTelemetry::fade_groups = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0ff89217eb85dd95978c36557fdff39c" name="a0ff89217eb85dd95978c36557fdff39c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0ff89217eb85dd95978c36557fdff39c">&#9670;&#160;</a></span>fade_pairs</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodCutTelemetry::fade_pairs = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a75d0e221cda756b5e64c56315e586d84" name="a75d0e221cda756b5e64c56315e586d84"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a75d0e221cda756b5e64c56315e586d84">&#9670;&#160;</a></span>fade_refused</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodCutTelemetry::fade_refused = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="add0eaf868259c0306ca09e8d93509396" name="add0eaf868259c0306ca09e8d93509396"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#add0eaf868259c0306ca09e8d93509396">&#9670;&#160;</a></span>fade_snapped</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodCutTelemetry::fade_snapped = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad54a45570ebc3655f593c53902899325" name="ad54a45570ebc3655f593c53902899325"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad54a45570ebc3655f593c53902899325">&#9670;&#160;</a></span>fade_snapped_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodCutTelemetry::fade_snapped_total = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

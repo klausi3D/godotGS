@@ -8,7 +8,7 @@ var searchData=
   ['make_5fcode_5',['make_code',['../classRenderingError.html#afaa047a41e08158bd0f55e4cbe435c0b',1,'RenderingError']]],
   ['make_5fcomposite_5fcopy_5fresult_6',['make_composite_copy_result',['../classRenderPipelineStages.html#a4f92b432f92fd2628d0b893bbdddfa95',1,'RenderPipelineStages']]],
   ['make_5fdownstream_5fskip_5fresult_7',['make_downstream_skip_result',['../classRenderPipelineStages.html#a7f190e31fba8791f55c9045c75c6c68d',1,'RenderPipelineStages']]],
-  ['make_5fdrawn_5fnode_8',['make_drawn_node',['../namespacegs__hlod__gpu.html#a0f6a2f038c813a894bb9006d8626cd63',1,'gs_hlod_gpu']]],
+  ['make_5fdrawn_5fnode_8',['make_drawn_node',['../namespacegs__hlod__gpu.html#a7bcd77a964cd41f58c524c58f9c47e58',1,'gs_hlod_gpu']]],
   ['make_5fedited_5fsnapshot_9',['make_edited_snapshot',['../namespacegs__hlod__runtime.html#a5e8c6ffc065d98ac885eed70663401e8',1,'gs_hlod_runtime']]],
   ['make_5fframe_5fbudget_10',['make_frame_budget',['../classResidencyBudgetController.html#afb3d8ceabea2e110a08a32c543174d26',1,'ResidencyBudgetController']]],
   ['make_5flabel_11',['make_label',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a5fe4f5eb457ddca8e38be031f32099d0',1,'GaussianSplatting::GpuPassTiming']]],

@@ -1,5 +1,17 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#a7bdd6ebce2efc7ada5750fcf638da3c0":[0,0,7,13,2],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#a7bdd6ebce2efc7ada5750fcf638da3c0":[1,0,6,13,2],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#a9e490d31e435d30eea6c0fb14a534c23":[0,0,7,13,3],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#a9e490d31e435d30eea6c0fb14a534c23":[1,0,6,13,3],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#aa5e80047bc282bccc5a824796943f30c":[0,0,7,13,0],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#aa5e80047bc282bccc5a824796943f30c":[1,0,6,13,0],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#afd79b6be6714abc8abc3e16e600fc8d9":[0,0,7,13,8],
+"structGaussianRenderPipeline_1_1RenderFramePlan.html#afd79b6be6714abc8abc3e16e600fc8d9":[1,0,6,13,8],
+"structGaussianRenderPipeline_1_1RenderFrameSnapshot.html":[0,0,7,0],
+"structGaussianRenderPipeline_1_1RenderFrameSnapshot.html":[1,0,6,0],
+"structGaussianRenderPipeline_1_1RenderFrameSnapshot.html#a0b58d4b478d421318a5d04d84ecbaa03":[0,0,7,0,3],
+"structGaussianRenderPipeline_1_1RenderFrameSnapshot.html#a0b58d4b478d421318a5d04d84ecbaa03":[1,0,6,0,3],
 "structGaussianRenderPipeline_1_1RenderFrameSnapshot.html#a70db5f3c6aff8b07540f9dd22127830e":[0,0,7,0,1],
 "structGaussianRenderPipeline_1_1RenderFrameSnapshot.html#a70db5f3c6aff8b07540f9dd22127830e":[1,0,6,0,1],
 "structGaussianRenderPipeline_1_1RenderFrameSnapshot.html#a756b132a392826bfddc25cfcdbd3166d":[0,0,7,0,4],
@@ -237,17 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianRenderState_1_1SortingState.html#a3de5d23ac399842f33f7a269fed4f508":[0,0,9,4,30],
 "structGaussianRenderState_1_1SortingState.html#a3de5d23ac399842f33f7a269fed4f508":[1,0,7,4,30],
 "structGaussianRenderState_1_1SortingState.html#a3fb0782340e1eaba8b7aea00ff115a1b":[0,0,9,4,29],
-"structGaussianRenderState_1_1SortingState.html#a3fb0782340e1eaba8b7aea00ff115a1b":[1,0,7,4,29],
-"structGaussianRenderState_1_1SortingState.html#a4320e33645b7338b161709189346223b":[0,0,9,4,24],
-"structGaussianRenderState_1_1SortingState.html#a4320e33645b7338b161709189346223b":[1,0,7,4,24],
-"structGaussianRenderState_1_1SortingState.html#a516a4f6d6d197ab4cbb8b9f93457e0dd":[0,0,9,4,13],
-"structGaussianRenderState_1_1SortingState.html#a516a4f6d6d197ab4cbb8b9f93457e0dd":[1,0,7,4,13],
-"structGaussianRenderState_1_1SortingState.html#a54ed9a159b0da9b046e98acdf27ff3e3":[0,0,9,4,27],
-"structGaussianRenderState_1_1SortingState.html#a54ed9a159b0da9b046e98acdf27ff3e3":[1,0,7,4,27],
-"structGaussianRenderState_1_1SortingState.html#a59c1401634ee981bd11ede6a223289ea":[0,0,9,4,15],
-"structGaussianRenderState_1_1SortingState.html#a59c1401634ee981bd11ede6a223289ea":[1,0,7,4,15],
-"structGaussianRenderState_1_1SortingState.html#a5a1a8c5cc65eec49238fda9e66f51aca":[0,0,9,4,20],
-"structGaussianRenderState_1_1SortingState.html#a5a1a8c5cc65eec49238fda9e66f51aca":[1,0,7,4,20],
-"structGaussianRenderState_1_1SortingState.html#a5b7792e3ca90f8703636880679218358":[0,0,9,4,31],
-"structGaussianRenderState_1_1SortingState.html#a5b7792e3ca90f8703636880679218358":[1,0,7,4,31]
+"structGaussianRenderState_1_1SortingState.html#a3fb0782340e1eaba8b7aea00ff115a1b":[1,0,7,4,29]
 };

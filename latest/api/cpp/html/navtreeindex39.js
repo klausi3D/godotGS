@@ -1,5 +1,17 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatHlodTree.html#ac883437feaab4d1b7c188e375f3061bc":[1,0,99,13],
+"structGaussianSplatHlodTree.html#ad9a1e4a30c298b295a8ede9ad3edafba":[1,0,99,1],
+"structGaussianSplatHlodTree.html#adb5c8106cd0f8f8471900cd6f42467ed":[1,0,99,2],
+"structGaussianSplatHlodTree.html#adedd4ff3e5b76af1c5ab674d2a5c383a":[1,0,99,23],
+"structGaussianSplatHlodTree.html#afae1cf4d85b5b00446bdde6f6dd847e4":[1,0,99,22],
+"structGaussianSplatHlodTree.html#afc5ccc7c831846e50fca28eb7fef3ce6":[1,0,99,19],
+"structGaussianSplatHlodTree.html#aff1222587428280ecfefd67ab664d618":[1,0,99,25],
+"structGaussianSplatManager_1_1SharedDynamicAssetHandle.html":[1,0,100,0],
+"structGaussianSplatManager_1_1SharedDynamicAssetHandle.html#a09943a322b0e760ea7bc710ddb1fea48":[1,0,100,0,0],
+"structGaussianSplatManager_1_1SharedDynamicAssetHandle.html#a11c41965ab4d502606e1f38e5fca65af":[1,0,100,0,3],
+"structGaussianSplatManager_1_1SharedDynamicAssetHandle.html#a81e733e9ee54324909ea35ffc756720b":[1,0,100,0,2],
+"structGaussianSplatManager_1_1SharedDynamicAssetHandle.html#a98de3edb7ab0d9effc1d00217b37d3aa":[1,0,100,0,1],
 "structGaussianSplatMergeResult.html":[1,0,101],
 "structGaussianSplatMergeResult.html#a95ff4193a8853c0d779d5d1f4d9f8869":[1,0,101,1],
 "structGaussianSplatMergeResult.html#ad5d3b80a9bf76b40f7cd6f61a65ca255":[1,0,101,0],
@@ -237,17 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a042700f9e9d20120cedfcbe28644cade":[1,0,114,7,15],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a1afa8eb853bae6b763edb55cf1ffe59d":[1,0,114,7,23],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a38b7af18c4e76e892abaf4392d0f9600":[1,0,114,7,12],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a4437c7659a41923ff82c884128e1ab1c":[1,0,114,7,26],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a46ef0c6a4e3c160340e9c42383511a83":[1,0,114,7,22],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a51e877eec8599d9e463a19eb04f1165a":[1,0,114,7,10],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a5a376df7b643504e34ad5b6115f41ccb":[1,0,114,7,8],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a6136f6ef8394f0e3b29a3daecc5739d3":[1,0,114,7,4],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a699269292baae1551bbdda7f90d22fb0":[1,0,114,7,14],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a723956a14ca968076a0f8fe41ebad231":[1,0,114,7,20],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a72725ce381edb81cf52f242865d156af":[1,0,114,7,19],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a730eb67349f4edae2a3c03e453ff8f04":[1,0,114,7,17],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a7603a1533742f1553ee0216dce48c148":[1,0,114,7,24],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#aa02a4627825be0a45c6256d551da6e6e":[1,0,114,7,6],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#aa50c996abadfaae6f7f75f9d586bf387":[1,0,114,7,25],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#aab43741f9b741e3ecf8e48b771073de6":[1,0,114,7,13]
+"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a4437c7659a41923ff82c884128e1ab1c":[1,0,114,7,26]
 };

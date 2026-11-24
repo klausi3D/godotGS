@@ -4,6 +4,8 @@ var structgs__hlod__runtime_1_1ViewSpec =
     [ "camera_precise", "structgs__hlod__runtime_1_1ViewSpec.html#a0b6d9e2a17c2385691bb914d6d0374db", null ],
     [ "camera_precise_valid", "structgs__hlod__runtime_1_1ViewSpec.html#ac86a149ca8e21f57f8f2ccadd5b75e22", null ],
     [ "caps", "structgs__hlod__runtime_1_1ViewSpec.html#a11873f50dfadf8c65c0a932d107ef188", null ],
+    [ "crossfade", "structgs__hlod__runtime_1_1ViewSpec.html#abf392a26063934a11deba9b338bf52c5", null ],
+    [ "fade_frames", "structgs__hlod__runtime_1_1ViewSpec.html#aac5815107d9ca83e450439fa06cc015d", null ],
     [ "focal_pixels", "structgs__hlod__runtime_1_1ViewSpec.html#aba4d8fe595128d77ca9c4c67c0fa3ed0", null ],
     [ "frustum", "structgs__hlod__runtime_1_1ViewSpec.html#af14353d74f6b9f753695afdc0b4a340b", null ],
     [ "frustum_enabled", "structgs__hlod__runtime_1_1ViewSpec.html#af95fe2b688ab460fbf538deceeb3c9e9", null ],

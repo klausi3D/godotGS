@@ -1,5 +1,17 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1AssetReference.html":[1,0,9,21],
+"structGaussianSplatting_1_1AssetReference.html#a0ca5c5dbe11da5b16557721e3a06eddc":[0,0,12,22,3],
+"structGaussianSplatting_1_1AssetReference.html#a0ca5c5dbe11da5b16557721e3a06eddc":[1,0,9,21,3],
+"structGaussianSplatting_1_1AssetReference.html#a150f035e6bb905b1708ad7bfd34ad835":[0,0,12,22,4],
+"structGaussianSplatting_1_1AssetReference.html#a150f035e6bb905b1708ad7bfd34ad835":[1,0,9,21,4],
+"structGaussianSplatting_1_1AssetReference.html#a3626889b1c9b8e23215004d262542d49":[0,0,12,22,1],
+"structGaussianSplatting_1_1AssetReference.html#a3626889b1c9b8e23215004d262542d49":[1,0,9,21,1],
+"structGaussianSplatting_1_1AssetReference.html#adb385630631e39ecd55e42e7b85f6cc4":[0,0,12,22,0],
+"structGaussianSplatting_1_1AssetReference.html#adb385630631e39ecd55e42e7b85f6cc4":[1,0,9,21,0],
+"structGaussianSplatting_1_1AssetReference.html#adddd4c1685f3e118aeaf0a7ded35baec":[0,0,12,22,2],
+"structGaussianSplatting_1_1AssetReference.html#adddd4c1685f3e118aeaf0a7ded35baec":[1,0,9,21,2],
+"structGaussianSplatting_1_1BufferOwnership.html":[0,0,12,80],
 "structGaussianSplatting_1_1BufferOwnership.html":[1,0,9,79],
 "structGaussianSplatting_1_1BufferOwnership.html#a591406940842357f958274e83898c7c0":[0,0,12,80,4],
 "structGaussianSplatting_1_1BufferOwnership.html#a591406940842357f958274e83898c7c0":[1,0,9,79,4],
@@ -237,17 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0a381dfda02c6328c69e380cb59f6c6":[1,0,9,14,2],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad23ca91ea31aa7bf7f338dc0431f16a3":[0,0,12,15,14],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad23ca91ea31aa7bf7f338dc0431f16a3":[1,0,9,14,14],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[0,0,12,15,3],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[1,0,9,14,3],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html":[0,0,12,2,0],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html":[1,0,9,1,0],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a0a70cc067c2a1ec191c132d63178c07d":[0,0,12,2,0,1],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a0a70cc067c2a1ec191c132d63178c07d":[1,0,9,1,0,1],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a73dd1feaf313d7aa8d4c3c6b904a4674":[0,0,12,2,0,3],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a73dd1feaf313d7aa8d4c3c6b904a4674":[1,0,9,1,0,3],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#ac6d97aa35b8d5deaec5db7d2ba15dd30":[0,0,12,2,0,2],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#ac6d97aa35b8d5deaec5db7d2ba15dd30":[1,0,9,1,0,2],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#af94e3b27c58dfc44953f4b7580843155":[0,0,12,2,0,0],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#af94e3b27c58dfc44953f4b7580843155":[1,0,9,1,0,0],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html":[0,0,12,2,6]
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[0,0,12,15,3]
 };

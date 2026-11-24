@@ -31,9 +31,11 @@ var classgs__hlod__runtime_1_1CutHistory =
     [ "demand_transition", "classgs__hlod__runtime_1_1CutHistory.html#a2cd7349a37d4d0d1ba69730711352b9a", null ],
     [ "diagnostic_flags", "classgs__hlod__runtime_1_1CutHistory.html#a51909fa0a996df3634b80a5d22e8ee7c", null ],
     [ "invalidate", "classgs__hlod__runtime_1_1CutHistory.html#aa11db9fdb5f997a7f2365ed051461852", null ],
+    [ "invalidate_refinement", "classgs__hlod__runtime_1_1CutHistory.html#a19fe4a29ca03ef1d16e29fb5d72d76ca", null ],
     [ "partial_frontier_count", "classgs__hlod__runtime_1_1CutHistory.html#a85030f5726849fb0eb90181d149960c3", null ],
     [ "partial_frontier_node", "classgs__hlod__runtime_1_1CutHistory.html#a53e6e8f7d8eef22a15c0958cde191bd1", null ],
     [ "reserve", "classgs__hlod__runtime_1_1CutHistory.html#af4cd05bf0c94fa612f5d914e0b916019", null ],
     [ "select", "classgs__hlod__runtime_1_1CutHistory.html#aa789e484e74edf3e17bcee6aa6077adc", null ],
+    [ "selected_fade", "classgs__hlod__runtime_1_1CutHistory.html#afc8ef8521db11457ec43cb71452018c2", null ],
     [ "selected_node", "classgs__hlod__runtime_1_1CutHistory.html#ae0eacb84d18fce6b73f836eae287ced3", null ]
 ];

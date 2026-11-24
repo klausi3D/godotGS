@@ -63,7 +63,7 @@ var namespaces_dup =
     [ "gs_hlod_bundle", "namespacegs__hlod__bundle.html", "namespacegs__hlod__bundle" ],
     [ "gs_hlod_gpu", "namespacegs__hlod__gpu.html", [
       [ "camera_relative_frustum_planes", "namespacegs__hlod__gpu.html#aa224d5f42528ec9b16271a83fb74c2bf", null ],
-      [ "make_drawn_node", "namespacegs__hlod__gpu.html#a0f6a2f038c813a894bb9006d8626cd63", null ],
+      [ "make_drawn_node", "namespacegs__hlod__gpu.html#a7bcd77a964cd41f58c524c58f9c47e58", null ],
       [ "origin_keyed_generation", "namespacegs__hlod__gpu.html#a3117c1829bbd39792f87b6e1d1433d96", null ]
     ] ],
     [ "gs_hlod_pack", "namespacegs__hlod__pack.html", "namespacegs__hlod__pack" ],

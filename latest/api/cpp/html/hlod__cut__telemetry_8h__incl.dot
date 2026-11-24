@@ -139,5 +139,7 @@ digraph "hlod_cut_telemetry.h"
   Node45 [id="Node000045",label="hlod_transition.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$hlod__transition_8h.html",tooltip=" "];
   Node45 -> Node36 [id="edge89_Node000045_Node000036",color="steelblue1",style="solid",tooltip=" "];
   Node9 -> Node18 [id="edge90_Node000009_Node000018",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node17 [id="edge91_Node000001_Node000017",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node7 [id="edge91_Node000001_Node000007",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node17 [id="edge92_Node000001_Node000017",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node37 [id="edge93_Node000001_Node000037",color="steelblue1",style="solid",tooltip=" "];
 }

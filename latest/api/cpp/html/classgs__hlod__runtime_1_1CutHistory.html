@@ -129,6 +129,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a51909fa0a996df3634b80a5d22e8ee7c" id="r_a51909fa0a996df3634b80a5d22e8ee7c"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a51909fa0a996df3634b80a5d22e8ee7c">diagnostic_flags</a> (uint32_t p_node) const</td></tr>
 <tr class="memitem:af4cd05bf0c94fa612f5d914e0b916019" id="r_af4cd05bf0c94fa612f5d914e0b916019"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af4cd05bf0c94fa612f5d914e0b916019">reserve</a> (uint32_t p_nodes)</td></tr>
 <tr class="memitem:aa11db9fdb5f997a7f2365ed051461852" id="r_aa11db9fdb5f997a7f2365ed051461852"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa11db9fdb5f997a7f2365ed051461852">invalidate</a> ()</td></tr>
+<tr class="memitem:a19fe4a29ca03ef1d16e29fb5d72d76ca" id="r_a19fe4a29ca03ef1d16e29fb5d72d76ca"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a19fe4a29ca03ef1d16e29fb5d72d76ca">invalidate_refinement</a> ()</td></tr>
 <tr class="memitem:a1d368a172d18c8a53aeecf141ba0b674" id="r_a1d368a172d18c8a53aeecf141ba0b674"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1d368a172d18c8a53aeecf141ba0b674">demand_count</a> () const</td></tr>
 <tr class="memitem:aa39c00838d5d720381c27a80f01e4350" id="r_aa39c00838d5d720381c27a80f01e4350"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa39c00838d5d720381c27a80f01e4350">demand_node</a> (uint32_t p_index) const</td></tr>
 <tr class="memitem:a2cd7349a37d4d0d1ba69730711352b9a" id="r_a2cd7349a37d4d0d1ba69730711352b9a"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">TransitionGroup</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2cd7349a37d4d0d1ba69730711352b9a">demand_transition</a> (uint32_t p_index) const</td></tr>
@@ -136,6 +137,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a53e6e8f7d8eef22a15c0958cde191bd1" id="r_a53e6e8f7d8eef22a15c0958cde191bd1"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a53e6e8f7d8eef22a15c0958cde191bd1">partial_frontier_node</a> (uint32_t p_index) const</td></tr>
 <tr class="memitem:aa789e484e74edf3e17bcee6aa6077adc" id="r_aa789e484e74edf3e17bcee6aa6077adc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__runtime_1_1CutHistory_1_1Result.html">Result</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa789e484e74edf3e17bcee6aa6077adc">select</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_data, const <a class="el" href="structgs__hlod__runtime_1_1CutRequest.html">CutRequest</a> &amp;p_request)</td></tr>
 <tr class="memitem:ae0eacb84d18fce6b73f836eae287ced3" id="r_ae0eacb84d18fce6b73f836eae287ced3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae0eacb84d18fce6b73f836eae287ced3">selected_node</a> (uint32_t p_index) const</td></tr>
+<tr class="memitem:afc8ef8521db11457ec43cb71452018c2" id="r_afc8ef8521db11457ec43cb71452018c2"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afc8ef8521db11457ec43cb71452018c2">selected_fade</a> (uint32_t p_index) const</td></tr>
 <tr class="memitem:a329f364c2559dd5ec9f747251a397cf2" id="r_a329f364c2559dd5ec9f747251a397cf2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a329f364c2559dd5ec9f747251a397cf2">allocated_bytes</a> () const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
@@ -358,6 +360,23 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a19fe4a29ca03ef1d16e29fb5d72d76ca" name="a19fe4a29ca03ef1d16e29fb5d72d76ca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a19fe4a29ca03ef1d16e29fb5d72d76ca">&#9670;&#160;</a></span>invalidate_refinement()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_runtime::CutHistory::invalidate_refinement </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a85030f5726849fb0eb90181d149960c3" name="a85030f5726849fb0eb90181d149960c3"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a85030f5726849fb0eb90181d149960c3">&#9670;&#160;</a></span>partial_frontier_count()</h2>
 
@@ -442,6 +461,31 @@ Static Public Member Functions</h2></td></tr>
           <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1CutRequest.html">CutRequest</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_request</em></span>&#160;)</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afc8ef8521db11457ec43cb71452018c2" name="afc8ef8521db11457ec43cb71452018c2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afc8ef8521db11457ec43cb71452018c2">&#9670;&#160;</a></span>selected_fade()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float gs_hlod_runtime::CutHistory::selected_fade </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_index</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>

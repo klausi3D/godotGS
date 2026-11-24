@@ -1,5 +1,17 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[1,0,9,14,3],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html":[0,0,12,2,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html":[1,0,9,1,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a0a70cc067c2a1ec191c132d63178c07d":[0,0,12,2,0,1],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a0a70cc067c2a1ec191c132d63178c07d":[1,0,9,1,0,1],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a73dd1feaf313d7aa8d4c3c6b904a4674":[0,0,12,2,0,3],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#a73dd1feaf313d7aa8d4c3c6b904a4674":[1,0,9,1,0,3],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#ac6d97aa35b8d5deaec5db7d2ba15dd30":[0,0,12,2,0,2],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#ac6d97aa35b8d5deaec5db7d2ba15dd30":[1,0,9,1,0,2],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#af94e3b27c58dfc44953f4b7580843155":[0,0,12,2,0,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html#af94e3b27c58dfc44953f4b7580843155":[1,0,9,1,0,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html":[0,0,12,2,6],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html":[1,0,9,1,6],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#a230d5c6a2897f9b55482d19aba3d8618":[0,0,12,2,6,3],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#a230d5c6a2897f9b55482d19aba3d8618":[1,0,9,1,6,3],
@@ -237,17 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1OverlapFrameSizingPlan.html":[1,0,9,35],
 "structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a765d07201a7ff7424cc63cf423404bc4":[0,0,12,36,4],
 "structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a765d07201a7ff7424cc63cf423404bc4":[1,0,9,35,4],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a7a5d901565d5e131d0195a38edc46c7a":[0,0,12,36,2],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a7a5d901565d5e131d0195a38edc46c7a":[1,0,9,35,2],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a9c952ce4093ca708246475c3d181fb0c":[0,0,12,36,0],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a9c952ce4093ca708246475c3d181fb0c":[1,0,9,35,0],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#aac42f933d8089287f5ee1fdd258703cf":[0,0,12,36,3],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#aac42f933d8089287f5ee1fdd258703cf":[1,0,9,35,3],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#ac897ead7a1b7187e1a56a1555d464431":[0,0,12,36,1],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#ac897ead7a1b7187e1a56a1555d464431":[1,0,9,35,1],
-"structGaussianSplatting_1_1OverlapMeasurementDecision.html":[0,0,12,29],
-"structGaussianSplatting_1_1OverlapMeasurementDecision.html":[1,0,9,28],
-"structGaussianSplatting_1_1OverlapMeasurementDecision.html#a2615f73092dcd7ba007e6d849be5c10f":[0,0,12,29,1],
-"structGaussianSplatting_1_1OverlapMeasurementDecision.html#a2615f73092dcd7ba007e6d849be5c10f":[1,0,9,28,1],
-"structGaussianSplatting_1_1OverlapMeasurementDecision.html#a4440dfd6f0eb7b1085dc3e018c569790":[0,0,12,29,0]
+"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a7a5d901565d5e131d0195a38edc46c7a":[0,0,12,36,2]
 };
