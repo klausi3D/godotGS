@@ -2,6 +2,7 @@ extern "C" int test_hlod_edit_shadow_transfer_cpp_force_link() { return 0; }
 
 #include "gs_hlod_edit_shadow_test_fixture.h"
 #include "gs_hlod_edit_test_pump.h"
+#include "gs_hlod_publication_capture.h"
 #include "../io/gs_payload_page_store.h"
 
 #include <initializer_list>
@@ -111,6 +112,7 @@ struct Harness {
 				FAIL("D3-3 real page-store streamer init failed"); return false;
 			}
 		} else if (!streamer.init(fixture.source.snapshot, cfg, 21, 41)) { FAIL("D3-3 real streamer init failed"); return false; }
+		if (!TestHlodPublicationCapture::observe_publications(streamer)) { return false; }
 		control.cpu_upload_sink = true;
 		control.reverse_free_pages = p_reverse;
 		if (!set_control()) { return false; }
@@ -161,7 +163,7 @@ struct Harness {
 			const Error err = streamer._test_shadow_writes(writes);
 			observation_ok = observation_ok && err == OK && sample.shadow_observation_error == OK;
 		} else if (cfg.max_jobs_in_flight == 1) {
-			const auto publications = streamer._test_publications();
+			const auto publications = TestHlodPublicationCapture::publications(streamer);
 			const uint32_t count = publications.size() - observed_publications;
 			const uint64_t node_bytes = uint64_t(fixture.source.splats_per_node) * streamer.record_stride();
 			const uint32_t before = writes.size();
@@ -220,7 +222,7 @@ struct Harness {
 		old_meta.fill(ChunkMetaGPU{});
 		old_quant.fill(ChunkQuantizationGPU{});
 		// Read actual CPU sink observations; never invent the old GPU revision.
-		for (const auto &publication : streamer._test_publications()) {
+		for (const auto &publication : TestHlodPublicationCapture::publications(streamer)) {
 			for (const auto &write : publication.writes) {
 				if (write.node >= fixture.source.node_count) { FAIL("D3-3 ordinary sink wrote outside metadata"); return false; }
 				if (write.kind == Streamer::TestWrite::METADATA) { old_meta.write[write.node] = write.meta; }
@@ -420,7 +422,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] an admitted edit transfers and commit
 		if (!drained.ready() || !h.observation_ok) { FAIL("shared-view edit warmup did not release all worker slots: ", drained.describe()); return; }
 		const auto ordinary_before = h.streamer.get_residency().stats();
 		const auto warm = h.streamer._test_snapshot();
-		const uint32_t publications_before = h.streamer._test_publications().size();
+		const uint32_t publications_before = TestHlodPublicationCapture::publications(h.streamer).size();
 		gs_hlod_runtime::CutRequest second_view;
 		second_view.frustum_enabled = false;
 		second_view.camera = Vector3(0, 0, 1000);
@@ -485,7 +487,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] an admitted edit transfers and commit
 		CHECK(h.streamer.get_residency().stats().requested_total == ordinary_before.requested_total);
 		CHECK(h.streamer.get_residency().stats().cancelled_total == ordinary_before.cancelled_total);
 		CHECK(h.streamer.get_residency().stats().abandoned_transitions_total == ordinary_before.abandoned_transitions_total);
-		CHECK(h.streamer._test_publications().size() == publications_before);
+		CHECK(TestHlodPublicationCapture::publications(h.streamer).size() == publications_before);
 		CHECK(accounting_ok(h.sample, true));
 	}
 }
@@ -681,7 +683,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 	for (bool quantized : { false, true }) {
 		Harness h;
 		if (!h.init(quantized, true) || !h.warm(false)) { return; }
-		const auto publications = h.streamer._test_publications();
+		const auto publications = TestHlodPublicationCapture::publications(h.streamer);
 		if (publications.size() != h.fixture.source.node_count) { FAIL("D3-3 identity needs one publication per demanded node"); return; }
 		uint64_t total = 0;
 		const uint32_t pages = (h.fixture.source.splats_per_node + h.cfg.page_splats - 1) / h.cfg.page_splats;
@@ -728,7 +730,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 	for (bool quantized : { false, true }) {
 		Harness h;
 		if (!h.init(quantized, true, false, 16, false, false, false, true) || !h.warm(false)) { return; }
-		const auto publications = h.streamer._test_publications();
+		const auto publications = TestHlodPublicationCapture::publications(h.streamer);
 		if (publications.size() != h.fixture.source.node_count) { FAIL("D3-4 bounded identity needs one publication per demanded node"); return; }
 		uint64_t total = 0;
 		const uint64_t stride = h.streamer.record_stride();

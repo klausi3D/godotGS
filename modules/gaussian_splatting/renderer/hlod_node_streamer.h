@@ -398,7 +398,16 @@ public:
 	Error _test_set_fault(TestFault p_fault);
 	// Cumulative owner/peak counters survive epoch replacement and shutdown.
 	TestSnapshot _test_snapshot() const;
-	Vector<TestPublication> _test_publications() const;
+	// F10: publication capture is opt-in and bounded. Without it, a tests-enabled binary (editor, QA, the game lane)
+	// would keep one entry per successful upload for the streamer's lifetime. Call after init(): init() installs a
+	// fresh ledger, so capture is off again and must be re-enabled. Clears the history and the drop count.
+	static constexpr uint32_t TEST_PUBLICATION_DEFAULT_CAPACITY = 4096;
+	Error _test_observe_publications(uint32_t p_capacity = TEST_PUBLICATION_DEFAULT_CAPACITY);
+	// ERR_UNAVAILABLE while capture is off: an unobserved streamer never reports an (vacuously clean) empty history.
+	// r_dropped: publications not kept because the capacity was full (truncation; the earliest ones are kept).
+	Error _test_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped = nullptr) const;
+	// Same, then empties the history and resets the drop count, so a long run can drain it in bounded pieces.
+	Error _test_take_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped = nullptr);
 	// Observation capability only, never an opt-in to production transfer behavior.
 	// The trace records CPU-sink or device writes cumulatively, at the
 	// actual write boundary, including commit and eviction metadata/quantization.
@@ -495,7 +504,10 @@ private:
 		uint32_t held_workers = 0;
 		uint64_t mailbox_publications = 0;
 		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
-		Vector<TestPublication> publications;
+		Vector<TestPublication> publications; // F10: only while observe_publications; at most publication_capacity.
+		bool observe_publications = false;
+		uint32_t publication_capacity = 0;
+		uint64_t publications_dropped = 0;
 		bool observe_shadows = false;
 		uint64_t shadow_live = 0;
 		Vector<TestWrite> writes;

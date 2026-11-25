@@ -1,6 +1,7 @@
 extern "C" int test_d3_5_telemetry_cpp_force_link() { return 0; }
 
 #include "gs_hlod_page_store_test_fixture.h"
+#include "gs_hlod_publication_capture.h"
 #include "gs_payload_page_store_test_fixture.h"
 #include "gs_test_pump.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
@@ -158,6 +159,7 @@ struct HlodRun {
 			FAIL("D3-5 real HLOD streamer must use the common store");
 			return false;
 		}
+		if (!TestHlodPublicationCapture::observe_publications(streamer())) { return false; }
 		state.hlod_streaming = true;
 		state.hlod_snapshot = fixture.snapshot;
 		control.cpu_upload_sink = true;
@@ -624,7 +626,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real HLOD export
 	CHECK(number(completed, "upload_slices") > 1);
 	CHECK(number(completed, "upload_bytes_this_frame") >= 0);
 	uint64_t atlas_bytes = 0, atlas_slices = 0;
-	for (const auto &publication : run.streamer()._test_publications()) {
+	for (const auto &publication : TestHlodPublicationCapture::publications(run.streamer())) {
 		if (publication.source_instance_id != first_generation) { continue; }
 		for (const auto &write : publication.writes) {
 			if (write.kind == HlodNodeStreamer::TestWrite::ATLAS) { atlas_bytes += write.bytes; ++atlas_slices; }

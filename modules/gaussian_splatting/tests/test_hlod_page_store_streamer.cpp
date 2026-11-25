@@ -1,6 +1,7 @@
 extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 
 #include "gs_hlod_page_store_test_fixture.h"
+#include "gs_hlod_publication_capture.h"
 #include "gs_test_pump.h"
 #include "../io/gaussian_splat_world_paged.h"
 #include "../io/gs_payload_page_store.h"
@@ -8,6 +9,8 @@ extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 #include "../renderer/hlod_node_streamer.h"
 #include "../renderer/hlod_contract_lifecycle.h"
 #include "../core/gs_upload_sizing.h"
+#include "core/error/error_macros.h"
+#include "core/os/mutex.h"
 
 #include <cstring>
 #include <memory>
@@ -222,6 +225,7 @@ struct Harness {
 			FAIL("D3-2 bounded ordinary streamer must initialize with the common store (phase-1 stub refuses)");
 			return false;
 		}
+		if (!TestHlodPublicationCapture::observe_publications(streamer)) { return false; }
 		retained_cap = streamer.get_retained_byte_cap();
 		uint64_t expected_cap = 0;
 		if (!expected_retained_cap(expected_cap)) {
@@ -327,7 +331,7 @@ struct Harness {
 			FAIL("D3-2 releasing held uploads never satisfied all ordinary demand");
 			return false;
 		}
-		const Vector<Streamer::TestPublication> publications = streamer._test_publications();
+		const Vector<Streamer::TestPublication> publications = TestHlodPublicationCapture::publications(streamer);
 		if (publications.size() != fixture.node_count || store.stats().reads.completed_ok == 0) {
 			FAIL("D3-2 successful progress must include real store reads and one metadata publication per node");
 			return false;
@@ -392,7 +396,7 @@ static bool publications_current(const Harness &p_harness, uint64_t p_source, ui
 		uint64_t p_device, bool &r_stale_published) {
 	bool valid = true;
 	r_stale_published = false;
-	for (const Streamer::TestPublication &entry : p_harness.streamer._test_publications()) {
+	for (const Streamer::TestPublication &entry : TestHlodPublicationCapture::publications(p_harness.streamer)) {
 		if (entry.node >= p_harness.fixture.node_count || entry.request_generation == 0 ||
 				entry.source_instance_id != p_source || entry.content_generation != p_content ||
 				entry.world_generation != p_world || entry.device_generation != p_device) {
@@ -544,6 +548,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] a real busy page
 	if (streamer.init_with_page_store(fixture.snapshot, config, 21, 41, store) != OK) {
 		FAIL("busy fixture could not initialize the real streamer"); return;
 	}
+	if (!TestHlodPublicationCapture::observe_publications(streamer)) { return; }
 	Streamer::TestControl control;
 	control.cpu_upload_sink = true;
 	if (streamer._test_set_control(control) != OK) { FAIL("busy fixture could not enable the CPU upload sink"); return; }
@@ -646,6 +651,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] transition telem
 	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK || !h.set_control()) {
 		FAIL("could not reinitialize transition observations"); return;
 	}
+	if (!TestHlodPublicationCapture::observe_publications(h.streamer)) { return; }
 	CHECK(h.store.stats().source_generation == source_generation + 1);
 	h.step();
 	CHECK(h.streamer.get_telemetry().transitions_measured);
@@ -698,7 +704,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] shared owners fa
 		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
 		h.control.hold_workers = h.control.hold_mailbox = h.control.hold_uploads = false;
 		if (!h.set_control() || !h.drain() || !h.check_released()) { return; }
-		CHECK(h.streamer._test_publications().is_empty());
+		CHECK(TestHlodPublicationCapture::publications(h.streamer).is_empty());
 	}
 }
 
@@ -710,6 +716,7 @@ TEST_CASE("[GaussianSplatting][HLOD] shared views admit missing demand and evict
 	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
 		FAIL("shared-view legacy fixture could not initialize its three-page atlas"); return;
 	}
+	if (!TestHlodPublicationCapture::observe_publications(h.streamer)) { return; }
 	h.retained_cap = h.streamer.get_retained_byte_cap();
 	h.demand.clear();
 	h.control.hold_uploads = false;
@@ -785,7 +792,7 @@ TEST_CASE("[GaussianSplatting][HLOD] shared views admit missing demand and evict
 	CHECK(h.streamer.get_residency().state(3) == Residency::RESIDENT);
 	CHECK(h.streamer.get_residency().stats().evicted_total == 1);
 	CHECK(h.streamer.get_residency().stats().requested_total == 4);
-	const auto publications = h.streamer._test_publications();
+	const auto publications = TestHlodPublicationCapture::publications(h.streamer);
 	if (publications.size() != 4) { FAIL("legacy views must publish all four actual node payloads"); return; }
 	for (uint32_t node = 0; node < 4; ++node) {
 		CHECK(publications[node].node == node);
@@ -1289,6 +1296,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] priority abandon
 		if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
 			FAIL("could not initialize the three-page abandonment fixture"); return;
 		}
+		if (!TestHlodPublicationCapture::observe_publications(h.streamer)) { return; }
 		h.retained_cap = h.streamer.get_retained_byte_cap();
 		h.control.hold_uploads = false;
 		if (!h.set_control()) { return; }
@@ -1354,7 +1362,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] priority abandon
 		CHECK(h.streamer.get_residency().state(0) == Residency::RESIDENT);
 		CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
 		CHECK(h.streamer.get_telemetry().late_dropped_total == 0);
-		const Vector<Streamer::TestPublication> publications = h.streamer._test_publications();
+		const Vector<Streamer::TestPublication> publications = TestHlodPublicationCapture::publications(h.streamer);
 		CHECK(publications.size() == 4); // Exactly the two seed nodes and the two head children.
 		for (const auto &publication : publications) {
 			CHECK(publication.node != 4); // A counter cannot substitute for absence at the real metadata write.
@@ -1383,7 +1391,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] cancellation ret
 			return;
 		}
 		CHECK_MESSAGE(no_residents(h), "D3-2 cancelled worker/mailbox/ready output became RESIDENT");
-		CHECK_MESSAGE(h.streamer._test_publications().is_empty(), "D3-2 cancelled output wrote GPU metadata");
+		CHECK_MESSAGE(TestHlodPublicationCapture::publications(h.streamer).is_empty(), "D3-2 cancelled output wrote GPU metadata");
 		CHECK_MESSAGE(h.bound_ok, "D3-2 cancellation must preserve continuous accounting");
 	}
 	for (Holder holder : { WORKER, MAILBOX, READY }) {
@@ -1410,7 +1418,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] cancellation ret
 			return;
 		}
 		CHECK_MESSAGE(no_residents(h), "D3-2 retargeted output became RESIDENT after demand cancellation");
-		CHECK_MESSAGE(h.streamer._test_publications().is_empty(), "D3-2 retargeted cancelled output wrote metadata");
+		CHECK_MESSAGE(TestHlodPublicationCapture::publications(h.streamer).is_empty(), "D3-2 retargeted cancelled output wrote metadata");
 	}
 	Harness h;
 	if (!h.init() || !h.finish_demand()) {
@@ -1452,6 +1460,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] cancellation ret
 		FAIL("The same snapshot must reinitialize for the pressure epoch contract");
 		return;
 	}
+	if (!TestHlodPublicationCapture::observe_publications(h.streamer)) { return; }
 	CHECK(h.streamer.get_telemetry().pressure_epoch > first_epoch);
 	CHECK(h.streamer.get_telemetry().evicted_total == 0);
 	CHECK(h.streamer.get_residency().eviction_event_count() == 0);
@@ -1514,7 +1523,7 @@ static void generation_contract(bool p_fault, GenerationChange p_change, Holder 
 		CHECK_MESSAGE(current, "D3-2 stale source/world/device completion was published");
 		CHECK_MESSAGE(!stale_published, "D3-2 stale source/world/device completion was published");
 		CHECK_MESSAGE(no_residents(h), "D3-2 generation replacement must not make old output RESIDENT");
-		CHECK_MESSAGE(h.streamer._test_publications().is_empty(), "D3-2 stale generation wrote metadata");
+		CHECK_MESSAGE(TestHlodPublicationCapture::publications(h.streamer).is_empty(), "D3-2 stale generation wrote metadata");
 		CHECK_MESSAGE(h.sample.faults_triggered == 0, "D3-2 healthy generation path unexpectedly ran a fault");
 	}
 	if (!h.check_released()) {
@@ -1532,7 +1541,7 @@ static void generation_contract(bool p_fault, GenerationChange p_change, Holder 
 			FAIL("D3-2 current source/device never resumed publication after stale work drained");
 			return;
 		}
-		const Vector<Streamer::TestPublication> published = h.streamer._test_publications();
+		const Vector<Streamer::TestPublication> published = TestHlodPublicationCapture::publications(h.streamer);
 		CHECK_MESSAGE(!published.is_empty(), "D3-2 replacement progress requires an actual metadata publication");
 		CHECK_MESSAGE(publications_current(h, expected_source_id, expected_content, new_world, new_device, stale_published),
 				"D3-2 resumed publication carries an obsolete generation");
@@ -1624,7 +1633,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] validation uploa
 			return;
 		}
 		CHECK_MESSAGE(no_residents(h), "D3-2 failed validation/upload must never publish RESIDENT nodes");
-		CHECK_MESSAGE(h.streamer._test_publications().is_empty(), "D3-2 failed validation/upload wrote metadata");
+		CHECK_MESSAGE(TestHlodPublicationCapture::publications(h.streamer).is_empty(), "D3-2 failed validation/upload wrote metadata");
 	}
 	for (Holder holder : { WORKER, MAILBOX, READY }) {
 		CAPTURE(holder);
@@ -1704,6 +1713,58 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] a permanently fa
 	CHECK(telemetry.nodes_failed_permanently_total == 1);
 	CHECK(telemetry.retry_later_exhausted_total == 0);
 	CHECK(telemetry.last_permanent_failure_node == 0);
+	h.demand.clear();
+	if (!h.drain()) { return; }
+	h.check_released();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] test publication capture is opt-in, bounded, drainable and reports truncation (F10)") {
+	Harness h;
+	if (!h.init()) { return; }
+	if (h.fixture.node_count <= 2) { FAIL("the fixture must publish more nodes than the capacity under test"); return; }
+	CHECK(h.streamer._test_observe_publications(0) == ERR_INVALID_PARAMETER);
+	if (h.streamer._test_observe_publications(2) != OK) { FAIL("bounded capture could not be enabled"); return; }
+	const auto publish_all = [&]() -> bool {
+		h.control.hold_uploads = false;
+		h.control.hold_mailbox = false;
+		h.control.hold_workers = false;
+		if (!h.set_control()) { return false; }
+		const auto outcome = gs_pump_until([&]() {
+			h.step();
+			return !h.observations_ok || h.streamer.get_residency().stats().resident == h.fixture.node_count;
+		});
+		if (!outcome.ready() || !h.observations_ok) { FAIL("the real ordinary path never published every node"); return false; }
+		return true;
+	};
+	if (!publish_all()) { return; }
+	Vector<Streamer::TestPublication> kept;
+	uint64_t dropped = 0;
+	CHECK(h.streamer._test_publications(kept, &dropped) == OK);
+	CHECK(kept.size() == 2); // Bounded: never more than the capacity ...
+	CHECK(dropped == h.fixture.node_count - 2); // ... and every publication beyond it is reported, not lost silently.
+	Vector<Streamer::TestPublication> taken;
+	uint64_t taken_dropped = 0;
+	CHECK(h.streamer._test_take_publications(taken, &taken_dropped) == OK);
+	CHECK(taken.size() == 2);
+	CHECK(taken_dropped == dropped);
+	CHECK(h.streamer._test_publications(kept, &dropped) == OK);
+	CHECK(kept.is_empty()); // Drained.
+	CHECK(dropped == 0);
+	// A new init() installs a fresh ledger: capture is off, and reading it fails closed instead of reporting "none".
+	h.demand.clear();
+	if (!h.drain()) { return; }
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+		FAIL("could not reinitialize the streamer"); return;
+	}
+	for (uint32_t node = 0; node < h.fixture.node_count; ++node) {
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		h.demand.push_back(wanted);
+	}
+	if (!publish_all()) { return; }
+	CHECK(h.streamer._test_publications(kept, &dropped) == ERR_UNAVAILABLE);
+	CHECK(kept.is_empty());
+	CHECK(h.streamer._test_take_publications(taken, &taken_dropped) == ERR_UNAVAILABLE);
 	h.demand.clear();
 	if (!h.drain()) { return; }
 	h.check_released();
@@ -1905,6 +1966,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] an abandoned in-flight re
 	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
 		FAIL("cancelled-read accounting fixture could not initialize its three-page atlas"); return;
 	}
+	if (!TestHlodPublicationCapture::observe_publications(h.streamer)) { return; }
 	h.retained_cap = h.streamer.get_retained_byte_cap();
 	h.control.hold_uploads = false;
 	if (!h.set_control()) { return; }
@@ -2010,7 +2072,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] a real reader IO error st
 	CHECK(String(capture.get("last_failure_reason", "")) == stats.last_failure_reason);
 	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 1);
 	CHECK(h.streamer.get_residency().stats().failed_permanent_total == 1);
-	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(TestHlodPublicationCapture::publications(h.streamer).is_empty());
 	CHECK(h.bound_ok);
 	h.check_released();
 }
@@ -2046,7 +2108,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels slow IO 
 	CHECK(h.sample.mailbox_outputs == 0);
 	CHECK(h.sample.ready_outputs == 0);
 	CHECK(no_residents(h));
-	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(TestHlodPublicationCapture::publications(h.streamer).is_empty());
 	CHECK(h.store.stats().reads.cancelled_reading > 0);
 	if (!h.check_released()) { return; }
 	const uint64_t released = h.sample.reservations_released;
@@ -2112,7 +2174,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels jobs hel
 	CHECK(h.sample.mailbox_publications == 0);
 	CHECK(h.store.stats().reads.submitted == 0);
 	CHECK(no_residents(h));
-	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(TestHlodPublicationCapture::publications(h.streamer).is_empty());
 	h.check_released();
 }
 

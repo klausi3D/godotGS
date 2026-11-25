@@ -697,10 +697,39 @@ HlodNodeStreamer::TestSnapshot HlodNodeStreamer::_test_snapshot() const {
 	return result;
 }
 
-Vector<HlodNodeStreamer::TestPublication> HlodNodeStreamer::_test_publications() const {
-	if (ledger.is_null()) { return Vector<TestPublication>(); }
+Error HlodNodeStreamer::_test_observe_publications(uint32_t p_capacity) {
+	if (ledger.is_null()) { return ERR_UNAVAILABLE; }
+	if (p_capacity == 0) { return ERR_INVALID_PARAMETER; }
 	MutexLock lock(ledger->mutex);
-	return ledger->publications;
+	ledger->observe_publications = true;
+	ledger->publication_capacity = p_capacity;
+	ledger->publications.clear();
+	ledger->publications_dropped = 0;
+	return OK;
+}
+
+Error HlodNodeStreamer::_test_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped) const {
+	r_publications.clear();
+	if (r_dropped) { *r_dropped = 0; }
+	if (ledger.is_null()) { return ERR_UNAVAILABLE; }
+	MutexLock lock(ledger->mutex);
+	if (!ledger->observe_publications) { return ERR_UNAVAILABLE; }
+	r_publications = ledger->publications;
+	if (r_dropped) { *r_dropped = ledger->publications_dropped; }
+	return OK;
+}
+
+Error HlodNodeStreamer::_test_take_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped) {
+	r_publications.clear();
+	if (r_dropped) { *r_dropped = 0; }
+	if (ledger.is_null()) { return ERR_UNAVAILABLE; }
+	MutexLock lock(ledger->mutex);
+	if (!ledger->observe_publications) { return ERR_UNAVAILABLE; }
+	r_publications = ledger->publications;
+	if (r_dropped) { *r_dropped = ledger->publications_dropped; }
+	ledger->publications.clear();
+	ledger->publications_dropped = 0;
+	return OK;
 }
 
 Error HlodNodeStreamer::_test_observe_shadow_transfers() {
@@ -2159,7 +2188,10 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	}
 	if (ok) { record_upload_completion(r); }
 #ifdef TESTS_ENABLED
-	if (ok) {
+	// F10: opt-in and bounded; a full history counts the drop instead of growing.
+	if (ok && ledger->observe_publications && uint32_t(ledger->publications.size()) >= ledger->publication_capacity) {
+		++ledger->publications_dropped;
+	} else if (ok && ledger->observe_publications) {
 		TestPublication publication;
 		publication.node = r.ticket.node;
 		publication.source_instance_id = r.source_instance_id;
