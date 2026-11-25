@@ -3792,6 +3792,65 @@ inline bool hlod_has_world_extension(const List<String> &p_extensions) {
 
 } // namespace TestGaussianSplatHlod
 
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a failed importer HLOD bake is an error-level diagnostic with its cause in the metadata (MF-2)") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	LocalVector<Gaussian> bad;
+	hlod_make_fixture(3000u, 1000u, bad);
+	bad[10].opacity = NAN; // The bake refuses non-finite opacity with ERR_INVALID_DATA.
+	ScopedWorldProbeFile source("import_bake_failure_loud_source");
+	if (saver.save(hlod_make_world(bad), source.path) != OK) {
+		FAIL("save bad source");
+		return;
+	}
+	ScopedWorldProbeFile output("import_bake_failure_loud_dest.gsplatworld");
+	const String base = output.path.get_basename(); // The importer appends ".gsplatworld".
+	Variant metadata;
+	Error imported = ERR_BUG;
+	uint32_t bake_errors = 0;
+	{
+		ScopedWorldProbeErrors errors;
+		imported = importer->import(ResourceUID::INVALID_ID, source.path, base, options, nullptr, nullptr, &metadata);
+		for (const String &message : errors.messages) {
+			if (message.contains("could not bake an HLOD tree")) {
+				++bake_errors;
+			}
+		}
+	}
+	// The back-compat fallback stays (adr-hlod-streaming.md: a world that imported before the bump still imports) ...
+	CHECK(imported == OK);
+	CHECK(String(Dictionary(metadata).get("hlod_skip_reason", "")) == "bake_failed");
+	// ... but it is an error-level diagnostic that logging verbosity cannot filter, and its cause is queryable.
+	CHECK_MESSAGE(bake_errors == 1, "a failed HLOD bake must print exactly one error-level diagnostic; got ", bake_errors);
+	CHECK(int64_t(Dictionary(metadata).get("hlod_bake_error", -1)) == int64_t(ERR_INVALID_DATA));
+	// Control: a source that bakes reports no bake error and no diagnostic.
+	LocalVector<Gaussian> good;
+	hlod_make_fixture(24000u, 16000u, good); // The fixture the existing good-import test bakes.
+	if (saver.save(hlod_make_world(good), source.path) != OK) {
+		FAIL("save good source");
+		return;
+	}
+	Variant good_metadata;
+	uint32_t good_bake_errors = 0;
+	{
+		ScopedWorldProbeErrors errors;
+		CHECK(importer->import(ResourceUID::INVALID_ID, source.path, base, options, nullptr, nullptr, &good_metadata) == OK);
+		for (const String &message : errors.messages) {
+			if (message.contains("could not bake an HLOD tree")) {
+				++good_bake_errors;
+			}
+		}
+	}
+	CHECK(good_bake_errors == 0);
+	CHECK(String(Dictionary(good_metadata).get("hlod_skip_reason", "missing")).is_empty());
+	CHECK(int64_t(Dictionary(good_metadata).get("hlod_bake_error", -1)) == int64_t(OK));
+}
+#endif // TOOLS_ENABLED
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] finite maximum bounds survive revalidation and reload") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;

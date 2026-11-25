@@ -435,16 +435,23 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	const bool bake = !header_info.has_hlod && !header_info.paged_chunks && header_info.splat_count > 0u && !in_place;
 	Error err = OK;
 	String hlod_skip_reason;
+	Error hlod_bake_error = OK;
 	if (bake) {
 		bool bake_failed = false;
 		err = _bake_world_copy(p_source_file, save_path, header_info, bake_failed);
 		if (err != OK && bake_failed) {
 			// A world that imported before the HLOD bump must still import: fall back to the plain
 			// (tree-less) copy, which renders through the tree-less path (ADR §6.5), and say so.
-			GS_LOG_WARN_DEFAULT(vformat("GaussianSplatWorld importer could not bake an HLOD tree for %s (error %d); "
-										"importing it without one. It will render without HLOD until it bakes.",
+			// MF-2: say so at error level through the engine channel. A GS_LOG warning can be filtered by
+			// the logging verbosity, and without a tree the world silently stays off the HLOD route (on the
+			// chunk-streaming route under the default route_policy, lod/hlod_auto_route.h plan_world). The
+			// cause is also kept in the import metadata (hlod_bake_error).
+			ERR_PRINT(vformat("GaussianSplatWorld importer could not bake an HLOD tree for %s (error %d); "
+							  "imported it WITHOUT one. It renders without HLOD level of detail (on the chunk-streaming "
+							  "route under the default route policy) until the source is fixed and reimported.",
 					p_source_file, err));
 			hlod_skip_reason = String("bake_failed");
+			hlod_bake_error = err;
 			err = _copy_binary_file(p_source_file, save_path);
 		}
 	} else {
@@ -506,6 +513,8 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 																		  : static_cast<int64_t>(header_info.chunk_count);
 		import_metadata[StringName("hlod")] = imported.is_valid() ? imported->get_hlod_info() : Dictionary();
 		import_metadata[StringName("hlod_skip_reason")] = hlod_skip_reason;
+		// MF-2: the bake's Error code when hlod_skip_reason is "bake_failed", else OK (0).
+		import_metadata[StringName("hlod_bake_error")] = static_cast<int64_t>(hlod_bake_error);
 		import_metadata[StringName("sh_degree")] = static_cast<int64_t>(header_info.sh_degree);
 		import_metadata[StringName("sh_first_order")] = static_cast<int64_t>(header_info.sh_first_order);
 		import_metadata[StringName("sh_high_order")] = static_cast<int64_t>(header_info.sh_high_order);
