@@ -613,26 +613,81 @@ Error GaussianSplatWorld::save_to_file(const String &p_path) const {
     return saver.save(Ref<Resource>(const_cast<GaussianSplatWorld *>(this)), p_path, 0);
 }
 
-// The CPU bytes materializing the package peaks at: the payload vectors, the copy GaussianData::set_gaussian_payload makes
-// of them from a const reference (released only after it returns), and the one-byte fill map. false when the counts are
-// beyond what LocalVector (uint32_t indices) can hold; materialize_paged_resident() refuses those with its own reasons.
-static bool paged_materialize_peak_bytes(const GaussianSplatHlodPagedSource::Info &p_info, uint64_t &r_payload_bytes, uint64_t &r_peak_bytes) {
-    const uint64_t total = uint64_t(p_info.leaf_splat_count) + p_info.interior_splat_count;
-    uint64_t gaussian_bytes = 0, sh_bytes = 0;
-    if (uint64_t(p_info.leaf_splat_count) * p_info.sh_high_order > UINT32_MAX || uint64_t(p_info.interior_splat_count) * p_info.sh_high_order > UINT32_MAX ||
-            total > UINT32_MAX || !gs_hlod_runtime::allocation_bytes(total, sizeof(Gaussian), gaussian_bytes) ||
-            !gs_hlod_runtime::allocation_bytes(total * p_info.sh_high_order, sizeof(Vector3), sh_bytes)) {
+// The CPU bytes materializing the package peaks at: the maximum, over its phases, of the allocations live at the same time
+// (Codex P2 on #1558). Every block is counted as an upper bound of what the heap takes for it: rounded up to a power of
+// two (Vector/CowData rounds so; LocalVector does not, which only over-counts) plus a fixed header allowance.
+//   held all along:  the leaf and interior vectors with their SH, and the one-byte fill map;
+//   reading:         + one node's read scratch (gaussians, SH and the stored page), the largest node;
+//   publishing:      + the copy GaussianData::set_gaussian_payload makes of the leaves and their SH (the local vectors are
+//                      released only on return), then, still with all of that, build_hlod_leaf_chunks(): its leaf-node
+//                      index, the chunk array and one uint32 index per leaf splat.
+// The source's own decoder contexts are leased from its bounded retention and are not counted here.
+// false when the counts are beyond what LocalVector (uint32_t indices) can hold or a sum overflows;
+// materialize_paged_resident() refuses those with its own reasons.
+static constexpr uint64_t PAGED_MATERIALIZE_BLOCK_HEADER_BYTES = 64;
+
+static bool paged_materialize_block(uint64_t p_count, uint64_t p_stride, uint64_t &r_total) {
+    uint64_t bytes = 0;
+    if (!gs_hlod_runtime::allocation_bytes(p_count, p_stride, bytes)) {
         return false;
     }
-    r_payload_bytes = gaussian_bytes + sh_bytes;
-    r_peak_bytes = 2 * r_payload_bytes + total;
+    if (bytes != 0u) {
+        bytes += PAGED_MATERIALIZE_BLOCK_HEADER_BYTES;
+    }
+    if (bytes > UINT64_MAX - r_total) {
+        return false;
+    }
+    r_total += bytes;
+    return true;
+}
+
+static bool paged_materialize_peak_bytes(const GaussianSplatHlodPagedSource &p_source, uint64_t &r_peak_bytes) {
+    const GaussianSplatHlodPagedSource::Info &info = p_source.get_info();
+    const uint64_t leaf = info.leaf_splat_count, interior = info.interior_splat_count, high = info.sh_high_order;
+    const uint64_t total = leaf + interior;
+    if (leaf * high > UINT32_MAX || interior * high > UINT32_MAX || total > UINT32_MAX) {
+        return false;
+    }
+    uint64_t held = 0;
+    if (!paged_materialize_block(leaf, sizeof(Gaussian), held) || !paged_materialize_block(interior, sizeof(Gaussian), held) ||
+            !paged_materialize_block(leaf * high, sizeof(Vector3), held) || !paged_materialize_block(interior * high, sizeof(Vector3), held) ||
+            !paged_materialize_block(total, sizeof(bool), held)) {
+        return false;
+    }
+    uint64_t read_scratch = 0;
+    uint64_t chunks = 0;
+    uint64_t leaf_nodes = 0;
+    for (const GaussianSplatHlodPagedSource::NodeRecord &record : p_source.get_nodes()) {
+        const uint64_t count = record.topology.payload_count;
+        uint64_t node = 0;
+        if (!paged_materialize_block(count, sizeof(Gaussian), node) || !paged_materialize_block(count * high, sizeof(Vector3), node) ||
+                !paged_materialize_block(record.stored_bytes, 1u, node)) {
+            return false;
+        }
+        read_scratch = MAX(read_scratch, node);
+        if (record.is_leaf) {
+            ++leaf_nodes;
+            if (!paged_materialize_block(count, sizeof(uint32_t), chunks)) {
+                return false;
+            }
+        }
+    }
+    uint64_t publishing = chunks;
+    if (!paged_materialize_block(leaf_nodes, sizeof(uint32_t), publishing) || !paged_materialize_block(leaf_nodes, sizeof(StaticChunk), publishing) ||
+            !paged_materialize_block(leaf, sizeof(Gaussian), publishing) || !paged_materialize_block(leaf * high, sizeof(Vector3), publishing)) {
+        return false;
+    }
+    const uint64_t phase = MAX(read_scratch, publishing);
+    if (phase > UINT64_MAX - held) {
+        return false;
+    }
+    r_peak_bytes = held + phase;
     return true;
 }
 
 bool GaussianSplatWorld::get_paged_materialize_peak_bytes(uint64_t &r_bytes) const {
     Ref<GaussianSplatHlodPagedSource> source = get_hlod_paged_source();
-    uint64_t payload = 0;
-    return source.is_valid() && paged_materialize_peak_bytes(source->get_info(), payload, r_bytes);
+    return source.is_valid() && paged_materialize_peak_bytes(*source.ptr(), r_bytes);
 }
 
 Error GaussianSplatWorld::materialize_paged_resident(uint64_t p_ram_budget_bytes, String &r_reason) {
@@ -662,8 +717,8 @@ Error GaussianSplatWorld::materialize_paged_resident(uint64_t p_ram_budget_bytes
     }
     {
         // MF-1 (ADR beyond-VRAM I-8): never load a paged world into memory beyond the explicit RAM budget, whoever asks.
-        uint64_t payload_bytes = 0, peak_bytes = 0;
-        if (!paged_materialize_peak_bytes(info, payload_bytes, peak_bytes) || peak_bytes > p_ram_budget_bytes) {
+        uint64_t peak_bytes = 0;
+        if (!paged_materialize_peak_bytes(*source.ptr(), peak_bytes) || peak_bytes > p_ram_budget_bytes) {
             r_reason = "hlod_paged_materialize_over_ram_budget";
             return ERR_OUT_OF_MEMORY;
         }

@@ -117,7 +117,8 @@ public:
     // when its peak (get_paged_materialize_peak_bytes) is above p_ram_budget_bytes
     // (gs::settings::get_hlod_paged_materialize_ram_budget_bytes; 0 = never).
     Error materialize_paged_resident(uint64_t p_ram_budget_bytes, String &r_reason);
-    // The CPU bytes materialize_paged_resident() would peak at (about twice the payload). false without a paged source,
+    // The CPU bytes materialize_paged_resident() would peak at: the maximum over its phases of the allocations live at the
+    // same time (payload vectors, fill map, read scratch, the GaussianData copy, the leaf chunks). false without a paged source,
     // or when the payload is beyond what the materializer can index (it refuses such a package anyway).
     bool get_paged_materialize_peak_bytes(uint64_t &r_bytes) const;
     Ref<GaussianSplatHlodPagedSource> get_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source; }
