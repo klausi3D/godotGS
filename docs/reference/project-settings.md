@@ -99,8 +99,8 @@ A default is shown as the C++ expression passed at registration (for example a n
 
 | Coverage | Count |
 | --- | ---: |
-| Keys in the manifest | 201 |
-| Registered by the module at startup | 189 |
+| Keys in the manifest | 202 |
+| Registered by the module at startup | 190 |
 | Read by the module but not registered | 7 |
 | Deprecated aliases (read only, never registered) | 5 |
 
@@ -900,6 +900,11 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/hlod_crossfade_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp</code></pre></td>
+    </tr>
+    <tr>
+      <td><pre><code>rendering/gaussian_splatting/lod/hlod_paged_materialize_ram_budget_mb</code></pre></td>
+      <td><pre><code>2048</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp</code></pre></td>
     </tr>
     <tr>

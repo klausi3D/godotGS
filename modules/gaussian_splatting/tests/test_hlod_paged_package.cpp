@@ -906,7 +906,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be mate
 		GS_NEED(load_error == OK && bad.is_valid());
 		String why;
 		ERR_PRINT_OFF;
-		CHECK(bad->materialize_paged_resident(why) != OK);
+		CHECK(bad->materialize_paged_resident(UINT64_MAX, why) != OK);
 		ERR_PRINT_ON;
 		CHECK(why.begins_with("hlod_paged_materialize_read_failed"));
 		CHECK(bad->has_hlod_paged_source());
@@ -914,7 +914,23 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be mate
 	}
 
 	String reason;
-	GS_NEED(loaded->materialize_paged_resident(reason) == OK);
+	{
+		// MF-1: the RAM budget binds every caller. One byte below the peak is refused with nothing loaded; budget 0 too.
+		uint64_t peak = 0;
+		GS_NEED(loaded->get_paged_materialize_peak_bytes(peak));
+		CHECK(peak >= 2 * uint64_t(20000) * sizeof(Gaussian));
+		for (uint64_t budget : { uint64_t(0), peak - 1 }) {
+			String over;
+			CHECK(loaded->materialize_paged_resident(budget, over) == ERR_OUT_OF_MEMORY);
+			CHECK(over == String("hlod_paged_materialize_over_ram_budget"));
+			CHECK(loaded->has_hlod_paged_source());
+			CHECK(loaded->get_gaussian_data().is_null());
+		}
+	}
+	// Exactly the peak is enough (the legal route).
+	uint64_t exact_peak = 0;
+	GS_NEED(loaded->get_paged_materialize_peak_bytes(exact_peak));
+	GS_NEED(loaded->materialize_paged_resident(exact_peak, reason) == OK);
 	CHECK_FALSE(loaded->has_hlod_paged_source());
 	GS_NEED(loaded->get_gaussian_data().is_valid());
 	CHECK(loaded->get_gaussian_data()->get_count() == 20000);
@@ -947,7 +963,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be mate
 	CHECK(load_error == OK);
 	CHECK((reloaded.is_valid() && !reloaded->has_hlod_paged_source() && reloaded->has_hlod_tree()));
 	// Nothing paged: a second call is a no-op.
-	CHECK(loaded->materialize_paged_resident(reason) == OK);
+	CHECK(loaded->materialize_paged_resident(UINT64_MAX, reason) == OK);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] installing a resident tree drops the paged source, and a tree that differs from the package is refused at capture") {

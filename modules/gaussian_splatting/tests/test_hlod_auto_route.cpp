@@ -533,13 +533,14 @@ TEST_CASE("[GaussianSplatting][HLOD] automatic route: the demotion state machine
 	using gs_hlod_auto_route::RefusalInputs;
 	using gs_hlod_auto_route::RefusalStage;
 	using gs_hlod_auto_route::demotion_cause;
-	auto cause = [](RefusalStage p_stage, const char *p_reason, bool p_main, bool p_no_copy, bool p_edit) -> String {
+	auto cause = [](RefusalStage p_stage, const char *p_reason, bool p_main, bool p_no_copy, bool p_edit, bool p_view_only = false) -> String {
 		RefusalInputs in;
 		in.stage = p_stage;
 		in.reason = p_reason;
 		in.main_view = p_main;
 		in.no_canonical_copy = p_no_copy;
 		in.committed_edit = p_edit;
+		in.view_only = p_view_only;
 		const char *c = demotion_cause(in);
 		return c ? String(c) : String();
 	};
@@ -547,7 +548,12 @@ TEST_CASE("[GaussianSplatting][HLOD] automatic route: the demotion state machine
 	// Per frame, on a streamed or paged world (no canonical copy), in the main view: the view domains and late domains.
 	// Historical deformation strings remain recognized by the demotion taxonomy for queued older submissions. The
 	// production refusal sources are tested above: current wind/effectors never emit these strings.
-	CHECK(cause(F, "unsupported_view_or_material", true, true, false) == "unsupported_view_or_material");
+	// The gate's key is shared by the views and painterly: painterly (a renderer setting) demotes under its own cause.
+	CHECK(cause(F, "unsupported_view_or_material", true, true, false) == "painterly_enabled");
+	// MF-1: a refusal that belongs to the view (orthographic, multi-view/XR) never demotes, whatever else holds: it would
+	// move the world off the route for every view and load a paged world into memory. Only that flag differs here.
+	CHECK(cause(F, "unsupported_view_or_material", true, true, false, true).is_empty());
+	CHECK(cause(P, "unsupported_view_or_material", true, true, false, false) == "painterly_enabled");
 	CHECK(cause(F, "deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");
 	CHECK(cause(F, "hlod_paged_deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");
 	CHECK(cause(F, "lod_disabled_canonical_leaves", true, true, false) == "lod_disabled");
@@ -609,7 +615,8 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: 
 	const int32_t STREAMING = GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING;
 	for (Tree tree : { Tree::RESIDENT, Tree::PAGED }) {
 		for (bool resident_policy : { false, true }) {
-			// The renderer's request after an orthographic main view refused a streamed or paged world.
+			// The renderer's request after a late painterly domain refused a streamed or paged world (an orthographic view no
+			// longer asks, MF-1). The node takes any cause; this one is the gate's shared key.
 			RouteCase c;
 			c.tree = tree;
 			c.nodes = 2;

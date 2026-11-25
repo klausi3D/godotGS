@@ -63,6 +63,9 @@ private:
     // Sticky demotion (lod/hlod_auto_route.h): non-empty once the automatic HLOD route demoted this world; it then keeps
     // the route it had without the automatic route until apply_world() runs again. Main thread.
     String hlod_auto_route_demoted_cause;
+    // MF-1: the last cause for which loading this paged world into memory was refused over the RAM budget and warned
+    // about (one warning per cause, not one per resubmission). Main thread.
+    String hlod_paged_materialize_refused_warned;
     // Bumped by every submission this node makes; the demotion callback is bound to the value of the submission that
     // carries it, so a request queued for an older submission (set_world()/apply_world() ran before it was delivered)
     // is dropped instead of demoting its replacement. Main thread.

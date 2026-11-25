@@ -613,7 +613,29 @@ Error GaussianSplatWorld::save_to_file(const String &p_path) const {
     return saver.save(Ref<Resource>(const_cast<GaussianSplatWorld *>(this)), p_path, 0);
 }
 
-Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
+// The CPU bytes materializing the package peaks at: the payload vectors, the copy GaussianData::set_gaussian_payload makes
+// of them from a const reference (released only after it returns), and the one-byte fill map. false when the counts are
+// beyond what LocalVector (uint32_t indices) can hold; materialize_paged_resident() refuses those with its own reasons.
+static bool paged_materialize_peak_bytes(const GaussianSplatHlodPagedSource::Info &p_info, uint64_t &r_payload_bytes, uint64_t &r_peak_bytes) {
+    const uint64_t total = uint64_t(p_info.leaf_splat_count) + p_info.interior_splat_count;
+    uint64_t gaussian_bytes = 0, sh_bytes = 0;
+    if (uint64_t(p_info.leaf_splat_count) * p_info.sh_high_order > UINT32_MAX || uint64_t(p_info.interior_splat_count) * p_info.sh_high_order > UINT32_MAX ||
+            total > UINT32_MAX || !gs_hlod_runtime::allocation_bytes(total, sizeof(Gaussian), gaussian_bytes) ||
+            !gs_hlod_runtime::allocation_bytes(total * p_info.sh_high_order, sizeof(Vector3), sh_bytes)) {
+        return false;
+    }
+    r_payload_bytes = gaussian_bytes + sh_bytes;
+    r_peak_bytes = 2 * r_payload_bytes + total;
+    return true;
+}
+
+bool GaussianSplatWorld::get_paged_materialize_peak_bytes(uint64_t &r_bytes) const {
+    Ref<GaussianSplatHlodPagedSource> source = get_hlod_paged_source();
+    uint64_t payload = 0;
+    return source.is_valid() && paged_materialize_peak_bytes(source->get_info(), payload, r_bytes);
+}
+
+Error GaussianSplatWorld::materialize_paged_resident(uint64_t p_ram_budget_bytes, String &r_reason) {
     Ref<GaussianSplatHlodPagedSource> source;
     uint64_t epoch = 0;
     {
@@ -637,6 +659,14 @@ Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
             !gs_hlod_runtime::allocation_bytes(total * info.sh_high_order, sizeof(Vector3), sh_bytes)) {
         r_reason = "hlod_paged_materialize_too_large";
         return ERR_OUT_OF_MEMORY;
+    }
+    {
+        // MF-1 (ADR beyond-VRAM I-8): never load a paged world into memory beyond the explicit RAM budget, whoever asks.
+        uint64_t payload_bytes = 0, peak_bytes = 0;
+        if (!paged_materialize_peak_bytes(info, payload_bytes, peak_bytes) || peak_bytes > p_ram_budget_bytes) {
+            r_reason = "hlod_paged_materialize_over_ram_budget";
+            return ERR_OUT_OF_MEMORY;
+        }
     }
     LocalVector<Gaussian> leaves;
     LocalVector<Gaussian> interiors;
