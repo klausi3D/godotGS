@@ -885,6 +885,23 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] every remaining header, i
 	CHECK(again->is_open()); // the first open is untouched
 }
 
+// Codex P2 on #1558: the peak get_paged_materialize_peak_bytes() reports must cover everything live at once. When the leaf
+// chunks are built, the materializer still holds its leaf and interior vectors (with SH) and the fill map, the world holds
+// the copy GaussianData made of the leaves, and the chunks hold one uint32 index per leaf splat. A lower bound taken from
+// the materialized result itself (the chunk index arrays as they were really allocated), not from the estimate's formula.
+static void check_peak_covers_chunk_build(const Ref<GaussianSplatWorld> &p_world, const GaussianSplatHlodPagedSource::Info &p_info, uint64_t p_peak) {
+	const uint64_t leaf = p_info.leaf_splat_count, interior = p_info.interior_splat_count, high = p_info.sh_high_order;
+	uint64_t chunk_index_bytes = 0;
+	for (const StaticChunk &chunk : p_world->get_static_chunks()) {
+		chunk_index_bytes += uint64_t(chunk.indices.size()) * sizeof(uint32_t);
+	}
+	CHECK(chunk_index_bytes >= leaf * sizeof(uint32_t));
+	const uint64_t live_at_chunk_build = (leaf + interior) * (sizeof(Gaussian) + high * sizeof(Vector3)) + (leaf + interior) * sizeof(bool) +
+			leaf * (sizeof(Gaussian) + high * sizeof(Vector3)) + chunk_index_bytes + uint64_t(p_world->get_static_chunks().size()) * sizeof(StaticChunk);
+	CHECK_MESSAGE(p_peak >= live_at_chunk_build,
+			vformat("reported peak %d B < %d B live while the leaf chunks are built", int64_t(p_peak), int64_t(live_at_chunk_build)));
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be materialized into the resident v3 shape, and fails closed") {
 	Fixture fx;
 	if (!build_fixture(fx, 20000, 12, 0.0f, "materialize")) { return; }
@@ -930,9 +947,12 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be mate
 	// Exactly the peak is enough (the legal route).
 	uint64_t exact_peak = 0;
 	GS_NEED(loaded->get_paged_materialize_peak_bytes(exact_peak));
+	GS_NEED(loaded->get_hlod_paged_source().is_valid());
+	const GaussianSplatHlodPagedSource::Info paged_info = loaded->get_hlod_paged_source()->get_info();
 	GS_NEED(loaded->materialize_paged_resident(exact_peak, reason) == OK);
 	CHECK_FALSE(loaded->has_hlod_paged_source());
 	GS_NEED(loaded->get_gaussian_data().is_valid());
+	check_peak_covers_chunk_build(loaded, paged_info, exact_peak);
 	CHECK(loaded->get_gaussian_data()->get_count() == 20000);
 	CHECK(loaded->get_chunk_count() == fx.world->get_chunk_count());
 	// The same resident HLOD world a v3 load produces: the resident snapshot equals the original bake's, node for node.
@@ -964,6 +984,35 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be mate
 	CHECK((reloaded.is_valid() && !reloaded->has_hlod_paged_source() && reloaded->has_hlod_tree()));
 	// Nothing paged: a second call is a no-op.
 	CHECK(loaded->materialize_paged_resident(UINT64_MAX, reason) == OK);
+}
+
+// Codex P2 on #1558, its own example: one leaf of 14,563 splats, no interior splats, no high-order SH. 14,563 x 144 B is
+// just below 2^21 B, so the old estimate (twice the power-of-two-rounded payload plus the fill map) had almost no slack to
+// hide the chunk index array and reported less than was live.
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a single-leaf paged world materializes within its reported peak") {
+	Ref<GaussianSplatWorld> source = make_world(14563, 0);
+	GS_NEED(source->bake_hlod() == OK);
+	if (source->get_hlod_tree().nodes.size() != 1) {
+		FAIL("the fixture must be a single leaf, got ", source->get_hlod_tree().nodes.size(), " nodes");
+		return;
+	}
+	const String path = temp_path("single_leaf");
+	GS_NEED(source->save_hlod_paged(path) == OK);
+	Error load_error = ERR_BUG;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<GaussianSplatWorld> loaded = loader.load(path, "", &load_error);
+	if (load_error != OK || loaded.is_null() || !loaded->has_hlod_paged_source()) {
+		FAIL("single-leaf package did not load as a V4 paged world");
+		return;
+	}
+	const GaussianSplatHlodPagedSource::Info info = loaded->get_hlod_paged_source()->get_info();
+	CHECK(info.interior_splat_count == 0u);
+	uint64_t peak = 0;
+	GS_NEED(loaded->get_paged_materialize_peak_bytes(peak));
+	String reason;
+	CHECK(loaded->materialize_paged_resident(peak, reason) == OK);
+	CHECK_FALSE(loaded->has_hlod_paged_source());
+	check_peak_covers_chunk_build(loaded, info, peak);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] installing a resident tree drops the paged source, and a tree that differs from the package is refused at capture") {
