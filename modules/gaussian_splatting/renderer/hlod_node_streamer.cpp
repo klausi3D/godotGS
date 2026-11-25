@@ -945,7 +945,22 @@ void HlodNodeStreamer::shutdown() {
 	page_store = nullptr;
 }
 
+// MF-6: this runs on the render thread (teardown, rebuild through init(), and the fail-closed path) and it must join.
+// Why it cannot detach the jobs instead:
+// - Each job borrows `job->store`, a raw PayloadPageStore pointer. The renderer shuts that store down and frees it
+//   right after this streamer's shutdown (ResidentInstanceContractPublisher's HLOD release), so a detached job would
+//   use a freed store.
+// - Jobs hold the snapshot Ref. Joining keeps its last reference, and the world resource it owns, from being dropped
+//   on a worker thread.
+// - WorkerThreadPool requires every native task to be waited for exactly once.
+// The bound: cancel_outstanding_jobs() marks every token and cancels every store requester before the join (#1491).
+// Queued reads are dropped. A running read stops at its next read slice (PayloadReadService::read_slice_bytes, 1 MiB).
+// A worker past its read finishes at most its current decode window or pack_node() call. So the wait is at most one
+// file open plus one 1 MiB slice per reader, plus one decode or pack step per worker. A file call that the OS itself
+// blocks (a hung network share) cannot be interrupted from user space; that residue is measured below and reported.
 void HlodNodeStreamer::drain_jobs_and_output() {
+	const uint64_t drain_started_usec = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+	const bool had_tasks = !tasks.is_empty();
 	cancel_outstanding_jobs(); // Teardown only; source replacement still joins without cancelling old output.
 #ifdef TESTS_ENABLED
 	if (ledger.is_valid()) {
@@ -957,6 +972,18 @@ void HlodNodeStreamer::drain_jobs_and_output() {
 	// Jobs hold only the snapshot and the mailbox, never this object, but waiting here keeps the last
 	// reference to the snapshot (and its world) from being dropped on a worker thread.
 	collect_finished_tasks(true);
+	if (had_tasks && OS::get_singleton()) {
+		const uint64_t waited = OS::get_singleton()->get_ticks_usec() - drain_started_usec;
+		last_drain_usec = waited;
+		max_drain_usec = MAX(max_drain_usec, waited);
+		if (waited >= DRAIN_STALL_WARN_USEC) {
+			++slow_drains_total;
+			WARN_PRINT(vformat("HLOD streaming teardown blocked the render thread for %d ms waiting for in-flight reads "
+							   "or decodes to finish (expected: at most one 1 MiB read slice per reader). Slow or "
+							   "network storage, or a blocked file call, is the usual cause.",
+					int64_t(waited / 1000)));
+		}
+	}
 	residency.cancel_edit();
 	for (uint32_t node = 0; node < residency.node_count(); ++node) {
 		residency.cancel(node); // Also releases bootstrap reservations whose tickets were not issued.

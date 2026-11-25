@@ -2052,6 +2052,50 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels slow IO 
 	const uint64_t released = h.sample.reservations_released;
 	h.streamer.shutdown();
 	CHECK(h.streamer._test_snapshot().reservations_released == released);
+	// MF-6: the join of live jobs was measured (within the caller's own timing), and the stall count follows the
+	// threshold exactly. The second shutdown had no live jobs and changes neither.
+	CHECK(h.streamer.get_last_drain_usec() > 0);
+	CHECK(h.streamer.get_last_drain_usec() <= elapsed);
+	CHECK(h.streamer.get_slow_drains_total() == (h.streamer.get_last_drain_usec() >= HlodNodeStreamer::DRAIN_STALL_WARN_USEC ? 1u : 0u));
+}
+
+// A read the OS will not interrupt: it ignores cancellation for a fixed time, like a blocked file call on slow or
+// network storage. Unlike SlowRead, cancellation cannot shorten it. Only the first slice blocks.
+struct StuckRead {
+	std::atomic<bool> entered{ false };
+	static constexpr uint64_t stuck_usec = 300 * 1000;
+	static void hook(void *p_user, uint64_t, uint64_t) {
+		StuckRead &stuck = *static_cast<StuckRead *>(p_user);
+		if (stuck.entered.exchange(true)) { return; }
+		OS::get_singleton()->delay_usec(stuck_usec);
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] a teardown that waits on uninterruptible IO is measured and reported (MF-6)") {
+	static_assert(StuckRead::stuck_usec > HlodNodeStreamer::DRAIN_STALL_WARN_USEC, "the stuck read must exceed the report threshold");
+	StuckRead stuck; // Outlives the harness and its readers.
+	Harness h;
+	h.store._test_set_read_hook(&StuckRead::hook, &stuck);
+	if (!h.init()) { return; }
+	const auto started = gs_pump_until([&]() {
+		h.step();
+		return stuck.entered.load() && h.sample.jobs_in_flight > 0;
+	});
+	if (!started.ready()) { FAIL("the stuck read never entered the real store with a live streamer job"); return; }
+	ScopedStreamerWarnings warnings;
+	const uint64_t before = OS::get_singleton()->get_ticks_usec();
+	h.streamer.shutdown();
+	const uint64_t elapsed = OS::get_singleton()->get_ticks_usec() - before;
+	if (elapsed < HlodNodeStreamer::DRAIN_STALL_WARN_USEC) {
+		FAIL("control: shutdown did not wait on the stuck read (usec=", elapsed, "), so this case observes nothing"); return;
+	}
+	const uint32_t reports = warnings.count_containing("teardown blocked the render thread");
+	CHECK_MESSAGE(reports == 1, "a render-thread teardown stall of ", elapsed, " usec printed ", reports, " warnings");
+	CHECK(h.streamer.get_last_drain_usec() >= HlodNodeStreamer::DRAIN_STALL_WARN_USEC);
+	CHECK(h.streamer.get_last_drain_usec() <= elapsed);
+	CHECK(h.streamer.get_max_drain_usec() == h.streamer.get_last_drain_usec());
+	CHECK(h.streamer.get_slow_drains_total() == 1);
+	h.check_released();
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels jobs held before request without publishing or reading") {

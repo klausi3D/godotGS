@@ -252,8 +252,16 @@ public:
 			uint64_t p_world_generation, uint64_t p_device_generation, PayloadPageStore &p_store);
 	// Cancels outstanding jobs/store requesters before joining workers and dropping
 	// pending payloads. Active IO drains at its next read-slice boundary. Idempotent.
+	// MF-6: the join stays on the calling (render) thread; the reason and the bound are at drain_jobs_and_output().
 	void shutdown();
 	bool is_active() const { return active; }
+	// MF-6: a drain that waited at least this long prints a warning.
+	static constexpr uint64_t DRAIN_STALL_WARN_USEC = 100 * 1000;
+	// Render-thread wait of the last join of live jobs (0: none yet), the worst one, and how many reached
+	// DRAIN_STALL_WARN_USEC. They survive init() and shutdown() for this object's lifetime.
+	uint64_t get_last_drain_usec() const { return last_drain_usec; }
+	uint64_t get_max_drain_usec() const { return max_drain_usec; }
+	uint64_t get_slow_drains_total() const { return slow_drains_total; }
 	// Render-thread ownership check; the caller owns p_store through worker drain.
 	bool uses_page_store(const PayloadPageStore *p_store) const { return active && p_store != nullptr && page_store == p_store; }
 	// Render-thread derived shared cap; ordinary and shadow reservations include queued output.
@@ -677,6 +685,7 @@ private:
 
 	bool active = false;
 	bool permanent_failure_reported = false; // MF-5: render-thread owned; reset by init() (one report per world load).
+	uint64_t last_drain_usec = 0, max_drain_usec = 0, slow_drains_total = 0; // MF-6: render-thread owned.
 	Config cfg;
 	uint64_t retained_byte_cap = 0; // Render-thread owned, immutable between source installations.
 	// Derivation inputs share retained_byte_cap's render-thread ownership.
