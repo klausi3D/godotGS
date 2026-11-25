@@ -915,6 +915,69 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] retry later backoff is determini
 	}
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a transient failure that never clears becomes permanent after a bounded number of attempts") {
+	// MF-5: a deterministic out-of-memory (or a store that stays busy) must not re-read and re-decode the node forever.
+	// Uses the default policy, so a regression back to unbounded retry-later fails here, not only in a tuned config.
+	const Error errors[] = { ERR_BUSY, ERR_OUT_OF_MEMORY, ERR_UNAVAILABLE, ERR_SKIP };
+	for (Error error : errors) {
+		INFO("transient Error code: ", int(error));
+		Residency res;
+		const auto cfg = config(1, 0);
+		if (!init_failure_root(res, cfg)) { return; }
+		uint64_t frame = 0;
+		Residency::Ticket ticket;
+		if (!request_failure_root(res, frame, ticket, 1)) { return; }
+		constexpr uint32_t kAttemptLimit = 1000; // Far above any sane bound; reaching it means "retries forever".
+		uint32_t attempts = 0;
+		while (attempts < kAttemptLimit) {
+			if (!res.fail_load(ticket, classify_load_error(error))) { FAIL("current transient failure was rejected"); return; }
+			++attempts;
+			if (res.root_permanently_failed()) { break; }
+			if (!request_failure_root(res, frame, ticket, cfg.retry_later_max_delay_frames)) { return; }
+		}
+		CHECK_MESSAGE(res.root_permanently_failed(), "retry-later never gave up after ", attempts, " attempts");
+		CHECK(attempts == cfg.retry_later_max_attempts);
+		const auto stats = res.stats();
+		CHECK(stats.permanently_failed == 1);
+		CHECK(stats.retry_later_waiting == 0);
+		// Every attempt stays counted in its own class; the escalation is not a fabricated permanent attempt.
+		CHECK(stats.failed_retry_later_total == attempts);
+		CHECK(stats.failed_permanent_total == 0);
+		CHECK(stats.nodes_failed_permanently_total == 1);
+		CHECK(stats.retry_later_exhausted_total == 1);
+		CHECK(stats.last_permanent_failure_node == 0);
+		CHECK(stats.last_permanent_failure_retry_exhausted);
+		// Once permanent, the node is never requested again.
+		res.begin_frame(frame + 100000);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t root = 0;
+		res.request(&root, 1, tickets);
+		CHECK(tickets.is_empty());
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a node entering permanent failure is counted once, by cause") {
+	Residency res;
+	const auto cfg = config(1, 0);
+	if (!init_failure_root(res, cfg)) { return; }
+	uint64_t frame = 0;
+	Residency::Ticket ticket;
+	if (!request_failure_root(res, frame, ticket, 1)) { return; }
+	for (uint32_t attempt = 1; attempt <= cfg.max_failures; ++attempt) {
+		CHECK(res.stats().nodes_failed_permanently_total == 0);
+		if (!res.fail_load(ticket, FAILURE_PERMANENT)) { FAIL("current permanent failure was rejected"); return; }
+		if (attempt < cfg.max_failures && !request_failure_root(res, frame, ticket, cfg.retry_delay_frames * attempt)) { return; }
+	}
+	const auto stats = res.stats();
+	CHECK(stats.permanently_failed == 1);
+	CHECK(stats.nodes_failed_permanently_total == 1);
+	CHECK(stats.retry_later_exhausted_total == 0);
+	CHECK(stats.last_permanent_failure_node == 0);
+	CHECK_FALSE(stats.last_permanent_failure_retry_exhausted);
+	CHECK_FALSE(res.fail_load(ticket, FAILURE_PERMANENT)); // A duplicate completion cannot count it again.
+	CHECK(res.stats().nodes_failed_permanently_total == 1);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Residency] a root that can never load is a failure, not loading") {
 	Sim sim;
 	if (!sim.init(3, 32)) { FAIL("residency setup failed"); return; }

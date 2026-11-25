@@ -134,6 +134,11 @@ public:
 		uint64_t failed_total = 0;
 		uint64_t failed_permanent_total = 0;
 		uint64_t failed_retry_later_total = 0;
+		// MF-5: nodes that entered permanent failure, and those that got there by exhausting bounded retry-later.
+		// A permanent failure also prints one warning per streamer epoch (one world load).
+		uint64_t nodes_failed_permanently_total = 0;
+		uint64_t retry_later_exhausted_total = 0;
+		uint32_t last_permanent_failure_node = UINT32_MAX; // UINT32_MAX: none.
 		uint64_t skipped_groups_total = 0;
 		uint32_t stall_frames = 0; // Consecutive frames with demand, nothing in flight and nothing placeable.
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
@@ -671,6 +676,7 @@ private:
 	void record_upload_completion(const PackResult &p_result);
 
 	bool active = false;
+	bool permanent_failure_reported = false; // MF-5: render-thread owned; reset by init() (one report per world load).
 	Config cfg;
 	uint64_t retained_byte_cap = 0; // Render-thread owned, immutable between source installations.
 	// Derivation inputs share retained_byte_cap's render-thread ownership.

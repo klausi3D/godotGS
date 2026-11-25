@@ -1648,6 +1648,67 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] validation uploa
 	}
 }
 
+// Observes the real engine diagnostic channel (WARN_PRINT); suppresses nothing.
+struct ScopedStreamerWarnings : public ErrorHandlerList {
+	Mutex mutex; // Worker threads may print too.
+	Vector<String> warnings;
+
+	static void capture(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType p_type) {
+		if (p_type != ERR_HANDLER_WARNING) { return; }
+		ScopedStreamerWarnings *self = static_cast<ScopedStreamerWarnings *>(p_userdata);
+		String message = p_error ? String::utf8(p_error) : String();
+		if (p_message && p_message[0]) { message += String(" | ") + String::utf8(p_message); }
+		MutexLock lock(self->mutex);
+		self->warnings.push_back(message);
+	}
+	uint32_t count_containing(const String &p_needle) {
+		MutexLock lock(mutex);
+		uint32_t count = 0;
+		for (const String &warning : warnings) {
+			if (warning.contains(p_needle)) { ++count; }
+		}
+		return count;
+	}
+	ScopedStreamerWarnings() {
+		errfunc = capture;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedStreamerWarnings() { remove_error_handler(this); }
+	ScopedStreamerWarnings(const ScopedStreamerWarnings &) = delete;
+	ScopedStreamerWarnings &operator=(const ScopedStreamerWarnings &) = delete;
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] a permanently failed node is reported once, not only counted (MF-5)") {
+	Harness h;
+	if (!h.init()) { return; }
+	h.control.fail_validation = true; // Real worker path: every load of the node fails validation (permanent class).
+	h.control.hold_uploads = false;
+	h.demand.clear();
+	h.demand.push_back(gs_hlod_runtime::DesiredRecord()); // The root: drawn coarse forever if it never loads.
+	if (!h.set_control()) { return; }
+	ScopedStreamerWarnings warnings;
+	const auto failed = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || h.streamer.get_residency().stats().permanently_failed > 0;
+	});
+	if (!failed.ready() || !h.observations_ok) {
+		FAIL("the injected validation failure never made a real node permanently failed"); return;
+	}
+	for (int i = 0; i < 32; ++i) { h.step(); } // Keep demanding it: the report must not repeat per frame.
+	const uint32_t reports = warnings.count_containing("permanently failed");
+	CHECK_MESSAGE(reports == 1, "a permanent node failure must print exactly one warning per world load; got ", reports);
+	const auto &telemetry = h.streamer.get_telemetry();
+	CHECK(telemetry.permanently_failed == 1);
+	CHECK(telemetry.nodes_failed_permanently_total == 1);
+	CHECK(telemetry.retry_later_exhausted_total == 0);
+	CHECK(telemetry.last_permanent_failure_node == 0);
+	h.demand.clear();
+	if (!h.drain()) { return; }
+	h.check_released();
+}
+
 // A finite slow read which yields when the real service cancels its ticket.
 // This models cancellation at a slice boundary, not interruption of an OS
 // syscall. Against base, no cancellation arrives and the hook finishes late.

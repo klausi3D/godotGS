@@ -841,6 +841,7 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	test_quantization.clear();
 #endif
 	telemetry = Telemetry();
+	permanent_failure_reported = false;
 	// A reset restarts residency counters and eviction sequence numbers, even
 	// when the same world/device snapshot is reused. Reports need that boundary.
 	static std::atomic<uint64_t> pressure_epoch_serial{ 0 };
@@ -2392,6 +2393,20 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.failed_total = s.failed_total;
 	telemetry.failed_permanent_total = s.failed_permanent_total;
 	telemetry.failed_retry_later_total = s.failed_retry_later_total;
+	telemetry.nodes_failed_permanently_total = s.nodes_failed_permanently_total;
+	telemetry.retry_later_exhausted_total = s.retry_later_exhausted_total;
+	telemetry.last_permanent_failure_node = s.last_permanent_failure_node;
+	if (s.nodes_failed_permanently_total > 0 && !permanent_failure_reported) {
+		// MF-5: the parent stays drawn, so without this the world just looks coarse forever. One warning per world
+		// load (WARN_PRINT_ONCE would be once per process); the counts stay queryable in get_render_stats().
+		permanent_failure_reported = true;
+		WARN_PRINT(vformat("HLOD streaming: node %d permanently failed to load (%s) and will not be retried until the world "
+						   "is reloaded; its parent stays drawn at coarser detail. See get_render_stats() "
+						   "hlod_stream_permanently_failed_nodes and hlod_stream_nodes_failed_permanently_total.",
+				int64_t(s.last_permanent_failure_node),
+				s.last_permanent_failure_retry_exhausted ? "a transient error such as out-of-memory or busy IO did not clear" :
+														   "read, validation or upload failed repeatedly"));
+	}
 	telemetry.skipped_groups_total = s.skipped_groups_total;
 	telemetry.pressure_measured = s.pressure_measured;
 	telemetry.pages_free = s.pages_free;
