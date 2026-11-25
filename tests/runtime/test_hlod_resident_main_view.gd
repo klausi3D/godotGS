@@ -1146,7 +1146,9 @@ func _wi_wait_hlod_active(world_node: GaussianSplatWorld3D, deadline: int, what:
 # Pumps frames in the orthographic view until 10 consecutive frames show the view refused and the world kept on its
 # route: the reason unsupported_view_or_material (also the last refusal), the refused-view counter counting past
 # p_refused_before, the demotion counter still at p_demotions, the world still paged (nothing loaded into memory), no
-# world splats drawn (sorted 0, the centre pixel background). The deadline binds the pass. {} on failure.
+# world splats drawn (hlod_world_draw_records 0 - reset for every main view before the gate - and a 3 x 3 pixel grid over
+# the wall all background). sorted_splats is not used: it is the sorter's last count and is not reset by a view that
+# sorts nothing. The deadline binds the pass. {} on failure.
 func _wi_wait_refused_view(world_node: GaussianSplatWorld3D, world: GaussianSplatWorld, deadline: int, p_demotions: int, p_refused_before: int, what: String) -> Dictionary:
 	var refused := 0
 	var last := {}
@@ -1163,18 +1165,24 @@ func _wi_wait_refused_view(world_node: GaussianSplatWorld3D, world: GaussianSpla
 			refused = 0
 			continue
 		last = renderer.get_render_stats()
-		for key in ["hlod_reason", "hlod_last_refusal_reason", "hlod_refused_views", "hlod_auto_route_demotions", "sorted_splats"]:
+		for key in ["hlod_reason", "hlod_last_refusal_reason", "hlod_refused_views", "hlod_auto_route_demotions", "hlod_world_draw_records"]:
 			if not _check(last.has(key), "%s: missing renderer field %s" % [what, key]):
 				return {}
 		if not _check(int(last["hlod_auto_route_demotions"]) == p_demotions and not str(last["hlod_reason"]).begins_with("hlod_auto_route_demoted:"), "%s: the orthographic view demoted the world (reason=%s demotions=%s, expected %d)" % [what, last["hlod_reason"], last["hlod_auto_route_demotions"], p_demotions]):
 			return {}
-		cls_center = _wi_classify(get_root().get_texture().get_image().get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2))
+		var img := get_root().get_texture().get_image()
+		cls_center = _wi_classify(img.get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2))
+		var grid_background := true
+		for gy in [-1, 0, 1]:
+			for gx in [-1, 0, 1]:
+				if _wi_classify(img.get_pixel(WI_SIZE.x / 2 + gx * WI_SIZE.x / 6, WI_SIZE.y / 2 + gy * WI_SIZE.y / 6)) != "background":
+					grid_background = false
 		var count := int(last["hlod_refused_views"])
 		var ok: bool = str(last["hlod_reason"]) == "unsupported_view_or_material" and str(last["hlod_last_refusal_reason"]) == "unsupported_view_or_material" \
-				and count > last_count and int(last["sorted_splats"]) == 0 and cls_center == "background"
+				and count > last_count and int(last["hlod_world_draw_records"]) == 0 and grid_background
 		last_count = count
 		refused = refused + 1 if ok else 0
-	if not _check(refused >= 10, "%s: the orthographic view was never refused loudly (reason=%s last_refusal=%s refused_views=%s sorted=%s centre=%s)" % [what, last.get("hlod_reason", "MISSING"), last.get("hlod_last_refusal_reason", "MISSING"), last.get("hlod_refused_views", "MISSING"), last.get("sorted_splats", "MISSING"), cls_center]):
+	if not _check(refused >= 10, "%s: the orthographic view was never refused loudly (reason=%s last_refusal=%s refused_views=%s world_draw_records=%s centre=%s)" % [what, last.get("hlod_reason", "MISSING"), last.get("hlod_last_refusal_reason", "MISSING"), last.get("hlod_refused_views", "MISSING"), last.get("hlod_world_draw_records", "MISSING"), cls_center]):
 		return {}
 	return last
 
