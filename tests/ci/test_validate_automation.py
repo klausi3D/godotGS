@@ -425,6 +425,48 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
         self.assertIn(validation, workflow)
         self.assertLess(workflow.index(install), workflow.index(validation))
 
+    def test_every_module_test_workflow_installs_the_parser_first(self) -> None:
+        """Refs #1547: the guard phase imports PyYAML (test_gs_game_1_contract.py).
+
+        baseline_qa.yml's nightly ran the full guard phase on a bare setup-python
+        interpreter and failed with ModuleNotFoundError. Derived over every
+        workflow that invokes run_module_tests.py: each must hash-install
+        requirements-automation.txt before its first invocation. Text-level and
+        file-scoped, like the test above: it cannot tell two jobs of one file apart.
+        """
+        invoking: list[str] = []
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            code = [
+                (index, line)
+                for index, line in enumerate(lines)
+                if not line.strip().startswith("#")
+            ]
+            invocations = [
+                index for index, line in code if "tests/ci/run_module_tests.py" in line
+            ]
+            if not invocations:
+                continue
+            invoking.append(path.name)
+            installs: list[int] = []
+            for index, line in code:
+                if "pip install --require-hashes" not in line:
+                    continue
+                end = index
+                command = line
+                while lines[end].rstrip().endswith("\\") and end + 1 < len(lines):
+                    end += 1
+                    command += "\n" + lines[end]
+                if "-r tests/ci/requirements-automation.txt" in command:
+                    installs.append(index)
+            with self.subTest(workflow=path.name):
+                self.assertTrue(
+                    installs and min(installs) < min(invocations),
+                    f"{path.name} runs run_module_tests.py without first "
+                    "installing tests/ci/requirements-automation.txt",
+                )
+        self.assertTrue(invoking, "no workflow invokes run_module_tests.py; the scan is stale")
+
 
 if __name__ == "__main__":
     unittest.main()
