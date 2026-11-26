@@ -1,5 +1,10 @@
 var NAVTREEINDEX59 =
 {
+"structVRAMBudgetConfig.html#a16f484086f7fc20cb255c4fc08552396":[1,0,304,5],
+"structVRAMBudgetConfig.html#a1bb53e63d029158aa385e4f089d0e28e":[1,0,304,7],
+"structVRAMBudgetConfig.html#a2ade6df37a0b6abf2d23b88e21e3cf13":[1,0,304,8],
+"structVRAMBudgetConfig.html#a4318ba94e281eca58f10a0b6a3400957":[1,0,304,11],
+"structVRAMBudgetConfig.html#a43543781458e5492f17028e22755a384":[1,0,304,0],
 "structVRAMBudgetConfig.html#a622f3a1267b40886d15e8bbc82a1f748":[1,0,304,14],
 "structVRAMBudgetConfig.html#a85f2b805cff6a5aa5baca1cdcbc0ae61":[1,0,304,17],
 "structVRAMBudgetConfig.html#a8dde1be8236e3a0645573b4d0b2ca2db":[1,0,304,15],
@@ -244,10 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aea130011b2ecec547a67a382887f5c134f":[1,0,14,4,0,1],
 "structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aeae06fbb056555eb46decd6ec11dd82ab7":[0,0,21,4,0,0],
 "structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aeae06fbb056555eb46decd6ec11dd82ab7":[1,0,14,4,0,0],
-"structgs__hlod_1_1BakeResult.html":[0,0,21,6],
-"structgs__hlod_1_1BakeResult.html":[1,0,14,6],
-"structgs__hlod_1_1BakeResult.html#a34a0757ceccb1382c68b8c0de494557d":[0,0,21,6,3],
-"structgs__hlod_1_1BakeResult.html#a34a0757ceccb1382c68b8c0de494557d":[1,0,14,6,3],
-"structgs__hlod_1_1BakeResult.html#a9a25a7dc2132b92627ace804107fa60e":[0,0,21,6,1],
-"structgs__hlod_1_1BakeResult.html#a9a25a7dc2132b92627ace804107fa60e":[1,0,14,6,1]
+"structgs__hlod_1_1BakeResult.html":[0,0,21,6]
 };

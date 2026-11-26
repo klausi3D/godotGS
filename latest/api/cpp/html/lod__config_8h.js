@@ -9,6 +9,7 @@ var lod__config_8h =
     [ "LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH", "lod__config_8h.html#aedc36535a86406be45587ed80ef65e98", null ],
     [ "LOD_CONFIG_ENABLED_PATH", "lod__config_8h.html#a4605320e8481d12923019e2e60b6a687", null ],
     [ "LOD_CONFIG_HLOD_CROSSFADE_PATH", "lod__config_8h.html#a7af22889287cd7b42be97d8424b02243", null ],
+    [ "LOD_CONFIG_HLOD_PAGED_MATERIALIZE_RAM_BUDGET_PATH", "lod__config_8h.html#a85e5796dc8f5b05fb6acd699d8061362", null ],
     [ "LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH", "lod__config_8h.html#a0179e7097dbaae1a0b5ee28c343b70c4", null ],
     [ "LOD_CONFIG_HLOD_TAU_PATH", "lod__config_8h.html#a270751b842c5ce8bad877acca75983b9", null ],
     [ "LOD_CONFIG_MAX_DISTANCE_PATH", "lod__config_8h.html#a5267e731b1e2a184e49141f0fd879857", null ],

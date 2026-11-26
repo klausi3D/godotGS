@@ -1,5 +1,6 @@
 var NAVTREEINDEX21 =
 {
+"functions_vars_i.html":[1,3,2,9],
 "functions_vars_j.html":[1,3,2,10],
 "functions_vars_k.html":[1,3,2,11],
 "functions_vars_l.html":[1,3,2,12],
@@ -248,6 +249,5 @@ var NAVTREEINDEX21 =
 "gaussian__splat__region__override_8cpp.html":[2,0,0,0,13,2],
 "gaussian__splat__region__override_8cpp.html#a4fb12cd9e2ce92117cca05dc3a858eca":[2,0,0,0,13,2,0],
 "gaussian__splat__region__override_8h.html":[2,0,0,0,13,3],
-"gaussian__splat__region__override_8h_source.html":[2,0,0,0,13,3],
-"gaussian__splat__renderer_8cpp.html":[2,0,0,0,12,10]
+"gaussian__splat__region__override_8h_source.html":[2,0,0,0,13,3]
 };

@@ -1,5 +1,10 @@
 var NAVTREEINDEX50 =
 {
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html":[0,0,14,9,0],
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html":[1,0,10,9,0],
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a344c6939bce2cfd18f52cc24a4c33c53":[0,0,14,9,0,0],
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a344c6939bce2cfd18f52cc24a4c33c53":[1,0,10,9,0,0],
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a409537651b030a32d4973ee46c460fdc":[0,0,14,9,0,4],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a409537651b030a32d4973ee46c460fdc":[1,0,10,9,0,4],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a799b7952b9652e28e93a1ec537c555fc":[0,0,14,9,0,5],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a799b7952b9652e28e93a1ec537c555fc":[1,0,10,9,0,5],
@@ -244,10 +249,5 @@ var NAVTREEINDEX50 =
 "structGaussianStreamingTypes_1_1StreamingChunk.html#ab173be8b060883dd8f0359d633274ee4":[0,0,14,1,5],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#ab173be8b060883dd8f0359d633274ee4":[1,0,10,1,5],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#ab40d60d839071e51f90dd3d8728f7035":[0,0,14,1,24],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ab40d60d839071e51f90dd3d8728f7035":[1,0,10,1,24],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ab55ce51f005ea60afe844836b20be053":[0,0,14,1,15],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ab55ce51f005ea60afe844836b20be053":[1,0,10,1,15],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f":[0,0,14,1,22],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f":[1,0,10,1,22],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93":[0,0,14,1,19]
+"structGaussianStreamingTypes_1_1StreamingChunk.html#ab40d60d839071e51f90dd3d8728f7035":[1,0,10,1,24]
 };

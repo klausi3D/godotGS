@@ -1,5 +1,12 @@
 var NAVTREEINDEX64 =
 {
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ab243f55fab0b5bb73b55fc91c93f2d90":[1,0,18,1,3,44],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ab7d3105aa192a36d5cd70510a6f89d8f":[0,0,26,1,3,35],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ab7d3105aa192a36d5cd70510a6f89d8f":[1,0,18,1,3,35],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#abd7b7f5e6287b0f98fc2094d9fa82c72":[0,0,26,1,3,42],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#abd7b7f5e6287b0f98fc2094d9fa82c72":[1,0,18,1,3,42],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ac7fbac507d1b25d115d09916fa65b2a3":[0,0,26,1,3,21],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ac7fbac507d1b25d115d09916fa65b2a3":[1,0,18,1,3,21],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acb58b377145f0c9bdbd8511e55a8ba10":[0,0,26,1,3,17],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acb58b377145f0c9bdbd8511e55a8ba10":[1,0,18,1,3,17],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acc387676084b37ad031448c68be87790":[0,0,26,1,3,11],
@@ -242,12 +249,5 @@ var NAVTREEINDEX64 =
 "structgs__layout__hint_1_1LayoutHintIndexRange.html#a02d97168f5852a2e2e44153465355e39":[1,0,19,3,1],
 "structgs__layout__hint_1_1LayoutHintIndexRange.html#a61fc300dc94d87fa44ea6fd6845f3155":[0,0,27,3,0],
 "structgs__layout__hint_1_1LayoutHintIndexRange.html#a61fc300dc94d87fa44ea6fd6845f3155":[1,0,19,3,0],
-"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[0,0,27,3,2],
-"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[1,0,19,3,2],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html":[0,0,27,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html":[1,0,19,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a1adefadfc09f2507b423620e1c2549b7":[0,0,27,0,1],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a1adefadfc09f2507b423620e1c2549b7":[1,0,19,0,1],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a4220a6b7742387d69def5520d8f589ee":[0,0,27,0,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a4220a6b7742387d69def5520d8f589ee":[1,0,19,0,0]
+"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[0,0,27,3,2]
 };

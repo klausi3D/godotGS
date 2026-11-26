@@ -1,5 +1,10 @@
 var NAVTREEINDEX49 =
 {
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a48d096dd4be1bb8c1d22d82054e115b0":[0,0,14,4,12],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a48d096dd4be1bb8c1d22d82054e115b0":[1,0,10,4,12],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a54aa8be90ac63aa486d530ae3b4da5b5":[0,0,14,4,1],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a54aa8be90ac63aa486d530ae3b4da5b5":[1,0,10,4,1],
+"structGaussianStreamingTypes_1_1AssetRegistryState.html#a780b9af12b80d744ea05ecb8eca0c5da":[0,0,14,4,5],
 "structGaussianStreamingTypes_1_1AssetRegistryState.html#a780b9af12b80d744ea05ecb8eca0c5da":[1,0,10,4,5],
 "structGaussianStreamingTypes_1_1AssetRegistryState.html#a81420f617cca47ac29d7c5a12c955fa0":[0,0,14,4,13],
 "structGaussianStreamingTypes_1_1AssetRegistryState.html#a81420f617cca47ac29d7c5a12c955fa0":[1,0,10,4,13],
@@ -244,10 +249,5 @@ var NAVTREEINDEX49 =
 "structGaussianStreamingTypes_1_1DiagnosticsState.html#aea70436af27e876f65efcd40c1a0d029":[0,0,14,9,1],
 "structGaussianStreamingTypes_1_1DiagnosticsState.html#aea70436af27e876f65efcd40c1a0d029":[1,0,10,9,1],
 "structGaussianStreamingTypes_1_1DiagnosticsState.html#afe86c07d11e53bd60812bf9a2436364e":[0,0,14,9,18],
-"structGaussianStreamingTypes_1_1DiagnosticsState.html#afe86c07d11e53bd60812bf9a2436364e":[1,0,10,9,18],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html":[0,0,14,9,0],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html":[1,0,10,9,0],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a344c6939bce2cfd18f52cc24a4c33c53":[0,0,14,9,0,0],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a344c6939bce2cfd18f52cc24a4c33c53":[1,0,10,9,0,0],
-"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#a409537651b030a32d4973ee46c460fdc":[0,0,14,9,0,4]
+"structGaussianStreamingTypes_1_1DiagnosticsState.html#afe86c07d11e53bd60812bf9a2436364e":[1,0,10,9,18]
 };

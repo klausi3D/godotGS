@@ -1,5 +1,10 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0a381dfda02c6328c69e380cb59f6c6":[0,0,12,15,2],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0a381dfda02c6328c69e380cb59f6c6":[1,0,9,14,2],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad23ca91ea31aa7bf7f338dc0431f16a3":[0,0,12,15,14],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad23ca91ea31aa7bf7f338dc0431f16a3":[1,0,9,14,14],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[0,0,12,15,3],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[1,0,9,14,3],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html":[0,0,12,2,0],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDispatchRecord.html":[1,0,9,1,0],
@@ -244,10 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1OverlapFrameSizingInput.html#ac4ea77e856dda04422a9c65b8056aede":[0,0,12,35,2],
 "structGaussianSplatting_1_1OverlapFrameSizingInput.html#ac4ea77e856dda04422a9c65b8056aede":[1,0,9,34,2],
 "structGaussianSplatting_1_1OverlapFrameSizingInput.html#ae17ffd9134f54c225d4550500c674b41":[0,0,12,35,6],
-"structGaussianSplatting_1_1OverlapFrameSizingInput.html#ae17ffd9134f54c225d4550500c674b41":[1,0,9,34,6],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html":[0,0,12,36],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html":[1,0,9,35],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a765d07201a7ff7424cc63cf423404bc4":[0,0,12,36,4],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a765d07201a7ff7424cc63cf423404bc4":[1,0,9,35,4],
-"structGaussianSplatting_1_1OverlapFrameSizingPlan.html#a7a5d901565d5e131d0195a38edc46c7a":[0,0,12,36,2]
+"structGaussianSplatting_1_1OverlapFrameSizingInput.html#ae17ffd9134f54c225d4550500c674b41":[1,0,9,34,6]
 };

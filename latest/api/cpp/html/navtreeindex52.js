@@ -1,5 +1,10 @@
 var NAVTREEINDEX52 =
 {
+"structInstanceDataGPU.html#a3807d78365ae8f594e5306abc297e358":[1,0,159,1],
+"structInstanceDataGPU.html#a3b7c406ded1dd349c71bab3c503f3909":[1,0,159,9],
+"structInstanceDataGPU.html#a51038d0774f763b021388ec71ae502ee":[1,0,159,3],
+"structInstanceDataGPU.html#a57d3c3dd96254c9ac10166dc684e0ef7":[1,0,159,0],
+"structInstanceDataGPU.html#a5ade9c354f7898e6c0775845034b0032":[1,0,159,6],
 "structInstanceDataGPU.html#a6b812ac956ff3a9cb2f6c580dd6e8c33":[1,0,159,2],
 "structInstanceDataGPU.html#a7034730a0dfe514d7275db89974ba943":[1,0,159,7],
 "structInstanceDataGPU.html#a7d4d4088ad8f087a6629304590a92ffb":[1,0,159,8],
@@ -244,10 +249,5 @@ var NAVTREEINDEX52 =
 "structOverflowAutoTuneConfig.html#a123e14670e7e0ebf79e1d948566d7d2c":[1,0,189,2],
 "structOverflowAutoTuneConfig.html#a52e0831a4b4889620c030fc6f06b64d0":[1,0,189,12],
 "structOverflowAutoTuneConfig.html#a6602208167a76cae59cc629f2a5b25a7":[1,0,189,0],
-"structOverflowAutoTuneConfig.html#a6b6830a4e1e99c9841e906aed2cccfe4":[1,0,189,1],
-"structOverflowAutoTuneConfig.html#a88fcf09efaf7c757d5dc8e5be55a92ad":[1,0,189,11],
-"structOverflowAutoTuneConfig.html#a9c063f7ec07338a24b2618faeb1126d9":[1,0,189,14],
-"structOverflowAutoTuneConfig.html#aa63495de683a4fdea5b677425721fc84":[1,0,189,7],
-"structOverflowAutoTuneConfig.html#aa7a9706037d02dd3fa20ad1dbd66275c":[1,0,189,3],
-"structOverflowAutoTuneConfig.html#ab16dec73f678cfd09815041866aa7a0d":[1,0,189,10]
+"structOverflowAutoTuneConfig.html#a6b6830a4e1e99c9841e906aed2cccfe4":[1,0,189,1]
 };

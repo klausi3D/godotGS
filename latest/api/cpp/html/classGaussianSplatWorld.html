@@ -142,7 +142,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:abd2ad5c3ef475d9c4ec20e591422f1cc" id="r_abd2ad5c3ef475d9c4ec20e591422f1cc"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd2ad5c3ef475d9c4ec20e591422f1cc">capture_hlod_runtime_snapshot</a> (Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;r_snapshot, String &amp;r_reason) const</td></tr>
 <tr class="memitem:af87fed95c4dcb267ee585aa8da67e79b" id="r_af87fed95c4dcb267ee585aa8da67e79b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af87fed95c4dcb267ee585aa8da67e79b">is_hlod_runtime_snapshot_current</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_snapshot) const</td></tr>
 <tr class="memitem:ac47400cde30f5446cc70b074fe1713c8" id="r_ac47400cde30f5446cc70b074fe1713c8"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac47400cde30f5446cc70b074fe1713c8">set_hlod_paged_package</a> (<a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;&amp;p_tree, const Ref&lt; <a class="el" href="classGaussianSplatHlodPagedSource.html">GaussianSplatHlodPagedSource</a> &gt; &amp;p_source)</td></tr>
-<tr class="memitem:a514213b2ec6a280bb27b7238cf2f3f8c" id="r_a514213b2ec6a280bb27b7238cf2f3f8c"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a514213b2ec6a280bb27b7238cf2f3f8c">materialize_paged_resident</a> (String &amp;r_reason)</td></tr>
+<tr class="memitem:a93925d1b61aadb4514e091ba94a821cc" id="r_a93925d1b61aadb4514e091ba94a821cc"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a93925d1b61aadb4514e091ba94a821cc">materialize_paged_resident</a> (uint64_t p_ram_budget_bytes, String &amp;r_reason)</td></tr>
+<tr class="memitem:a0fd7940d3ee554dcab70a60c7904b42d" id="r_a0fd7940d3ee554dcab70a60c7904b42d"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0fd7940d3ee554dcab70a60c7904b42d">get_paged_materialize_peak_bytes</a> (uint64_t &amp;r_bytes) const</td></tr>
 <tr class="memitem:ade74f9b86d6b95d07d58b04642d693a9" id="r_ade74f9b86d6b95d07d58b04642d693a9"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodPagedSource.html">GaussianSplatHlodPagedSource</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade74f9b86d6b95d07d58b04642d693a9">get_hlod_paged_source</a> () const</td></tr>
 <tr class="memitem:acc61b8e8c8849d0bf564b1b3375dfbc9" id="r_acc61b8e8c8849d0bf564b1b3375dfbc9"><td class="memItemLeft" align="right" valign="top">Variant&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acc61b8e8c8849d0bf564b1b3375dfbc9">get_hlod_payload_source_generation</a> () const</td></tr>
 <tr class="memitem:af46cf2e34472ae17cf4a8b033e965ce3" id="r_af46cf2e34472ae17cf4a8b033e965ce3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af46cf2e34472ae17cf4a8b033e965ce3">has_hlod_paged_source</a> () const</td></tr>
@@ -708,6 +709,23 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a0fd7940d3ee554dcab70a60c7904b42d" name="a0fd7940d3ee554dcab70a60c7904b42d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0fd7940d3ee554dcab70a60c7904b42d">&#9670;&#160;</a></span>get_paged_materialize_peak_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatWorld::get_paged_materialize_peak_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a952c0bb1c193d2318cd11f15a618406b" name="a952c0bb1c193d2318cd11f15a618406b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a952c0bb1c193d2318cd11f15a618406b">&#9670;&#160;</a></span>get_payload_mode()</h2>
 
@@ -1004,8 +1022,8 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a514213b2ec6a280bb27b7238cf2f3f8c" name="a514213b2ec6a280bb27b7238cf2f3f8c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a514213b2ec6a280bb27b7238cf2f3f8c">&#9670;&#160;</a></span>materialize_paged_resident()</h2>
+<a id="a93925d1b61aadb4514e091ba94a821cc" name="a93925d1b61aadb4514e091ba94a821cc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a93925d1b61aadb4514e091ba94a821cc">&#9670;&#160;</a></span>materialize_paged_resident()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1013,8 +1031,12 @@ Static Protected Member Functions</h2></td></tr>
         <tr>
           <td class="memname">Error GaussianSplatWorld::materialize_paged_resident </td>
           <td>(</td>
-          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span></td><td>)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_ram_budget_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

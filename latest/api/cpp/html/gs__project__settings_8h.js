@@ -9,6 +9,7 @@ var gs__project__settings_8h =
       [ "gs::settings::GS_ROUTE_STREAMING", "namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303ea47f0b30e8efe0c1a29c1ece5abd0f07f", null ]
     ] ],
     [ "gs::settings::get_hlod_crossfade_enabled", "namespacegs_1_1settings.html#a49537021caf262dac86e938e8421bb60", null ],
+    [ "gs::settings::get_hlod_paged_materialize_ram_budget_bytes", "namespacegs_1_1settings.html#a993e26cd69fc9a0f65caa01a73895b0f", null ],
     [ "gs::settings::get_hlod_runtime_cut_enabled", "namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2", null ],
     [ "gs::settings::get_hlod_tau_px", "namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0", null ],
     [ "gs::settings::REGION_WIND_ENABLED_PROPERTY", "namespacegs_1_1settings.html#a4f906fcb1a752c90c5d062aa4a756215", null ],

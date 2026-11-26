@@ -112,6 +112,7 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_tau_px", "structGaussianRenderFacadeState_1_1ResourceState.html#a5180168ba8686990247b99bf3b1001ef", null ],
     [ "hlod_tile_stage_refused_frames", "structGaussianRenderFacadeState_1_1ResourceState.html#a10a411b4accf22760c22417071647f8f", null ],
     [ "hlod_view_epoch", "structGaussianRenderFacadeState_1_1ResourceState.html#a04464ae39fe10cc0330cad6c6ec9c896", null ],
+    [ "hlod_view_refusal_warned", "structGaussianRenderFacadeState_1_1ResourceState.html#a0ddb928f4c4414d00aafc5671d14f471", null ],
     [ "hlod_view_splat_cap", "structGaussianRenderFacadeState_1_1ResourceState.html#a685340b6dc152592e08ad797e5d4c47a", null ],
     [ "hlod_view_splat_cap_clamped", "structGaussianRenderFacadeState_1_1ResourceState.html#a64092f4e4634a696148a278db4a4e950", null ],
     [ "hlod_visited_nodes", "structGaussianRenderFacadeState_1_1ResourceState.html#ae32b5d12b244635b3a1c0a9631edceae", null ],

@@ -1,5 +1,6 @@
 var NAVTREEINDEX11 =
 {
+"classIGPUSorter.html#a11469c719c87043b4d2e8c6380e7df96":[1,0,152,34],
 "classIGPUSorter.html#a16b665b593cfd8d1ba41adb535e365dc":[1,0,152,9],
 "classIGPUSorter.html#a1a862cc6b3b31314a488898047bf1fa2":[1,0,152,11],
 "classIGPUSorter.html#a23fa6c6b0094f76b142dc4d7c1f37448":[1,0,152,14],
@@ -248,6 +249,5 @@ var NAVTREEINDEX11 =
 "classIRenderThreadDispatcher.html#ade77770578e0bc585e6822a251e5fd66":[1,0,176,6],
 "classIRenderThreadDispatcher.html#af639514a5ef0aa4da8620b8cafc6a9cf":[1,0,176,1],
 "classIRenderer.html":[1,0,170],
-"classIRenderer.html#a1aa1c9106d97d8eb3b8f73a2bddcdb86":[1,0,170,0],
-"classIRendererConfig.html":[1,0,171]
+"classIRenderer.html#a1aa1c9106d97d8eb3b8f73a2bddcdb86":[1,0,170,0]
 };

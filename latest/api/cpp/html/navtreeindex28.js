@@ -1,5 +1,8 @@
 var NAVTREEINDEX28 =
 {
+"painterly__renderer_8h.html":[2,0,0,0,5,23],
+"painterly__renderer_8h_source.html":[2,0,0,0,5,23],
+"painterly__renderer__interfaces_8h.html":[2,0,0,0,5,24],
 "painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7":[2,0,0,0,5,24,6],
 "painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7a25a78d5038330122ed1c3ceb2fc51198":[2,0,0,0,5,24,6,2],
 "painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7a79deb9c350a6a53e35e56983ce7a90f1":[2,0,0,0,5,24,6,1],
@@ -246,8 +249,5 @@ var NAVTREEINDEX28 =
 "splat-c-types_8h.html":[2,0,0,0,14,0,3],
 "splat-c-types_8h.html#a34d3a3c9560c58af236202d09d563b1e":[2,0,0,0,14,0,3,3],
 "splat-c-types_8h.html#a525335710b53cb064ca56b936120431e":[2,0,0,0,14,0,3,2],
-"splat-c-types_8h_source.html":[2,0,0,0,14,0,3],
-"splat-extensions_8h.html":[2,0,0,0,14,0,4],
-"splat-extensions_8h.html#a34d3a3c9560c58af236202d09d563b1e":[2,0,0,0,14,0,4,3],
-"splat-extensions_8h_source.html":[2,0,0,0,14,0,4]
+"splat-c-types_8h_source.html":[2,0,0,0,14,0,3]
 };
