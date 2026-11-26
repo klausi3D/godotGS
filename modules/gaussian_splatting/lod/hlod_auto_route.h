@@ -79,14 +79,15 @@ inline bool residency_hint_resident(bool p_route_policy_streaming, bool p_snapsh
 	return p_snapshot_captured || !p_route_policy_streaming;
 }
 
-// Sticky demotion. Some refusals only appear once the world is on the route: a view the route does not serve
-// (orthographic, multi-view/XR, painterly), a domain that starts after the submission (painterly, the shadow instance
-// filter, effector nodes, wind), or quantization over a tree with mixed DC encodings. Where the world has a canonical copy
+// Sticky demotion. Some refusals only appear once the world is on the route: a domain that starts after the submission
+// (painterly, the shadow instance filter, effector nodes, wind), or quantization over a tree with mixed DC encodings. Where the world has a canonical copy
 // that serves the frame (a whole-tree resident bundle) the publisher's own fallback draws it. Where it has none (a
 // streamed or paged world), or where that copy is a resident one the atlas budget thins (a world too large for its whole
 // tree), the world would draw less than without the automatic route. Such a refusal demotes the world: the renderer asks
-// once, the node resubmits it without a snapshot (a paged world loads its payload into memory), and it stays on that
-// route until it is applied again. Re-promotion is a follow-up. A request belongs to the snapshot that was refused: the
+// once, the node resubmits it without a snapshot (a paged world loads its payload into memory, within
+// lod/hlod_paged_materialize_ram_budget_mb; over it the node refuses the demotion and the world keeps this route), and it
+// stays on that route until it is applied again. A view the route does not serve (orthographic, multi-view/XR) never
+// demotes: see RefusalInputs::view_only. Re-promotion is a follow-up. A request belongs to the snapshot that was refused: the
 // director queues it only while that snapshot is still the world's submitted one, and the node accepts it only for the
 // submission generation the callback was bound to, so a set_world()/apply_world() in between makes it stale.
 enum class RefusalStage {
@@ -102,6 +103,12 @@ struct RefusalInputs {
 	// whole tree (PUBLISH).
 	bool no_canonical_copy = false;
 	bool committed_edit = false; // an edited world is served by the streamer only; it is never demoted to unedited data
+	// FRAME: the refusal is a property of this view (orthographic, multi-view/XR, no render target), not of the world's
+	// setup. MF-1 (production review 2026-11-25): such a refusal never demotes. Demoting for one view moved the world off
+	// the HLOD route for every view until apply_world(), and loaded a paged world's whole payload into memory. The refused
+	// view draws no world splats, loudly (hlod_reason, hlod_last_refusal_reason, hlod_refused_views, a warning); the other
+	// views keep the route. Serving these views on the route itself is follow-up F5.
+	bool view_only = false;
 };
 
 // The cause to demote for, or nullptr.
@@ -122,7 +129,8 @@ inline const char *demotion_cause(const RefusalInputs &p_in) {
 		if (!p_in.main_view) {
 			return nullptr;
 		}
-		if (reason == "unsupported_view_or_material") { return "unsupported_view_or_material"; }
+		// The gate shares this key between the views and painterly (a renderer setting): only painterly demotes.
+		if (reason == "unsupported_view_or_material") { return p_in.view_only ? nullptr : "painterly_enabled"; }
 		if (reason == "deformation_or_instance_domain" || reason == "hlod_paged_deformation_or_instance_domain") { return "deformation_or_instance_domain"; }
 		if (reason == "lod_disabled_canonical_leaves" || reason == "hlod_paged_lod_disabled") { return "lod_disabled"; }
 		return nullptr;

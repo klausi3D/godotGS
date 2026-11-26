@@ -1710,7 +1710,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] committed edits are rebased 
 	String reason;
 	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, edited, reason) == EditStatus::OK);
 	// The cut was toggled off: the node materialized the V4 world into the resident shape, and a later capture is resident.
-	GS_NEED(w.loaded->materialize_paged_resident(reason) == OK);
+	GS_NEED(w.loaded->materialize_paged_resident(UINT64_MAX, reason) == OK);
 	Ref<GaussianSplatHlodRuntimeData> resident;
 	GS_NEED(w.loaded->capture_hlod_runtime_snapshot(resident, reason) == OK);
 	GS_NEED(resident.is_valid() && !resident->is_paged());

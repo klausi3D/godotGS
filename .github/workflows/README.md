@@ -882,7 +882,8 @@ take the job once one is registered.
 ## Dependencies
 
 - Python 3.11
-- PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate`, installed from the
+- PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate` and in the nightly
+  full guard phase of `baseline_qa.yml` (`cpu-tests`), installed in both from the
   CI-only version-and-hash pin in `tests/ci/requirements-automation.txt`
 - SCons/build toolchain for compiled lanes. Every `pip install` in CI uses
   `--require-hashes` against a version-and-hash-locked file (GAP-403). Each

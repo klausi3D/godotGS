@@ -328,12 +328,16 @@ jobs:
       with:
         python-version: '3.11'
 
-    # GAP-403: version-and-hash-locked. numpy is the only third-party import this
-    # job runs (test_data/generate_test_data.py and, nightly, the guard phase's S1b
-    # quality harness tests); SCons comes from apt below.
+    # GAP-403: version-and-hash-locked. Third-party imports this job runs: numpy
+    # (test_data/generate_test_data.py and, nightly, the guard phase's S1b quality
+    # harness tests) and PyYAML (nightly, the full guard phase, e.g.
+    # tests/runtime/test_gs_game_1_contract.py; the same pin agentic-pr-gate
+    # installs). SCons comes from apt below.
     - name: Install Python dependencies
       run: |
-        python -m pip install --require-hashes -r tests/ci/requirements-test-data.txt
+        python -m pip install --require-hashes \
+          -r tests/ci/requirements-test-data.txt \
+          -r tests/ci/requirements-automation.txt
 
     - name: Install build and runtime dependencies
       run: |
