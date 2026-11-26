@@ -6036,6 +6036,8 @@ uint64_t RenderingDeviceDriverVulkan::limit_get(Limit p_limit) {
 			// The Vulkan spec states that built in varyings like gl_FragCoord should count against this, but in
 			// practice, that doesn't seem to be the case. The validation layers don't even complain.
 			return MIN(limits.maxVertexOutputComponents / 4, limits.maxFragmentInputComponents / 4);
+		case LIMIT_MAX_STORAGE_BUFFER_RANGE:
+			return limits.maxStorageBufferRange;
 		default: {
 #ifdef DEV_ENABLED
 			WARN_PRINT("Returning maximum value for unknown limit " + itos(p_limit) + ".");

@@ -5568,6 +5568,9 @@ uint64_t RenderingDeviceDriverD3D12::limit_get(Limit p_limit) {
 			return subgroup_capabilities.supported_operations_flags_rd();
 		case LIMIT_MAX_SHADER_VARYINGS:
 			return MIN(D3D12_VS_OUTPUT_REGISTER_COUNT, D3D12_PS_INPUT_REGISTER_COUNT);
+		case LIMIT_MAX_STORAGE_BUFFER_RANGE:
+			// The D3D12 resource-size requirement term (2048 MB); no per-device query exists.
+			return uint64_t(D3D12_REQ_RESOURCE_SIZE_IN_MEGABYTES_EXPRESSION_C_TERM) * 1024u * 1024u;
 		default: {
 #ifdef DEV_ENABLED
 			WARN_PRINT("Returning maximum value for unknown limit " + itos(p_limit) + ".");

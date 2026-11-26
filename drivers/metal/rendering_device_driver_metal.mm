@@ -2722,6 +2722,9 @@ uint64_t RenderingDeviceDriverMetal::limit_get(Limit p_limit) {
 			return (uint64_t)((1.0 / limits.temporalScalerInputContentMinScale) * 1000'000);
 		case LIMIT_MAX_SHADER_VARYINGS:
 			return limits.maxShaderVaryings;
+		case LIMIT_MAX_STORAGE_BUFFER_RANGE:
+			// Metal binds a buffer of any length the device can create.
+			return limits.maxBufferLength;
 		default: {
 #ifdef DEV_ENABLED
 			WARN_PRINT("Returning maximum value for unknown limit " + itos(p_limit) + ".");

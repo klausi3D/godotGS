@@ -207,8 +207,22 @@ static bool _upload_typed_storage_buffer(GaussianSplatRenderer *p_renderer, Rend
 }
 
 // The one read of the device heap for the budgets of this file. The ledger owns the limits (renderer/device_vram_ledger.h).
+// Codex F7 (ADR BV-33): the device's storage-buffer binding range, queried from the RenderingDevice, never above the 32-bit
+// creation size (DeviceVramLedger::binding_limit_for_device). The test override only lowers it.
+uint64_t device_storage_buffer_binding_limit(const GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd) {
+    uint64_t range = p_rd->limit_get(RD::LIMIT_MAX_STORAGE_BUFFER_RANGE);
+#ifdef TESTS_ENABLED
+    const uint64_t test_range = p_state.hlod_test_storage_buffer_range_override.load(std::memory_order_acquire);
+    if (test_range != 0 && test_range < range) { range = test_range; }
+#else
+    (void)p_state;
+#endif
+    return DeviceVramLedger::binding_limit_for_device(range);
+}
+
 DeviceVramLedger &refresh_device_vram_ledger(GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd, uint64_t p_limit_clamp = 0) {
-    p_state.device_vram_ledger.configure(p_rd->get_device_memory_budget(), GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT, p_limit_clamp);
+    p_state.device_vram_ledger.configure(p_rd->get_device_memory_budget(), GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT, p_limit_clamp,
+            device_storage_buffer_binding_limit(p_state, p_rd));
     return p_state.device_vram_ledger;
 }
 
@@ -223,14 +237,16 @@ uint64_t hlod_owned_cap_for(bool p_streaming, uint64_t p_ledger_limit) {
 // BV-17: the atlas limit of a streamed HLOD world, a share of the ledger limit (DeviceVramLedger::streamed_atlas_limit_for_device).
 // The frame reserve is the overlap storage at its configured cap and the sort at `p_sort_capacity`, priced with the ledger's
 // own charges. Without a tile renderer nothing can be priced: everything is reserved (no share, refused with a named reason).
+// Never above one bindable storage buffer of the device (`p_max_buffer_bytes`, Codex F7).
 DeviceVramLedger::StreamedAtlasLimit hlod_streamed_atlas_limit(uint64_t p_device_heap_bytes, uint64_t p_ledger_limit_bytes,
-        uint32_t p_override_mb, const Ref<TileRenderer> &p_tile, uint32_t p_sort_capacity) {
+        uint32_t p_override_mb, const Ref<TileRenderer> &p_tile, uint32_t p_sort_capacity, uint64_t p_max_buffer_bytes) {
     uint64_t reserve = UINT64_MAX;
     if (p_tile.is_valid()) {
         reserve = ResidentAtlasBudget::hlod_streamed_frame_reserve_bytes(p_tile->clamp_hlod_overlap_records(UINT32_MAX),
                 TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD, p_sort_capacity, p_tile->get_hlod_overlap_bytes_per_record() / 2u);
     }
-    return DeviceVramLedger::streamed_atlas_limit_for_device(p_device_heap_bytes, p_ledger_limit_bytes, p_override_mb, reserve);
+    return DeviceVramLedger::streamed_atlas_limit_for_device(p_device_heap_bytes, p_ledger_limit_bytes, p_override_mb, reserve,
+            p_max_buffer_bytes);
 }
 
 } // namespace
@@ -1468,6 +1484,12 @@ bool hlod_pack_instance_assets(const LocalVector<InstanceAssetRegistration> &p_r
 bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd, HlodBundle &r_bundle,
         RID &r_rid, uint64_t p_bytes, const void *p_data = nullptr, bool p_indirect = false) {
     if (p_bytes == 0 || p_bytes > UINT32_MAX || r_bundle.owned_count >= 16) { return false; }
+    // Codex F7: every bundle buffer is bound whole as a storage buffer. One above the device's binding range is refused
+    // explicitly (hlod_storage_buffer_range_exceeded), never created and bound past what the device can address.
+    if (!DeviceVramLedger::binding_fits(p_bytes, device_storage_buffer_binding_limit(p_renderer->get_resource_state(), p_rd))) {
+        r_bundle.binding_range_refused = true;
+        return false;
+    }
 #ifdef TESTS_ENABLED
     // Fail after one real allocation, so rollback must release a partial candidate.
     if (r_bundle.owned_count == 1 && p_renderer->test_hlod_publication_refuses(4)) { return false; }
@@ -1884,10 +1906,12 @@ gs_hlod_bundle::ContractChangeDecision GaussianSplatRenderer::hlod_prepared_cont
     const uint64_t budget = rd->get_device_memory_budget();
     const uint64_t limit = DeviceVramLedger::gs_limit_for_device(budget, GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT);
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
-    // A streamed atlas is held to the limit its pages were priced against (BV-17), a whole tree to the resident one.
+    // A streamed atlas is held to the limit its pages were priced against (BV-17), a whole tree to the resident one. Both
+    // stay within one bindable storage buffer of the device (Codex F7).
+    const uint64_t max_buffer = device_storage_buffer_binding_limit(state, rd);
     const uint64_t atlas_limit = streaming
-            ? hlod_streamed_atlas_limit(budget, limit, override_mb, tile_renderer_state.renderer, relative_capacity).bytes
-            : DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
+            ? hlod_streamed_atlas_limit(budget, limit, override_mb, tile_renderer_state.renderer, relative_capacity, max_buffer).bytes
+            : MIN(DeviceVramLedger::atlas_limit_for_device(budget, override_mb), max_buffer);
     uint64_t bytes = 0;
     const bool fits = ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + MAX(region.records, region.reserved_records)) *
                     (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
@@ -2696,7 +2720,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             // BV-17: a streamed atlas is priced against its share of the ledger limit, not the 2 GiB staging ceiling of a
             // one-shot upload (atlas_limit above still decides whether the whole tree fits and bounds a whole-tree bundle).
             stream_atlas = hlod_streamed_atlas_limit(rd->get_device_memory_budget(), route_limit, atlas_override,
-                    tile_renderer_state.renderer, relative_capacity);
+                    tile_renderer_state.renderer, relative_capacity, ledger.max_buffer_bytes());
             if (stream_atlas.bound == DeviceVramLedger::StreamedAtlasBound::NO_LEDGER_SHARE) {
                 state.hlod_stream_atlas_limit_bytes = 0;
                 state.hlod_stream_atlas_limit_bound = uint8_t(stream_atlas.bound);
@@ -2829,10 +2853,11 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             }
         }
         if (!built || (streaming && streamer.is_null())) {
+            const bool binding_range_refused = canonical.binding_range_refused || relative.binding_range_refused;
             discard_streamer();
             release_hlod_bundle(canonical);
             release_hlod_bundle(relative);
-            state.hlod_reason = "hlod_candidate_allocation_failed";
+            state.hlod_reason = binding_range_refused ? "hlod_storage_buffer_range_exceeded" : "hlod_candidate_allocation_failed";
             if (publish_hlod_bundle(false)) { return 1; }
             return 0;
         }
@@ -3675,6 +3700,10 @@ bool GaussianSplatRenderer::get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) c
 #ifdef TESTS_ENABLED
 void GaussianSplatRenderer::test_set_hlod_route_limit_override(int64_t p_bytes) {
     get_resource_state().hlod_test_route_limit_override.store(p_bytes > 0 ? uint64_t(p_bytes) : 0u, std::memory_order_release);
+}
+
+void GaussianSplatRenderer::test_set_storage_buffer_range_override(int64_t p_bytes) {
+    get_resource_state().hlod_test_storage_buffer_range_override.store(p_bytes > 0 ? uint64_t(p_bytes) : 0u, std::memory_order_release);
 }
 
 void GaussianSplatRenderer::test_set_hlod_hold_world_idle(bool p_hold) {

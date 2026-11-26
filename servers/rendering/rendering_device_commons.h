@@ -941,6 +941,9 @@ public:
 		LIMIT_METALFX_TEMPORAL_SCALER_MIN_SCALE = 46,
 		LIMIT_METALFX_TEMPORAL_SCALER_MAX_SCALE,
 		LIMIT_MAX_SHADER_VARYINGS,
+		// GodotGS (ADR adr-beyond-vram-worlds.md BV-33): the largest byte range one storage-buffer binding may cover
+		// (Vulkan maxStorageBufferRange). Engine-internal like LIMIT_MAX_SHADER_VARYINGS: not bound to scripting.
+		LIMIT_MAX_STORAGE_BUFFER_RANGE,
 	};
 
 	enum Features {

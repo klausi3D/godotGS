@@ -1568,6 +1568,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         ledger["device_heap_bytes"] = int64_t(ledger_snapshot.device_heap_bytes);
         ledger["limit_bytes"] = int64_t(ledger_snapshot.limit_bytes);
         ledger["engine_driver_reserve_bytes"] = int64_t(ledger_snapshot.engine_driver_reserve_bytes);
+        ledger["max_buffer_bytes"] = int64_t(ledger_snapshot.max_buffer_bytes); // Codex F7: the device's binding limit.
         ledger["device_observed"] = ledger_snapshot.device_observed;
         ledger["device_bytes"] = int64_t(ledger_snapshot.device_bytes);
         ledger["attributed_bytes"] = int64_t(ledger_snapshot.attributed_bytes);

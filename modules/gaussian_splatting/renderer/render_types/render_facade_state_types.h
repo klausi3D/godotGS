@@ -69,6 +69,8 @@ struct HlodBundle {
     uint64_t host_staged_bytes = 0;
     uint64_t generation = 0;
     bool quantized = false;
+    // Codex F7: a buffer of this candidate was refused because it exceeds the device's storage-buffer binding range.
+    bool binding_range_refused = false;
     Vector<DrawnNodeGPU> draw_entries;
     // CPU-only per-chunk geometry/content retained with this bundle and released by hlod_free_bundle.
     LocalVector<gs_shadow_refresh::Geometry> shadow_instance_geometry;
@@ -255,6 +257,9 @@ struct ResourceState {
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
     // Lowers the HLOD route's device-ledger limit (0 = off) so a runtime scenario can force a memory refusal. Never raises it.
     std::atomic<uint64_t> hlod_test_route_limit_override{ 0 };
+    // Lowers the device's storage-buffer binding range the ledger is configured with (0 = off; Codex F7), so a test can
+    // place a bundle just below or above it. Never raises it.
+    std::atomic<uint64_t> hlod_test_storage_buffer_range_override{ 0 };
     // Holds a streamed (paged) world idle: every main view takes the idle fallback with the view's admitted objects
     // (reason hlod_test_world_held_idle), exactly as while its cut loads. Never makes anything drawable.
     std::atomic<bool> hlod_test_hold_world_idle{ false };

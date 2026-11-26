@@ -291,4 +291,49 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] enforced o
     CHECK(ledger.snapshot().report_only_overruns == 2);
 }
 
+// Codex F7 (ADR BV-33): the atlas and every bundle buffer are bound whole, so the device's storage-buffer binding range
+// bounds them, not only the 32-bit creation size. The range is injected here; the GPU case reads it from the device.
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger][HLOD] the device's storage-buffer binding range bounds every atlas limit") {
+    using Bound = DeviceVramLedger::StreamedAtlasBound;
+    const uint64_t heap = 24 * 1024 * kMiB;
+    const uint64_t range = 1536 * kMiB; // below the 2 GiB staging ceiling and below the 32-bit size
+    // The binding limit is the reported range, never above the 32-bit creation size; a device reporting 0 binds nothing.
+    CHECK(DeviceVramLedger::binding_limit_for_device(range) == range);
+    CHECK(DeviceVramLedger::binding_limit_for_device(uint64_t(UINT32_MAX)) == uint64_t(UINT32_MAX));
+    CHECK(DeviceVramLedger::binding_limit_for_device(uint64_t(UINT32_MAX) + 1) == DeviceVramLedger::kMaxAtlasBufferBytes);
+    CHECK(DeviceVramLedger::binding_limit_for_device(uint64_t(1) << 40) == DeviceVramLedger::kMaxAtlasBufferBytes);
+    CHECK(DeviceVramLedger::binding_limit_for_device(0) == 0);
+    // Just below, at and just above the limit.
+    CHECK(DeviceVramLedger::binding_fits(range - 1, range));
+    CHECK(DeviceVramLedger::binding_fits(range, range));
+    CHECK_FALSE(DeviceVramLedger::binding_fits(range + 1, range));
+    CHECK_FALSE(DeviceVramLedger::binding_fits(1, 0));
+
+    DeviceVramLedger ledger;
+    ledger.configure(heap, kCap, 0, range);
+    CHECK(ledger.max_buffer_bytes() == range);
+    CHECK(ledger.snapshot().max_buffer_bytes == range);
+    // The resident / whole-tree atlas: the 2 GiB staging ceiling would admit more than one binding can cover.
+    CHECK(ledger.atlas_limit(0) == range);
+    CHECK(ledger.atlas_limit(1024) == 1024 * kMiB); // an override below the range still binds
+    CHECK(ledger.atlas_limit(4096) == range); // an override above it is clamped
+    // A range just above the staging ceiling leaves the ceiling in charge.
+    ledger.configure(heap, kCap, 0, uint64_t(2048) * kMiB + 1);
+    CHECK(ledger.atlas_limit(0) == uint64_t(2048) * kMiB);
+    // The streamed atlas: one byte below, at and above the injected range.
+    const uint64_t reserve = 77;
+    DeviceVramLedger::StreamedAtlasLimit l = DeviceVramLedger::streamed_atlas_limit_for_device(heap, range - 1 + reserve, 0, reserve, range);
+    CHECK(l.bytes == range - 1);
+    CHECK(l.bound == Bound::LEDGER_SHARE);
+    l = DeviceVramLedger::streamed_atlas_limit_for_device(heap, range + reserve, 0, reserve, range);
+    CHECK(l.bytes == range);
+    CHECK(l.bound == Bound::LEDGER_SHARE);
+    l = DeviceVramLedger::streamed_atlas_limit_for_device(heap, range + 1 + reserve, 0, reserve, range);
+    CHECK(l.bytes == range);
+    CHECK(l.bound == Bound::BUFFER_LIMIT);
+    // Unconfigured, the ledger keeps the 32-bit size (the publisher always configures it with the device's range).
+    DeviceVramLedger fresh;
+    CHECK(fresh.max_buffer_bytes() == DeviceVramLedger::kMaxAtlasBufferBytes);
+}
+
 } // namespace DeviceVramLedgerTests

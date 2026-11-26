@@ -52,12 +52,21 @@ public:
 	// resident route and the whole-tree HLOD bundle (one-shot uploads). A STREAMED HLOD atlas is not bound by it: it
 	// uploads page runs under the per-frame byte cap (ADR adr-beyond-vram-worlds.md D-3, BV-17); see streamed_atlas_limit_for_device.
 	static constexpr uint64_t kResidentStagingCeilingBytes = uint64_t(2) * 1024 * 1024 * 1024;
-	// The byte limit of the one atlas storage buffer: every HLOD bundle buffer is created with a 32-bit size
-	// (hlod_create_buffer), and RenderingDevice exposes no maxStorageBufferRange query (ADR BV-33); the RTX 3090 reports
-	// 4294967295. The shaders bound the atlas with the host's record count (InstanceDepthParamsGPU::atlas_info,
-	// ShadowCasterPushConstant::atlas), never with gaussians.length(): on the RTX 3090 (Windows, Vulkan) the array length
-	// of an atlas binding above 2^31 bytes is wrong, and a streamed atlas of 2,148,450,304 B drew nothing (ADR K8, BV-17).
+	// The byte ceiling of one storage buffer: every HLOD bundle buffer is created with a 32-bit size (hlod_create_buffer).
+	// The device's own binding limit can be lower; see binding_limit_for_device. The shaders bound the atlas with the host's
+	// record count (InstanceDepthParamsGPU::atlas_info, ShadowCasterPushConstant::atlas), never with gaussians.length(): on
+	// the RTX 3090 (Windows, Vulkan) the array length of an atlas binding above 2^31 bytes is wrong, and a streamed atlas of
+	// 2,148,450,304 B drew nothing (ADR K8, BV-17).
 	static constexpr uint64_t kMaxAtlasBufferBytes = UINT32_MAX;
+
+	// The largest storage buffer the GS may create and bind whole (Codex F7, ADR BV-33): the device's storage-buffer binding
+	// range (RenderingDevice::LIMIT_MAX_STORAGE_BUFFER_RANGE; Vulkan maxStorageBufferRange, which the RTX 3090 reports as
+	// 4294967295), never above the 32-bit creation size. A device reporting 0 can bind nothing: every binding is refused.
+	static uint64_t binding_limit_for_device(uint64_t p_storage_buffer_range) {
+		return p_storage_buffer_range < kMaxAtlasBufferBytes ? p_storage_buffer_range : kMaxAtlasBufferBytes;
+	}
+	// Whether one storage buffer of `p_bytes` can be created and bound whole under `p_binding_limit`.
+	static bool binding_fits(uint64_t p_bytes, uint64_t p_binding_limit) { return p_bytes <= p_binding_limit; }
 
 	// What bounds the atlas of a streamed HLOD world. Published as hlod_stream_atlas_limit_bound.
 	enum class StreamedAtlasBound : uint8_t {
@@ -65,7 +74,7 @@ public:
 		LEDGER_SHARE, // The GS ledger limit minus the route's frame reserve: the default on a trusted heap.
 		UNKNOWN_HEAP, // Unknown or untrusted heap: the staging ceiling, as before (fail closed).
 		OVERRIDE, // resident/atlas_vram_budget_override_mb, in either direction.
-		BUFFER_LIMIT, // Clamped to one storage buffer (kMaxAtlasBufferBytes).
+		BUFFER_LIMIT, // Clamped to one bindable storage buffer (max_buffer_bytes(), at most kMaxAtlasBufferBytes).
 		NO_LEDGER_SHARE, // The frame reserve alone fills the ledger limit: no page is admissible, the publication refuses.
 	};
 	static const char *streamed_atlas_bound_name(StreamedAtlasBound p_bound) {
@@ -152,6 +161,7 @@ public:
 		uint64_t device_heap_bytes = 0;
 		uint64_t limit_bytes = 0; // The GS share (or the fallback cap on an unknown heap, or a test clamp).
 		uint64_t engine_driver_reserve_bytes = 0; // device_heap_bytes - limit_bytes.
+		uint64_t max_buffer_bytes = 0; // The largest bindable storage buffer (binding_limit_for_device).
 		bool device_observed = false;
 		uint64_t device_bytes = 0; // The latest measurement.
 		uint64_t admitted_device_bytes = 0; // The measurement of the last admitted HLOD frame.
@@ -186,18 +196,26 @@ public:
 		}
 	};
 
-	// `p_limit_clamp` != 0 lowers the limit (the test hook of the HLOD frame route).
-	void configure(uint64_t p_device_heap_bytes, uint64_t p_fixed_cap_bytes, uint64_t p_limit_clamp = 0) {
+	// `p_limit_clamp` != 0 lowers the limit (the test hook of the HLOD frame route). `p_storage_buffer_range` is the
+	// device's storage-buffer binding range (binding_limit_for_device); the publisher passes the queried value.
+	void configure(uint64_t p_device_heap_bytes, uint64_t p_fixed_cap_bytes, uint64_t p_limit_clamp = 0,
+			uint64_t p_storage_buffer_range = kMaxAtlasBufferBytes) {
 		uint64_t limit = gs_limit_for_device(p_device_heap_bytes, p_fixed_cap_bytes);
 		if (p_limit_clamp != 0 && p_limit_clamp < limit) { limit = p_limit_clamp; }
 		device_heap_bytes.store(p_device_heap_bytes, std::memory_order_relaxed);
 		limit_bytes.store(limit, std::memory_order_relaxed);
+		max_binding_bytes.store(binding_limit_for_device(p_storage_buffer_range), std::memory_order_relaxed);
 		configured.store(true, std::memory_order_relaxed);
 	}
 	uint64_t limit() const { return limit_bytes.load(std::memory_order_relaxed); }
-	// The atlas limit of the configured heap. The override setting is read by the caller; this class reads no settings.
+	// The largest storage buffer that may be created and bound whole on the configured device.
+	uint64_t max_buffer_bytes() const { return max_binding_bytes.load(std::memory_order_relaxed); }
+	// The atlas limit of the configured heap, never above one bindable storage buffer. The override setting is read by the
+	// caller; this class reads no settings.
 	uint64_t atlas_limit(uint32_t p_override_mb) const {
-		return atlas_limit_for_device(device_heap_bytes.load(std::memory_order_relaxed), p_override_mb);
+		const uint64_t cap = atlas_limit_for_device(device_heap_bytes.load(std::memory_order_relaxed), p_override_mb);
+		const uint64_t binding = max_buffer_bytes();
+		return cap < binding ? cap : binding;
 	}
 	void observe_device_bytes(uint64_t p_bytes) {
 		device_bytes.store(p_bytes, std::memory_order_relaxed);
@@ -256,6 +274,7 @@ public:
 		out.device_heap_bytes = device_heap_bytes.load(std::memory_order_relaxed);
 		out.limit_bytes = limit();
 		out.engine_driver_reserve_bytes = out.device_heap_bytes > out.limit_bytes ? out.device_heap_bytes - out.limit_bytes : 0;
+		out.max_buffer_bytes = max_buffer_bytes();
 		out.device_observed = device_observed.load(std::memory_order_relaxed);
 		out.device_bytes = device_bytes.load(std::memory_order_relaxed);
 		out.admitted_device_bytes = admitted_device_bytes.load(std::memory_order_relaxed);
@@ -294,6 +313,7 @@ private:
 
 	std::atomic<uint64_t> device_heap_bytes{ 0 };
 	std::atomic<uint64_t> limit_bytes{ 0 };
+	std::atomic<uint64_t> max_binding_bytes{ kMaxAtlasBufferBytes };
 	std::atomic<bool> configured{ false };
 	std::atomic<bool> device_observed{ false };
 	std::atomic<uint64_t> device_bytes{ 0 };

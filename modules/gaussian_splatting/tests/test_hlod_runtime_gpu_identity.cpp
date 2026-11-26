@@ -759,7 +759,7 @@ public:
     RenderingDevice *get_sort_resource_device() const override { return actual->get_sort_resource_device(); }
 };
 
-static void paged_sort_budget_regression(bool p_overflow) {
+static void paged_sort_budget_regression(bool p_overflow, bool p_binding_limit = false) {
     SceneTree *tree = SceneTree::get_singleton();
     RenderingDevice *rd = RenderingDevice::get_singleton();
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -867,6 +867,34 @@ static void paged_sort_budget_regression(bool p_overflow) {
     CHECK(renderer->is_hlod_prepared_contract_current());
     CHECK(state.hlod_bundle_builds == builds); // The prepared check must use the same bounded capacity.
     CHECK(pipeline->largest_request <= budget);
+    if (p_binding_limit) {
+        // Codex F7: the device's storage-buffer binding range bounds the streamed atlas. First the real query: the ledger
+        // holds what the device reports (Vulkan maxStorageBufferRange), and that is not the 1 GiB every driver returns
+        // for a limit it does not know, so the driver really answers it.
+        const uint64_t reported = rd->limit_get(RD::LIMIT_MAX_STORAGE_BUFFER_RANGE);
+        CHECK(reported != (uint64_t(1) << 30));
+        CHECK(state.device_vram_ledger.max_buffer_bytes() == DeviceVramLedger::binding_limit_for_device(reported));
+        // Then a range injected one byte below the atlas the unconstrained publication built: the rebuilt atlas must fit
+        // it, and the published bound must name it.
+        const uint64_t stride = state.hlod_relative.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+        const uint64_t built_atlas = uint64_t(state.hlod_relative.buffers.atlas_gaussian_count) * stride;
+        if (built_atlas <= 4096 * stride) { FAIL("the unconstrained atlas is too small to shrink: ", built_atlas); return; }
+        const uint64_t range = built_atlas - 1;
+        struct ClearRange {
+            GaussianSplatRenderer *renderer;
+            ~ClearRange() { renderer->test_set_storage_buffer_range_override(0); }
+        } clear_range{ renderer.ptr() };
+        renderer->test_set_storage_buffer_range_override(int64_t(range));
+        renderer->release_hlod_resources();
+        const int republished = renderer->try_publish_hlod_resident_contract(reason);
+        CHECK(state.device_vram_ledger.max_buffer_bytes() == range);
+        if (republished != 1) { FAIL("publication under the injected binding range refused: ", state.hlod_reason.utf8().get_data()); return; }
+        CHECK(state.hlod_streaming);
+        CHECK(uint64_t(state.hlod_relative.buffers.atlas_gaussian_count) * stride <= range);
+        CHECK(state.hlod_stream_atlas_limit_bytes <= range);
+        CHECK(state.hlod_stream_atlas_limit_bound == uint8_t(DeviceVramLedger::StreamedAtlasBound::BUFFER_LIMIT));
+        return;
+    }
     if (!p_overflow) { return; }
 
     // Fault injection AFTER real admission: two resident chunks draw budget + 1
@@ -941,6 +969,10 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] an 
     // The existing overflow mechanism already counts drops; preserve it as the
     // sort allocation shrinks from whole-world capacity to the drawn budget.
     paged_sort_budget_regression(true);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] the streamed atlas stays within the device's storage-buffer binding range (Codex F7)") {
+    paged_sort_budget_regression(false, true);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a paged World3D draws nothing from a stand-in and says why when no present target exists") {
