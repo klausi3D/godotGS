@@ -888,7 +888,7 @@ static void paged_sort_budget_regression(bool p_overflow, bool p_binding_limit =
         renderer->release_hlod_resources();
         const int republished = renderer->try_publish_hlod_resident_contract(reason);
         CHECK(state.device_vram_ledger.max_buffer_bytes() == range);
-        if (republished != 1) { FAIL("publication under the injected binding range refused: ", state.hlod_reason.utf8().get_data()); return; }
+        if (republished != 1) { FAIL("publication under the injected binding range refused: ", String(state.hlod_reason)); return; }
         CHECK(state.hlod_streaming);
         CHECK(uint64_t(state.hlod_relative.buffers.atlas_gaussian_count) * stride <= range);
         CHECK(state.hlod_stream_atlas_limit_bytes <= range);
