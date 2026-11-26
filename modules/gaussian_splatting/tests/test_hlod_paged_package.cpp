@@ -900,6 +900,10 @@ static void check_peak_covers_chunk_build(const Ref<GaussianSplatWorld> &p_world
 			leaf * (sizeof(Gaussian) + high * sizeof(Vector3)) + chunk_index_bytes + uint64_t(p_world->get_static_chunks().size()) * sizeof(StaticChunk);
 	CHECK_MESSAGE(p_peak >= live_at_chunk_build,
 			vformat("reported peak %d B < %d B live while the leaf chunks are built", int64_t(p_peak), int64_t(live_at_chunk_build)));
+	// Second Codex P2 on #1558: the up-front allocation probe is a block of its own; it must not ask for more than the peak.
+	CHECK(GaussianSplatWorld::materialize_probe_test_bytes > 0u);
+	CHECK_MESSAGE(GaussianSplatWorld::materialize_probe_test_bytes <= p_peak,
+			vformat("allocation probe %d B > reported peak %d B", int64_t(GaussianSplatWorld::materialize_probe_test_bytes), int64_t(p_peak)));
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be materialized into the resident v3 shape, and fails closed") {
@@ -1009,6 +1013,32 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a single-leaf paged world
 	CHECK(info.interior_splat_count == 0u);
 	uint64_t peak = 0;
 	GS_NEED(loaded->get_paged_materialize_peak_bytes(peak));
+	String reason;
+	CHECK(loaded->materialize_paged_resident(peak, reason) == OK);
+	CHECK_FALSE(loaded->has_hlod_paged_source());
+	check_peak_covers_chunk_build(loaded, info, peak);
+}
+
+// Second Codex P2 on #1558, its example: 28,000 splats (leaves plus interiors, no high-order SH). The probe rounded the
+// combined payload up to one power of two (5.04 MB -> 8 MiB, twice: 16 MiB) where the estimate rounds leaves and interiors
+// separately (under 10 MiB): the probe alone asked for more than the reported peak.
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world's allocation probe stays within its reported peak") {
+	Ref<GaussianSplatWorld> source = make_world(28000, 0);
+	GS_NEED(source->bake_hlod() == OK);
+	const String path = temp_path("probe_peak");
+	GS_NEED(source->save_hlod_paged(path) == OK);
+	Error load_error = ERR_BUG;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<GaussianSplatWorld> loaded = loader.load(path, "", &load_error);
+	if (load_error != OK || loaded.is_null() || !loaded->has_hlod_paged_source()) {
+		FAIL("package did not load as a V4 paged world");
+		return;
+	}
+	const GaussianSplatHlodPagedSource::Info info = loaded->get_hlod_paged_source()->get_info();
+	MESSAGE("leaf splats ", info.leaf_splat_count, ", interior splats ", info.interior_splat_count);
+	uint64_t peak = 0;
+	GS_NEED(loaded->get_paged_materialize_peak_bytes(peak));
+	GaussianSplatWorld::materialize_probe_test_bytes = 0;
 	String reason;
 	CHECK(loaded->materialize_paged_resident(peak, reason) == OK);
 	CHECK_FALSE(loaded->has_hlod_paged_source());

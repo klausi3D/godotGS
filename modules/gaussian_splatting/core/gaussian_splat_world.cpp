@@ -92,6 +92,7 @@ bool hlod_live_bounds(const GaussianSplatHlodTree &p_tree, const AABB &p_request
 #ifdef TESTS_ENABLED
 GaussianSplatWorld::HlodBakeTestHook GaussianSplatWorld::hlod_bake_test_hook = nullptr;
 void *GaussianSplatWorld::hlod_bake_test_userdata = nullptr;
+uint64_t GaussianSplatWorld::materialize_probe_test_bytes = 0;
 #endif
 
 void GaussianSplatWorld::_bind_methods() {
@@ -730,7 +731,11 @@ Error GaussianSplatWorld::materialize_paged_resident(uint64_t p_ram_budget_bytes
     {
         // Peak is about twice the payload: our vectors, plus the copy GaussianData::set_gaussian_payload makes of the leaves
         // from a const reference (the vectors are released only after it returns).
-        void *probe = memalloc(2 * (gaussian_bytes + sh_bytes));
+        const uint64_t probe_bytes = 2 * (gaussian_bytes + sh_bytes);
+#ifdef TESTS_ENABLED
+        materialize_probe_test_bytes = probe_bytes;
+#endif
+        void *probe = memalloc(probe_bytes);
         if (!probe) {
             r_reason = "hlod_paged_materialize_too_large";
             return ERR_OUT_OF_MEMORY;

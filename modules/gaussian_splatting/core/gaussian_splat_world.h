@@ -143,6 +143,8 @@ public:
     using HlodBakeTestHook = void (*)(void *, GaussianSplatWorld *);
     static HlodBakeTestHook hlod_bake_test_hook;
     static void *hlod_bake_test_userdata;
+    // The size of the last allocation probe materialize_paged_resident() made (0 before any). Tests only.
+    static uint64_t materialize_probe_test_bytes;
 #endif
     bool has_hlod_tree() const { MutexLock lock(render_input_mutex); return !hlod_tree.is_empty(); }
     // False when the resident payload was edited in place (GaussianData setters) after the tree
