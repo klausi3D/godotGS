@@ -2999,7 +2999,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_prepared_snapshot;
     // A streamed world has no canonical copy to fall back to: every non-active frame draws nothing (explicitly,
     // with the reason) instead of a partial cut or a whole-world copy.
-    auto fallback = [&](const char *p_reason) {
+    auto fallback = [&](const char *p_reason, bool p_view_only = false) {
         state.hlod_reason = p_reason;
         // Only a main/camera view that the route refused counts: shadow and manual passes are routine early exits, and so
         // is a deliberate LOD-off of a world that draws its canonical leaves instead. A paged world with LOD off draws
@@ -3014,15 +3014,23 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // ADR 4.4: an idle streamed world still draws the objects of this view (world records = 0).
         if (state.hlod_streaming) {
             // A streamed or paged world has no canonical copy, so a main view the route does not serve (orthographic,
-            // multi-view/XR, painterly) or a domain that started after the submission would show no world splats. The
-            // automatic route demotes the world to the route it had without it (lod/hlod_auto_route.h); this frame still
-            // draws only the objects. Lifting these views on the route itself is follow-up F5.
+            // multi-view/XR) or a domain that started after the submission (painterly, ...) shows no world splats. A
+            // domain demotes the world to the route it had without it (lod/hlod_auto_route.h); a view never does (MF-1:
+            // one minimap or editor ortho view must not move the world off the route for every view, nor load a paged
+            // world into memory): it draws only the objects, loudly. Lifting these views on the route itself is follow-up F5.
+            if (p_view_only && p_context.pass_kind == RenderPassKind::MAIN_VIEW && !state.hlod_view_refusal_warned) {
+                state.hlod_view_refusal_warned = true;
+                WARN_PRINT(vformat("[GaussianSplatRenderer] A streamed or paged HLOD world draws no world splats in an orthographic or "
+                                   "multi-view (XR) view (%s); the world stays on the HLOD route for its other views. Render stats "
+                                   "hlod_last_refusal_reason / hlod_refused_views count these views.", p_reason));
+            }
             gs_hlod_auto_route::RefusalInputs refusal;
             refusal.stage = gs_hlod_auto_route::RefusalStage::FRAME;
             refusal.reason = p_reason;
             refusal.main_view = p_context.pass_kind == RenderPassKind::MAIN_VIEW;
             refusal.no_canonical_copy = true;
             refusal.committed_edit = state.hlod_committed_edit.is_valid();
+            refusal.view_only = p_view_only;
             request_hlod_auto_route_demotion(refusal);
             const bool with_instances = instance_draws_ready && !state.hlod_instance_draws.is_empty();
             if (idle_hlod_streaming_bundle(with_instances, instance_draws_origin_revision) && with_instances &&
@@ -3040,7 +3048,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (p_context.pass_kind != RenderPassKind::MAIN_VIEW || !p_context.render_data || !p_context.render_buffers ||
             p_context.render_buffers->get_view_count() != 1 || p_context.projection.is_orthogonal() || p_context.painterly_enabled ||
             p_context.viewport_size.x <= 0 || p_context.viewport_size.y <= 0) {
-        return fallback("unsupported_view_or_material");
+        // The same reason key for both; only painterly (a renderer setting, not this view) may demote (MF-1).
+        return fallback("unsupported_view_or_material", !p_context.painterly_enabled);
     }
     ProjectSettings *ps = ProjectSettings::get_singleton();
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();

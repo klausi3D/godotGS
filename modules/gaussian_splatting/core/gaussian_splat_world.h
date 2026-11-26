@@ -113,7 +113,14 @@ public:
     // concatenates the leaves into a resident GaussianData and the interiors into the tree, and turns this into the same
     // resident HLOD world a v3 load produces; the paged source is dropped. It costs the memory of a v3 load of the same
     // world, which is the point of V4 avoiding. Returns OK also when nothing was paged.
-    Error materialize_paged_resident(String &r_reason);
+    // MF-1 (ADR beyond-VRAM I-8): refused, with nothing allocated and r_reason hlod_paged_materialize_over_ram_budget,
+    // when its peak (get_paged_materialize_peak_bytes) is above p_ram_budget_bytes
+    // (gs::settings::get_hlod_paged_materialize_ram_budget_bytes; 0 = never).
+    Error materialize_paged_resident(uint64_t p_ram_budget_bytes, String &r_reason);
+    // The CPU bytes materialize_paged_resident() would peak at: the maximum over its phases of the allocations live at the
+    // same time (payload vectors, fill map, read scratch, the GaussianData copy, the leaf chunks). false without a paged source,
+    // or when the payload is beyond what the materializer can index (it refuses such a package anyway).
+    bool get_paged_materialize_peak_bytes(uint64_t &r_bytes) const;
     Ref<GaussianSplatHlodPagedSource> get_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source; }
     Variant get_hlod_payload_source_generation() const; // Live identity for telemetry validation; null if unavailable.
     bool has_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source.is_valid(); }
@@ -136,6 +143,8 @@ public:
     using HlodBakeTestHook = void (*)(void *, GaussianSplatWorld *);
     static HlodBakeTestHook hlod_bake_test_hook;
     static void *hlod_bake_test_userdata;
+    // The size of the last allocation probe materialize_paged_resident() made (0 before any). Tests only.
+    static uint64_t materialize_probe_test_bytes;
 #endif
     bool has_hlod_tree() const { MutexLock lock(render_input_mutex); return !hlod_tree.is_empty(); }
     // False when the resident payload was edited in place (GaussianData setters) after the tree

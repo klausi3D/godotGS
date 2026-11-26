@@ -1143,43 +1143,58 @@ func _wi_wait_hlod_active(world_node: GaussianSplatWorld3D, deadline: int, what:
 	return st
 
 
-# Pumps frames in the orthographic view until 10 consecutive frames show the world demoted (the reason, the counter at
-# p_demotions, the cause) and drawing the wall (sorted splats, the centre pixel the wall, the corner background). The
-# deadline binds the pass. {} on failure.
-func _wi_wait_demoted_draw(world_node: GaussianSplatWorld3D, deadline: int, p_demotions: int, what: String) -> Dictionary:
-	var drawn := 0
+# Pumps frames in the orthographic view until 10 consecutive frames show the view refused and the world kept on its
+# route: the reason unsupported_view_or_material (also the last refusal), the refused-view counter counting past
+# p_refused_before, the demotion counter still at p_demotions, the world still paged (nothing loaded into memory), no
+# world splats drawn (hlod_world_draw_records 0 - reset for every main view before the gate - and a 3 x 3 pixel grid over
+# the wall all background). sorted_splats is not used: it is the sorter's last count and is not reset by a view that
+# sorts nothing. The deadline binds the pass. {} on failure.
+func _wi_wait_refused_view(world_node: GaussianSplatWorld3D, world: GaussianSplatWorld, deadline: int, p_demotions: int, p_refused_before: int, what: String) -> Dictionary:
+	var refused := 0
 	var last := {}
 	var cls_center := ""
-	var cls_corner := ""
-	while Time.get_ticks_msec() < deadline and drawn < 10:
+	var last_count := p_refused_before
+	while Time.get_ticks_msec() < deadline and refused < 10:
 		await RenderingServer.frame_post_draw
-		if not _check(Time.get_ticks_msec() < deadline, "%s: exceeded its deadline before the demoted world drew (drawn=%d)" % [what, drawn]):
+		if not _check(Time.get_ticks_msec() < deadline, "%s: exceeded its deadline before the view was refused (refused=%d)" % [what, refused]):
+			return {}
+		if not _check(world.has_hlod_paged_source() and not world.has_resident_gaussian_data(), "%s: the orthographic view loaded the paged world into memory" % what):
 			return {}
 		var renderer := world_node.get_renderer()
 		if renderer == null:
-			drawn = 0
+			refused = 0
 			continue
 		last = renderer.get_render_stats()
+		for key in ["hlod_reason", "hlod_last_refusal_reason", "hlod_refused_views", "hlod_auto_route_demotions", "hlod_world_draw_records"]:
+			if not _check(last.has(key), "%s: missing renderer field %s" % [what, key]):
+				return {}
+		if not _check(int(last["hlod_auto_route_demotions"]) == p_demotions and not str(last["hlod_reason"]).begins_with("hlod_auto_route_demoted:"), "%s: the orthographic view demoted the world (reason=%s demotions=%s, expected %d)" % [what, last["hlod_reason"], last["hlod_auto_route_demotions"], p_demotions]):
+			return {}
 		var img := get_root().get_texture().get_image()
 		cls_center = _wi_classify(img.get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2))
-		cls_corner = _wi_classify(img.get_pixel(3, 3))
-		var demoted: bool = str(last.get("hlod_reason", "")) == "hlod_auto_route_demoted:unsupported_view_or_material" \
-				and int(last.get("hlod_auto_route_demotions", -1)) == p_demotions \
-				and str(last.get("hlod_auto_route_demotion_cause", "")) == "unsupported_view_or_material"
-		drawn = drawn + 1 if demoted and int(last.get("sorted_splats", 0)) > 0 and cls_center == "wall" and cls_corner == "background" else 0
-	if not _check(drawn >= 10, "%s: the demoted world never drew in the orthographic view (reason=%s demotions=%s (expected %d) sorted=%s centre=%s corner=%s)" % [what, last.get("hlod_reason", "MISSING"), last.get("hlod_auto_route_demotions", "MISSING"), p_demotions, last.get("sorted_splats", "MISSING"), cls_center, cls_corner]):
+		var grid_background := true
+		for gy in [-1, 0, 1]:
+			for gx in [-1, 0, 1]:
+				if _wi_classify(img.get_pixel(WI_SIZE.x / 2 + gx * WI_SIZE.x / 6, WI_SIZE.y / 2 + gy * WI_SIZE.y / 6)) != "background":
+					grid_background = false
+		var count := int(last["hlod_refused_views"])
+		var ok: bool = str(last["hlod_reason"]) == "unsupported_view_or_material" and str(last["hlod_last_refusal_reason"]) == "unsupported_view_or_material" \
+				and count > last_count and int(last["hlod_world_draw_records"]) == 0 and grid_background
+		last_count = count
+		refused = refused + 1 if ok else 0
+	if not _check(refused >= 10, "%s: the orthographic view was never refused loudly (reason=%s last_refusal=%s refused_views=%s world_draw_records=%s centre=%s)" % [what, last.get("hlod_reason", "MISSING"), last.get("hlod_last_refusal_reason", "MISSING"), last.get("hlod_refused_views", "MISSING"), last.get("hlod_world_draw_records", "MISSING"), cls_center]):
 		return {}
 	return last
 
 
-# Sticky demotion (lod/hlod_auto_route.h): a paged world has no canonical copy, so an orthographic main view, which the
-# HLOD route does not serve, would draw no world splats. The automatic route demotes the world to the route it has
-# without it (the paged payload loaded into memory, then route_policy's chunk route): the wall draws in the orthographic
-# view, with the reason and the counter, and stays demoted when the view is perspective again. Then a replacement paged
-# world on the same node and renderer takes the HLOD route again, and an orthographic view demotes it again (Codex P2 on
-# #1309: the renderer's one-request latch was never re-armed by a replacement snapshot, so the replacement drew no world
-# splats in the orthographic view). No nodes: on the canonical routes the world row is dropped when nodes exist
-# (follow-up F1), on master as here.
+# MF-1 (production review 2026-11-25; ADR beyond-VRAM I-8). A paged world has no canonical copy, so an orthographic main
+# view, which the HLOD route does not serve, draws no world splats. That refusal belongs to the view, not to the world:
+# the world is NOT demoted (before MF-1 one orthographic frame loaded the whole paged payload into memory, unbounded, and
+# kept the world off the HLOD route until apply_world()). The refused view says so (reason, last refusal, the refused-view
+# counter, a warning); the perspective view takes the HLOD route again at once, still paged. A replacement paged world on
+# the same node and renderer behaves the same. No nodes: on the canonical routes the world row is dropped when nodes exist
+# (follow-up F1). The demotion latch re-arm on replacement (Codex P2 on #1309) is covered by the CPU doctest of
+# install_snapshot(); no per-view refusal demotes any more, so this GPU proof no longer exercises it.
 func _wi_run_ortho_demotion() -> bool:
 	var deadline := Time.get_ticks_msec() + WI_TIMEOUT_MSEC
 	var world := _wi_wall(true)
@@ -1204,34 +1219,28 @@ func _wi_run_ortho_demotion() -> bool:
 	if st.is_empty():
 		return false
 	var demotions_before := int(st["hlod_auto_route_demotions"])
+	if not _check(st.has("hlod_refused_views"), "ortho: missing renderer field hlod_refused_views"):
+		return false
 	var summary := {"perspective": st.duplicate()}
 	camera.set_orthogonal(12.0, 0.1, 100.0)
-	var last := await _wi_wait_demoted_draw(world_node, deadline, demotions_before + 1, "ortho")
+	var last := await _wi_wait_refused_view(world_node, world, deadline, demotions_before, int(st["hlod_refused_views"]), "ortho")
 	if last.is_empty():
 		return false
-	if not _check(not world.has_hlod_paged_source() and world.has_resident_gaussian_data(), "ortho: the demoted paged world did not load its payload"):
-		return false
-	var path := "user://hlod_world_instances_ortho_demoted_%d.png" % OS.get_process_id()
+	var path := "user://hlod_world_instances_ortho_refused_%d.png" % OS.get_process_id()
 	if not _check(get_root().get_texture().get_image().save_png(path) == OK, "ortho: cannot preserve the capture"):
 		return false
-	summary["ortho_demoted"] = last.duplicate()
+	summary["ortho_refused"] = last.duplicate()
 	summary["image_ortho"] = ProjectSettings.globalize_path(path)
-	# Sticky: perspective again, the world stays demoted (no re-promotion without apply_world()), still drawing. 30 frames
-	# is a lower bound on how long it must stay; the deadline still binds every one of them.
+	# Not sticky: perspective again, the world takes the HLOD route again, still paged and never demoted.
 	camera.set_perspective(60.0, 0.1, 100.0)
-	for f in range(30):
-		await RenderingServer.frame_post_draw
-		if not _check(Time.get_ticks_msec() < deadline, "ortho: the sticky phase exceeded its deadline (frame %d)" % f):
-			return false
-	var renderer := world_node.get_renderer()
-	if not _check(renderer != null, "ortho: the renderer is gone in the sticky phase"):
+	var after := await _wi_wait_hlod_active(world_node, deadline, "ortho perspective again")
+	if after.is_empty():
 		return false
-	var after := renderer.get_render_stats()
-	if not _check(str(after.get("hlod_reason", "")).begins_with("hlod_auto_route_demoted:") and int(after.get("hlod_auto_route_demotions", -1)) == demotions_before + 1 \
-			and _wi_classify(get_root().get_texture().get_image().get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2)) == "wall", "ortho: the demotion did not stick (reason=%s demotions=%s)" % [after.get("hlod_reason", "MISSING"), after.get("hlod_auto_route_demotions", "MISSING")]):
+	if not _check(int(after["hlod_auto_route_demotions"]) == demotions_before and world.has_hlod_paged_source() and not world.has_resident_gaussian_data() \
+			and _wi_classify(get_root().get_texture().get_image().get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2)) == "wall", "ortho: perspective after the orthographic view is not the paged HLOD route (demotions=%s paged=%s)" % [after["hlod_auto_route_demotions"], world.has_hlod_paged_source()]):
 		return false
 	summary["perspective_after"] = after.duplicate()
-	# A replacement paged world on the same node (set_world() applies it): it takes the HLOD route again, in perspective.
+	# A replacement paged world on the same node (set_world() applies it): it takes the HLOD route, in perspective.
 	var replacement := _wi_wall(true)
 	if not _check(replacement != null, "ortho replacement: paged wall load failed"):
 		return false
@@ -1239,20 +1248,18 @@ func _wi_run_ortho_demotion() -> bool:
 	var replaced := await _wi_wait_hlod_active(world_node, deadline, "ortho replacement")
 	if replaced.is_empty():
 		return false
-	if not _check(int(replaced["hlod_auto_route_demotions"]) == demotions_before + 1 and replacement.has_hlod_paged_source(), "ortho replacement: demoted again in perspective (demotions=%s paged=%s)" % [replaced["hlod_auto_route_demotions"], replacement.has_hlod_paged_source()]):
+	if not _check(int(replaced["hlod_auto_route_demotions"]) == demotions_before and replacement.has_hlod_paged_source(), "ortho replacement: demoted in perspective (demotions=%s paged=%s)" % [replaced["hlod_auto_route_demotions"], replacement.has_hlod_paged_source()]):
 		return false
 	summary["replacement_perspective"] = replaced.duplicate()
-	# A second unsupported view after the replacement demotes it again, to its own fallback route, which draws the wall.
+	# A second unsupported view after the replacement is refused the same way, and still demotes nothing.
 	camera.set_orthogonal(12.0, 0.1, 100.0)
-	var again := await _wi_wait_demoted_draw(world_node, deadline, demotions_before + 2, "ortho replacement")
+	var again := await _wi_wait_refused_view(world_node, replacement, deadline, demotions_before, int(replaced["hlod_refused_views"]), "ortho replacement")
 	if again.is_empty():
 		return false
-	if not _check(not replacement.has_hlod_paged_source() and replacement.has_resident_gaussian_data(), "ortho replacement: the demoted replacement did not load its payload"):
-		return false
-	summary["replacement_ortho_demoted"] = again.duplicate()
+	summary["replacement_ortho_refused"] = again.duplicate()
 	if not _check(Time.get_ticks_msec() < deadline, "ortho: proof completed after its deadline"):
 		return false
-	_metrics["world_ortho_demotion"] = summary
+	_metrics["world_ortho_refusal"] = summary
 	_scene = null
 	scene.queue_free()
 	await RenderingServer.frame_post_draw
