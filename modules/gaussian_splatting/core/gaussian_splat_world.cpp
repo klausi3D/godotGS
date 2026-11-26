@@ -716,22 +716,22 @@ Error GaussianSplatWorld::materialize_paged_resident(uint64_t p_ram_budget_bytes
         r_reason = "hlod_paged_materialize_too_large";
         return ERR_OUT_OF_MEMORY;
     }
-    {
-        // MF-1 (ADR beyond-VRAM I-8): never load a paged world into memory beyond the explicit RAM budget, whoever asks.
-        uint64_t peak_bytes = 0;
-        if (!paged_materialize_peak_bytes(*source.ptr(), peak_bytes) || peak_bytes > p_ram_budget_bytes) {
-            r_reason = "hlod_paged_materialize_over_ram_budget";
-            return ERR_OUT_OF_MEMORY;
-        }
+    // MF-1 (ADR beyond-VRAM I-8): never load a paged world into memory beyond the explicit RAM budget, whoever asks.
+    uint64_t peak_bytes = 0;
+    if (!paged_materialize_peak_bytes(*source.ptr(), peak_bytes) || peak_bytes > p_ram_budget_bytes) {
+        r_reason = "hlod_paged_materialize_over_ram_budget";
+        return ERR_OUT_OF_MEMORY;
     }
     LocalVector<Gaussian> leaves;
     LocalVector<Gaussian> interiors;
     LocalVector<Vector3> leaf_sh;
     LocalVector<Vector3> interior_sh;
     {
-        // Peak is about twice the payload: our vectors, plus the copy GaussianData::set_gaussian_payload makes of the leaves
-        // from a const reference (the vectors are released only after it returns).
-        const uint64_t probe_bytes = 2 * (gaussian_bytes + sh_bytes);
+        // Ask the allocator for the whole reported peak once, up front, before anything is held: a world the machine cannot
+        // hold right now (on Windows an allocation commits) is refused here instead of crashing in a LocalVector resize
+        // half way through. Exactly the peak the budget admitted, so the probe never asks for more (second Codex P2 on
+        // #1558: it rounded the combined payload up to one power of two, above the phase-wise estimate).
+        const uint64_t probe_bytes = peak_bytes;
 #ifdef TESTS_ENABLED
         materialize_probe_test_bytes = probe_bytes;
 #endif
