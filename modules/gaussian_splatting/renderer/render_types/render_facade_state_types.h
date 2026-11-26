@@ -83,6 +83,9 @@ struct ResourceState {
     // a refused second view is otherwise masked by the main view's "active" in the same frame.
     String hlod_last_refusal_reason;
     uint64_t hlod_refused_views = 0;
+    // MF-1: a streamed or paged world's main view refused by the view itself (orthographic, multi-view/XR) was warned
+    // about (once per renderer; the counters above count every such view). Render thread.
+    bool hlod_view_refusal_warned = false;
     // The automatic route's sticky demotion (lod/hlod_auto_route.h): one request per submitted snapshot (re-armed when a
     // new snapshot is installed, gs_hlod_auto_route::install_snapshot()), and the total of requests this renderer queued.
     // Render thread.

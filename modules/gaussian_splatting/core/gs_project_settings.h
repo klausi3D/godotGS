@@ -414,6 +414,15 @@ inline bool get_hlod_crossfade_enabled(ProjectSettings *p_ps) {
     return get_bool(p_ps, "rendering/gaussian_splatting/lod/hlod_crossfade_enabled", true);
 }
 
+// MF-1 (ADR beyond-VRAM I-8: no silent whole-world materialization): the bytes loading a V4 paged world into memory
+// (GaussianSplatWorld::materialize_paged_resident) may peak at. 0 (or a negative value) = never load a paged world.
+// The fallback matches the registration in lod/lod_config.cpp.
+static constexpr int HLOD_PAGED_MATERIALIZE_RAM_BUDGET_DEFAULT_MB = 2048;
+inline uint64_t get_hlod_paged_materialize_ram_budget_bytes(ProjectSettings *p_ps) {
+    const int mb = get_int(p_ps, "rendering/gaussian_splatting/lod/hlod_paged_materialize_ram_budget_mb", HLOD_PAGED_MATERIALIZE_RAM_BUDGET_DEFAULT_MB);
+    return mb <= 0 ? 0u : uint64_t(mb) << 20;
+}
+
 inline float get_hlod_tau_px(ProjectSettings *p_ps) {
     const float tau = get_float(p_ps, "rendering/gaussian_splatting/lod/hlod_tau_px", 1.0f);
     if (!Math::is_finite(tau) || tau <= 0.0f) {

@@ -29,8 +29,10 @@ It also derives every `*.yml` and `*.yaml` file under `.github/workflows/` and
 parses each with PyYAML. Parser absence, an unreadable/empty workflow directory,
 invalid YAML, a non-mapping document, or a missing/empty `jobs` mapping fails
 closed. The required GitHub-hosted `agentic-pr-gate` installs the
-version-and-hash-pinned dependency from `requirements-automation.txt`; the
-persistent self-hosted runner does not install it.
+version-and-hash-pinned dependency from `requirements-automation.txt`, and so
+does the GitHub-hosted `cpu-tests` job in `baseline_qa.yml`, whose nightly run
+executes the full guard phase; the persistent self-hosted runner does not
+install it.
 
 ## Runtime Gate
 

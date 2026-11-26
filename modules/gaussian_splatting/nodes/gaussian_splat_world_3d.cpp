@@ -909,10 +909,27 @@ bool GaussianSplatWorld3D::_mark_hlod_auto_route_demoted(const String &p_cause) 
     if (!hlod_auto_route_demoted_cause.is_empty() || p_cause.is_empty() || !is_inside_tree() || world.is_null()) {
         return false;
     }
+    if (world->has_hlod_paged_source()) {
+        // MF-1 (ADR beyond-VRAM I-8): a demoted paged world loads its payload into memory. Never beyond the RAM budget: over
+        // it the demotion is refused and the world keeps its HLOD route; the refused frames draw no world splats, with their
+        // reason, and the route serves the world again once the setup ends (no permanent loss of the main view).
+        const uint64_t budget = gs::settings::get_hlod_paged_materialize_ram_budget_bytes(ProjectSettings::get_singleton());
+        uint64_t peak = 0;
+        if (!world->get_paged_materialize_peak_bytes(peak) || peak > budget) {
+            if (hlod_paged_materialize_refused_warned != p_cause) {
+                hlod_paged_materialize_refused_warned = p_cause;
+                WARN_PRINT(vformat("[GaussianSplatWorld3D] '%s' stays on the HLOD route (%s): leaving it would load the V4 paged world "
+                                   "into memory (peak %d MiB), above rendering/gaussian_splatting/lod/hlod_paged_materialize_ram_budget_mb "
+                                   "(%d MiB). Frames the route refuses draw no world splats (render stat hlod_reason).",
+                        String(get_path()), p_cause, int64_t(peak >> 20), int64_t(budget >> 20)));
+            }
+            return false;
+        }
+    }
     hlod_auto_route_demoted_cause = p_cause;
-    WARN_PRINT(vformat("[GaussianSplatWorld3D] '%s' leaves the HLOD route (%s): the route cannot serve this view or setup. It now draws "
-                       "on the route it has without the automatic HLOD route (a V4 paged world loads its payload into memory) until "
-                       "apply_world() runs again.", String(get_path()), p_cause));
+    WARN_PRINT(vformat("[GaussianSplatWorld3D] '%s' leaves the HLOD route (%s): the route cannot serve this setup. It now draws "
+                       "on the route it has without the automatic HLOD route (a V4 paged world loads its payload into memory, within "
+                       "lod/hlod_paged_materialize_ram_budget_mb) until apply_world() runs again.", String(get_path()), p_cause));
     return true;
 }
 
@@ -952,11 +969,13 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     if (submission.scenario.is_valid()) {
         last_known_scenario = submission.scenario;
     }
+    bool paged_fallback_refused = false; // MF-1: the paged fallback below was refused over the RAM budget.
     if (world->has_hlod_paged_source()) {
         // Package E1 fallback: the HLOD runtime route is the only one a V4 paged world can use. Where that route can never
         // serve this setup (and the node can see it now), load the payload into memory - the memory of a v3 load of the
-        // same world - and take the ordinary resident route. Per-view limits (orthographic, XR) are not a reason: the
-        // route is usable and those frames draw nothing, with a reason key.
+        // same world, within lod/hlod_paged_materialize_ram_budget_mb - and take the ordinary resident route. Per-view
+        // limits (orthographic, XR) are not a reason: the route is usable and those frames draw nothing, with a reason key
+        // (the renderer never demotes for them either, lod/hlod_auto_route.h).
         String fallback_reason;
         ProjectSettings *ps = ProjectSettings::get_singleton();
         const bool demoted = !hlod_auto_route_demoted_cause.is_empty();
@@ -979,9 +998,20 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
                                     "and using the resident route (the memory of a v3 load).", fallback_reason));
             }
             String materialize_reason;
-            if (world->materialize_paged_resident(materialize_reason) != OK) {
-                ERR_PRINT(vformat("[GaussianSplatWorld3D] Paged-world fallback failed: %s", materialize_reason));
-                submission.hlod_reason = "hlod_paged_materialize_failed";
+            // MF-1 (ADR beyond-VRAM I-8): never beyond the explicit RAM budget. Over it the world stays paged and draws no
+            // world splats here, with the reason; the HLOD route cannot serve this setup either, so no snapshot is taken.
+            const uint64_t budget = gs::settings::get_hlod_paged_materialize_ram_budget_bytes(ps);
+            if (world->materialize_paged_resident(budget, materialize_reason) != OK) {
+                const bool over_budget = materialize_reason == "hlod_paged_materialize_over_ram_budget";
+                uint64_t peak = 0;
+                world->get_paged_materialize_peak_bytes(peak);
+                ERR_PRINT(vformat("[GaussianSplatWorld3D] Paged-world fallback failed (%s): %s%s", fallback_reason, materialize_reason,
+                        over_budget ? vformat(" (peak %d MiB, rendering/gaussian_splatting/lod/hlod_paged_materialize_ram_budget_mb %d MiB); "
+                                              "the world draws no splats until the setup changes and apply_world() runs, or the budget is raised",
+                                              int64_t(peak >> 20), int64_t(budget >> 20))
+                                    : String()));
+                submission.hlod_reason = over_budget ? materialize_reason : String("hlod_paged_materialize_failed");
+                paged_fallback_refused = over_budget;
             } else {
                 submission.hlod_reason = fallback_reason;
             }
@@ -1010,7 +1040,7 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
                 ? String(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX) + hlod_auto_route_demoted_cause
                 : route_plan.reason; // A paged fallback above keeps its own, more specific reason.
     }
-    if (route_plan.capture_snapshot) {
+    if (route_plan.capture_snapshot && !paged_fallback_refused) {
         const Error snapshot_error = world->capture_hlod_runtime_snapshot(submission.hlod_snapshot, submission.hlod_reason);
         if (snapshot_error == OK && (submission.hlod_snapshot->source_epoch != source_epoch ||
                 submission.hlod_snapshot->source_data != submission.gaussian_data)) {
@@ -1027,6 +1057,10 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
             if (_mark_hlod_auto_route_demoted("quantized_mixed_dc_node")) {
                 _register_shared_renderer();
                 return;
+            }
+            if (world->has_hlod_paged_source()) {
+                // MF-1: the demotion was refused over the RAM budget (warned there); a paged world has no other payload.
+                submission.hlod_reason = "hlod_paged_materialize_over_ram_budget";
             }
         }
     }

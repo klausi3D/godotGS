@@ -403,6 +403,9 @@ void register_lod_project_settings() {
     // S6 (ADR 6.7): the HLOD parent -> children switch is an opacity cross-fade over the refinement band. false restores
     // the hard switch with threshold hysteresis.
     GLOBAL_DEF(LOD_CONFIG_HLOD_CROSSFADE_PATH, true);
+    // MF-1 (ADR beyond-VRAM I-8): the CPU memory, in MiB, loading a V4 paged world into memory may peak at. 0 = never.
+    // The default mirrors gs::settings::HLOD_PAGED_MATERIALIZE_RAM_BUDGET_DEFAULT_MB.
+    GLOBAL_DEF(LOD_CONFIG_HLOD_PAGED_MATERIALIZE_RAM_BUDGET_PATH, 2048);
 
     // Global importance-cull threshold behind the per-renderer
     // cull/importance_threshold override. GPUCuller reads this key
