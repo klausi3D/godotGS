@@ -207,6 +207,9 @@ struct ResourceState {
     uint32_t hlod_world_overlap_demand_records = 0;
     uint64_t hlod_world_overlap_demand_build = 0;
     uint64_t hlod_world_overlap_growths = 0;
+    // Codex F3: overlap growths (world demand or objects' estimate) that were attempted and refused by the allocator
+    // (pre-flight, sorter build, buffers, grow backoff); the storage stayed as it was. Cumulative. Render thread only.
+    uint64_t hlod_overlap_growth_failures = 0;
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
     // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The record names the draw list the last

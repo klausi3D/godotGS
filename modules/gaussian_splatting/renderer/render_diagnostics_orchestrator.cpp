@@ -1744,6 +1744,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_overlap_capacity_records"] = int64_t(resource_state.hlod_overlap_capacity_records);
     stats["hlod_instance_overlap_growths"] = int64_t(resource_state.hlod_instance_overlap_growths);
     stats["hlod_world_overlap_growths"] = int64_t(resource_state.hlod_world_overlap_growths);
+    stats["hlod_overlap_growth_failures"] = int64_t(resource_state.hlod_overlap_growth_failures);
     stats["hlod_bundle_builds"] = int64_t(resource_state.hlod_bundle_builds);
     stats["hlod_instance_row_reuploads"] = int64_t(resource_state.hlod_instance_row_reuploads);
     // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h), per renderer frame shadow_caster_frame (the

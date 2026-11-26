@@ -1260,7 +1260,7 @@ uint64_t TileGlobalSortResources::allocated_sort_bytes() const {
 			g_gpu_sorting_config.workgroup_size, key_config.key_bits);
 }
 
-void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_growth_headroom) {
+void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_growth_headroom, uint32_t p_padded_elements) {
 	RenderingDevice *device = owner._get_resource_device();
 	if (!device) {
 		return;
@@ -1580,8 +1580,13 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 						device->get_device_memory_budget());
 			};
 			const uint32_t exact_resize_elements = resize_elements;
-			if (capacity_grow && p_growth_headroom) {
-				const uint32_t padded = GaussianSplatting::overlap_grow_target(resize_elements, capacity, overlap_hard_cap);
+			if (capacity_grow && (p_growth_headroom || p_padded_elements > resize_elements)) {
+				// An explicit padded target (the HLOD route's slack, TileRenderer::ensure_hlod_overlap_capacity) replaces the
+				// BV-10 grow factor. Either way the padding is optional: refused, the same attempt builds the exact size (Codex F3).
+				uint32_t padded = p_padded_elements > resize_elements
+						? p_padded_elements
+						: GaussianSplatting::overlap_grow_target(resize_elements, capacity, overlap_hard_cap);
+				if (overlap_hard_cap > 0u && padded > overlap_hard_cap) { padded = MAX(overlap_hard_cap, resize_elements); }
 				if (padded > resize_elements &&
 						GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(padded),
 								g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, config_to_use.key_bits) &&

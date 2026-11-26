@@ -174,13 +174,22 @@ public:
     uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;
     // Safe point (before the frame's passes, after the previous frame's readback): grows the overlap storage when the
     // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
-    // HLOD frames never grow it themselves. Returns true when it grew.
+    // HLOD frames never grow it themselves. Returns true only when the storage now holds the demand; a refused or failed
+    // growth keeps the overflow pending (Codex F3).
     bool grow_hlod_overlap_storage(uint64_t p_headroom);
+    // What ensure_hlod_overlap_capacity did. Only GREW changed the storage to hold the request.
+    enum class HlodOverlapGrowth : uint8_t {
+        HELD, // A usable storage already holds the request: nothing was allocated.
+        GREW, // The storage now holds at least the exact request (with the slack when that was built too).
+        REFUSED_HEADROOM, // The exact request does not fit the headroom: nothing was attempted.
+        ALLOCATION_FAILED, // Attempted and refused (pre-flight, sorter build, buffers or grow backoff): the old storage stays.
+    };
     // Same safe point (PR1b): grows the overlap storage to `p_records` (clamped like the seed) when it holds fewer, if the
-    // full new allocation fits `p_headroom` (32 B per record, as grow_hlod_overlap_storage charges). The HLOD route uses it
-    // so the node instances' record reserve is held next to the world's, instead of being taken out of a storage that only
-    // grows on a measured overflow (a world cut pinned coarse by the reserve never overflows). Returns true when it grew.
-    bool ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom);
+    // full new allocation fits `p_headroom` (32 B per record, as grow_hlod_overlap_storage charges). `p_padded_records` is
+    // the optional slack: built when it fits the headroom and the device, else the same attempt builds the exact size. The
+    // HLOD route uses it so the node instances' record reserve is held next to the world's, instead of being taken out of a
+    // storage that only grows on a measured overflow (a world cut pinned coarse by the reserve never overflows).
+    HlodOverlapGrowth ensure_hlod_overlap_capacity(uint32_t p_records, uint32_t p_padded_records, uint64_t p_headroom);
     // The headroom both growths charge per record: keys and values (8 B each), tile ranges and scan scratch, as a full new
     // allocation. The streamed HLOD atlas limit reserves the overlap storage at its cap with the same charge (BV-17).
     static constexpr uint64_t HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD = 32u;
@@ -530,6 +539,8 @@ private:
 	bool _ensure_prefix_param_buffer(RenderingDevice *p_device, uint32_t p_size);
 	uint32_t _clamp_overlap_record_budget(uint32_t p_requested) const;
 	uint32_t _get_effective_overlap_capacity(uint32_t p_capacity_hint = 0) const;
+	// A live sorter with its key/value buffers and an effective capacity of at least `p_records` (Codex F3).
+	bool _hlod_overlap_capacity_usable(uint32_t p_records) const;
     SortKeyConfig _get_effective_sort_key_config() const;
     Vector<String> _build_common_shader_defines(bool p_include_dispatch_group) const;
     Vector<String> _build_binning_shader_defines() const;

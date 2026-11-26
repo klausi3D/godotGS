@@ -632,22 +632,24 @@ TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] a refused padded overl
         // Premise: neither size is clamped by the configured cap, so the padded size really is the larger request.
         if (tile->clamp_hlod_overlap_records(padded) != padded) { FAIL("max_overlap_records clamps the padded request"); return; }
         sort.test_refuse_sorter_above_elements = exact; // the padded build fails; the exact one can be built
-        const bool grew = tile->ensure_hlod_overlap_capacity(padded, headroom) || tile->ensure_hlod_overlap_capacity(exact, headroom);
-        CHECK(grew);
+        using Growth = TileRenderer::HlodOverlapGrowth;
+        CHECK(tile->ensure_hlod_overlap_capacity(exact, padded, headroom) == Growth::GREW);
         CHECK(tile->get_allocated_overlap_capacity() >= exact);
         CHECK(tile->get_allocated_overlap_capacity() < padded);
         CHECK(sort.sorter.is_valid());
         // Every build refused: nothing grows, and nothing may say it did.
         const uint32_t held = tile->get_allocated_overlap_capacity();
         sort.test_refuse_sorter_above_elements = held;
-        const bool refused_grew = tile->ensure_hlod_overlap_capacity(held * 3u, headroom) || tile->ensure_hlod_overlap_capacity(held * 2u, headroom);
-        CHECK_FALSE(refused_grew);
+        CHECK(tile->ensure_hlod_overlap_capacity(held * 2u, held * 3u, headroom) == Growth::ALLOCATION_FAILED);
         CHECK(tile->get_allocated_overlap_capacity() == held);
         CHECK(sort.sorter.is_valid()); // the working sorter is kept
         // Headroom too small for the exact size: refused before any allocation.
         sort.test_refuse_sorter_above_elements = 0;
-        CHECK_FALSE(tile->ensure_hlod_overlap_capacity(held * 2u, uint64_t(held) * TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD));
+        CHECK(tile->ensure_hlod_overlap_capacity(held * 2u, held * 3u, uint64_t(held) * TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD) ==
+                Growth::REFUSED_HEADROOM);
         CHECK(tile->get_allocated_overlap_capacity() == held);
+        // A storage that already holds the request allocates nothing.
+        CHECK(tile->ensure_hlod_overlap_capacity(held, held * 2u, headroom) == Growth::HELD);
     }
     {
         Ref<TileRenderer> tile;

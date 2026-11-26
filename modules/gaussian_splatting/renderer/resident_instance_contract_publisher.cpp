@@ -3136,16 +3136,25 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // (below, after the selection): grow to it, with slack, else exactly. Optional like the growth above, clamped to the
     // configured cap like the seed; refused (headroom) or at the cap, the cut stays budget-bound and says so
     // (hlod_budget_bound_frames), and the demand is reported again by the next cut.
+    // Codex F3: one attempt per growth, the slack first and the exact size inside the same attempt. A growth counts only
+    // when the storage now holds the request; a failed attempt is counted apart. Any attempt may have changed the device
+    // bytes, so it re-measures the ledger. False: the ledger is unavailable.
+    auto grow_overlap = [&](uint32_t p_exact, uint32_t p_padded, uint64_t p_headroom, uint64_t &r_growths) {
+        const TileRenderer::HlodOverlapGrowth growth = tile->ensure_hlod_overlap_capacity(p_exact, p_padded, p_headroom);
+        if (growth == TileRenderer::HlodOverlapGrowth::GREW) { ++r_growths; }
+        if (growth == TileRenderer::HlodOverlapGrowth::ALLOCATION_FAILED) { ++state.hlod_overlap_growth_failures; }
+        if (growth == TileRenderer::HlodOverlapGrowth::HELD || growth == TileRenderer::HlodOverlapGrowth::REFUSED_HEADROOM) { return true; }
+        if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return false; }
+        state.device_vram_ledger.admit_device_bytes(route_bytes);
+        return true;
+    };
     if (state.hlod_world_overlap_demand_records != 0) {
         const uint32_t wanted = state.hlod_world_overlap_demand_build == state.hlod_bundle_builds ? state.hlod_world_overlap_demand_records : 0u;
         state.hlod_world_overlap_demand_records = 0;
         const uint64_t headroom = ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes);
         if (wanted != 0 && tile->clamp_hlod_overlap_records(wanted) > tile->get_allocated_overlap_capacity() &&
-                (tile->ensure_hlod_overlap_capacity(gs_hlod_bundle::world_demand_overlap_growth(wanted), headroom) ||
-                        tile->ensure_hlod_overlap_capacity(wanted, headroom))) {
-            ++state.hlod_world_overlap_growths;
-            if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
-            state.device_vram_ledger.admit_device_bytes(route_bytes);
+                !grow_overlap(wanted, gs_hlod_bundle::world_demand_overlap_growth(wanted), headroom, state.hlod_world_overlap_growths)) {
+            return fallback("resource_ledger_unavailable");
         }
     }
     // PR1b: this view's visible node instances and their demand (ADR 4.5), computed here, at the same safe point, from
@@ -3204,11 +3213,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             const uint64_t headroom = ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes);
             // Grow with slack (moving objects must not reallocate it on every small rise), else exactly to the requirement.
             if (tile->clamp_hlod_overlap_records(wanted) > tile->get_allocated_overlap_capacity() &&
-                    (tile->ensure_hlod_overlap_capacity(gs_hlod_bundle::world_plus_objects_overlap_growth(world_need, demand_records), headroom) ||
-                            tile->ensure_hlod_overlap_capacity(wanted, headroom))) {
-                ++state.hlod_instance_overlap_growths;
-                if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
-                state.device_vram_ledger.admit_device_bytes(route_bytes);
+                    !grow_overlap(wanted, gs_hlod_bundle::world_plus_objects_overlap_growth(world_need, demand_records), headroom,
+                            state.hlod_instance_overlap_growths)) {
+                return fallback("resource_ledger_unavailable");
             }
         }
         state.hlod_overlap_world_need.world_records = world_need;
