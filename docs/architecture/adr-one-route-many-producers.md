@@ -12,6 +12,10 @@
   target architecture of the one route: `NodeResidency` is its single residency core, and
   tree-less worlds reach it through an automatically built tree. See
   [Owner decision (Option D)](#owner-decision-option-d).
+- **Status update (2026-11-27):** §12.7 records how the resident case becomes a degenerate cut
+  (node-only scenes on the HLOD route with an empty world row), when each canonical path is
+  deleted, and the owner decisions OD-1 to OD-5. See
+  [Owner decision (OD-1 to OD-5)](#owner-decision-od-1-to-od-5).
 - **Date:** 2026-11-04.
 - **Risk:** this document is R0 (`docs/**`). The implementation PRs it schedules are **R2**
   (`modules/gaussian_splatting/renderer/**`, and the director changes that alter what the
@@ -795,3 +799,177 @@ changes no code, workflow, guard, threshold or runtime acceptance gate.
   GSQ codec, read service and decode path with the chunk stack; two routes with parity (D-2).
 - **Not decided here:** the container change for GSQ node payloads (BV ADR amendment of
   2026-11-11, decided in BV-C4); the code PRs carry their own risk class and evidence.
+
+### 12.7 Degenerate cut and canonical retirement
+
+- **Status:** Accepted — decided by the owner on 2026-11-27 (see
+  [Owner decision (OD-1 to OD-5)](#owner-decision-od-1-to-od-5) below). Acceptance of this design is
+  not implementation or rendering evidence; each code PR in §12.7.4 carries its own evidence.
+- **Source:** a read-only migration plan written on 2026-11-27 against `ae3a41df12b` (code reading
+  only; nothing built or run). The plan is a working note outside the repository; the design, the
+  PR list and the decisions are recorded here so the note is not needed to interpret them.
+- **Base:** code `file:line` citations in this section were re-read at `a89ed71ced6`. Paths are
+  relative to `modules/gaussian_splatting/` unless they start with `tests/` or `docs/`.
+  `publisher.cpp` and `director.cpp` are as at the top of this record; `renderer.cpp` =
+  `renderer/gaussian_splat_renderer.cpp`.
+- **Evidence status:** every statement comes from reading code. **No statement rests on a GPU
+  run.** Runtime claims are marked **[inference]**; the precondition of PR-1 (§12.7.4) is the first
+  GPU check of them.
+
+This section answers what §12.5 left open: how the resident case becomes a degenerate cut of the
+one route, and when the canonical code paths are removed.
+
+#### 12.7.1 Where the HLOD route stops today
+
+The HLOD route needs a world submission with an HLOD snapshot. Without one, every entry point falls
+back to a canonical path:
+
+- `try_publish_hlod_resident_contract()` returns the canonical result when the opt-out is set, when
+  there is no snapshot, or when there is no world submission (`publisher.cpp:2488-2499`).
+- `_build_hlod_instance_rows_locked()` builds no rows without an active, renderable world
+  submission (`director.cpp:2026-2029`), so a node-only scene has no row 0 and no bundle.
+- `_is_hlod_shadow_route_owner()` requires a snapshot and a world submission
+  (`renderer.cpp:2051-2059`). Otherwise the canonical shadow pass runs (`renderer.cpp:2446-2530`)
+  and fails closed with `NO_CASTER_RASTERED` when it rasters nothing into the light view
+  (`renderer.cpp:2495-2502`).
+- The canonical routes emit the world row only when the scene has no node instances
+  (`director.cpp:2104`; §1.1). **[inference]** A world without a tree next to one node therefore draws
+  only the node on the chunk-streaming and resident routes.
+
+**GS-COMBINED-1 variant A** is therefore not a node-only scene. It is a chunk-streamed plain v3 world
+plus node instances, pinned to `hlod_runtime_cut_enabled=false` and `route_policy=1`
+(`tests/runtime/gs_combined_1_harness.gd:105-111`). By the reading above it draws the objects only.
+The harness comments that PR-auto has not landed (`:97-99`, `:999`) are stale: PR-auto merged as
+#1309. Variant A is redefined in PR-12 (§12.7.4); its predicates do not change.
+
+#### 12.7.2 Design
+
+**Cases.**
+
+| Case | Answer |
+| --- | --- |
+| **C1** node-only scene | **Empty world row.** Row 0 is reserved with zero world records; P0 (the world cut, §4.1) is absent, the `ViewSet` is skipped, and the nodes are drawn whole as in PR1b. This is an explicit "P0 absent" mode of the publisher, not an empty snapshot: `core/gaussian_splat_hlod_runtime_data.*` is in the Tier A tree key (`TREE_SOURCES`). |
+| **C2a** streamed or plain-GSQ world without a tree | The offline automatic tree (§12.6.3, D2). It stays on the chunk route until CLN-RT07 (PR-13). |
+| **C2b** resident world without a tree | An automatic in-core rule-1 tree built at submission, with budgets and an explicit refusal (**OD-1**, PR-6). |
+| **C3** bare renderer without a director | Not a product shape. Its tests move to C1 or C2b with their predicates unchanged. |
+
+**The P0-absent mode.**
+
+- **Rows.** Without a world submission the director emits a zero, non-casting row 0. This keeps
+  `WORLD_ROW == 0` (`renderer/hlod_bundle_rows.h:28`) and the row-0 check of `rows_refusal()`
+  (`renderer/hlod_world_instances.h:124`).
+- **Snapshot and world nodes.** No snapshot is captured; the bundle has `world_nodes = 0` and the
+  `ViewSet` is not run.
+- **World floor.** The floor `F` (`renderer/hlod_world_instances.h:35-36`) applies only when P0
+  exists. Applied without a world, it would cap the objects at half the view cap with nothing to
+  protect (`renderer/hlod_world_instances.h:226-231`).
+- **Shadow caster.** `GsSplatShadowCaster` works unchanged once its route predicates accept an
+  objects-only bundle: `renderer.cpp:2051-2059`, `publisher.cpp:2488` and `publisher.cpp:3082`
+  (and `_world_has_hlod_submission()`, `director.cpp:3360-3365`, if needed).
+- **Light-view demand for objects** is cheap, because object assets are resident whole: per-light
+  caster caps with an explicit refusal and a counter (PR-4). The caster pass already accepts a draw
+  list that differs from the main view's (`inputs.view_draws`, `renderer.cpp:2359-2364`).
+- **Light-view demand for the world** is a `ViewSet` per light plus multi-owner admission (the
+  instanced-HLOD ADR's A7a/A7, PR-5).
+- **A world that cannot be served.** When a world submission exists but yields no snapshot, the
+  objects-only bundle reports it explicitly as `hlod_world_without_snapshot:<cause>` and counts the
+  frame in `hlod_world_producer_dropped_frames`. It is never a silent drop.
+
+**Fate of each canonical path.**
+
+| Path | Fate |
+| --- | --- |
+| (a) The canonical shadow pass (`renderer.cpp:2446-2530`, its scoped state `renderer.cpp:407-452`) | Deleted in PR-2 |
+| (b) The resident direct publisher (its rows: `director.cpp:2080-2160`) | Deleted in PR-11 |
+| (c) The bundle's GPU-culled canonical mode (`renderer/render_instancing_orchestrator.cpp:192-205`) | Kept for refused views until PR-9 and PR-10, then deleted in PR-11 |
+| The chunk route | Deleted in PR-13 (CLN-RT07) |
+| The legacy composite | Deleted in PR-14 (CLN-RT05) |
+
+**Hard parts.**
+
+1. **Painterly** (OD-4).
+2. **Wind on off-screen casters** needs the per-row margins (`renderer.cpp:2233-2261`).
+3. **`shadow_instance_filter`** dies with path (a). `tests/ci/test_hlod_wind_contract.py:48` pins it
+   and changes in the same PR, replaced by a test that derives the refusal keys from source.
+4. **Orthographic views** stay on path (c) until PR-9, which changes the selector and therefore the
+   Tier A tree key.
+5. **Multiview** is out of v1.0 and ends as an explicit refusal.
+6. **Previous-frame caster list.** Casters come from the previous main view's draw list
+   (`renderer/hlod_shadow_caster_plan.h:7-12`), so frame 0 reports `NO_ACTIVE_HLOD_VIEW`.
+7. **An empty light face** pushes a placeholder record (`renderer/hlod_shadow_face_cull.h:286-289`),
+   and the pass reports `rastered_splat_count = plan.casters` (`renderer.cpp:2382`). The S1 counter
+   therefore overstates what reached the face (PR-3).
+8. **Quantized payloads** are refused as casters (`shadow_caster_quantized_payload_unsupported`,
+   `renderer/hlod_shadow_caster_plan.h:66`; instanced-HLOD ADR A7b).
+9. **Origin shift** (`hlod_world_origin_shifted`, `publisher.cpp:3418`) falls back to path (c).
+10. **Instance identity.** Path (c) and the HLOD frame are entered only for one identity instance
+    (`renderer/render_instancing_orchestrator.cpp:192`). The resident route passes exactly one
+    identity transform (`renderer.cpp:2794-2796`); PR-1 confirms it for a node-only scene.
+11. **The opt-out.** `hlod_runtime_cut_enabled=false` promises "the routing from before the automatic
+    route exactly" (`lod/hlod_auto_route.h:11-12`). PR-1 does not honour it for objects-only bundles,
+    a public behaviour change (**OD-2**).
+
+#### 12.7.3 Interaction with the instanced-HLOD ADR
+
+- Its Stage A assumes the one route exists; that holds after PR-1 and PR-11.
+- Its A7 (light views) overlaps PR-4 and PR-5 and is built once, generic over producers. A7a
+  (multi-owner admission) is a prerequisite of PR-5; A7b (quantized casters) is needed by node scenes
+  too.
+- Objects-only bundles can approach the 65,535 Y dispatch limit (A2a).
+- An SH cache for row 0 only (A1) would remove the SH cache from node-only scenes (#1245); this goes to
+  the owner with A1.
+
+#### 12.7.4 PR sequence
+
+All code PRs are R3.
+
+| PR | Content | Tier A tree key |
+| --- | --- | --- |
+| PR-0 | This section (R0). | not hit |
+| **PR-1** | **Objects-only HLOD bundle:** empty row 0, the P0-absent mode, widened predicates, `hlod_world_without_snapshot:<cause>` with `hlod_world_producer_dropped_frames`, path (c) for refused views, a release note on the opt-out (OD-2). **Precondition:** a GPU capture on the base of a tree-less world plus one node, on the chunk and resident routes; if the world draws, PR-1 covers C1 only. **Gates:** a GPU node-only scene with a directional light (`hlod_reason == active`, `SHADOW_HLOD_SPLAT_CASTERS`, rastered splats == asset splats, depth size == atlas rect), red on the base; the bare-renderer S1 red case moved to a node scene with its predicate unchanged; a CPU route matrix; the HLOD GPU tests, GC1 variant B and GS-GAME-1 equal to master. **Controls:** restore the snapshot gate; `cast_shadow=false`; a GC1 control-3 runtime switch. | not hit |
+| PR-2 | Delete the canonical shadow pass and `shadow_instance_filter`; a refusal table whose keys a test derives from source (CLN-RT01). A non-HLOD pass reports `SHADOW_SKIP_ROUTE_NOT_HLOD:<reason>`. | not hit |
+| PR-3 | S1 honesty: count per light face; an empty but proven face gets its own outcome. The predicate is never loosened. | not hit |
+| PR-4 | Light-view demand for object casters, with per-light caps. Gate: an object behind the camera shadows an in-view receiver. | not hit |
+| PR-5 | Light-view world cut: a `ViewSet` per light, A7a multi-owner admission, commit-before-latch (#1545), light caps. Batched with PR-9. | likely hit |
+| PR-6 | OD-1: automatic in-core tree for resident tree-less worlds. | hit if the world or auto-tree sources change |
+| PR-7 | OD-3: LOD off as a leaves cut on the relative path; over the cap it is `NOT_ADMITTED`. | |
+| PR-8 | Rigid world transform (CLN-RT03-1). | |
+| PR-9 | Orthographic main views on the relative path (F5). | hit (selector) |
+| PR-10 | OD-4: painterly (CLN-RT03-4) and one `TileRenderParams` producer (CLN-RT02). | |
+| PR-11 | Delete paths (b) and (c); retire `hlod_runtime_cut_enabled` and `route_policy = resident`; multiview becomes an explicit refusal. | |
+| PR-12 | GS-COMBINED-1 variant A uses the D2 auto-tree V4 GSQ world (owner disposition); predicates unchanged. | |
+| PR-13 | CLN-RT07: delete the chunk route. Needs PR-11, PR-12 and M3. | hit |
+| PR-14 | OD-5: CLN-RT05, delete the legacy composite. | |
+
+An empty tree-key cell is not assessed yet; each PR runs the tree-key check before it is pushed.
+
+**Order:** PR-0 → PR-1 → {PR-2, PR-3} → PR-4 → PR-5 (after A7a). PR-6 to PR-9 can run in parallel after
+PR-2. PR-10 follows OD-4. PR-11 comes after PR-1, PR-2 and PR-6 to PR-10. Then PR-12 → PR-13, and PR-14.
+
+#### Owner decision (OD-1 to OD-5)
+
+- **Direction (2026-11-27).** On the migration plan, the owner answered "dann wäre es gut, wenn wir
+  gleich diese Zielarchitektur umsetzen nach dem ADR": the target architecture of this record is
+  implemented now. There is no canonical shadow caster; node-only scenes move to the HLOD route, and
+  the instanced-HLOD ADR's A7 is built once, shared with PR-4 and PR-5.
+- **Question put to the owner:** OD-1 to OD-5, each with the coordinator's recommendation.
+- **Answer (2026-11-27):** "Od1-od5 genehmigt" (all as recommended).
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| OD-1 | Automatic in-core tree for resident worlds without a tree? | Yes: built at submission, with a budget and a loud refusal (PR-6). |
+| OD-2 | Do objects-only bundles ignore the `hlod_runtime_cut_enabled` opt-out? | Yes: they take the HLOD route even with the setting `false`. A behaviour change with a release note (PR-1); the setting is retired in PR-11. |
+| OD-3 | LOD off as a leaves cut? | Yes, on the relative path. Over the cap it is a loud `NOT_ADMITTED`, not thinning (PR-7). |
+| OD-4 | Painterly: port per-splat stylisation, or refuse it? | Refused explicitly on the one route for now; stylisation is ported only on real demand (PR-10). |
+| OD-5 | Reflection probes when the legacy composite is deleted? | Decided later, with PR-14. |
+
+- **Also decided:** the S1 omni lights (cached positional shadows) stay red for now; no gate changes.
+- **Decided by:** the owner, 2026-11-27, in the coordination session.
+- **Confirmation:** the PR that adds this section is opened from the owner's account (`klausi3D`), as
+  every agent PR here is, so an approving review cannot be obtained. The confirmation is the one
+  practised for the owner's OK ([Review and merge policy as practised](adr-review-merge-policy.md)):
+  a confirming comment on that PR from `klausi3D` and its merge by `klausi3D`.
+- **Rejected:** a canonical splat shadow caster for node-only scenes; an empty snapshot in place of the
+  P0-absent mode (it would change Tier A tree-key sources).
+- **Not decided here:** the frozen chunk-route reference id (§12.6.4), the cost of an in-core auto
+  tree, and the omni-light shadow work (#1424).
