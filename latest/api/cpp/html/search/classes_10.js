@@ -52,7 +52,7 @@ var searchData=
   ['pipelinefeatureset_49',['PipelineFeatureSet',['../structPipelineFeatureSet.html',1,'']]],
   ['pipelinestate_50',['PipelineState',['../structGaussianSplatRenderer_1_1PipelineState.html',1,'GaussianSplatRenderer']]],
   ['plainspec_51',['PlainSpec',['../structgs__world__writer_1_1PlainSpec.html',1,'gs_world_writer']]],
-  ['plan_52',['Plan',['../structgs__world__generator_1_1Plan.html',1,'gs_world_generator']]],
+  ['plan_52',['Plan',['../structgs__hlod__objects__only_1_1Plan.html',1,'gs_hlod_objects_only::Plan'],['../structgs__world__generator_1_1Plan.html',1,'gs_world_generator::Plan']]],
   ['plannode_53',['PlanNode',['../structgs__hlod_1_1tiled__bake_1_1PlanNode.html',1,'gs_hlod::tiled_bake']]],
   ['plyextraelement_54',['PlyExtraElement',['../structspz_1_1PlyExtraElement.html',1,'spz']]],
   ['plyheader_55',['PLYHeader',['../structPLYLoader_1_1PLYHeader.html',1,'PLYLoader']]],

@@ -3,6 +3,7 @@ var render__facade__state__types_8h =
     [ "GaussianRenderFacadeState::DeviceState", "structGaussianRenderFacadeState_1_1DeviceState.html", "structGaussianRenderFacadeState_1_1DeviceState" ],
     [ "GaussianRenderFacadeState::HlodBundle", "structGaussianRenderFacadeState_1_1HlodBundle.html", "structGaussianRenderFacadeState_1_1HlodBundle" ],
     [ "GaussianRenderFacadeState::ResourceState", "structGaussianRenderFacadeState_1_1ResourceState.html", "structGaussianRenderFacadeState_1_1ResourceState" ],
+    [ "GaussianRenderFacadeState::ResourceState::ShadowLastPass", "structGaussianRenderFacadeState_1_1ResourceState_1_1ShadowLastPass.html", "structGaussianRenderFacadeState_1_1ResourceState_1_1ShadowLastPass" ],
     [ "GaussianRenderFacadeState::TestDataState", "structGaussianRenderFacadeState_1_1TestDataState.html", "structGaussianRenderFacadeState_1_1TestDataState" ],
     [ "GaussianRenderFacadeState::TileRendererState", "structGaussianRenderFacadeState_1_1TileRendererState.html", "structGaussianRenderFacadeState_1_1TileRendererState" ],
     [ "GaussianRenderFacadeState::SubsystemState", "structGaussianRenderFacadeState_1_1SubsystemState.html", "structGaussianRenderFacadeState_1_1SubsystemState" ],

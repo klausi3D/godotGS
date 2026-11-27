@@ -14,7 +14,7 @@ var searchData=
   ['indirectdispatchlayout_11',['IndirectDispatchLayout',['../structGaussianSplatting_1_1IndirectDispatchLayout.html',1,'GaussianSplatting']]],
   ['info_12',['Info',['../structGaussianSplatHlodPagedSource_1_1Info.html',1,'GaussianSplatHlodPagedSource']]],
   ['inmemorychunkpayloadsource_13',['InMemoryChunkPayloadSource',['../classInMemoryChunkPayloadSource.html',1,'']]],
-  ['inputs_14',['Inputs',['../structGsSplatShadowCaster_1_1Inputs.html',1,'GsSplatShadowCaster::Inputs'],['../structResourceOwnerMismatchContract_1_1Inputs.html',1,'ResourceOwnerMismatchContract::Inputs']]],
+  ['inputs_14',['Inputs',['../structgs__hlod__objects__only_1_1Inputs.html',1,'gs_hlod_objects_only::Inputs'],['../structGsSplatShadowCaster_1_1Inputs.html',1,'GsSplatShadowCaster::Inputs'],['../structResourceOwnerMismatchContract_1_1Inputs.html',1,'ResourceOwnerMismatchContract::Inputs']]],
   ['instanceasset_15',['InstanceAsset',['../structgs__hlod__bundle_1_1InstanceAsset.html',1,'gs_hlod_bundle']]],
   ['instanceassetregistration_16',['InstanceAssetRegistration',['../structInstanceAssetRegistration.html',1,'']]],
   ['instancecullparamsgpu_17',['InstanceCullParamsGPU',['../structInstanceCullParamsGPU.html',1,'']]],

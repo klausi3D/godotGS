@@ -1,6 +1,8 @@
 var structGaussianRenderFacadeState_1_1ResourceState =
 [
+    [ "ShadowLastPass", "structGaussianRenderFacadeState_1_1ResourceState_1_1ShadowLastPass.html", "structGaussianRenderFacadeState_1_1ResourceState_1_1ShadowLastPass" ],
     [ "clear_hlod_level_drawn", "structGaussianRenderFacadeState_1_1ResourceState.html#a9c306c335686c89818584999c22f5b92", null ],
+    [ "has_hlod_prepared_bundle", "structGaussianRenderFacadeState_1_1ResourceState.html#ae667862ce7e581b8165db43f660ff5e1", null ],
     [ "buffer_manager", "structGaussianRenderFacadeState_1_1ResourceState.html#a650201267699a8589f93f720f7a0aa03", null ],
     [ "buffer_manager_initialized", "structGaussianRenderFacadeState_1_1ResourceState.html#acf4b51ce72bab928b075e28ae0e24b3e", null ],
     [ "deletion_queue", "structGaussianRenderFacadeState_1_1ResourceState.html#a143088aad02c0f1116ab6247a0cf5e25", null ],
@@ -61,6 +63,9 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_level_drawn_nodes", "structGaussianRenderFacadeState_1_1ResourceState.html#af817a380998e36e4275991141a5df9c5", null ],
     [ "hlod_level_drawn_splats", "structGaussianRenderFacadeState_1_1ResourceState.html#af39648b28de81a57ece364a0bf5a57ae", null ],
     [ "hlod_object_tail_overflow_rebuilds", "structGaussianRenderFacadeState_1_1ResourceState.html#a5871db24edb333d7cd8cf32c0bd04b18", null ],
+    [ "hlod_objects_only", "structGaussianRenderFacadeState_1_1ResourceState.html#ad764ff0a48de2c83d2251ff79810c69d", null ],
+    [ "hlod_objects_only_generation", "structGaussianRenderFacadeState_1_1ResourceState.html#a289660793c9ecbc586e8c32f0260619a", null ],
+    [ "hlod_objects_only_serial", "structGaussianRenderFacadeState_1_1ResourceState.html#ade94212559061d39721741b9bf6df4d1", null ],
     [ "hlod_origin_revision", "structGaussianRenderFacadeState_1_1ResourceState.html#aaa247ef57a164b16d9684a644b7efa87", null ],
     [ "hlod_overlap_capacity_records", "structGaussianRenderFacadeState_1_1ResourceState.html#a6c3fc9af0764882143d434b399c7cca0", null ],
     [ "hlod_overlap_growth_failures", "structGaussianRenderFacadeState_1_1ResourceState.html#a4db75238e8b8e0d0534f2632ec2041a1", null ],
@@ -122,6 +127,9 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_world_overlap_demand_build", "structGaussianRenderFacadeState_1_1ResourceState.html#a86ca19d8950d64cac2ae9ac0d87bdd7b", null ],
     [ "hlod_world_overlap_demand_records", "structGaussianRenderFacadeState_1_1ResourceState.html#af9a24ef6e1cefbbbcb306e897b2306f8", null ],
     [ "hlod_world_overlap_growths", "structGaussianRenderFacadeState_1_1ResourceState.html#a595d1e816d07b662078ae57c1e95b409", null ],
+    [ "hlod_world_producer_dropped_frames", "structGaussianRenderFacadeState_1_1ResourceState.html#ac283a8f1c16f897d4bddf96235afef57", null ],
+    [ "hlod_world_producer_reason", "structGaussianRenderFacadeState_1_1ResourceState.html#aea38c4bb9308aaf3d8277f3a3fc78fe0", null ],
+    [ "hlod_world_producer_warned_reason", "structGaussianRenderFacadeState_1_1ResourceState.html#a15f8b479a7c488eaf1b42c91c0c9c8ce", null ],
     [ "instance_buffer", "structGaussianRenderFacadeState_1_1ResourceState.html#a4216bce5f34384ec243a27ae3661a590", null ],
     [ "instance_buffer_capacity", "structGaussianRenderFacadeState_1_1ResourceState.html#aba8538199018637d4284035cd7f94338", null ],
     [ "instance_chunk_dispatch_buffer", "structGaussianRenderFacadeState_1_1ResourceState.html#a4bf09b649f7c341f2a8afd3d5cb2a170", null ],
@@ -162,6 +170,7 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "resident_max_chunk_splats", "structGaussianRenderFacadeState_1_1ResourceState.html#a38dd9be03aa5e461960fd8a4d7c8a113", null ],
     [ "resident_quantization_buffer", "structGaussianRenderFacadeState_1_1ResourceState.html#acd5dd187851f4551d05c8c198495ff7a", null ],
     [ "resident_quantization_buffer_size", "structGaussianRenderFacadeState_1_1ResourceState.html#abbd1110848bda5d37e7d50b9cfec7e13", null ],
+    [ "shadow_last_pass", "structGaussianRenderFacadeState_1_1ResourceState.html#ac6b5c7aff6ef90f37b2fda7f1a8c3df5", null ],
     [ "shadow_light_snapshot", "structGaussianRenderFacadeState_1_1ResourceState.html#a64920323dd4c17638e968d76168dce4b", null ],
     [ "shadow_light_snapshot_mutex", "structGaussianRenderFacadeState_1_1ResourceState.html#aaa9d25a111ff5e591c7cee3a626de9ea", null ],
     [ "shadow_light_stats", "structGaussianRenderFacadeState_1_1ResourceState.html#a4230911ca54a78ec4fc2d626de3ae898", null ]

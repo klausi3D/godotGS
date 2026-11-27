@@ -7294,6 +7294,13 @@ The harness comments that PR-auto has not landed (<code>:97-99</code>, <code>:99
 </tbody>
 </table></div>
 <p>An empty tree-key cell is not assessed yet; each PR runs the tree-key check before it is pushed.</p>
+<p><strong>Where PR-1's GPU gates run.</strong> The node-only scene gate and the moved #1565 case run in the native
+runtime scenario "Resident HLOD Main View" (<code>tests/runtime/test_hlod_resident_main_view.gd</code>), as a
+node-only phase with the predicates unchanged; they are not <code>[SceneTree][RequiresGPU]</code> doctests. The
+HLOD route refuses a main view without render buffers (<code>publisher.cpp:3073-3078</code>), and the doctest
+harness's dummy rasterizer cannot create a render target or render buffers
+(<code>modules/gaussian_splatting/tests/test_renderer_pipeline.h:2082-2093</code>), so no doctest can reach an
+active HLOD view. The CPU route matrix stays a doctest.</p>
 <p><strong>Order:</strong> PR-0 → PR-1 → {PR-2, PR-3} → PR-4 → PR-5 (after A7a). PR-6 to PR-9 can run in parallel after
 PR-2. PR-10 follows OD-4. PR-11 comes after PR-1, PR-2 and PR-6 to PR-10. Then PR-12 → PR-13, and PR-14.</p>
 <h4 id="owner-decision-od-1-to-od-5">Owner decision (OD-1 to OD-5)<a class="headerlink" href="#owner-decision-od-1-to-od-5" title="Permanent link">¶</a></h4>

@@ -765,6 +765,8 @@ Internal State Access</h2></td></tr>
 <tr class="memitem:a2ad7cbc3a4e35ea29ff9b60c0ab2abd5" id="r_a2ad7cbc3a4e35ea29ff9b60c0ab2abd5"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a94bc9473e61007006fc36f9695f5a8c8">JacobianDebugConfig</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ad7cbc3a4e35ea29ff9b60c0ab2abd5">get_jacobian_debug</a> ()</td></tr>
 <tr class="memitem:a06a772ce90b759378b070d9ed1289127" id="r_a06a772ce90b759378b070d9ed1289127"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="#a94bc9473e61007006fc36f9695f5a8c8">JacobianDebugConfig</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a06a772ce90b759378b070d9ed1289127">get_jacobian_debug</a> () const</td></tr>
 <tr class="memitem:a8678ab593580e054d07795560941d28a" id="r_a8678ab593580e054d07795560941d28a"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8678ab593580e054d07795560941d28a">try_publish_hlod_resident_contract</a> (String &amp;r_reason)</td></tr>
+<tr class="memitem:a85c7c835f58b1abc36d8c7439522cea9" id="r_a85c7c835f58b1abc36d8c7439522cea9"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a85c7c835f58b1abc36d8c7439522cea9">hlod_world_route_available</a> () const</td></tr>
+<tr class="memitem:aa36f43d35a7f0309ce1035f4892ce297" id="r_aa36f43d35a7f0309ce1035f4892ce297"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa36f43d35a7f0309ce1035f4892ce297">try_publish_hlod_objects_only_contract</a> (String &amp;r_reason, bool &amp;r_applies)</td></tr>
 <tr class="memitem:a4510a613e1ddf15ad18eb5d714497e05" id="r_a4510a613e1ddf15ad18eb5d714497e05"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4510a613e1ddf15ad18eb5d714497e05">provision_paged_hlod_route</a> (RenderSceneBuffersRD *p_render_buffers, String &amp;r_reason)</td></tr>
 <tr class="memitem:a1f317102714da2bf2286b7476c613f0b" id="r_a1f317102714da2bf2286b7476c613f0b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1f317102714da2bf2286b7476c613f0b">prepare_hlod_frame</a> (const <a class="el" href="structGaussianSplatRenderer_1_1RenderFrameContext.html">RenderFrameContext</a> &amp;p_context)</td></tr>
 <tr class="memitem:acfb79a17c96a8a5fae28aee6feca1b24" id="r_acfb79a17c96a8a5fae28aee6feca1b24"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acfb79a17c96a8a5fae28aee6feca1b24">get_hlod_owned_byte_upper_bound</a> (uint64_t &amp;r_bytes) const</td></tr>
@@ -8157,6 +8159,23 @@ Usage</h2>
 
 </div>
 </div>
+<a id="a85c7c835f58b1abc36d8c7439522cea9" name="a85c7c835f58b1abc36d8c7439522cea9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a85c7c835f58b1abc36d8c7439522cea9">&#9670;&#160;</a></span>hlod_world_route_available()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatRenderer::hlod_world_route_available </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a6bc10cc38decf63ab2c91d4128214daf" name="a6bc10cc38decf63ab2c91d4128214daf"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6bc10cc38decf63ab2c91d4128214daf">&#9670;&#160;</a></span>idle_hlod_streaming_bundle()</h2>
 
@@ -12063,6 +12082,27 @@ Usage</h2>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa36f43d35a7f0309ce1035f4892ce297" name="aa36f43d35a7f0309ce1035f4892ce297"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa36f43d35a7f0309ce1035f4892ce297">&#9670;&#160;</a></span>try_publish_hlod_objects_only_contract()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int GaussianSplatRenderer::try_publish_hlod_objects_only_contract </td>
+          <td>(</td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool &amp;</td>          <td class="paramname"><span class="paramname"><em>r_applies</em></span>&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

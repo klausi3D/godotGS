@@ -50,7 +50,7 @@ var searchData=
   ['pipeline_5fmask_47',['pipeline_mask',['../structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#a69e8bcb321f11a9c16aa79f9dd6f51f2',1,'GaussianSplatting::GpuPassTiming::FrameDurations']]],
   ['pipeline_5fsum_5fms_48',['pipeline_sum_ms',['../structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#ad72da2aa4909f0b79ef30c1831ed4a70',1,'GaussianSplatting::GpuPassTiming::FrameDurations']]],
   ['place_5fobject_5ftail_49',['place_object_tail',['../namespacegs__hlod__bundle.html#a8c54fd38cbbaba9b9ce02489c4160d19',1,'gs_hlod_bundle']]],
-  ['plan_50',['plan',['../classGaussianSplatWorldGenerator.html#adb86012b9168aa6c318d2b8cd4341f68',1,'GaussianSplatWorldGenerator']]],
+  ['plan_50',['plan',['../classGaussianSplatWorldGenerator.html#adb86012b9168aa6c318d2b8cd4341f68',1,'GaussianSplatWorldGenerator::plan()'],['../namespacegs__hlod__objects__only.html#aca3002385a9316c6dee8969554bbd61a',1,'gs_hlod_objects_only::plan()']]],
   ['plan_5fpass_51',['plan_pass',['../namespacegs__shadow__caster.html#aff003a55db76b71fb54c713e5d2cc050',1,'gs_shadow_caster::plan_pass(const FrameRecord &amp;p_record, bool p_supported_light, bool p_bundle_current)'],['../namespacegs__shadow__caster.html#a9b34abe03680e5107bcbfa9fcd0446e0',1,'gs_shadow_caster::plan_pass(const FrameRecord &amp;p_record, const LightPassInfo &amp;p_light, bool p_bundle_current, Refusal p_rows_refusal=Refusal::NONE)']]],
   ['plan_5fworld_52',['plan_world',['../namespacegs__hlod__auto__route.html#ad258e99192b3cf6360247aaf4ebbc27a',1,'gs_hlod_auto_route']]],
   ['play_53',['play',['../classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2605f7845d7e74fff516a806ce964c28',1,'GaussianSplatting::GaussianAnimationStateMachine']]],

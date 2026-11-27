@@ -1,5 +1,8 @@
 var NAVTREEINDEX22 =
 {
+"gaussian__splat__node__helpers_8h_source.html":[2,0,0,0,9,11],
+"gaussian__splat__performance__overlay_8cpp.html":[2,0,0,0,9,12],
+"gaussian__splat__performance__overlay_8h.html":[2,0,0,0,9,13],
 "gaussian__splat__performance__overlay_8h.html#a429b5762ea71e5e70d2d0ce519728052":[2,0,0,0,9,13,5],
 "gaussian__splat__performance__overlay_8h.html#ac6713ced6462aae60aeb9b5ee018c92f":[2,0,0,0,9,13,4],
 "gaussian__splat__performance__overlay_8h_source.html":[2,0,0,0,9,13],
@@ -246,8 +249,5 @@ var NAVTREEINDEX22 =
 "gs__payload__read__service_8cpp.html":[2,0,0,0,6,20],
 "gs__payload__read__service_8h.html":[2,0,0,0,6,21],
 "gs__payload__read__service_8h_source.html":[2,0,0,0,6,21],
-"gs__project__settings_8h.html":[2,0,0,0,3,59],
-"gs__project__settings_8h.html#aa24702d6e3a1d0e99ca1980dfdbdbc16":[2,0,0,0,3,59,3],
-"gs__project__settings_8h_source.html":[2,0,0,0,3,59],
-"gs__raster__thresholds_8h.html":[2,0,0,0,5,10]
+"gs__project__settings_8h.html":[2,0,0,0,3,59]
 };

@@ -386,5 +386,5 @@ var searchData=
   ['currently_5fforced_383',['currently_forced',['../structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#ade63a0eb770a64a06ce19a7e0594f2f0',1,'GaussianStreamingTypes::AsyncStallFallbackInputs']]],
   ['custom_5fproperties_384',['custom_properties',['../structAssetMetadata.html#a352d9b14488406ab6c181acfced6a9d4',1,'AssetMetadata']]],
   ['cut_385',['cut',['../structGaussianSplatting_1_1OverlapMeasurementDecision.html#a2615f73092dcd7ba007e6d849be5c10f',1,'GaussianSplatting::OverlapMeasurementDecision']]],
-  ['cut_5fenabled_386',['cut_enabled',['../structgs__hlod__auto__route_1_1WorldInputs.html#acd6de35e79c8a440fcdf8a647136d6b9',1,'gs_hlod_auto_route::WorldInputs']]]
+  ['cut_5fenabled_386',['cut_enabled',['../structgs__hlod__auto__route_1_1WorldInputs.html#acd6de35e79c8a440fcdf8a647136d6b9',1,'gs_hlod_auto_route::WorldInputs::cut_enabled'],['../structgs__hlod__objects__only_1_1Inputs.html#a9e308fe2e5616c3f9d0d45640d86868c',1,'gs_hlod_objects_only::Inputs::cut_enabled']]]
 ];

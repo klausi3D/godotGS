@@ -66,6 +66,7 @@ var namespaces_dup =
       [ "make_drawn_node", "namespacegs__hlod__gpu.html#a7bcd77a964cd41f58c524c58f9c47e58", null ],
       [ "origin_keyed_generation", "namespacegs__hlod__gpu.html#a3117c1829bbd39792f87b6e1d1433d96", null ]
     ] ],
+    [ "gs_hlod_objects_only", "namespacegs__hlod__objects__only.html", "namespacegs__hlod__objects__only" ],
     [ "gs_hlod_pack", "namespacegs__hlod__pack.html", "namespacegs__hlod__pack" ],
     [ "gs_hlod_runtime", "namespacegs__hlod__runtime.html", "namespacegs__hlod__runtime" ],
     [ "gs_layout_hint", "namespacegs__layout__hint.html", "namespacegs__layout__hint" ],

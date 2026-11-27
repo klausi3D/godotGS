@@ -270,6 +270,10 @@ var annotated_dup =
       [ "ObjectShare", "structgs__hlod__bundle_1_1ObjectShare.html", "structgs__hlod__bundle_1_1ObjectShare" ],
       [ "Admission", "structgs__hlod__bundle_1_1Admission.html", "structgs__hlod__bundle_1_1Admission" ]
     ] ],
+    [ "gs_hlod_objects_only", "namespacegs__hlod__objects__only.html", [
+      [ "Inputs", "structgs__hlod__objects__only_1_1Inputs.html", "structgs__hlod__objects__only_1_1Inputs" ],
+      [ "Plan", "structgs__hlod__objects__only_1_1Plan.html", "structgs__hlod__objects__only_1_1Plan" ]
+    ] ],
     [ "gs_hlod_pack", "namespacegs__hlod__pack.html", [
       [ "Params", "structgs__hlod__pack_1_1Params.html", "structgs__hlod__pack_1_1Params" ],
       [ "Output", "structgs__hlod__pack_1_1Output.html", "structgs__hlod__pack_1_1Output" ],
