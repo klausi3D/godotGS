@@ -1,5 +1,6 @@
 var NAVTREEINDEX58 =
 {
+"structTileBinningStage_1_1BinningUniformSets.html#ae11ea550780050d374bc5e8cedabab12":[1,0,293,0,2],
 "structTilePrefixScanStage.html":[1,0,294],
 "structTilePrefixScanStage.html#a0044b6e95784d276aebd4c7268d38da8":[1,0,294,9],
 "structTilePrefixScanStage.html#a099f2bc0c87cd5fe893b97cc7667fdf6":[1,0,294,21],
@@ -248,6 +249,5 @@ var NAVTREEINDEX58 =
 "structTileResolveStage_1_1ResolvePushConstants.html#a7cc4edffadcfc910b9f7a895751f9d67":[1,0,302,0,9],
 "structTileResolveStage_1_1ResolvePushConstants.html#a9a1cb4330efde702b11fb0a5f9db0af4":[1,0,302,0,7],
 "structTileResolveStage_1_1ResolvePushConstants.html#ab29e1360229ee34519469aafeede8cca":[1,0,302,0,0],
-"structTileResolveStage_1_1ResolvePushConstants.html#ab720c4e1f2e55ac907631a17211d859a":[1,0,302,0,8],
-"structTileResolveStage_1_1ResolvePushConstants.html#ac4b673b2943759960a026f6af46857f6":[1,0,302,0,2]
+"structTileResolveStage_1_1ResolvePushConstants.html#ab720c4e1f2e55ac907631a17211d859a":[1,0,302,0,8]
 };

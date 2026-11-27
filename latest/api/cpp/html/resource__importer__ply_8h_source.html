@@ -203,18 +203,26 @@ $(function(){initNavTree('resource__importer__ply_8h_source.html','',''); });
 <div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>    <span class="comment">//       PLY_CACHE_VERSION bump: the selection runs after the raw decode.</span></div>
 <div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span>    <span class="comment">//   v13: semantic words and island ids travel with packed-lane source rows.</span></div>
 <div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span>    <span class="comment">//       Older imported assets dropped optional semantic PLY properties.</span></div>
-<div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>    <span class="keyword">virtual</span> <span class="keywordtype">int</span> get_format_version()<span class="keyword"> const override </span>{ <span class="keywordflow">return</span> 13; }</div>
-<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span> </div>
-<div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>    <span class="comment">// Validation helpers</span></div>
-<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span>    Error validate_ply_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
-<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>    <span class="keywordtype">void</span> log_missing_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
-<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span> </div>
-<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span>    ResourceImporterPLY();</div>
-<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span>};</div>
-<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span> </div>
-<div class="line"><a id="l00122" name="l00122"></a><span class="lineno">  122</span><span class="preprocessor">#endif </span><span class="comment">// TOOLS_ENABLED</span></div>
-<div class="line"><a id="l00123" name="l00123"></a><span class="lineno">  123</span> </div>
-<div class="line"><a id="l00124" name="l00124"></a><span class="lineno">  124</span><span class="preprocessor">#endif </span><span class="comment">// RESOURCE_IMPORTER_PLY_H</span></div>
+<div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>    <span class="comment">//   v14: the PLY loader derives the f_rest channel stride from the file&#39;s</span></div>
+<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>    <span class="comment">//       SH degree instead of assuming degree 3 (#1546). An asset imported by</span></div>
+<div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>    <span class="comment">//       v1-v13 from a degree-1 or degree-2 PLY holds lost or misplaced G/B</span></div>
+<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span>    <span class="comment">//       SH coefficients and too many SH bands (a degree-4 PLY was truncated</span></div>
+<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>    <span class="comment">//       to degree 3), so bumping the format version makes Godot&#39;s scanner</span></div>
+<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>    <span class="comment">//       re-run import(). Pairs with PLY_CACHE_VERSION 5 -&gt; 6, which</span></div>
+<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span>    <span class="comment">//       invalidates the raw .gsplatcache the same way. Degree-3 and</span></div>
+<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span>    <span class="comment">//       degree-0 PLYs import exactly as before.</span></div>
+<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span>    <span class="keyword">virtual</span> <span class="keywordtype">int</span> get_format_version()<span class="keyword"> const override </span>{ <span class="keywordflow">return</span> 14; }</div>
+<div class="line"><a id="l00122" name="l00122"></a><span class="lineno">  122</span> </div>
+<div class="line"><a id="l00123" name="l00123"></a><span class="lineno">  123</span>    <span class="comment">// Validation helpers</span></div>
+<div class="line"><a id="l00124" name="l00124"></a><span class="lineno">  124</span>    Error validate_ply_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
+<div class="line"><a id="l00125" name="l00125"></a><span class="lineno">  125</span>    <span class="keywordtype">void</span> log_missing_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
+<div class="line"><a id="l00126" name="l00126"></a><span class="lineno">  126</span> </div>
+<div class="line"><a id="l00127" name="l00127"></a><span class="lineno">  127</span>    ResourceImporterPLY();</div>
+<div class="line"><a id="l00128" name="l00128"></a><span class="lineno">  128</span>};</div>
+<div class="line"><a id="l00129" name="l00129"></a><span class="lineno">  129</span> </div>
+<div class="line"><a id="l00130" name="l00130"></a><span class="lineno">  130</span><span class="preprocessor">#endif </span><span class="comment">// TOOLS_ENABLED</span></div>
+<div class="line"><a id="l00131" name="l00131"></a><span class="lineno">  131</span> </div>
+<div class="line"><a id="l00132" name="l00132"></a><span class="lineno">  132</span><span class="preprocessor">#endif </span><span class="comment">// RESOURCE_IMPORTER_PLY_H</span></div>
 <div class="ttc" id="agaussian__splat__asset_8h_html"><div class="ttname"><a href="gaussian__splat__asset_8h.html">gaussian_splat_asset.h</a></div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->

@@ -1,5 +1,6 @@
 var NAVTREEINDEX68 =
 {
+"structgs__world__generator_1_1Report.html#abd97e92ccd3f059c7a74a023583580be":[1,0,29,9,18],
 "structgs__world__generator_1_1Report.html#ae994be8f2f8c76ccdd4fb18891f447b0":[0,0,41,9,10],
 "structgs__world__generator_1_1Report.html#ae994be8f2f8c76ccdd4fb18891f447b0":[1,0,29,9,10],
 "structgs__world__generator_1_1Report.html#afbf87951b1fb6ec79fdfd81a34557ca6":[0,0,41,9,15],
@@ -248,6 +249,5 @@ var NAVTREEINDEX68 =
 "structgs__world__writer_1_1V4Report.html#ac88e2d61378c8443ebed7d5776d14f89":[1,0,31,14,7],
 "structgs__world__writer_1_1V4SegmentKey.html":[0,0,43,8],
 "structgs__world__writer_1_1V4SegmentKey.html":[1,0,31,8],
-"structgs__world__writer_1_1V4SegmentKey.html#a135d6799926216c14e16c05a726254aa":[0,0,43,8,1],
-"structgs__world__writer_1_1V4SegmentKey.html#a135d6799926216c14e16c05a726254aa":[1,0,31,8,1]
+"structgs__world__writer_1_1V4SegmentKey.html#a135d6799926216c14e16c05a726254aa":[0,0,43,8,1]
 };
