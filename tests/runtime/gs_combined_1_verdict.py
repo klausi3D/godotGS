@@ -14,6 +14,17 @@ empty frame list or a frame count other than 600 is a failure, never a skip.
 Each assertion must have *evaluated* on its coverage minimum (590 frames for
 the every-frame families), so a run that executes nothing cannot pass.
 
+Frame identity (#1519). A frame is fresh when the renderer's main-view serial
+`main_view_frame_count` and the engine frame both advanced by exactly one from
+the previous frame (frame 0 from the record's `serial_before`). The renderer's
+`frame_count` is a *pass* serial: every canonical shadow pass runs the whole
+pipeline and advances it, so with one directional light (four cascades) it
+moved by five per frame on variant A and the old filter judged one frame of
+600. Fewer than FRESH_FRAMES_MIN (= all 600) fresh frames adds
+`stale:frame_serial` to every assertion but V1; the expectations file cannot
+block that code, so a run with too few fresh frames can never pass or read as
+"blocked by a product issue". Forcing control 7 replays the base defect.
+
 Per-assertion states:
 
 ``live-pass``
@@ -61,6 +72,13 @@ FAMILY_MIN_FRAMES = 590
 FROZEN_SEGMENT_FRAMES = 120
 CHARACTER_POSES = ("front", "inside", "behind")
 CHARACTER_POSE_MIN_FRAMES = 190
+# Frame identity (#1519): the renderer's main-view serial, not its pass serial `frame_count`.
+FRAME_SERIAL_KEY = "main_view_frame_count"
+# Every frame must be fresh. The coverage minimums below (590 / 190 / 120) allow frames where an
+# assertion does not *apply*; they never excuse stale stats (ADR 9.3: a stale serial is a
+# failure, never a skip). One stale frame therefore fails every assertion but V1.
+FRESH_FRAMES_MIN = FRAMES_REQUIRED
+STALE_CODE = "stale:frame_serial"
 
 # ADR 9.3 thresholds. They are the spec; tests pin them so a change is a diff.
 A4_TOLERANCE = 3.0 / 255.0
@@ -217,22 +235,49 @@ def _warmup_problems(warmup: Any) -> List[str]:
     return []
 
 
-def fresh_frames(frames: Sequence[Dict[str, Any]]) -> List[bool]:
-    """A frame is fresh when its stats serial advanced by exactly one.
+def fresh_frames(record: Dict[str, Any]) -> List[bool]:
+    """A frame is fresh when its main-view serial and its engine frame advanced by exactly one.
 
-    ADR 9.3: "frame serial = current frame". The renderer's `frame_count` must
-    advance once per harness frame; a repeated or skipped serial means the stats
-    describe some other frame and nothing read from them may count.
+    ADR 9.3: "frame serial = current frame". `main_view_frame_count` advances once per
+    completed main view, so one harness frame is +1 whatever shadow work the frame did
+    (#1519); `frame_count` also counts shadow passes and is not frame identity. A repeated,
+    skipped or missing serial, or an engine frame that did not advance by one, means the
+    stats describe some other frame and nothing read from them may count. Frame 0 is
+    judged against the record's `serial_before` (the last warm-up frame); without it,
+    frame 0 is stale -- the first frame is never fresh by default.
     """
-    result: List[bool] = []
+    frames = record.get("frames") if isinstance(record, dict) else None
+    if not isinstance(frames, list):
+        return []
+    before = record.get("serial_before")
     previous: Optional[float] = None
+    previous_engine: Optional[float] = None
+    if isinstance(before, dict):
+        previous = _number(before.get(FRAME_SERIAL_KEY))
+        previous_engine = _number(before.get("engine_frame"))
+    result: List[bool] = []
     for frame in frames:
-        serial, code = _stat_number(frame, "frame_count")
-        ok = code is None and (previous is None or serial == previous + 1)
+        if not isinstance(frame, dict):
+            result.append(False)
+            continue
+        serial, code = _stat_number(frame, FRAME_SERIAL_KEY)
+        engine = _number(frame.get("engine_frame"))
+        ok = (code is None and engine is not None and previous is not None and previous_engine is not None
+              and serial == previous + 1 and engine == previous_engine + 1)
         result.append(bool(ok))
         if code is None:
             previous = serial
+        if engine is not None:
+            previous_engine = engine
     return result
+
+
+def freshness_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Record-level freshness: how many frames the verdict may judge, against the minimum."""
+    fresh = fresh_frames(record) if not validate_record_shape(record) else []
+    count = fresh.count(True)
+    return {"serial_key": FRAME_SERIAL_KEY, "fresh_frames": count, "stale_frames": len(fresh) - count,
+            "required": FRESH_FRAMES_MIN, "met": count >= FRESH_FRAMES_MIN}
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +646,7 @@ def _eval_t1(record, frames, fresh) -> Tuple[int, List[str], Dict[str, Any]]:
         codes.append("value:taa_not_off")
     seg = frames[start:end]
     if not all(fresh[start:end]):
-        codes.append("stale:frame_count")
+        codes.append(STALE_CODE)
     inputs = [f.get("input_digest") for f in seg]
     images = [f.get("frame_digest") for f in seg]
     frozen_flags = [f.get("frozen") for f in seg]
@@ -721,8 +766,8 @@ def evaluate_assertions(record: Dict[str, Any], log_text: Optional[str]) -> Dict
                             "failing_frames": 0, "detail": {}}
         return results
     frames: List[Dict[str, Any]] = record["frames"]
-    fresh = fresh_frames(frames)
-    stale_frames = fresh.count(False)
+    fresh = fresh_frames(record)
+    fresh_count = fresh.count(True)
     for aid, _family, minimum, _text in ASSERTIONS:
         codes: List[str] = []
         detail: Dict[str, Any] = {}
@@ -763,8 +808,8 @@ def evaluate_assertions(record: Dict[str, Any], log_text: Optional[str]) -> Dict
             detail["pick_opportunities"] = opportunities
             if opportunities < A6_MIN_OPPORTUNITIES:
                 codes = sorted(set(codes) | {"coverage:no_pick_opportunity"})
-        if stale_frames and aid not in ("V1",):
-            codes = sorted(set(codes) | {"stale:frame_count"})
+        if fresh_count < FRESH_FRAMES_MIN and aid not in ("V1",):
+            codes = sorted(set(codes) | {STALE_CODE})
         if evaluated < minimum:
             codes = sorted(set(codes) | {"coverage:below_minimum"})
         results[aid] = {"evaluated": evaluated, "required": minimum, "codes": codes,
@@ -809,6 +854,10 @@ def load_expectations(data: Any) -> Dict[str, Dict[str, Dict[str, Any]]]:
             expected = entry.get("expected_failures")
             if not (isinstance(expected, list) and expected and all(isinstance(c, str) and c for c in expected)):
                 raise RecordError(f"expectations: {variant}.{aid} needs a non-empty expected_failures list")
+            if _code_matches(STALE_CODE, expected):
+                # Stale stats are a harness/frame-identity failure (#1519), never a known product
+                # failure: blocking them would hide a run that judged too few frames.
+                raise RecordError(f"expectations: {variant}.{aid} may not expect {STALE_CODE}")
             out[variant][aid] = {"issue": issue, "reason": reason, "expected_failures": list(expected),
                                  "followup": entry.get("followup")}
     return out
@@ -879,8 +928,10 @@ def verdict(record: Dict[str, Any], expectations: Dict[str, Dict[str, Dict[str, 
     counts = {state: sum(1 for r in rows.values() if r["state"] == state) for state in STATES}
     # P1/P2 are report-only for their GR-15 thresholds ("report:" codes, shown
     # but not gating) and hard for timing validity, like P3.
-    met = counts["live-pass"] == len(rows) and not blocked
+    freshness = freshness_summary(record) if isinstance(record, dict) else freshness_summary({})
+    met = counts["live-pass"] == len(rows) and not blocked and freshness["met"]
     return {"schema": VERDICT_SCHEMA, "variant": variant, "gate_met": met, "counts": counts,
+            "freshness": freshness,
             "regressions": sorted(aid for aid, r in rows.items() if r["state"] == "live-fail"),
             "blocked": sorted(aid for aid, r in rows.items() if r["state"] == "blocked"),
             "stale_blocks": sorted(aid for aid, r in rows.items() if r["state"] == "stale-block"),
@@ -948,6 +999,19 @@ def _ctl_freeze_timestamp(record):
         current["gpu_frame_valid"] = True
 
 
+def _ctl_too_few_fresh_frames(record):
+    # Base variant A (#1519): the serial moved by 5 per frame, so one frame of 600 was fresh.
+    frames = record["frames"]
+    first = frames[0].get("stats") if frames else None
+    start = _number(first.get(FRAME_SERIAL_KEY)) if isinstance(first, dict) else None
+    if start is None:
+        return
+    for index, frame in enumerate(frames):
+        stats = frame.get("stats")
+        if isinstance(stats, dict):
+            stats[FRAME_SERIAL_KEY] = int(start) + 5 * index
+
+
 def _ctl_pick_no_hit(record):
     for frame in record["frames"]:
         pick = frame.get("pick")
@@ -963,7 +1027,10 @@ CONTROLS: Dict[int, Tuple[str, Tuple[str, ...], Callable[[Dict[str, Any]], None]
     4: ("delete_stats_key_object_drawn_splats", ("A1",), _ctl_delete_object_drawn, True),
     5: ("freeze_one_pass_timestamp", ("P3",), _ctl_freeze_timestamp, True),
     6: ("pick_returns_no_hit", ("A6",), _ctl_pick_no_hit, True),
+    7: ("too_few_fresh_frames", tuple(a for a in ASSERTION_IDS if a != "V1"), _ctl_too_few_fresh_frames, False),
 }
+# Controls that are proven only when EVERY passing target turns red (not just one).
+CONTROLS_REQUIRE_ALL_TARGETS = frozenset({7})
 
 
 def run_controls(record: Dict[str, Any], log_text: Optional[str]) -> Dict[str, Any]:
@@ -987,6 +1054,8 @@ def run_controls(record: Dict[str, Any], log_text: Optional[str]) -> Dict[str, A
         passing_before = [t for t in targets if not base[t]["codes"]]
         if not passing_before:
             state, why = "unproven", "every target already fails on this record"
+        elif number in CONTROLS_REQUIRE_ALL_TARGETS and not all(after[t]["codes"] for t in passing_before):
+            state, why = "broken", "a target stayed green under the control"
         elif any(after[t]["codes"] for t in passing_before):
             state, why = "proven", "target turned red under the control"
         else:
@@ -1022,6 +1091,9 @@ def markdown_table(verdicts: Sequence[Dict[str, Any]]) -> str:
         lines.append("")
         lines.append(f"Variant {v['variant']}: gate_met={v['gate_met']} counts={v['counts']} "
                      f"regressions={v['regressions']}")
+        fr = v.get("freshness") or {}
+        lines.append(f"Variant {v['variant']}: fresh frames {fr.get('fresh_frames')}/{fr.get('required')} "
+                     f"(serial {fr.get('serial_key')}, stale {fr.get('stale_frames')})")
     return "\n".join(lines)
 
 

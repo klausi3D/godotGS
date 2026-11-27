@@ -35,7 +35,8 @@ public:
 	void transition_recovery_state(GaussianSplatRenderer::ErrorRecoveryStateMachine::State p_state, const String &p_reason);
 	void record_cross_device_operation(const GaussianSplatRenderer::CrossDeviceOperation &p_operation);
 	void capture_frame_timing_sample();
-	void increment_frame_counter();
+	// p_main_view_completed: this pass was a completed MAIN_VIEW pass (advances main_view_frame_counter).
+	void increment_frame_counter(bool p_main_view_completed = false);
 	void emit_runtime_diagnostics_if_requested();
 
 	Array serialize_texture_trace() const;

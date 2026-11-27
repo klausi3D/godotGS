@@ -60,7 +60,13 @@ public:
 		std::atomic<uint32_t> visible_splat_count{0};
 		// Render-context metadata, alongside the existing count/stat state. -1 is unknown.
 		int64_t visible_splat_count_source_frame = -1;
+		// Renderer pass serial: one per completed pipeline pass, including each canonical shadow
+		// pass (render_shadow_depth_map runs the whole pipeline per light view), so it can move by
+		// several per RenderingServer frame. Caches and sort/stats provenance key on it.
 		uint32_t frame_counter = 0;
+		// Frame identity (#1519): one per completed MAIN_VIEW pass, never per shadow pass. With one
+		// view per frame it moves by exactly one per frame on every route.
+		uint32_t main_view_frame_counter = 0;
 		float sort_time_ms = 0.0f;
 		float render_time_ms = 0.0f;
 		// Monotonic wall-clock seconds sampled once per render frame and

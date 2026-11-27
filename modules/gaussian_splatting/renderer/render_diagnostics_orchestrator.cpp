@@ -471,7 +471,10 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	const auto &debug_state = state_view.get_debug_state_view();
 	const auto &subsystem_state = state_view.get_subsystem_state_view();
 
+	// frame_count is the renderer pass serial (shadow passes advance it too); main_view_frame_count is
+	// frame identity: one per completed main view (#1519).
 	r_metrics["frame_count"] = static_cast<int64_t>(frame_state.frame_counter);
+	r_metrics["main_view_frame_count"] = static_cast<int64_t>(frame_state.main_view_frame_counter);
 	r_metrics["sorted_splats"] = static_cast<int64_t>(sorting_state.sorted_splat_count);
 	// Depth sorts executed in renderer frame sort_dispatch_frame (-1: none yet). The frame just drawn is frame_count - 1.
 	r_metrics["sort_dispatch_frame"] = sorting_state.sort_dispatch_frame == UINT64_MAX ? int64_t(-1) : static_cast<int64_t>(sorting_state.sort_dispatch_frame);
@@ -1210,10 +1213,13 @@ void RenderDiagnosticsOrchestrator::capture_frame_timing_sample() {
 	}
 }
 
-void RenderDiagnosticsOrchestrator::increment_frame_counter() {
+void RenderDiagnosticsOrchestrator::increment_frame_counter(bool p_main_view_completed) {
 	GaussianSplatRenderer::FrameStateProvider state_provider(renderer);
 	capture_frame_timing_sample();
 	state_provider.get_frame_state_mut().frame_counter++;
+	if (p_main_view_completed) {
+		state_provider.get_frame_state_mut().main_view_frame_counter++;
+	}
 	// See notify_error: avoid post-destroy resurrection.
 	if (GaussianRenderingDiagnostics::get_singleton()) {
 		GaussianRenderingDiagnostics::get_singleton()->notify_frame_completed(renderer);
@@ -1355,6 +1361,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 		stats["sort_time_ms"] = frame_state.sort_time_ms;
 		stats["render_time_ms"] = frame_state.render_time_ms;
 		stats["frame_count"] = frame_state.frame_counter;
+		stats["main_view_frame_count"] = frame_state.main_view_frame_counter;
 		stats["render_mode"] = render_config.render_mode;
 		const bool stage_metrics_valid = debug_state.last_stage_metrics_valid;
 		GaussianSplatRenderer::StageMetrics stage_metrics = stage_metrics_valid

@@ -282,6 +282,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		float before_avg_time = metrics.avg_frame_time_ms;
 		float before_peak_time = metrics.peak_frame_time_ms;
 		uint64_t before_frame_counter = frame_state_view.get_frame_state_view().frame_counter;
+		const uint32_t before_main_view_frame_counter = frame_state_view.get_frame_state_view().main_view_frame_counter;
 
 		pipeline_stages->render_sorted_splats_with_context(frame_context);
 #ifdef TESTS_ENABLED
@@ -334,6 +335,8 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 
 		if (instance_count > 1 && instance_index < instance_count - 1) {
 			root_frame_state.frame_counter = before_frame_counter;
+			// One instanced view is one frame for frame identity too (#1519).
+			root_frame_state.main_view_frame_counter = before_main_view_frame_counter;
 			metrics.total_frames_rendered = before_total_frames;
 			metrics.avg_frame_time_ms = before_avg_time;
 			metrics.peak_frame_time_ms = before_peak_time;
