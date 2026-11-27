@@ -1,5 +1,16 @@
 var NAVTREEINDEX58 =
 {
+"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abadaa7ff97a766840dc2ab063e3f385215f8":[1,0,294,2,2],
+"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abadab362fb9f2c317492e7ba67a75be8ab03":[1,0,294,2,1],
+"structTilePrefixScanStage.html#a5f835a81d2bc1f4b3c1885c3c492aabb":[1,0,294,17],
+"structTilePrefixScanStage.html#a6dbdbde9f627e3d18a14e5dfafe90830":[1,0,294,15],
+"structTilePrefixScanStage.html#a74e7b09cefa031dcc61a9d6bcdb3e5ef":[1,0,294,5],
+"structTilePrefixScanStage.html#a751c326a74e550e3b6102fa688cf1b00":[1,0,294,12],
+"structTilePrefixScanStage.html#a7c65859c60e2ba657d575199b57ad169":[1,0,294,8],
+"structTilePrefixScanStage.html#a83c41a38ae37e76e0baa09196c650f34":[1,0,294,23],
+"structTilePrefixScanStage.html#aa094e4f280e63242f1e3cc475f86ee45":[1,0,294,10],
+"structTilePrefixScanStage.html#ab3728b23514f21f8b257c73ef67533a6":[1,0,294,6],
+"structTilePrefixScanStage.html#acaafb3ff27c59526b8dac44147a9a424":[1,0,294,24],
 "structTilePrefixScanStage.html#adfd4ac0672700b754efb403e299f6893":[1,0,294,7],
 "structTilePrefixScanStage.html#ae6f4747c938f0f105274abc4b9370331":[1,0,294,18],
 "structTilePrefixScanStage.html#aea197d25f2da002c1646c091143b3cee":[1,0,294,13],
@@ -238,16 +249,5 @@ var NAVTREEINDEX58 =
 "structTileShaderCompilation_1_1CompilationResult.html#ae6740ce7d33a5486c67863172cb10269":[0,0,51,1,3],
 "structTileShaderCompilation_1_1CompilationResult.html#ae6740ce7d33a5486c67863172cb10269":[1,0,35,1,3],
 "structTileShaderCompilation_1_1CompilationResult.html#afb0965ef51c61e3587f644a6c2fc6f8d":[0,0,51,1,2],
-"structTileShaderCompilation_1_1CompilationResult.html#afb0965ef51c61e3587f644a6c2fc6f8d":[1,0,35,1,2],
-"structTileShaderCompilation_1_1ShaderVariant.html":[0,0,51,0],
-"structTileShaderCompilation_1_1ShaderVariant.html":[1,0,35,0],
-"structTileShaderCompilation_1_1ShaderVariant.html#a3b3c67295af18a3eecf0820614a633fb":[0,0,51,0,0],
-"structTileShaderCompilation_1_1ShaderVariant.html#a3b3c67295af18a3eecf0820614a633fb":[1,0,35,0,0],
-"structTileShaderCompilation_1_1ShaderVariant.html#af3007aa3df411490a9643194f0e9c7b6":[0,0,51,0,2],
-"structTileShaderCompilation_1_1ShaderVariant.html#af3007aa3df411490a9643194f0e9c7b6":[1,0,35,0,2],
-"structTileShaderCompilation_1_1ShaderVariant.html#af80e4c571267c6c3c4232599c45daaea":[0,0,51,0,1],
-"structTileShaderCompilation_1_1ShaderVariant.html#af80e4c571267c6c3c4232599c45daaea":[1,0,35,0,1],
-"structVRAMBudgetConfig.html":[1,0,304],
-"structVRAMBudgetConfig.html#a02ab7aa62759af4393c197a1482483ec":[1,0,304,9],
-"structVRAMBudgetConfig.html#a03628eff5b974f1e33c57c28038daf0e":[1,0,304,10]
+"structTileShaderCompilation_1_1CompilationResult.html#afb0965ef51c61e3587f644a6c2fc6f8d":[1,0,35,1,2]
 };

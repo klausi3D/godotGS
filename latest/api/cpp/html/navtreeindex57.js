@@ -1,5 +1,16 @@
 var NAVTREEINDEX57 =
 {
+"structStreamingStats.html#a1d6a4e8b4726dd6667491d1c9e35d8a7":[1,0,287,7],
+"structStreamingStats.html#a21e7cca2e499adff695eb63bcb7c5f41":[1,0,287,0],
+"structStreamingStats.html#a5797025ec6613c6169f0bdb90ec06f25":[1,0,287,11],
+"structStreamingStats.html#a5c508b95807be37e0153f14ef675e46b":[1,0,287,5],
+"structStreamingStats.html#a86acc46a1920c998035acfc8d7bb0043":[1,0,287,9],
+"structStreamingStats.html#aa1b6cfae855d8d1b5785a4f7c8421ab4":[1,0,287,4],
+"structStreamingStats.html#aaba462709071c153084b85d649efb931":[1,0,287,12],
+"structStreamingStats.html#ab0b40de7092a605ae679f1e51ff9ddbc":[1,0,287,10],
+"structStreamingStats.html#ac7d5b7dea005481ca585a8b0f8499ad0":[1,0,287,2],
+"structStreamingStats.html#ade39d56f669a1d8b5b4fe7818c0b5270":[1,0,287,1],
+"structStreamingStats.html#ae64a4e24b8ced82868ba4fa4c2d8b065":[1,0,287,3],
 "structStreamingStats.html#aee598f258f3869a019a98f22f60a53ba":[1,0,287,8],
 "structStreamingStats.html#af48018f7e2e75374340c9ced80b367de":[1,0,287,6],
 "structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html":[1,0,288,0],
@@ -238,16 +249,5 @@ var NAVTREEINDEX57 =
 "structTilePrefixScanStage.html#a5043990372d0df4f02169ba64c0b8bba":[1,0,294,4],
 "structTilePrefixScanStage.html#a50e6ae7cd36dc620a8cee41fed361ad1":[1,0,294,19],
 "structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abad":[1,0,294,2],
-"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abada780f594de1b3352f61ad7b4aa535a32e":[1,0,294,2,0],
-"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abadaa7ff97a766840dc2ab063e3f385215f8":[1,0,294,2,2],
-"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abadab362fb9f2c317492e7ba67a75be8ab03":[1,0,294,2,1],
-"structTilePrefixScanStage.html#a5f835a81d2bc1f4b3c1885c3c492aabb":[1,0,294,17],
-"structTilePrefixScanStage.html#a6dbdbde9f627e3d18a14e5dfafe90830":[1,0,294,15],
-"structTilePrefixScanStage.html#a74e7b09cefa031dcc61a9d6bcdb3e5ef":[1,0,294,5],
-"structTilePrefixScanStage.html#a751c326a74e550e3b6102fa688cf1b00":[1,0,294,12],
-"structTilePrefixScanStage.html#a7c65859c60e2ba657d575199b57ad169":[1,0,294,8],
-"structTilePrefixScanStage.html#a83c41a38ae37e76e0baa09196c650f34":[1,0,294,23],
-"structTilePrefixScanStage.html#aa094e4f280e63242f1e3cc475f86ee45":[1,0,294,10],
-"structTilePrefixScanStage.html#ab3728b23514f21f8b257c73ef67533a6":[1,0,294,6],
-"structTilePrefixScanStage.html#acaafb3ff27c59526b8dac44147a9a424":[1,0,294,24]
+"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abada780f594de1b3352f61ad7b4aa535a32e":[1,0,294,2,0]
 };

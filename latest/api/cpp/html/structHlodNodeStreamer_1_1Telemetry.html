@@ -122,6 +122,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ad1ff465ac28a637f11d7069d34c3cbde" id="r_ad1ff465ac28a637f11d7069d34c3cbde"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad1ff465ac28a637f11d7069d34c3cbde">failed_total</a> = 0</td></tr>
 <tr class="memitem:ac093f9ed1e6aa46c489c0af097bbf2ba" id="r_ac093f9ed1e6aa46c489c0af097bbf2ba"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac093f9ed1e6aa46c489c0af097bbf2ba">failed_permanent_total</a> = 0</td></tr>
 <tr class="memitem:a457c05525622e4289b6b87d5024c4848" id="r_a457c05525622e4289b6b87d5024c4848"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a457c05525622e4289b6b87d5024c4848">failed_retry_later_total</a> = 0</td></tr>
+<tr class="memitem:a6e95f95f7a28c0bb046b94ce7140d04e" id="r_a6e95f95f7a28c0bb046b94ce7140d04e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6e95f95f7a28c0bb046b94ce7140d04e">nodes_failed_permanently_total</a> = 0</td></tr>
+<tr class="memitem:aff12aa123dfe227ddce4f28f047d1797" id="r_aff12aa123dfe227ddce4f28f047d1797"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aff12aa123dfe227ddce4f28f047d1797">retry_later_exhausted_total</a> = 0</td></tr>
+<tr class="memitem:a3fab863a7586c0df20edddc711ef37c9" id="r_a3fab863a7586c0df20edddc711ef37c9"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3fab863a7586c0df20edddc711ef37c9">last_permanent_failure_node</a> = UINT32_MAX</td></tr>
 <tr class="memitem:a36fd0eb0385b93a37ab5ab4db7abe6c1" id="r_a36fd0eb0385b93a37ab5ab4db7abe6c1"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a36fd0eb0385b93a37ab5ab4db7abe6c1">skipped_groups_total</a> = 0</td></tr>
 <tr class="memitem:a648ce596b665f69e8785641036f938b3" id="r_a648ce596b665f69e8785641036f938b3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a648ce596b665f69e8785641036f938b3">stall_frames</a> = 0</td></tr>
 <tr class="memitem:a56e04d7e53d2cda59f5401ad27b355a2" id="r_a56e04d7e53d2cda59f5401ad27b355a2"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56e04d7e53d2cda59f5401ad27b355a2">blocked_groups_this_frame</a> = 0</td></tr>
@@ -793,6 +796,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a3fab863a7586c0df20edddc711ef37c9" name="a3fab863a7586c0df20edddc711ef37c9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3fab863a7586c0df20edddc711ef37c9">&#9670;&#160;</a></span>last_permanent_failure_node</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodNodeStreamer::Telemetry::last_permanent_failure_node = UINT32_MAX</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a8de33fb88f749af4aa70a244745ec42d" name="a8de33fb88f749af4aa70a244745ec42d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8de33fb88f749af4aa70a244745ec42d">&#9670;&#160;</a></span>late_dropped_cancelled_total</h2>
 
@@ -843,6 +860,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t HlodNodeStreamer::Telemetry::loading = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6e95f95f7a28c0bb046b94ce7140d04e" name="a6e95f95f7a28c0bb046b94ce7140d04e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6e95f95f7a28c0bb046b94ce7140d04e">&#9670;&#160;</a></span>nodes_failed_permanently_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::nodes_failed_permanently_total = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1347,6 +1378,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t HlodNodeStreamer::Telemetry::resident = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aff12aa123dfe227ddce4f28f047d1797" name="aff12aa123dfe227ddce4f28f047d1797"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aff12aa123dfe227ddce4f28f047d1797">&#9670;&#160;</a></span>retry_later_exhausted_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::retry_later_exhausted_total = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -1,5 +1,8 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1AnimationTrack.html#a6cc9bc049b2da6e46effd5fa1feb4246":[1,0,9,3,5],
+"structGaussianSplatting_1_1AnimationTrack.html#a77b8f798e1b90254249c71b3bb4f7381":[0,0,12,4,4],
+"structGaussianSplatting_1_1AnimationTrack.html#a77b8f798e1b90254249c71b3bb4f7381":[1,0,9,3,4],
 "structGaussianSplatting_1_1AnimationTrack.html#ab65cc0ff577923089f2c6abe703b258d":[0,0,12,4,3],
 "structGaussianSplatting_1_1AnimationTrack.html#ab65cc0ff577923089f2c6abe703b258d":[1,0,9,3,3],
 "structGaussianSplatting_1_1AnimationTrack.html#ab6e1e0c9c5344760905c2776a5c31af9":[0,0,12,4,1],
@@ -246,8 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#aaea12d84fcfc042b9d3c6df12aaacf3d":[1,0,9,14,6],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ac9e9fc4f712e735e9150c0e4c3bb276e":[0,0,12,15,7],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ac9e9fc4f712e735e9150c0e4c3bb276e":[1,0,9,14,7],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#acc3a96a4d61fd36162b264589367aa01":[0,0,12,15,11],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#acc3a96a4d61fd36162b264589367aa01":[1,0,9,14,11],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0769b8fa472534e32f40440a5aaab44":[0,0,12,15,8],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0769b8fa472534e32f40440a5aaab44":[1,0,9,14,8]
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#acc3a96a4d61fd36162b264589367aa01":[0,0,12,15,11]
 };

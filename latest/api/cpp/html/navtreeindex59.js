@@ -1,5 +1,16 @@
 var NAVTREEINDEX59 =
 {
+"structTileShaderCompilation_1_1ShaderVariant.html":[0,0,51,0],
+"structTileShaderCompilation_1_1ShaderVariant.html":[1,0,35,0],
+"structTileShaderCompilation_1_1ShaderVariant.html#a3b3c67295af18a3eecf0820614a633fb":[0,0,51,0,0],
+"structTileShaderCompilation_1_1ShaderVariant.html#a3b3c67295af18a3eecf0820614a633fb":[1,0,35,0,0],
+"structTileShaderCompilation_1_1ShaderVariant.html#af3007aa3df411490a9643194f0e9c7b6":[0,0,51,0,2],
+"structTileShaderCompilation_1_1ShaderVariant.html#af3007aa3df411490a9643194f0e9c7b6":[1,0,35,0,2],
+"structTileShaderCompilation_1_1ShaderVariant.html#af80e4c571267c6c3c4232599c45daaea":[0,0,51,0,1],
+"structTileShaderCompilation_1_1ShaderVariant.html#af80e4c571267c6c3c4232599c45daaea":[1,0,35,0,1],
+"structVRAMBudgetConfig.html":[1,0,304],
+"structVRAMBudgetConfig.html#a02ab7aa62759af4393c197a1482483ec":[1,0,304,9],
+"structVRAMBudgetConfig.html#a03628eff5b974f1e33c57c28038daf0e":[1,0,304,10],
 "structVRAMBudgetConfig.html#a16f484086f7fc20cb255c4fc08552396":[1,0,304,5],
 "structVRAMBudgetConfig.html#a1bb53e63d029158aa385e4f089d0e28e":[1,0,304,7],
 "structVRAMBudgetConfig.html#a2ade6df37a0b6abf2d23b88e21e3cf13":[1,0,304,8],
@@ -238,16 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__hlod_1_1BakeParams.html#a19698fa99472aeb155cfbe84de6c4a84":[0,0,21,4,3],
 "structgs__hlod_1_1BakeParams.html#a19698fa99472aeb155cfbe84de6c4a84":[1,0,14,4,3],
 "structgs__hlod_1_1BakeParams.html#a3d2cf9c51ae133612a692bd68732e423":[0,0,21,4,1],
-"structgs__hlod_1_1BakeParams.html#a3d2cf9c51ae133612a692bd68732e423":[1,0,14,4,1],
-"structgs__hlod_1_1BakeParams.html#addc2db4f29179112e7f672e8a3e3eecc":[0,0,21,4,2],
-"structgs__hlod_1_1BakeParams.html#addc2db4f29179112e7f672e8a3e3eecc":[1,0,14,4,2],
-"structgs__hlod_1_1BakeParams.html#af60d94726a9a62de61debee901cc6ed1":[0,0,21,4,4],
-"structgs__hlod_1_1BakeParams.html#af60d94726a9a62de61debee901cc6ed1":[1,0,14,4,4],
-"structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521ae":[0,0,21,4,0],
-"structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521ae":[1,0,14,4,0],
-"structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aea130011b2ecec547a67a382887f5c134f":[0,0,21,4,0,1],
-"structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aea130011b2ecec547a67a382887f5c134f":[1,0,14,4,0,1],
-"structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aeae06fbb056555eb46decd6ec11dd82ab7":[0,0,21,4,0,0],
-"structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aeae06fbb056555eb46decd6ec11dd82ab7":[1,0,14,4,0,0],
-"structgs__hlod_1_1BakeResult.html":[0,0,21,6]
+"structgs__hlod_1_1BakeParams.html#a3d2cf9c51ae133612a692bd68732e423":[1,0,14,4,1]
 };

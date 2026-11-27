@@ -156,6 +156,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a7560de27a539ddabf710ea8d82ba9f59" id="r_a7560de27a539ddabf710ea8d82ba9f59"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7560de27a539ddabf710ea8d82ba9f59">init_with_page_store</a> (const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_data, const <a class="el" href="structHlodNodeStreamer_1_1Config.html">Config</a> &amp;p_config, uint64_t p_world_generation, uint64_t p_device_generation, <a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &amp;p_store)</td></tr>
 <tr class="memitem:a2fad6d3427031bead65d5f6a62bec38f" id="r_a2fad6d3427031bead65d5f6a62bec38f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2fad6d3427031bead65d5f6a62bec38f">shutdown</a> ()</td></tr>
 <tr class="memitem:a11d98f3927ff1bd97473c707c0558fca" id="r_a11d98f3927ff1bd97473c707c0558fca"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a11d98f3927ff1bd97473c707c0558fca">is_active</a> () const</td></tr>
+<tr class="memitem:ac485b848cd04dc2ded314c34dde89cfd" id="r_ac485b848cd04dc2ded314c34dde89cfd"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac485b848cd04dc2ded314c34dde89cfd">get_last_drain_usec</a> () const</td></tr>
+<tr class="memitem:aed8af809d4b75d8a6ecdac19b45d990d" id="r_aed8af809d4b75d8a6ecdac19b45d990d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aed8af809d4b75d8a6ecdac19b45d990d">get_max_drain_usec</a> () const</td></tr>
+<tr class="memitem:a5c0cb6f68e0f1e5911754c79e6b23c78" id="r_a5c0cb6f68e0f1e5911754c79e6b23c78"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5c0cb6f68e0f1e5911754c79e6b23c78">get_slow_drains_total</a> () const</td></tr>
 <tr class="memitem:a79b528c60c63ad599f12e28cadcb46f4" id="r_a79b528c60c63ad599f12e28cadcb46f4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a79b528c60c63ad599f12e28cadcb46f4">uses_page_store</a> (const <a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> *p_store) const</td></tr>
 <tr class="memitem:a94559732c4df8d77d1b43d2c72876251" id="r_a94559732c4df8d77d1b43d2c72876251"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a94559732c4df8d77d1b43d2c72876251">get_retained_byte_cap</a> () const</td></tr>
 <tr class="memitem:a076889c376a6cbad967e644f4b99904b" id="r_a076889c376a6cbad967e644f4b99904b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a076889c376a6cbad967e644f4b99904b">begin_frame</a> (RenderingDevice *p_device=nullptr, const <a class="el" href="structHlodNodeStreamer_1_1Buffers.html">Buffers</a> *p_buffers=nullptr)</td></tr>
@@ -184,6 +187,10 @@ Public Member Functions</h2></td></tr>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:a233093b3b2fed94273dc4d63693f25ba" id="r_a233093b3b2fed94273dc4d63693f25ba"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10">RefusingGate</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a233093b3b2fed94273dc4d63693f25ba">classify_admission_refusal</a> (bool p_oversized_latch, bool p_transport_full, bool p_oversized_wait_live, bool p_retained_full)</td></tr>
 <tr class="memitem:a0985cf037a6196e8b76805a49a0cf4db" id="r_a0985cf037a6196e8b76805a49a0cf4db"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0985cf037a6196e8b76805a49a0cf4db">split_protection_and_demand</a> (const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count, LocalVector&lt; uint32_t &gt; &amp;r_protected, LocalVector&lt; uint32_t &gt; &amp;r_demand, LocalVector&lt; uint32_t &gt; *r_kept=nullptr, LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1TransitionGroup.html">gs_hlod_runtime::TransitionGroup</a> &gt; *r_groups=nullptr)</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
+Static Public Attributes</h2></td></tr>
+<tr class="memitem:a9e4f1bf727f4b03b3a8c0c20ac2943f5" id="r_a9e4f1bf727f4b03b3a8c0c20ac2943f5"><td class="memItemLeft" align="right" valign="top">static constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e4f1bf727f4b03b3a8c0c20ac2943f5">DRAIN_STALL_WARN_USEC</a> = 100 * 1000</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
 <a id="a634834966fe947971b548af84674de8f" name="a634834966fe947971b548af84674de8f"></a>
@@ -490,6 +497,56 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="ac485b848cd04dc2ded314c34dde89cfd" name="ac485b848cd04dc2ded314c34dde89cfd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac485b848cd04dc2ded314c34dde89cfd">&#9670;&#160;</a></span>get_last_drain_usec()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::get_last_drain_usec </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aed8af809d4b75d8a6ecdac19b45d990d" name="aed8af809d4b75d8a6ecdac19b45d990d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aed8af809d4b75d8a6ecdac19b45d990d">&#9670;&#160;</a></span>get_max_drain_usec()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::get_max_drain_usec </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a8970850b4a53b9929fb46e3af6a4fc00" name="a8970850b4a53b9929fb46e3af6a4fc00"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8970850b4a53b9929fb46e3af6a4fc00">&#9670;&#160;</a></span>get_payload_telemetry()</h2>
 
@@ -560,6 +617,31 @@ Static Public Member Functions</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t HlodNodeStreamer::get_retained_byte_cap </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5c0cb6f68e0f1e5911754c79e6b23c78" name="a5c0cb6f68e0f1e5911754c79e6b23c78"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5c0cb6f68e0f1e5911754c79e6b23c78">&#9670;&#160;</a></span>get_slow_drains_total()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::get_slow_drains_total </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -1096,6 +1178,29 @@ Static Public Member Functions</h2></td></tr>
   </td>
   <td class="mlabels-right">
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="a9e4f1bf727f4b03b3a8c0c20ac2943f5" name="a9e4f1bf727f4b03b3a8c0c20ac2943f5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9e4f1bf727f4b03b3a8c0c20ac2943f5">&#9670;&#160;</a></span>DRAIN_STALL_WARN_USEC</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::DRAIN_STALL_WARN_USEC = 100 * 1000</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">

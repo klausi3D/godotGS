@@ -1,5 +1,16 @@
 var NAVTREEINDEX56 =
 {
+"structSortBufferHandles.html#a25ac68ea71e5730fff8cca31465f18da":[1,0,255,0],
+"structSortBufferHandles.html#a4c756813aa2e74fc5db5e6485b42e89f":[1,0,255,1],
+"structSortBufferHandles.html#af45c8e7d62d549994deb9b6873c23810":[1,0,255,3],
+"structSortExternalBufferState.html":[1,0,257],
+"structSortExternalBufferState.html#a1d00f184463e1d78b684719f7cd07d97":[1,0,257,3],
+"structSortExternalBufferState.html#a4904d84cab069b67e3a1db41318698c4":[1,0,257,0],
+"structSortExternalBufferState.html#ac4e6be785210d70b6b350552d726bde9":[1,0,257,2],
+"structSortExternalBufferState.html#ad1fa4b5a33f6ef3aa56a749bd32247bf":[1,0,257,1],
+"structSortExternalBufferState.html#ae142f086c9609425ed98c7a373839c50":[1,0,257,4],
+"structSortFrameContext.html":[1,0,258],
+"structSortFrameContext.html#a181d2e51f004255e25d697c93172a99d":[1,0,258,4],
 "structSortFrameContext.html#a5f1a1c5139736e22fea4d2feba05a9ea":[1,0,258,1],
 "structSortFrameContext.html#a6caec7194c7c1664b6ee041414a08766":[1,0,258,2],
 "structSortFrameContext.html#a6dfa5681e7a1f938fbb7af292a5ef93a":[1,0,258,0],
@@ -238,16 +249,5 @@ var NAVTREEINDEX56 =
 "structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#a1d6b9f80a2c0d9075f91c9845b1dad5e":[1,0,286,4,1],
 "structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#a31830c5cc42fa29223d18bb925aae3d6":[1,0,286,4,2],
 "structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#aa37a229c6a37c5ac2ce90bd09dc7c627":[1,0,286,4,0],
-"structStreamingStats.html":[1,0,287],
-"structStreamingStats.html#a1d6a4e8b4726dd6667491d1c9e35d8a7":[1,0,287,7],
-"structStreamingStats.html#a21e7cca2e499adff695eb63bcb7c5f41":[1,0,287,0],
-"structStreamingStats.html#a5797025ec6613c6169f0bdb90ec06f25":[1,0,287,11],
-"structStreamingStats.html#a5c508b95807be37e0153f14ef675e46b":[1,0,287,5],
-"structStreamingStats.html#a86acc46a1920c998035acfc8d7bb0043":[1,0,287,9],
-"structStreamingStats.html#aa1b6cfae855d8d1b5785a4f7c8421ab4":[1,0,287,4],
-"structStreamingStats.html#aaba462709071c153084b85d649efb931":[1,0,287,12],
-"structStreamingStats.html#ab0b40de7092a605ae679f1e51ff9ddbc":[1,0,287,10],
-"structStreamingStats.html#ac7d5b7dea005481ca585a8b0f8499ad0":[1,0,287,2],
-"structStreamingStats.html#ade39d56f669a1d8b5b4fe7818c0b5270":[1,0,287,1],
-"structStreamingStats.html#ae64a4e24b8ced82868ba4fa4c2d8b065":[1,0,287,3]
+"structStreamingStats.html":[1,0,287]
 };

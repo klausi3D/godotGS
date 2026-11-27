@@ -1,5 +1,8 @@
 var NAVTREEINDEX25 =
 {
+"namespaceGaussianSplatting_1_1ScenePayload.html#a888583c6e41c464e75bf2479fcb92232":[0,0,12,1,2],
+"namespaceGaussianSplatting_1_1ScenePayload.html#a8bc4d6f347e1d745459498cfa5737ccc":[0,0,12,1,1],
+"namespaceGaussianSplatting_1_1ScenePayload.html#abfcadee9379b5fd769c53dc036a799c6":[0,0,12,1,4],
 "namespaceGaussianSplatting_1_1ScenePayload.html#aefd30d2b1b759a0963db5c0a679388d6":[0,0,12,1,3],
 "namespaceGaussianStreamingTypes.html":[0,0,14],
 "namespaceGaussianStreamingTypes.html#a1e19a7e201898597752749afa8da3778":[0,0,14,15],
@@ -246,8 +249,5 @@ var NAVTREEINDEX25 =
 "namespacegs__hlod__bundle.html#ae1e3300ff5045890136755c3b4799836":[0,0,23,24],
 "namespacegs__hlod__bundle.html#ae72f22de6f4e32708849f9e6f4aa7879":[0,0,23,49],
 "namespacegs__hlod__bundle.html#ae8daadd939292344b2453dfd79793ecb":[0,0,23,41],
-"namespacegs__hlod__bundle.html#aebeacd0f06c3d498d8f69784d754b6cd":[0,0,23,42],
-"namespacegs__hlod__bundle.html#af49a448e746707c3fdafd1783bd1b188":[0,0,23,48],
-"namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aa":[0,0,23,12],
-"namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aaa1cf3710c6436c42d13ff716b8223defa":[0,0,23,12,1]
+"namespacegs__hlod__bundle.html#aebeacd0f06c3d498d8f69784d754b6cd":[0,0,23,42]
 };

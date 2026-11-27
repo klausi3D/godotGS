@@ -117,6 +117,10 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a3d7c38da078f378a37e6f26cc9130f7f" id="r_a3d7c38da078f378a37e6f26cc9130f7f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3d7c38da078f378a37e6f26cc9130f7f">failed_total</a> = 0</td></tr>
 <tr class="memitem:adb36d5899eab0faee15adff007eb94c1" id="r_adb36d5899eab0faee15adff007eb94c1"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adb36d5899eab0faee15adff007eb94c1">failed_permanent_total</a> = 0</td></tr>
 <tr class="memitem:ae0114ca87ea5fa0e4756d1a7de96ffd5" id="r_ae0114ca87ea5fa0e4756d1a7de96ffd5"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae0114ca87ea5fa0e4756d1a7de96ffd5">failed_retry_later_total</a> = 0</td></tr>
+<tr class="memitem:ae09239b66865162ae7298f0421031ccd" id="r_ae09239b66865162ae7298f0421031ccd"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae09239b66865162ae7298f0421031ccd">nodes_failed_permanently_total</a> = 0</td></tr>
+<tr class="memitem:a96fbdfd68dcb2f66836e8f174129c8fa" id="r_a96fbdfd68dcb2f66836e8f174129c8fa"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a96fbdfd68dcb2f66836e8f174129c8fa">retry_later_exhausted_total</a> = 0</td></tr>
+<tr class="memitem:a31d58109425bbabddab067e4fb6f21b6" id="r_a31d58109425bbabddab067e4fb6f21b6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31d58109425bbabddab067e4fb6f21b6">last_permanent_failure_node</a> = UINT32_MAX</td></tr>
+<tr class="memitem:a08f582ae272f300ccfd510e5f29df19e" id="r_a08f582ae272f300ccfd510e5f29df19e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a08f582ae272f300ccfd510e5f29df19e">last_permanent_failure_retry_exhausted</a> = false</td></tr>
 <tr class="memitem:abd7b7f5e6287b0f98fc2094d9fa82c72" id="r_abd7b7f5e6287b0f98fc2094d9fa82c72"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7b7f5e6287b0f98fc2094d9fa82c72">skipped_groups_total</a> = 0</td></tr>
 <tr class="memitem:a6bd60c45ba1920966f818d9e4c48559b" id="r_a6bd60c45ba1920966f818d9e4c48559b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6bd60c45ba1920966f818d9e4c48559b">transitions_measured</a> = false</td></tr>
 <tr class="memitem:a65384a249227ce9ecf235031071967d8" id="r_a65384a249227ce9ecf235031071967d8"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a65384a249227ce9ecf235031071967d8">protected_sibling_nodes</a> = 0</td></tr>
@@ -537,6 +541,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a31d58109425bbabddab067e4fb6f21b6" name="a31d58109425bbabddab067e4fb6f21b6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a31d58109425bbabddab067e4fb6f21b6">&#9670;&#160;</a></span>last_permanent_failure_node</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_runtime::NodeResidency::Stats::last_permanent_failure_node = UINT32_MAX</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a08f582ae272f300ccfd510e5f29df19e" name="a08f582ae272f300ccfd510e5f29df19e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a08f582ae272f300ccfd510e5f29df19e">&#9670;&#160;</a></span>last_permanent_failure_retry_exhausted</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::NodeResidency::Stats::last_permanent_failure_retry_exhausted = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="aa855f2960e41c69a57796db35e07a089" name="aa855f2960e41c69a57796db35e07a089"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aa855f2960e41c69a57796db35e07a089">&#9670;&#160;</a></span>late_dropped_cancelled_total</h2>
 
@@ -573,6 +605,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_hlod_runtime::NodeResidency::Stats::loading = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae09239b66865162ae7298f0421031ccd" name="ae09239b66865162ae7298f0421031ccd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae09239b66865162ae7298f0421031ccd">&#9670;&#160;</a></span>nodes_failed_permanently_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::NodeResidency::Stats::nodes_failed_permanently_total = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -713,6 +759,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_hlod_runtime::NodeResidency::Stats::resident = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a96fbdfd68dcb2f66836e8f174129c8fa" name="a96fbdfd68dcb2f66836e8f174129c8fa"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a96fbdfd68dcb2f66836e8f174129c8fa">&#9670;&#160;</a></span>retry_later_exhausted_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::NodeResidency::Stats::retry_later_exhausted_total = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

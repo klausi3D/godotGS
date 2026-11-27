@@ -10,5 +10,6 @@ var structgs__hlod__runtime_1_1NodeResidency_1_1Config =
     [ "pin_root", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html#a7c0846d6aaca8ac24d059cfd5a3cc8d0", null ],
     [ "retire_delay_frames", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html#a87db01bc67176bc038e51447bb2ae50f", null ],
     [ "retry_delay_frames", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html#ad49608ed99bb80424a363ec3816c4ef8", null ],
+    [ "retry_later_max_attempts", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html#a90b8bb7a97cb5f072c13a3a244fb25f0", null ],
     [ "retry_later_max_delay_frames", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html#a36b3eb0b91517fd3d3a5a4317374317b", null ]
 ];

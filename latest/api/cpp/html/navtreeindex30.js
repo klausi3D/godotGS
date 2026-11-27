@@ -1,5 +1,8 @@
 var NAVTREEINDEX30 =
 {
+"structCullCounters.html#a0ffbd1d05c83123a02f6d0c446201e54":[1,0,60,6],
+"structCullCounters.html#a261b6d4b9e2d311e96612881baeb9e8f":[1,0,60,7],
+"structCullCounters.html#a411af4c2583c12a90ad3d324426a51de":[1,0,60,8],
 "structCullCounters.html#a5218925ed14899043ca6d89730977db4":[1,0,60,1],
 "structCullCounters.html#a5d2548b019f59cf0a6c7954d30099749":[1,0,60,5],
 "structCullCounters.html#a6dc4980dac67c7d982d213b148a81a2d":[1,0,60,9],
@@ -246,8 +249,5 @@ var NAVTREEINDEX30 =
 "structGPUCuller_1_1CullingState.html#a7c9a2bbb4923c60fbac7684a0a6dabf0":[1,0,127,1,3],
 "structGPUCuller_1_1CullingState.html#a7f1efae9c03b12c38e561f02fa9ced93":[1,0,127,1,24],
 "structGPUCuller_1_1CullingState.html#a82607dca34f7e0fcec5622669c31c762":[1,0,127,1,35],
-"structGPUCuller_1_1CullingState.html#a86ebd3658230adb3886fa20572fc54cd":[1,0,127,1,4],
-"structGPUCuller_1_1CullingState.html#a899b3fc103bd069196ef7a8ed8924971":[1,0,127,1,23],
-"structGPUCuller_1_1CullingState.html#a8bfbb80a0ed8f80af4d9bf5121ef54e2":[1,0,127,1,1],
-"structGPUCuller_1_1CullingState.html#ab4d3fc6b64f32aa08ced43d44d97a267":[1,0,127,1,17]
+"structGPUCuller_1_1CullingState.html#a86ebd3658230adb3886fa20572fc54cd":[1,0,127,1,4]
 };

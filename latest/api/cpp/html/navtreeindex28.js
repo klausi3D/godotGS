@@ -1,5 +1,8 @@
 var NAVTREEINDEX28 =
 {
+"painterly__pass__graph_8h.html":[2,0,0,0,12,49],
+"painterly__pass__graph_8h_source.html":[2,0,0,0,12,49],
+"painterly__renderer_8cpp.html":[2,0,0,0,5,22],
 "painterly__renderer_8h.html":[2,0,0,0,5,23],
 "painterly__renderer_8h_source.html":[2,0,0,0,5,23],
 "painterly__renderer__interfaces_8h.html":[2,0,0,0,5,24],
@@ -246,8 +249,5 @@ var NAVTREEINDEX28 =
 "spirv__disk__cache_8cpp.html":[2,0,0,0,12,103],
 "spirv__disk__cache_8h.html":[2,0,0,0,12,104],
 "spirv__disk__cache_8h_source.html":[2,0,0,0,12,104],
-"splat-c-types_8h.html":[2,0,0,0,14,0,3],
-"splat-c-types_8h.html#a34d3a3c9560c58af236202d09d563b1e":[2,0,0,0,14,0,3,3],
-"splat-c-types_8h.html#a525335710b53cb064ca56b936120431e":[2,0,0,0,14,0,3,2],
-"splat-c-types_8h_source.html":[2,0,0,0,14,0,3]
+"splat-c-types_8h.html":[2,0,0,0,14,0,3]
 };

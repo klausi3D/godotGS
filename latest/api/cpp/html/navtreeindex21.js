@@ -1,5 +1,8 @@
 var NAVTREEINDEX21 =
 {
+"functions_vars_f.html":[1,3,2,6],
+"functions_vars_g.html":[1,3,2,7],
+"functions_vars_h.html":[1,3,2,8],
 "functions_vars_i.html":[1,3,2,9],
 "functions_vars_j.html":[1,3,2,10],
 "functions_vars_k.html":[1,3,2,11],
@@ -246,8 +249,5 @@ var NAVTREEINDEX21 =
 "gaussian__splat__performance__overlay_8h_source.html":[2,0,0,0,9,13],
 "gaussian__splat__quality__config_8h.html":[2,0,0,0,3,46],
 "gaussian__splat__quality__config_8h_source.html":[2,0,0,0,3,46],
-"gaussian__splat__region__override_8cpp.html":[2,0,0,0,13,2],
-"gaussian__splat__region__override_8cpp.html#a4fb12cd9e2ce92117cca05dc3a858eca":[2,0,0,0,13,2,0],
-"gaussian__splat__region__override_8h.html":[2,0,0,0,13,3],
-"gaussian__splat__region__override_8h_source.html":[2,0,0,0,13,3]
+"gaussian__splat__region__override_8cpp.html":[2,0,0,0,13,2]
 };

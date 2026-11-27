@@ -1,5 +1,8 @@
 var NAVTREEINDEX22 =
 {
+"gaussian__splat__region__override_8cpp.html#a4fb12cd9e2ce92117cca05dc3a858eca":[2,0,0,0,13,2,0],
+"gaussian__splat__region__override_8h.html":[2,0,0,0,13,3],
+"gaussian__splat__region__override_8h_source.html":[2,0,0,0,13,3],
 "gaussian__splat__renderer_8cpp.html":[2,0,0,0,12,10],
 "gaussian__splat__renderer_8cpp.html#ab01191949fd6e29d089589ed66f31e57":[2,0,0,0,12,10,1],
 "gaussian__splat__renderer_8h.html":[2,0,0,0,12,11],
@@ -246,8 +249,5 @@ var NAVTREEINDEX22 =
 "gs__region__override__buffer_8h_source.html":[2,0,0,0,12,29],
 "gs__scene__depth__linearize_8h.html":[2,0,0,0,5,11],
 "gs__scene__depth__linearize_8h.html#a5dfd987b7d9b21be572dc03a51bf5d9c":[2,0,0,0,5,11,1],
-"gs__scene__depth__linearize_8h_source.html":[2,0,0,0,5,11],
-"gs__shadow__caster_8cpp.html":[2,0,0,0,12,30],
-"gs__shadow__caster_8h.html":[2,0,0,0,12,31],
-"gs__shadow__caster_8h_source.html":[2,0,0,0,12,31]
+"gs__scene__depth__linearize_8h_source.html":[2,0,0,0,5,11]
 };

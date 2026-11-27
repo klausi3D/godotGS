@@ -1,5 +1,16 @@
 var NAVTREEINDEX61 =
 {
+"structgs__hlod_1_1QualityScratch.html#a633ee40ce16cd2a7c98b87a095a29e20":[0,0,21,24,0],
+"structgs__hlod_1_1QualityScratch.html#a633ee40ce16cd2a7c98b87a095a29e20":[1,0,14,24,0],
+"structgs__hlod_1_1QualityScratch.html#a9780d54698659ba0a17a74b4723278e0":[0,0,21,24,4],
+"structgs__hlod_1_1QualityScratch.html#a9780d54698659ba0a17a74b4723278e0":[1,0,14,24,4],
+"structgs__hlod_1_1QualityView.html":[0,0,21,18],
+"structgs__hlod_1_1QualityView.html":[1,0,14,18],
+"structgs__hlod_1_1QualityView.html#a77fe0a676b8103b58b41b2415501ce03":[0,0,21,18,3],
+"structgs__hlod_1_1QualityView.html#a77fe0a676b8103b58b41b2415501ce03":[1,0,14,18,3],
+"structgs__hlod_1_1QualityView.html#a8ba6dcf8bb8f3fa291073452954c5ec2":[0,0,21,18,2],
+"structgs__hlod_1_1QualityView.html#a8ba6dcf8bb8f3fa291073452954c5ec2":[1,0,14,18,2],
+"structgs__hlod_1_1QualityView.html#acfc2b2a0b7a9162c4975891c206f8d70":[0,0,21,18,0],
 "structgs__hlod_1_1QualityView.html#acfc2b2a0b7a9162c4975891c206f8d70":[1,0,14,18,0],
 "structgs__hlod_1_1QualityView.html#aee652bb8bc540c43d096aab53e0ebeaf":[0,0,21,18,1],
 "structgs__hlod_1_1QualityView.html#aee652bb8bc540c43d096aab53e0ebeaf":[1,0,14,18,1],
@@ -238,16 +249,5 @@ var NAVTREEINDEX61 =
 "structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a8f8beaf7a51889856d06d33a71efa0ad":[0,0,21,2,1,9],
 "structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a8f8beaf7a51889856d06d33a71efa0ad":[1,0,14,2,1,9],
 "structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a94f866891579a89db1c18f6e53096c80":[0,0,21,2,1,12],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a94f866891579a89db1c18f6e53096c80":[1,0,14,2,1,12],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a9980c67b9cd02bbe28a5ffb622714c3a":[0,0,21,2,1,13],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a9980c67b9cd02bbe28a5ffb622714c3a":[1,0,14,2,1,13],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a9a3bcd48b69cb3683852c009be5f79e6":[0,0,21,2,1,15],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a9a3bcd48b69cb3683852c009be5f79e6":[1,0,14,2,1,15],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#aa6fe6eb20ba82985136ffe597666d897":[0,0,21,2,1,8],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#aa6fe6eb20ba82985136ffe597666d897":[1,0,14,2,1,8],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#ac9ad6471f794b71f71d6ab7d622a7a62":[0,0,21,2,1,2],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#ac9ad6471f794b71f71d6ab7d622a7a62":[1,0,14,2,1,2],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#ad3674d8d9d45ef96c9e1baa932a041c6":[0,0,21,2,1,1],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#ad3674d8d9d45ef96c9e1baa932a041c6":[1,0,14,2,1,1],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#adc512b77213ff43c19fc4f48e68e7283":[0,0,21,2,1,7]
+"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a94f866891579a89db1c18f6e53096c80":[1,0,14,2,1,12]
 };

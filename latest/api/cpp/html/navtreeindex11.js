@@ -1,5 +1,8 @@
 var NAVTREEINDEX11 =
 {
+"classIDebugOverlaySystem.html#afe6347de4d6efb39b480f8f8af8ab4df":[1,0,150,33],
+"classIGPUSorter.html":[1,0,152],
+"classIGPUSorter.html#a02fde2ecdd71e2634e0763bf50d393b2":[1,0,152,8],
 "classIGPUSorter.html#a11469c719c87043b4d2e8c6380e7df96":[1,0,152,34],
 "classIGPUSorter.html#a16b665b593cfd8d1ba41adb535e365dc":[1,0,152,9],
 "classIGPUSorter.html#a1a862cc6b3b31314a488898047bf1fa2":[1,0,152,11],
@@ -246,8 +249,5 @@ var NAVTREEINDEX11 =
 "classIRenderThreadDispatcher.html#a7d84093d9bc21eac1910273a510ed26b":[1,0,176,11],
 "classIRenderThreadDispatcher.html#a8e31b45c4b568e56f5f6ae686e7c2fe2":[1,0,176,4],
 "classIRenderThreadDispatcher.html#ad221c1cdff13818902a2d48ad13ab14b":[1,0,176,10],
-"classIRenderThreadDispatcher.html#ade77770578e0bc585e6822a251e5fd66":[1,0,176,6],
-"classIRenderThreadDispatcher.html#af639514a5ef0aa4da8620b8cafc6a9cf":[1,0,176,1],
-"classIRenderer.html":[1,0,170],
-"classIRenderer.html#a1aa1c9106d97d8eb3b8f73a2bddcdb86":[1,0,170,0]
+"classIRenderThreadDispatcher.html#ade77770578e0bc585e6822a251e5fd66":[1,0,176,6]
 };
