@@ -210,6 +210,16 @@ static void run_node_scenario(const CullScenario &p_scenario, bool p_cast_shadow
 	CHECK_MESSAGE(instance->transformed_aabb.size.is_equal_approx(expected.size),
 			"the cull AABB must be the local bounds transformed exactly once");
 
+	// The slot holds both spaces: local for the scene cull, world for the HLOD
+	// shadow refresh (collect_hlod_shadow_refresh_owners reads it as owner bounds).
+	const AABB slot_local = fixture.storage->gaussian_get_aabb(instance->base);
+	const AABB slot_world = fixture.storage->gaussian_get_world_aabb(instance->base);
+	const AABB world_expected = global.xform(local);
+	CHECK_MESSAGE((slot_local.position.is_equal_approx(local.position) && slot_local.size.is_equal_approx(local.size)),
+			"the storage slot's cull AABB must be instance-local");
+	CHECK_MESSAGE((slot_world.position.is_equal_approx(world_expected.position) && slot_world.size.is_equal_approx(world_expected.size)),
+			"the storage slot's world AABB must be the local bounds transformed once");
+
 	// Harness control, independent of the fix: a camera aimed at whatever box
 	// the cull actually holds must collect the instance. Without it, a harness
 	// that collects nothing would pass the off-screen assertion below.
@@ -254,6 +264,47 @@ TEST_CASE("[GaussianSplatting][SceneCull][SceneTree] GaussianSplatNode3D bounds 
 
 TEST_CASE("[GaussianSplatting][SceneCull][SceneTree] A shadow-casting GaussianSplatNode3D on screen reaches the Gaussian shadow-caster list") {
 	run_node_scenario({ "translated shadow caster", Transform3D(Basis(), Vector3(10, 0, 0)), Vector3(10, 0, 15), Vector3(20, 0, 15) }, true);
+}
+
+TEST_CASE("[GaussianSplatting][SceneCull][SceneTree] The scene cull honours a Gaussian instance's custom AABB like other geometry") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree || !tree->get_root()) {
+		FAIL("SceneTree with a root window required (provided by the [SceneTree] tag)");
+		return;
+	}
+	StorageRoutingFixture fixture;
+	const String install_error = fixture.install();
+	if (!install_error.is_empty()) {
+		FAIL(install_error.utf8().get_data());
+		return;
+	}
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	node->set_transform(Transform3D(Basis(), Vector3(10, 0, 0)));
+	tree->get_root()->add_child(node);
+	tree->process(0.0);
+
+	RendererSceneCull *scene = static_cast<RendererSceneCull *>(RSG::scene);
+	scene->update_dirty_instances();
+	RendererSceneCull::Instance *instance = find_gaussian_instance(node->get_instance_id());
+	if (!instance) {
+		FAIL("no Gaussian render instance is attached to the node");
+	} else {
+		// A custom box that differs from the slot's bounds in both spaces, so
+		// the result tells which one the cull read.
+		const AABB custom(Vector3(2, 3, 4), Vector3(1, 1, 1));
+		CHECK(custom != fixture.storage->gaussian_get_aabb(instance->base));
+		RS::get_singleton()->instance_set_custom_aabb(instance->self, custom);
+		scene->update_dirty_instances();
+		AABB custom_with_margin = custom;
+		custom_with_margin.grow_by(instance->extra_margin);
+		const AABB expected = node->get_global_transform().xform(custom_with_margin);
+		CAPTURE(expected);
+		CAPTURE(instance->transformed_aabb);
+		CHECK(instance->transformed_aabb.position.is_equal_approx(expected.position));
+		CHECK(instance->transformed_aabb.size.is_equal_approx(expected.size));
+	}
+	tree->get_root()->remove_child(node);
+	memdelete(node);
 }
 
 static void run_world_scenario(const Transform3D &p_xform, bool p_expect_doubled_differs) {

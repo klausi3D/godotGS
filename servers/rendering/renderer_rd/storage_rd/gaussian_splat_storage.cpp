@@ -114,6 +114,20 @@ AABB GaussianSplatStorage::gaussian_get_aabb(RID p_rid) const {
 	return splat->aabb;
 }
 
+void GaussianSplatStorage::gaussian_set_world_aabb(RID p_rid, const AABB &p_aabb) {
+	MutexLock lock(slot_mutex);
+	GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
+	ERR_FAIL_NULL(splat);
+	splat->world_aabb = p_aabb;
+}
+
+AABB GaussianSplatStorage::gaussian_get_world_aabb(RID p_rid) const {
+	MutexLock lock(slot_mutex);
+	const GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
+	ERR_FAIL_NULL_V(splat, AABB());
+	return splat->world_aabb;
+}
+
 void GaussianSplatStorage::gaussian_set_casts_shadow(RID p_rid, bool p_casts_shadow) {
 	MutexLock lock(slot_mutex);
 	GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);

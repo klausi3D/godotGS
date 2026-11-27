@@ -2214,8 +2214,9 @@ void GaussianSplatRenderer::collect_hlod_shadow_refresh_owners(const PagedArray<
         owner.owner = renderer_key; // RID admission/churn elsewhere cannot dirty an unchanged light-local set.
         owner.renderer = renderer_key;
         owner.opacity = renderer->get_render_config().opacity_multiplier;
-        // Storage AABBs are already world-space (the World3D/Node3D producers transform their local bounds).
-        owner.bounds = storage->gaussian_get_aabb(owner_rid);
+        // World-space bounds (the World3D/Node3D producers transform their local bounds). gaussian_get_aabb() is
+        // instance-local: the scene cull applies the instance transform to it (#1548).
+        owner.bounds = storage->gaussian_get_world_aabb(owner_rid);
         GaussianSplatting::TileRenderParams params;
         // Uses the existing director world_mutex only to copy its selected payload, exactly as the caster does.
         gs_wind::fill_frame_params(renderer.ptr(), 0.0, params);

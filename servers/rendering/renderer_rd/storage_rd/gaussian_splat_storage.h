@@ -46,7 +46,10 @@ class GaussianSplatStorage {
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
 		Ref<GaussianSplatRenderer> renderer;
 #endif
+		// Instance-local bounds. The scene cull applies the instance transform (#1548).
 		AABB aabb;
+		// World-space bounds, for consumers that hold only the slot RID (HLOD shadow refresh).
+		AABB world_aabb;
 		bool casts_shadow = false;
 	};
 
@@ -79,6 +82,8 @@ public:
 #endif
 	void gaussian_set_aabb(RID p_rid, const AABB &p_aabb);
 	AABB gaussian_get_aabb(RID p_rid) const;
+	void gaussian_set_world_aabb(RID p_rid, const AABB &p_aabb);
+	AABB gaussian_get_world_aabb(RID p_rid) const;
 	void gaussian_set_casts_shadow(RID p_rid, bool p_casts_shadow);
 	bool gaussian_get_casts_shadow(RID p_rid) const;
 };
