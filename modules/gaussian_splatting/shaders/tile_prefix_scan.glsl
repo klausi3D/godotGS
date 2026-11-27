@@ -348,10 +348,6 @@ void gs_order_record(uint i, uint n) {
             break;
         }
     }
-    // RED-PROOF STAGE: instrumentation only. The runs are counted above and left in sort order.
-    if (order_control.run_cap != 0xFFFFFFFFu) {
-        return;
-    }
 #ifdef GS_TESTS_ENABLED
     if (order_control.test_mode == 1u) {
         return;
