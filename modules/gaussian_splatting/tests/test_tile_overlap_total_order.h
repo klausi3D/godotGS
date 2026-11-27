@@ -329,3 +329,80 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Overlap sort total order:
 		CHECK(plain.frames_differing == 0);
 	}
 }
+
+// Codex P1 on #1570: the total-order counters buffer is required. If its allocation fails, the
+// renderer must not present frames without the order pass, and the allocation must be retried.
+// The hook refuses the allocation while a resize forces the tile renderer to recreate its buffers.
+TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Overlap sort total order: a failed counters allocation refuses frames and is retried (#1544)") {
+	using namespace TestTileOverlapTotalOrder;
+	RenderingDevice *rd = _device();
+	if (rd == nullptr) {
+		return;
+	}
+	GSTileOrderTestControl::reset();
+	Ref<::GaussianData> data = _make_fixture();
+	if (data.is_null()) {
+		FAIL("fixture allocation failed");
+		return;
+	}
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate(rd);
+	renderer->initialize();
+	renderer->set_painterly_enabled(false);
+	renderer->set_max_splats(2 * PAIRS);
+	if (renderer->set_gaussian_data(data) != OK) {
+		FAIL("set_gaussian_data failed");
+		return;
+	}
+	Projection projection;
+	projection.set_perspective(60.0f, float(RESOLUTION.x) / float(RESOLUTION.y), 0.1f, 100.0f);
+	const Transform3D view;
+	const TestGaussianSplatting::GSPumpOutcome first = TestGaussianSplatting::gs_pump_until([&]() {
+		return renderer->render_for_view(view, projection, RID(), RESOLUTION);
+	}, 20000000, 2);
+	if (!first.ready()) {
+		FAIL("render_for_view never reported a rendered frame: ", first.describe());
+		return;
+	}
+	Ref<TileRenderer> tile = renderer->get_tile_renderer();
+	if (tile.is_null() || !tile->test_tile_order_stats_buffer_valid()) {
+		FAIL("premise: the counters buffer exists before the forced failure");
+		return;
+	}
+	// A new size makes _ensure_resources() recreate its buffers; the hook refuses this one.
+	const Vector2i resized(RESOLUTION.x - 64, RESOLUTION.y - 32);
+	const uint32_t refusals_before = GSTileOrderTestControl::refused_stats_allocations.load();
+	const uint64_t missing_before = tile->get_tile_order_pass_missing_frames();
+	GSTileOrderTestControl::refuse_stats_allocation.store(true);
+	int presented_while_refused = 0;
+	for (int frame = 0; frame < 4; frame++) {
+		if (renderer->render_for_view(view, projection, RID(), resized)) {
+			presented_while_refused++;
+		}
+	}
+	GSTileOrderTestControl::refuse_stats_allocation.store(false);
+	const uint32_t refusals = GSTileOrderTestControl::refused_stats_allocations.load() - refusals_before;
+	const uint64_t missing_while_refused = tile->get_tile_order_pass_missing_frames() - missing_before;
+	MESSAGE(vformat("while refused: allocations refused %d, frames presented %d of 4, tile_order_pass_missing_frames +%d, buffer valid %s",
+			refusals, presented_while_refused, int(missing_while_refused), tile->test_tile_order_stats_buffer_valid() ? "yes" : "no"));
+	if (refusals == 0u) {
+		FAIL("applied-proof missing: the hook never refused the allocation (no buffer recreation happened)");
+		return;
+	}
+	// Refused: no frame may be presented without the order pass, and the frames that could not run it are counted.
+	CHECK_MESSAGE(presented_while_refused == 0, "frames were presented without the total-order pass");
+	CHECK_MESSAGE(missing_while_refused > 0u, "frames that could not run the total-order pass were not counted");
+	// Retried: with the hook cleared, the renderer allocates the buffer again and the pass runs.
+	GaussianSplatting::TileOrderStatsGPU before, after;
+	const TestGaussianSplatting::GSPumpOutcome again = TestGaussianSplatting::gs_pump_until([&]() {
+		return renderer->render_for_view(view, projection, RID(), resized) && tile->test_tile_order_stats_buffer_valid();
+	}, 20000000, 1);
+	CHECK_MESSAGE(again.ready(), "the counters buffer was never allocated again: ", again.describe());
+	if (again.ready() && tile->test_read_tile_order_stats(before)) {
+		const bool rendered = renderer->render_for_view(view, projection, RID(), resized);
+		const bool read = tile->test_read_tile_order_stats(after);
+		CHECK(rendered);
+		CHECK_MESSAGE((read && after.passes > before.passes), "the total-order pass did not run after the retry");
+	}
+	GSTileOrderTestControl::reset();
+}

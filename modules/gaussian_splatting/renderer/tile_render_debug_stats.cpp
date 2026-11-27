@@ -1095,6 +1095,12 @@ void TileRenderer::TileRendererDebugStats::create_buffers(RenderingDevice *p_dev
     Vector<uint8_t> order_stats_data;
     order_stats_data.resize(sizeof(GaussianSplatting::TileOrderStatsGPU));
     order_stats_data.fill(0);
+#ifdef TESTS_ENABLED
+    if (GSTileOrderTestControl::refuse_stats_allocation.load()) {
+        GSTileOrderTestControl::refused_stats_allocations.fetch_add(1u);
+        tile_order_stats_buffer = RID();
+    } else
+#endif
     tile_order_stats_buffer = p_device->storage_buffer_create(order_stats_data.size(), order_stats_data);
     if (!tile_order_stats_buffer.is_valid()) {
         GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate tile order stats buffer");

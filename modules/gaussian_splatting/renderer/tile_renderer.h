@@ -370,6 +370,7 @@ public:
     uint32_t test_tile_order_shader_variant = 0; // #1544 GSTileOrderTestControl::shader_variant()
     // #1544: synchronous read of the cumulative total-order counters (tests only).
     bool test_read_tile_order_stats(GaussianSplatting::TileOrderStatsGPU &r_stats) const;
+    bool test_tile_order_stats_buffer_valid() const { return debug_stats.tile_order_stats_buffer.is_valid(); }
     bool _test_uses_address_identity() const { return shader_resources.tile_binning_pipeline.is_valid() && test_address_identity_enabled; }
     // Test-only accessors. Mirror the pattern used in core/gaussian_streaming.h
     // (search for `_test_*`). Replaced the `#define private public` macro that

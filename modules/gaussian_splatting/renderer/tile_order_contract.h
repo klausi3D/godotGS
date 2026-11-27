@@ -82,6 +82,11 @@ inline std::atomic<uint32_t> order_test_mode{ GaussianSplatting::TILE_ORDER_TEST
 // 0: kTileOrderRunCap. Otherwise the run cap pass 4 uses (forces tile_order_key_overflow).
 inline std::atomic<uint32_t> run_cap_override{ 0u };
 
+// Codex P1 on #1570: refuse the TileOrderStatsGPU allocation (create_buffers) while set; each refusal
+// is counted in refused_stats_allocations (the applied-proof).
+inline std::atomic<bool> refuse_stats_allocation{ false };
+inline std::atomic<uint32_t> refused_stats_allocations{ 0u };
+
 inline uint32_t shader_variant() { return uint32_t(permute_emit_order.load()); }
 inline String binning_shader_defines() {
 	return permute_emit_order.load() ? String("#define GS_TEST_TILE_EMIT_ORDER_PERMUTE 1\n") : String();
@@ -90,6 +95,7 @@ inline void reset() {
 	permute_emit_order.store(false);
 	order_test_mode.store(GaussianSplatting::TILE_ORDER_TEST_MODE_PRODUCTION);
 	run_cap_override.store(0u);
+	refuse_stats_allocation.store(false);
 }
 } // namespace GSTileOrderTestControl
 #endif
