@@ -42,6 +42,13 @@ P1_BREAKDOWN = (("gs_gpu_passes", "gpu_frame_ms"), ("engine_gpu_viewport", "view
                 ("engine_cpu_viewport", "viewport_cpu_ms"), ("engine_cpu_frame_setup", "frame_setup_cpu_ms"),
                 ("engine_process", "process_ms"), ("engine_physics", "physics_ms"),
                 ("script", "script_ms"), ("harness", "harness_ms"), ("engine_main_loop", "engine_ms"))
+# Only harness, script and engine_main_loop partition a sample. The engine-reported
+# sources overlap them and each other, and are the latest values at the boundary,
+# not frame-matched: a local run read engine_process p95 above the frame p95.
+P1_BREAKDOWN_NOTE = ("p95 per source. harness + script + engine_main_loop partition each sample; "
+                     "gs_gpu_passes is frame-matched; the viewport, frame-setup, process and physics "
+                     "values are the engine's latest reported values at each boundary, overlap the "
+                     "partition and each other, and are not frame-matched")
 P1_NOT_MEASURABLE = {
     "present": "no per-frame swapchain present timing exists in the engine; present is inside engine_main_loop",
 }
@@ -192,7 +199,8 @@ def judge(row, m, cap):
                   "window_tolerance_ms": P1_WINDOW_TOLERANCE_MS,
                   "harness_overhead_ms": {"total": sum(harness), "p95": percentile(harness, .95),
                                           "share_of_window": sum(harness) / window if window else None},
-                  "breakdown_p95_ms": breakdown, "not_measured": absent}
+                  "breakdown_p95_ms": breakdown, "breakdown_note": P1_BREAKDOWN_NOTE,
+                  "not_measured": absent}
         drawn = [f["drawn_frames"] for f in fs if isinstance(f.get("drawn_frames"), int)]
         if len(drawn) == len(fs):
             values["drawn_frames_per_sample"] = {"min": min(drawn), "max": max(drawn)}
