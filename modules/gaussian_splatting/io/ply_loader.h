@@ -32,7 +32,10 @@
  * **Header declarations**:
  * - `comment gs_2d_mode`: sets the metadata-only GaussianData 2D (surfel) flag.
  *   GaussianData::save_to_file() writes it for 2D-flagged data.
- * - f_rest_*: Higher-order spherical harmonic coefficients
+ * - f_rest_*: Higher-order spherical harmonic coefficients, channel-major.
+ *   The block must be exactly f_rest_0..f_rest_{3T-1} with T = (d+1)^2 - 1
+ *   for an SH degree d of 1-4 (9, 24, 45 or 72 properties); the channel
+ *   stride is T. Any other block is refused (#1546).
  *
  * ## Format Notes
  *
@@ -77,6 +80,10 @@ public:
         // #1185: the header declares 2D (surfel) mode with a `comment gs_2d_mode`
         // line. Normal columns alone never imply it.
         bool declares_2d_mode = false;
+        // #1546: SH rest terms per colour channel, derived from the number of
+        // f_rest_* properties (0, 3, 8, 15 or 24 for degree 0-4). PLY stores
+        // f_rest channel-major, so this is also the R->G->B stride.
+        int sh_rest_per_channel = 0;
     };
 
 private:
