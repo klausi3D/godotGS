@@ -419,8 +419,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_scene_cull.cpp",
-      "last_touch_commit": "9b456624ebad00cb384006d4c5f558a62fff646c",
-      "lines_added": 209,
+      "last_touch_commit": "248a30908f3bd4b0a2a880c4330dd0947bff7f80",
+      "lines_added": 213,
       "lines_deleted": 45,
       "new_path": "servers/rendering/renderer_scene_cull.cpp",
       "old_path": "servers/rendering/renderer_scene_cull.cpp",
@@ -2286,8 +2286,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_scene_cull.cpp",
-      "last_touch_commit": "9b456624ebad00cb384006d4c5f558a62fff646c",
-      "lines_added": 209,
+      "last_touch_commit": "248a30908f3bd4b0a2a880c4330dd0947bff7f80",
+      "lines_added": 213,
       "lines_deleted": 45,
       "new_path": "servers/rendering/renderer_scene_cull.cpp",
       "old_path": "servers/rendering/renderer_scene_cull.cpp",
@@ -2560,7 +2560,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "a89ed71ced621559aafc39f94dee5b5865e07f39",
+    "head_commit": "248a30908f3bd4b0a2a880c4330dd0947bff7f80",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
