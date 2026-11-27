@@ -2277,6 +2277,14 @@ const NO_STAT_KEYS := ["frame_count", "hlod_reason", "hlod_objects_only", "hlod_
 		"shadow_last_depth_size", "shadow_last_atlas_size", "shadow_last_renderer_frame"]
 
 
+# Awaits one frame and fails the scenario when that frame ended past the phase's wall-clock bound: a frame that finished
+# after the deadline never counts toward a pass, nor toward the consecutive frames of a judged phase (tests/AGENTS.md).
+func _no_frame(deadline: int, what: String) -> bool:
+	await RenderingServer.frame_post_draw
+	var now := Time.get_ticks_msec()
+	return _check(now <= deadline, "%s: the phase's wall-clock deadline passed (%d ms over) before the judged frames completed" % [what, now - deadline])
+
+
 func _no_stats(renderer: GaussianSplatRenderer, what: String) -> Dictionary:
 	var stats := renderer.get_render_stats()
 	for key in NO_STAT_KEYS:
@@ -2342,7 +2350,8 @@ func _no_judge(renderer: GaussianSplatRenderer, splats: int, what: String, deadl
 	var why := "no frame"
 	var last := {}
 	while Time.get_ticks_msec() < deadline:
-		await RenderingServer.frame_post_draw
+		if not await _no_frame(deadline, what):
+			return {}
 		last = _no_stats(renderer, what)
 		if last.is_empty():
 			return {}
@@ -2360,7 +2369,8 @@ func _no_judge(renderer: GaussianSplatRenderer, splats: int, what: String, deadl
 		return {}
 	var first_frame := int(last["frame_count"])
 	for i in range(NO_FRAMES):
-		await RenderingServer.frame_post_draw
+		if not await _no_frame(deadline, what):
+			return {}
 		var st := _no_stats(renderer, what)
 		if st.is_empty():
 			return {}
@@ -2423,7 +2433,8 @@ func _no_free(scene: Node3D) -> void:
 
 func _no_renderer(node: GaussianSplatNode3D, deadline: int, what: String) -> GaussianSplatRenderer:
 	while Time.get_ticks_msec() < deadline:
-		await RenderingServer.frame_post_draw
+		if not await _no_frame(deadline, what):
+			return null
 		var renderer: GaussianSplatRenderer = node.get_renderer()
 		if renderer != null:
 			return renderer
@@ -2462,7 +2473,8 @@ func _run_node_only_proof() -> bool:
 	var held := 0
 	var judged := 0
 	for i in range(NO_FRAMES + 5):
-		await RenderingServer.frame_post_draw
+		if not await _no_frame(deadline, "node only, cast_shadow off"):
+			return false
 		var st := _no_stats(renderer, "node only, cast_shadow off")
 		if st.is_empty():
 			return false
@@ -2524,7 +2536,8 @@ func _run_node_only_proof() -> bool:
 	var ortho := {}
 	var ortho_pixels := 0
 	while Time.get_ticks_msec() < deadline:
-		await RenderingServer.frame_post_draw
+		if not await _no_frame(deadline, "node only, orthographic view"):
+			return false
 		var st := _no_stats(renderer, "node only, orthographic view")
 		if st.is_empty():
 			return false
