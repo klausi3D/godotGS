@@ -347,6 +347,36 @@ class ContractTests(unittest.TestCase):
         verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
         self.assertNotIn("viewport_gpu_ms", verdict_text)
 
+    def test_p1_frame_ms_spans_consecutive_post_draw_boundaries(self):
+        # #1552: frame_ms ran from the loop top to post_draw, so the harness's own
+        # statistics/ledger work after post_draw fell outside every sample (run
+        # 45497531161: 23.373 s of samples in a 24.214 s window). Each sample must
+        # be the interval between two consecutive post_draw boundaries, so all
+        # per-sample work, the harness's included, lands inside some interval.
+        sample = self._harness_function("_sample_frames")
+        head, loop = sample.split('\tfor sample in range(int(_plan["samples"])):\n', 1)
+        loop = loop.split("\tvar sampled_end", 1)[0]
+        self.assertRegex(head, r"\n\tawait RenderingServer\.frame_post_draw\n\tvar start = Time\.get_ticks_usec\(\)\n"
+                               r"\tvar previous_boundary = start\n")
+        self.assertEqual(loop.count("await RenderingServer.frame_post_draw"), 1)
+        self.assertIn("\t\tawait RenderingServer.frame_post_draw\n\t\tvar end = Time.get_ticks_usec()\n", loop)
+        self.assertEqual(loop.count('"frame_ms":'), 1)
+        frame_ms = loop.index('"frame_ms": float(end - previous_boundary) / 1000.0')
+        advance = loop.index("\t\tprevious_boundary = end\n")
+        self.assertLess(frame_ms, advance)
+        # Nothing after the advance may start a new interval of its own.
+        self.assertNotIn("previous_boundary =", loop[advance + len("\t\tprevious_boundary = end\n"):])
+        # The forcing control's delay sits after the boundary, where the old window
+        # never reached; the lane never sets it, so a production arm cannot.
+        self.assertLess(advance, loop.index("OS.delay_usec(forcing_delay_usec)"))
+        self.assertIn('_plan.get("p1_forcing_out_of_window_delay_ms", 0)', sample)
+        lane = (ROOT / "tests/runtime/gs_game_1_lane.py").read_text(encoding="utf-8")
+        self.assertNotIn("p1_forcing_out_of_window_delay_ms", lane)
+        tail = sample.split('_raw["rows"]["P1"] = ', 1)[1].split("\n", 1)[0]
+        for key in ('"frame_basis": "post_draw_to_post_draw"', '"capture_start_usec": start',
+                    '"capture_end_usec": previous_boundary', '"forcing_out_of_window_delay_ms"'):
+            self.assertIn(key, tail)
+
     def test_l2_spot_lights_what_pose_a_sees(self):
         # L2 measures spot shadows at pose A. A spot aimed at (0, 0, -10) lit nothing
         # visible from there (a splat wall at about z = 13 hides that ground), so the

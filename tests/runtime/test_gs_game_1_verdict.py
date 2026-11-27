@@ -17,6 +17,30 @@ def frames(ms=12.0, count=20):
              "gpu_frame_valid": True, "spawn": i == 10} for i in range(count)]
 
 
+def p1_timeline(engine_ms=12.0, harness_ms=0.0, count=20, start=1_000_000, drop=None):
+    """A P1 measurement in the post_draw-to-post_draw shape (#1552).
+
+    Simulates the sampling loop: each interval holds the engine's frame plus the
+    harness bookkeeping that ran after the previous boundary. `drop` removes one
+    sample, as a producer that lost an interval would.
+    """
+    rows, boundary = [], start
+    for i in range(count):
+        interval = round((engine_ms + harness_ms) * 1000)
+        boundary += interval
+        rows.append({"sample": i, "input_digest": f"pose-{i}", "frame": i + 1, "gpu_frame": i + 1,
+                     "frame_ms": interval / 1000, "boundary_usec": boundary, "drawn_frames": 1,
+                     "harness_ms": harness_ms, "script_ms": 0.5,
+                     "engine_ms": interval / 1000 - harness_ms - 0.5,
+                     "gpu_frame_ms": engine_ms, "gpu_frame_valid": True,
+                     "viewport_gpu_ms": engine_ms + 1, "viewport_cpu_ms": 2.0, "frame_setup_cpu_ms": 0.5,
+                     "process_ms": 1.0, "physics_ms": 0.25, "spawn": i == 10})
+    if drop is not None:
+        del rows[drop]
+    return {"frames": rows, "frame_basis": "post_draw_to_post_draw",
+            "capture_start_usec": start, "capture_end_usec": boundary}
+
+
 def identity(changed=0):
     return {"arms": [{"divisor": d, "wind_time_scale": 0, "wind_nonzero": True,
                       "hysteresis": "disabled", "settled": True,
@@ -29,7 +53,7 @@ def identity(changed=0):
 
 def record():
     measurements = {
-        "P1": {"frames": frames()},
+        "P1": p1_timeline(),
         "P2": {"on": frames(13), "off": frames(12)},
         "H1": {"settled": True, "nonresident_drawn": 0, "missing_nodes": 0, "expected_nodes": 8},
         "W1": identity(),
@@ -53,7 +77,7 @@ def record():
                "world": "synthetic T0", "producer": "B2"},
     }
     bad = copy.deepcopy(measurements)
-    bad["P1"] = {"frames": frames(45), "calibration": {"attempts": 2,
+    bad["P1"] = p1_timeline(45) | {"calibration": {"attempts": 2,
         "bounded_attempts": 8, "calibrated": True, "iterations": 4096,
         "samples": [{"iterations": 1024, "measurement": {"stall_ms": 10, "stall_valid": True}},
                     {"iterations": 4096, "measurement": {"stall_ms": 31, "stall_valid": True}}]}, "stalled_frame_count": 2,
@@ -197,6 +221,66 @@ class VerdictTests(unittest.TestCase):
             r = record()
             r["rows"]["P1"]["control"]["measurement"]["stalls"][0][field] = value
             self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "NOT_RUN")
+
+    def test_p1_old_window_frames_are_not_evidence(self):
+        # #1552: frames timed from the loop top to post_draw leave the harness's own
+        # per-sample work out of P1. A record without the post_draw-to-post_draw
+        # basis cannot say what its frame_ms covers, so it never passes.
+        for key in ("frame_basis", "capture_start_usec", "capture_end_usec"):
+            with self.subTest(missing=key):
+                r = record()
+                del r["rows"]["P1"]["measurement"][key]
+                self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "NOT_RUN")
+        r = record()
+        r["rows"]["P1"]["measurement"]["frame_basis"] = "loop_top_to_post_draw"
+        self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "NOT_RUN")
+
+    def test_p1_frames_must_tile_the_capture_window(self):
+        # Run 45497531161: 1,200 samples summed to 23.373 s in a 24.214 s window.
+        # A lost interval, or a frame_ms that is not its boundary interval, is a
+        # population that does not cover the window: INVALID, never PASS.
+        r = record()
+        r["rows"]["P1"]["measurement"] = p1_timeline(drop=5)
+        self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "INVALID")
+        r = record()
+        r["rows"]["P1"]["measurement"]["frames"][3]["frame_ms"] -= 0.8  # old window: bookkeeping cut out
+        self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "INVALID")
+        r = record()
+        r["rows"]["P1"]["measurement"]["capture_end_usec"] += 841
+        self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "INVALID")
+        result = self.evaluate()["rows"]["P1"]["measurement"]
+        self.assertAlmostEqual(result["interval_sum_ms"], result["capture_window_ms"], places=6)
+        self.assertEqual(result["window_tolerance_ms"], V.P1_WINDOW_TOLERANCE_MS)
+
+    def test_p1_out_of_window_delay_worsens_p1_and_is_reported_as_harness_overhead(self):
+        # The forcing control's arithmetic: 15 ms of harness work after the boundary
+        # (outside the old window) must move P1 from PASS to FAIL, and must show up
+        # as harness overhead, not vanish.
+        clean = self.evaluate()["rows"]["P1"]
+        self.assertEqual(clean["state"], "PASS")
+        r = record()
+        r["rows"]["P1"]["measurement"] = p1_timeline(harness_ms=15.0)
+        forced = self.evaluate(r)["rows"]["P1"]
+        self.assertEqual(forced["measurement"]["p95_ms"], 27.0)
+        self.assertNotEqual(forced["state"], "PASS")
+        self.assertEqual(forced["measurement"]["harness_overhead_ms"]["total"], 15.0 * 20)
+        self.assertEqual(clean["measurement"]["harness_overhead_ms"]["total"], 0.0)
+
+    def test_p1_reports_each_timing_source_separately_and_names_what_is_absent(self):
+        values = self.evaluate()["rows"]["P1"]["measurement"]
+        breakdown = values["breakdown_p95_ms"]
+        for key in ("gs_gpu_passes", "engine_gpu_viewport", "engine_cpu_viewport", "engine_cpu_frame_setup",
+                    "script", "harness", "engine_main_loop"):
+            self.assertIn(key, breakdown)
+        self.assertEqual(breakdown["gs_gpu_passes"], 12.0)
+        self.assertIn("present", values["not_measured"])
+        # A source the producer did not record is named, never reported as zero.
+        r = record()
+        for f in r["rows"]["P1"]["measurement"]["frames"]:
+            del f["viewport_cpu_ms"]
+        values = self.evaluate(r)["rows"]["P1"]["measurement"]
+        self.assertNotIn("engine_cpu_viewport", values["breakdown_p95_ms"])
+        self.assertIn("engine_cpu_viewport", values["not_measured"])
 
     def test_uncontrolled_rows_need_measurement_proof(self):
         for row, field in (("P2", "off"), ("L1", "lit_pixels"),
