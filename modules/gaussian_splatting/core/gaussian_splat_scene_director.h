@@ -485,9 +485,11 @@ public:
     // not a bound API (a bound query is a public-surface change).
     String get_hlod_instance_refusal_for_node(ObjectID p_node_id) const;
     bool has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const;
-    // has_world_submission_for_renderer(), and the submission's hlod_reason (the automatic route's reason; empty when it
-    // names none). The P0-absent mode names a dropped world with it (renderer/hlod_objects_only.h).
-    bool get_world_submission_hlod_reason_for_renderer(const GaussianSplatRenderer *p_renderer, String &r_hlod_reason) const;
+    // Whether this renderer's world has an active world submission, its hlod_reason (the automatic route's or the paged
+    // fallback's reason; empty when it names none) and whether it has a renderable payload (a V4 paged world the
+    // materialize RAM budget refused has none). The P0-absent mode names a dropped world with it (renderer/hlod_objects_only.h).
+    bool get_world_submission_hlod_reason_for_renderer(const GaussianSplatRenderer *p_renderer, String &r_hlod_reason,
+            bool *r_renderable = nullptr) const;
     // Current hint precedence is active world > homogeneous instance submissions.
     // Conflicting instance submission hints return false with source "mixed_instance_submissions".
     bool get_submission_residency_hint_for_renderer(const GaussianSplatRenderer *p_renderer,

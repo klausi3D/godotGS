@@ -25,6 +25,7 @@ static constexpr const char *WORLD_WITHOUT_SNAPSHOT_PREFIX = "hlod_world_without
 static constexpr const char *CAUSE_RUNTIME_CUT_DISABLED = "runtime_cut_disabled";
 static constexpr const char *CAUSE_NO_RUNTIME_TREE = "no_runtime_tree";
 static constexpr const char *CAUSE_SUBMISSION_NOT_OWNED = "world_submission_not_owned";
+static constexpr const char *CAUSE_NO_RENDERABLE_PAYLOAD = "world_without_renderable_payload";
 
 struct Inputs {
 	// The world path is available: a current snapshot, the cut enabled and the world submission owned by this renderer's
@@ -32,8 +33,10 @@ struct Inputs {
 	bool world_route = false;
 	// Visible node instances with asset data for this renderer (rows 1..N of the bundle).
 	uint32_t node_rows = 0;
-	// A renderable world submission exists for this renderer.
+	// An active world submission exists for this renderer, and whether it has a renderable payload (a V4 paged world whose
+	// in-memory fallback the materialize RAM budget refused has none: it is submitted, drawn nowhere, never loaded).
 	bool world_submission = false;
+	bool world_renderable = true;
 	// The renderer holds a snapshot (only used to name the cause).
 	bool snapshot = false;
 	bool cut_enabled = true;
@@ -58,7 +61,9 @@ inline Plan plan(const Inputs &p_in) {
 	}
 	String cause = p_in.submission_reason;
 	if (cause.is_empty()) {
-		if (!p_in.cut_enabled) {
+		if (!p_in.world_renderable) {
+			cause = CAUSE_NO_RENDERABLE_PAYLOAD;
+		} else if (!p_in.cut_enabled) {
 			cause = CAUSE_RUNTIME_CUT_DISABLED;
 		} else if (p_in.snapshot) {
 			cause = CAUSE_SUBMISSION_NOT_OWNED;

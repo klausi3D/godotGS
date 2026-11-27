@@ -3017,7 +3017,8 @@ int GaussianSplatRenderer::try_publish_hlod_objects_only_contract(String &r_reas
     gs_hlod_objects_only::Inputs inputs;
     inputs.world_route = false; // The caller found the world path closed.
     inputs.node_rows = rows.count() > 0 ? rows.count() - 1u : 0u;
-    inputs.world_submission = director->get_world_submission_hlod_reason_for_renderer(this, inputs.submission_reason);
+    inputs.world_submission = director->get_world_submission_hlod_reason_for_renderer(this, inputs.submission_reason,
+            &inputs.world_renderable);
     inputs.snapshot = state.hlod_snapshot.is_valid();
     inputs.cut_enabled = gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton());
     const gs_hlod_objects_only::Plan plan = gs_hlod_objects_only::plan(inputs);

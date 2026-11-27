@@ -1167,6 +1167,7 @@ TEST_CASE("[GaussianSplatting][HLOD] objects-only route matrix: nodes without a 
 		bool world_route;
 		uint32_t node_rows;
 		bool world_submission;
+		bool world_renderable;
 		bool snapshot;
 		bool cut_enabled;
 		const char *submission_reason;
@@ -1175,23 +1176,28 @@ TEST_CASE("[GaussianSplatting][HLOD] objects-only route matrix: nodes without a 
 	};
 	const Row matrix[] = {
 		// The world path is open: it decides (with or without nodes, with or without the opt-out it never is open).
-		{ true, 0, true, true, true, "", false, "" },
-		{ true, 8, true, true, true, "", false, "" },
+		{ true, 0, true, true, true, true, "", false, "" },
+		{ true, 8, true, true, true, true, "", false, "" },
 		// No node instance: nothing changes, whatever the world is.
-		{ false, 0, false, false, true, "", false, "" },
-		{ false, 0, true, false, true, "", false, "" },
-		{ false, 0, true, false, false, "", false, "" },
+		{ false, 0, false, true, false, true, "", false, "" },
+		{ false, 0, true, true, false, true, "", false, "" },
+		{ false, 0, true, true, false, false, "", false, "" },
 		// Node-only scene: objects-only, no world to name. The opt-out does not keep it off the route (OD-2).
-		{ false, 1, false, false, true, "", true, "" },
-		{ false, 32, false, false, false, "", true, "" },
+		{ false, 1, false, true, false, true, "", true, "" },
+		{ false, 32, false, true, false, false, "", true, "" },
 		// A world without a snapshot beside nodes: objects-only, the world named with its cause.
-		{ false, 1, true, false, true, "", true, "hlod_world_without_snapshot:no_runtime_tree" },
-		{ false, 1, true, false, false, "", true, "hlod_world_without_snapshot:runtime_cut_disabled" },
-		{ false, 4, true, false, true, "hlod_world_transform_unsupported", true, "hlod_world_without_snapshot:hlod_world_transform_unsupported" },
-		{ false, 4, true, false, true, "hlod_auto_route_unavailable:lod_disabled", true,
+		{ false, 1, true, true, false, true, "", true, "hlod_world_without_snapshot:no_runtime_tree" },
+		{ false, 1, true, true, false, false, "", true, "hlod_world_without_snapshot:runtime_cut_disabled" },
+		{ false, 4, true, true, false, true, "hlod_world_transform_unsupported", true, "hlod_world_without_snapshot:hlod_world_transform_unsupported" },
+		{ false, 4, true, true, false, true, "hlod_auto_route_unavailable:lod_disabled", true,
 				"hlod_world_without_snapshot:hlod_auto_route_unavailable:lod_disabled" },
 		// A snapshot whose submission this renderer does not own (the world path is closed).
-		{ false, 2, true, true, true, "", true, "hlod_world_without_snapshot:world_submission_not_owned" },
+		{ false, 2, true, true, true, true, "", true, "hlod_world_without_snapshot:world_submission_not_owned" },
+		// A V4 paged world whose in-memory fallback the materialize RAM budget refused (MF-1): submitted, never loaded,
+		// named with the guard's own reason; without a reason, as a world with no renderable payload.
+		{ false, 1, true, false, false, false, "hlod_paged_materialize_over_ram_budget", true,
+				"hlod_world_without_snapshot:hlod_paged_materialize_over_ram_budget" },
+		{ false, 1, true, false, false, true, "", true, "hlod_world_without_snapshot:world_without_renderable_payload" },
 	};
 	for (uint32_t i = 0; i < sizeof(matrix) / sizeof(matrix[0]); ++i) {
 		const Row &row = matrix[i];
@@ -1199,6 +1205,7 @@ TEST_CASE("[GaussianSplatting][HLOD] objects-only route matrix: nodes without a 
 		in.world_route = row.world_route;
 		in.node_rows = row.node_rows;
 		in.world_submission = row.world_submission;
+		in.world_renderable = row.world_renderable;
 		in.snapshot = row.snapshot;
 		in.cut_enabled = row.cut_enabled;
 		in.submission_reason = row.submission_reason;

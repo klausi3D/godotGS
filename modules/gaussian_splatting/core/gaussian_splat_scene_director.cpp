@@ -3150,15 +3150,16 @@ bool GaussianSplatSceneDirector::has_world_submission_for_renderer(const Gaussia
 }
 
 bool GaussianSplatSceneDirector::get_world_submission_hlod_reason_for_renderer(const GaussianSplatRenderer *p_renderer,
-		String &r_hlod_reason) const {
+		String &r_hlod_reason, bool *r_renderable) const {
 	r_hlod_reason = String();
+	if (r_renderable) { *r_renderable = false; }
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	if (!world || !world->submission_store.is_active() ||
-			!SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
+	if (!world || !world->submission_store.is_active()) {
 		return false;
 	}
 	r_hlod_reason = world->submission_store.get_record().hlod_reason;
+	if (r_renderable) { *r_renderable = SubmissionStore::record_has_renderable_payload(world->submission_store.get_record()); }
 	return true;
 }
 
