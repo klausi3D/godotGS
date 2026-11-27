@@ -1720,7 +1720,7 @@ namespace TestHlodObjectsOnlyRows {
 // generation read BEFORE it collected them. Otherwise a node edited between the collection and the generation read
 // leaves the old row in the bundle tagged with the new generation, and refresh_hlod_instance_rows() never re-uploads it.
 // The hook moves the node exactly in that window, once; two frames later the bundle's row must be the node's current one.
-TEST_CASE("[GaussianSplatting][HLOD][Node][SceneTree][RequiresGPU] objects-only rows edited during publication are re-uploaded, never kept stale") {
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree][RequiresGPU] objects-only rows edited during publication are re-uploaded, never kept stale") {
 	SceneTree *tree = SceneTree::get_singleton();
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	ProjectSettings *ps = ProjectSettings::get_singleton();
