@@ -343,9 +343,12 @@ class ContractTests(unittest.TestCase):
         self.assertIn("viewport_set_measure_render_time(root.get_viewport_rid(), true)", sample)
         self.assertIn('rec["viewport_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())', sample)
         self.assertIn('target["gpu_frame_ms"] = timing.get("gpu_coherent_total_ms")', sample)
-        # The verdict logic is unchanged: it never reads the added field.
-        verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
-        self.assertNotIn("viewport_gpu_ms", verdict_text)
+        # The verdict reports the viewport times in P1's breakdown only; that they
+        # never decide P1's state is proven in test_gs_game_1_verdict.py
+        # (test_p1_breakdown_never_decides_the_state).
+        rec = sample.split("var rec = {", 1)[1]
+        for key in ("viewport_cpu_ms", "frame_setup_cpu_ms", "process_ms", "physics_ms"):
+            self.assertIn(f'rec["{key}"] = ', rec)
 
     def test_p1_frame_ms_spans_consecutive_post_draw_boundaries(self):
         # #1552: frame_ms ran from the loop top to post_draw, so the harness's own

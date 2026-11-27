@@ -27,6 +27,24 @@ CONTROLLED = ("P1", "H1", "W1", "W2", "W3", "W4", "C1", "R1", "R2", "R3", "S1", 
 # W2 probes whose leaf children move less than this on screen are vacuous; the
 # harness (gs_game_1_harness.gd) uses the same floor when it selects the probe.
 W2_MIN_CHILD_DISPLACEMENT_PX = 1.0
+# P1 frames are the intervals between consecutive post_draw boundaries (#1552), so
+# every cost of a game frame, the harness's own bookkeeping included, lands in
+# exactly one sample. frame_ms comes from integer microsecond ticks: per frame only
+# float rounding may separate it from its boundary interval, and over the whole
+# window the samples must sum to the capture window within P1_WINDOW_TOLERANCE_MS.
+# A lost or truncated interval costs at least a frame (several ms), far above it.
+P1_FRAME_BASIS = "post_draw_to_post_draw"
+P1_INTERVAL_TOLERANCE_MS = 0.001
+P1_WINDOW_TOLERANCE_MS = 0.5
+# Reported beside P1, never part of its state. Each is the producer's own field;
+# a source a producer did not record for every frame is named in not_measured.
+P1_BREAKDOWN = (("gs_gpu_passes", "gpu_frame_ms"), ("engine_gpu_viewport", "viewport_gpu_ms"),
+                ("engine_cpu_viewport", "viewport_cpu_ms"), ("engine_cpu_frame_setup", "frame_setup_cpu_ms"),
+                ("engine_process", "process_ms"), ("engine_physics", "physics_ms"),
+                ("script", "script_ms"), ("harness", "harness_ms"), ("engine_main_loop", "engine_ms"))
+P1_NOT_MEASURABLE = {
+    "present": "no per-frame swapchain present timing exists in the engine; present is inside engine_main_loop",
+}
 
 
 class Missing(ValueError):
@@ -93,6 +111,40 @@ def timed_frames(obj, key="frames"):
     return rows
 
 
+def p1_frame_window(m, frames):
+    """Prove the P1 samples are consecutive post_draw intervals that tile the window."""
+    if field(m, "frame_basis") != P1_FRAME_BASIS:
+        raise Missing(f"P1 frames are not {P1_FRAME_BASIS} intervals (frame_basis={m['frame_basis']!r})")
+    start, end = number(m, "capture_start_usec"), number(m, "capture_end_usec")
+    previous = start
+    for f in frames:
+        boundary = number(f, "boundary_usec")
+        number(f, "harness_ms")
+        if boundary <= previous:
+            raise Invalid("P1 boundaries are not strictly increasing from the capture start")
+        if abs(f["frame_ms"] - (boundary - previous) / 1000) > P1_INTERVAL_TOLERANCE_MS:
+            raise Invalid(f"P1 sample {f.get('sample')} frame_ms is not its post_draw-to-post_draw interval")
+        previous = boundary
+    window = (end - start) / 1000
+    total = sum(f["frame_ms"] for f in frames)
+    if abs(total - window) > P1_WINDOW_TOLERANCE_MS:
+        raise Invalid(f"P1 samples sum to {total:.3f} ms in a {window:.3f} ms capture window "
+                      f"(tolerance {P1_WINDOW_TOLERANCE_MS} ms)")
+    return window, total
+
+
+def p1_breakdown(frames):
+    """Per-source p95s, reported separately; absent sources are named, never zero."""
+    breakdown, absent = {}, dict(P1_NOT_MEASURABLE)
+    for name, key in P1_BREAKDOWN:
+        present = [f[key] for f in frames if f.get(key) is not None]
+        if len(present) != len(frames):
+            absent[name] = f"{key} recorded for {len(present)} of {len(frames)} samples"
+            continue
+        breakdown[name] = percentile(numbers({key: present}, key), .95)
+    return breakdown, absent
+
+
 def p1_control_ready(m):
     frames = timed_frames(m)
     calibration = field(m, "calibration")
@@ -127,12 +179,25 @@ def judge(row, m, cap):
         raise Missing(m["not_run_reason"])
     if row == "P1":
         fs = timed_frames(m)
+        window, total = p1_frame_window(m, fs)
         ms = [f["frame_ms"] for f in fs]
         spawn = [f["frame_ms"] for f in fs if truth(f, "spawn")]
         if not spawn:
             raise Missing("P1 spawn samples absent")
+        harness = [f["harness_ms"] for f in fs]
+        breakdown, absent = p1_breakdown(fs)
         values = {"p95_ms": percentile(ms, .95), "p99_ms": percentile(ms, .99),
-                  "spawn_max_ms": max(spawn), "target_p95_ms": 16.7}
+                  "spawn_max_ms": max(spawn), "target_p95_ms": 16.7,
+                  "frame_basis": P1_FRAME_BASIS, "capture_window_ms": window, "interval_sum_ms": total,
+                  "window_tolerance_ms": P1_WINDOW_TOLERANCE_MS,
+                  "harness_overhead_ms": {"total": sum(harness), "p95": percentile(harness, .95),
+                                          "share_of_window": sum(harness) / window if window else None},
+                  "breakdown_p95_ms": breakdown, "not_measured": absent}
+        drawn = [f["drawn_frames"] for f in fs if isinstance(f.get("drawn_frames"), int)]
+        if len(drawn) == len(fs):
+            values["drawn_frames_per_sample"] = {"min": min(drawn), "max": max(drawn)}
+        if m.get("forcing_out_of_window_delay_ms"):
+            values["forcing_out_of_window_delay_ms"] = m["forcing_out_of_window_delay_ms"]
         # ADR §7 P1: hard gate 25/33.3, max 50; target 16.7 is always reported.
         ok = values["p95_ms"] <= 25 and values["p99_ms"] <= 33.3 and max(spawn) <= 50
         return ("PASS" if ok else "FAIL"), values

@@ -282,6 +282,13 @@ class VerdictTests(unittest.TestCase):
         self.assertNotIn("engine_cpu_viewport", values["breakdown_p95_ms"])
         self.assertIn("engine_cpu_viewport", values["not_measured"])
 
+    def test_p1_breakdown_never_decides_the_state(self):
+        r = record()
+        for f in r["rows"]["P1"]["measurement"]["frames"]:
+            f.update(viewport_gpu_ms=500.0, viewport_cpu_ms=500.0, frame_setup_cpu_ms=500.0,
+                     process_ms=500.0, physics_ms=500.0)
+        self.assertEqual(self.evaluate(r)["rows"]["P1"]["state"], "PASS")
+
     def test_uncontrolled_rows_need_measurement_proof(self):
         for row, field in (("P2", "off"), ("L1", "lit_pixels"),
                            ("L2", "spot_splat_shadow_pixels"), ("M1", "external_vram_bytes"),

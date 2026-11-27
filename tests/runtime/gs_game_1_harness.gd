@@ -1315,28 +1315,52 @@ func _sample_frames() -> void:
 	var ledger_verified = 0
 	var ledger_limits: Array = []
 	# The GS-pass GPU time (gpu_frame_ms) excludes Godot's own passes, shadow maps
-	# included. The viewport's whole measured GPU time is reported beside it as a
-	# separate field; P1's verdict does not read it.
+	# included. The viewport's whole measured GPU and CPU times are reported beside
+	# it as separate fields; P1's state does not read them.
 	RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
+	# Test-only forcing control (#1552): extra harness work after each boundary,
+	# where the old loop-top-to-post_draw window never reached. The lane never sets
+	# it; a local run does, to show the delay now worsens P1.
+	var forcing_delay_usec = int(float(_plan.get("p1_forcing_out_of_window_delay_ms", 0)) * 1000.0)
+	# #1552: a sample is the interval between two consecutive post_draw boundaries,
+	# so everything one game frame costs -- the scripted inputs, the engine's
+	# process/physics/draw/present, and this harness's own bookkeeping after the
+	# boundary -- lands in exactly one sample, and the samples tile the window from
+	# this anchor boundary to the last one.
+	await RenderingServer.frame_post_draw
 	var start = Time.get_ticks_usec()
+	var previous_boundary = start
+	var previous_drawn = Engine.get_frames_drawn()
+	var harness_usec = 0
 	for sample in range(int(_plan["samples"])):
-		var before = Time.get_ticks_usec()
+		var script_begin = Time.get_ticks_usec()
 		var digest = _inputs(sample)
 		if _plan["control"] == "P1" and calibration.get("calibrated") == true and sample % 10 == 0:
 			_stall_serial += 1
 			var serial = _stall_serial
 			RenderingServer.call_on_render_thread(func(): _stall_on_rd("dispatch", int(calibration["iterations"]), serial))
 			stall_frames[serial] = sample
+		var script_usec = Time.get_ticks_usec() - script_begin
 		await RenderingServer.frame_post_draw
 		var end = Time.get_ticks_usec()
+		var drawn = Engine.get_frames_drawn()
 		var stats = _renderer.get_render_stats()
 		var frame = stats.get("production_metrics", {}).get("gs_game_1_submission_frame")
 		var rec = {"sample": sample, "input_digest": digest, "frame": frame,
-			"frame_ms": float(end - before) / 1000.0, "spawn": sample >= 600,
+			"frame_ms": float(end - previous_boundary) / 1000.0, "spawn": sample >= 600,
+			"boundary_usec": end, "drawn_frames": drawn - previous_drawn,
+			"harness_ms": float(harness_usec) / 1000.0, "script_ms": float(script_usec) / 1000.0,
+			"engine_ms": float(end - previous_boundary - harness_usec - script_usec) / 1000.0,
 			"gpu_frame_valid": false}
+		previous_boundary = end
+		previous_drawn = drawn
 		# Latest viewport measurement when this sample ended; it can lag the sample
 		# by the timestamp readback latency, so it is not frame-matched.
 		rec["viewport_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())
+		rec["viewport_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(root.get_viewport_rid())
+		rec["frame_setup_cpu_ms"] = RenderingServer.get_frame_setup_time_cpu()
+		rec["process_ms"] = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+		rec["physics_ms"] = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 		frames.append(rec)
 		if frame != null:
 			by_frame[int(frame)] = rec
@@ -1367,6 +1391,11 @@ func _sample_frames() -> void:
 		if _plan["control"] == "P1":
 			var found = await _render(func(): return _stall_on_rd("poll"))
 			_stall_results.merge(found, true)
+		if forcing_delay_usec > 0:
+			OS.delay_usec(forcing_delay_usec)
+		# Everything since the boundary is the harness's own; it falls inside the
+		# next sample's interval and is reported there as harness_ms.
+		harness_usec = Time.get_ticks_usec() - end
 	var sampled_end = Time.get_ticks_usec()
 	# Drain timing/stall observations by a wall-clock bound; these frames never
 	# enter the subject or the P1 control percentile population.
@@ -1384,7 +1413,7 @@ func _sample_frames() -> void:
 	_raw["ledger_cap_verified"] = ledger_verified == frames.size()
 	_raw["observed_ledger_limits"] = ledger_limits
 	_raw["frames"] = frames
-	_raw["rows"]["P1"] = {"frames": frames, "spawn_window_basis": "from scripted t=10 spawn through end of sampled pass; includes delayed admissions"}
+	_raw["rows"]["P1"] = {"frames": frames, "spawn_window_basis": "from scripted t=10 spawn through end of sampled pass; includes delayed admissions", "frame_basis": "post_draw_to_post_draw", "capture_start_usec": start, "capture_end_usec": previous_boundary, "forcing_out_of_window_delay_ms": float(forcing_delay_usec) / 1000.0}
 	if _plan["control"] == "P1":
 		var stalls: Array = []
 		for serial in stall_frames:
