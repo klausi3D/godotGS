@@ -30,6 +30,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Behaviour change: node instances without a world cut take the HLOD route as an objects-only bundle** (ADR
+  `docs/architecture/adr-one-route-many-producers.md` §12.7, owner decisions OD-2, 2026-11-27).
+  - A scene whose `GaussianSplatNode3D` instances have no HLOD world next to them (no world, or a world without an HLOD
+    runtime snapshot) now draws them on the HLOD route with an empty world row: no world cut, no world floor, the objects
+    drawn whole. Their splat shadows use the HLOD splat caster; there is no canonical splat caster for them any more.
+  - **`rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled = false` no longer keeps these objects off the HLOD
+    route.** The setting still keeps a world with an HLOD tree on the route it had before the automatic route; it is
+    retired later (PR-11 of §12.7).
+  - Such a scene runs on the resident backend even under `route_policy = streaming`.
+  - A world without an HLOD runtime snapshot was never drawn next to node instances on the canonical routes (its row is
+    emitted only without node instances; measured on a GPU before this change). It is still not drawn, but it is now
+    reported: the render stat `hlod_world_producer_reason` is `hlod_world_without_snapshot:<cause>`,
+    `hlod_world_producer_dropped_frames` counts the main views that dropped it, and the renderer warns once per cause.
+    A world without node instances is unchanged.
+  - Views the HLOD route does not serve (orthographic, multi-view, non-main passes) draw the objects through the bundle's
+    GPU-culled canonical copy, as before.
 - **Behaviour change: a world with an HLOD tree takes the HLOD route automatically** (ADR
   `docs/architecture/adr-one-route-many-producers.md` §4.7, decision 5).
   - A `GaussianSplatWorld3D` whose world carries an HLOD tree now draws on the HLOD route together with its

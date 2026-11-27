@@ -952,7 +952,10 @@ class HlodPositionalRefreshTests(unittest.TestCase):
         self.assertIn("g.payload = gs_shadow_refresh::hash_value(world_shadow_versions[i], source->source_epoch)", publisher)
         self.assertIn("geometry.chunk_key = k - region.assets[meta.asset_id - 1u].first_chunk", publisher)
         self.assertIn("g.bounds = gs_shadow_refresh::enclosing_bounds(lo, hi)", publisher)
-        self.assertIn("state.hlod_relative.shadow_instance_geometry[chunk - uint32_t(source->nodes.size())]", publisher)
+        # Instance chunk geometry sits after the world's node-indexed entries; the world node count is the served source's
+        # (0 in the objects-only bundle, ADR one-route section 12.7).
+        self.assertIn("const uint32_t source_nodes = source.is_valid() ? uint32_t(source->nodes.size()) : 0u;", publisher)
+        self.assertIn("state.hlod_relative.shadow_instance_geometry[chunk - source_nodes]", publisher)
         self.assertIn("p_world_records ? state.hlod_relative.draw_entries.ptr() : state.hlod_instance_draws.ptr()", publisher)
         self.assertNotIn("previous.camera ==", self.source)
         self.assertNotIn("equal_bytes(draws, casting_draws.ptr(), casting_draws.size())", self.source)

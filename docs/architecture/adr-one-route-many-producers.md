@@ -943,6 +943,14 @@ All code PRs are R3.
 
 An empty tree-key cell is not assessed yet; each PR runs the tree-key check before it is pushed.
 
+**Where PR-1's GPU gates run.** The node-only scene gate and the moved #1565 case run in the native
+runtime scenario "Resident HLOD Main View" (`tests/runtime/test_hlod_resident_main_view.gd`), as a
+node-only phase with the predicates unchanged; they are not `[SceneTree][RequiresGPU]` doctests. The
+HLOD route refuses a main view without render buffers (`publisher.cpp:3073-3078`), and the doctest
+harness's dummy rasterizer cannot create a render target or render buffers
+(`modules/gaussian_splatting/tests/test_renderer_pipeline.h:2082-2093`), so no doctest can reach an
+active HLOD view. The CPU route matrix stays a doctest.
+
 **Order:** PR-0 → PR-1 → {PR-2, PR-3} → PR-4 → PR-5 (after A7a). PR-6 to PR-9 can run in parallel after
 PR-2. PR-10 follows OD-4. PR-11 comes after PR-1, PR-2 and PR-6 to PR-10. Then PR-12 → PR-13, and PR-14.
 

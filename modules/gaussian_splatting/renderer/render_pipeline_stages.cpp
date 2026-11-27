@@ -2722,7 +2722,7 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::resolve_pai
 
 bool RenderPipelineStages::RasterStage::try_reuse_cached_render(const GaussianSplatRenderer::RasterStageInput &p_input,
 		GaussianSplatRenderer::RasterStageOutput &r_output) {
-    if (renderer->get_resource_state().hlod_prepared_snapshot.is_valid()) { return false; }
+    if (renderer->get_resource_state().has_hlod_prepared_bundle()) { return false; }
 
 	GaussianSplatRenderer::FrameStateProvider fallback_provider(renderer);
 	const GaussianSplatRenderer::IFrameStateView &state_view =

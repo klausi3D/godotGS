@@ -191,7 +191,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		} hlod_restore{ renderer, previous_hlod_relative };
 		if (instance_count == 1 && instance_xform == Transform3D()) {
 			renderer->prepare_hlod_frame(frame_context);
-		} else if (renderer->get_resource_state().hlod_prepared_snapshot.is_valid()) {
+		} else if (renderer->get_resource_state().has_hlod_prepared_bundle()) {
 			// This increment admits only the resident identity shim. Preserve the
 			// caller's real transform/aggregation semantics on the canonical route.
 			renderer->publish_hlod_bundle(false);

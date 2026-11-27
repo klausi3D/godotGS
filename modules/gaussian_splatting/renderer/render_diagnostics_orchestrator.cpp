@@ -1746,6 +1746,11 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_instance_assets"] = int64_t(resource_state.hlod_instance_region.assets.size());
     stats["hlod_instance_region_records"] = int64_t(resource_state.hlod_instance_region.records);
     stats["hlod_world_draw_records"] = int64_t(resource_state.hlod_world_draw_records);
+    // The P0-absent mode (ADR one-route section 12.7, PR-1): the prepared bundle holds node instances only, and why a
+    // submitted world draws nothing next to them (empty: no world was submitted, or the world has its cut).
+    stats["hlod_objects_only"] = resource_state.hlod_objects_only;
+    stats["hlod_world_producer_reason"] = resource_state.hlod_world_producer_reason;
+    stats["hlod_world_producer_dropped_frames"] = int64_t(resource_state.hlod_world_producer_dropped_frames);
     stats["hlod_instance_draw_records"] = int64_t(resource_state.hlod_instance_draw_records);
     stats["hlod_instance_visible_objects"] = int64_t(resource_state.hlod_instance_visible_objects);
     stats["hlod_instance_admitted_objects"] = int64_t(resource_state.hlod_instance_admitted_objects);
@@ -1793,10 +1798,19 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["shadow_caster_view_list_available"] = int64_t(sc.view_list_available);
         stats["shadow_caster_source"] = "hlod_main_view_draw_list";
         gs_shadow_caster::RowSyncSnapshot rows;
+        GaussianRenderFacadeState::ResourceState::ShadowLastPass last_pass;
         {
             MutexLock lock(resource_state.shadow_light_snapshot_mutex);
             rows = resource_state.hlod_shadow_rows_snapshot;
+            last_pass = resource_state.shadow_last_pass;
         }
+        // The last shadow hook exit of any route (route label, rastered splats, written depth size, requested atlas rect).
+        stats["shadow_last_pass_valid"] = last_pass.valid;
+        stats["shadow_last_route_label"] = last_pass.route_label;
+        stats["shadow_last_rastered_splats"] = int64_t(last_pass.rastered_splats);
+        stats["shadow_last_depth_size"] = Vector2i(last_pass.depth_width, last_pass.depth_height);
+        stats["shadow_last_atlas_size"] = Vector2i(last_pass.atlas_width, last_pass.atlas_height);
+        stats["shadow_last_renderer_frame"] = int64_t(last_pass.renderer_frame);
         stats["shadow_caster_rows_current"] = rows.current;
         stats["shadow_caster_rows_observed_server_frame"] = rows.observed_server_frame == UINT64_MAX ? int64_t(-1) : int64_t(rows.observed_server_frame);
         stats["shadow_caster_rows_server_frame"] = rows.synced_server_frame == UINT64_MAX ? int64_t(-1) : int64_t(rows.synced_server_frame);
