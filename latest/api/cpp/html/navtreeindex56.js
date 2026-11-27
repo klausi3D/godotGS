@@ -1,5 +1,6 @@
 var NAVTREEINDEX56 =
 {
+"structSPZLoader_1_1SPZHeader.html#a60d1ad5534e5fe377d43d3cac68dfaba":[1,0,276,0,0],
 "structSPZLoader_1_1SPZHeader.html#a78ab135132696b2311eb466fceac4c51":[1,0,276,0,1],
 "structSPZLoader_1_1SPZHeader.html#a8410a887440f1c31ae515f1c34843f8b":[1,0,276,0,4],
 "structSPZLoader_1_1SPZHeader.html#ad63d4979c0fcbce16b5983e9e0950f62":[1,0,276,0,6],
@@ -248,6 +249,5 @@ var NAVTREEINDEX56 =
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a0131d1101babdc19e09fe84b7200e055":[1,0,286,0,3],
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a17bf1bf9e08f7e40790eb2d2ada341bf":[1,0,286,0,0],
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a3abec082e0acaae4a66e46fdcb84ccab":[1,0,286,0,2],
-"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a40ec51ffa4bdd96bb2563362ed5e34d3":[1,0,286,0,5],
-"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a4296adcc14a0a8692d615de97343334f":[1,0,286,0,6]
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a40ec51ffa4bdd96bb2563362ed5e34d3":[1,0,286,0,5]
 };

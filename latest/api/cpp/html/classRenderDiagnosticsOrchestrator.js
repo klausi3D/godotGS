@@ -15,7 +15,7 @@ var classRenderDiagnosticsOrchestrator =
     [ "get_sort_time_ms_internal", "classRenderDiagnosticsOrchestrator.html#ae4767ee072bce489c6840870d1a74fc9", null ],
     [ "get_state", "classRenderDiagnosticsOrchestrator.html#a0ad73e8440c7d9e718691a8da5051486", null ],
     [ "get_state", "classRenderDiagnosticsOrchestrator.html#a7a1e22981fac9c0d1a81b490d3905331", null ],
-    [ "increment_frame_counter", "classRenderDiagnosticsOrchestrator.html#af6da58d14e33d6c270d495800283e4f6", null ],
+    [ "increment_frame_counter", "classRenderDiagnosticsOrchestrator.html#a2efb8e8b8d76a3c3fa7fd26538d2f0cd", null ],
     [ "record_cross_device_operation", "classRenderDiagnosticsOrchestrator.html#af1fcb143a6ce23d5c532d5af1bec690b", null ],
     [ "record_rendering_error", "classRenderDiagnosticsOrchestrator.html#a058cba2132553c14b0eb8d3466479a3d", null ],
     [ "record_sort_sample", "classRenderDiagnosticsOrchestrator.html#a69ac5ebddfd8c9199238d5c57f58b825", null ],

@@ -1,5 +1,6 @@
 var NAVTREEINDEX57 =
 {
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a4296adcc14a0a8692d615de97343334f":[1,0,286,0,6],
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a83ae4de0981483b14633740089f0f7b8":[1,0,286,0,4],
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#af764edea42c38a3d6df05a1c65ceee50":[1,0,286,0,1],
 "structStreamingQueuePressureController_1_1ScanBudgetResult.html":[1,0,286,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX57 =
 "structTileBinningStage_1_1BinningUniformSets.html":[1,0,293,0],
 "structTileBinningStage_1_1BinningUniformSets.html#a539c411c0970cae0e144442026a74610":[1,0,293,0,1],
 "structTileBinningStage_1_1BinningUniformSets.html#aa5de5bb6de5471ce5182d709a18675a6":[1,0,293,0,0],
-"structTileBinningStage_1_1BinningUniformSets.html#ae11ea550780050d374bc5e8cedabab12":[1,0,293,0,2],
-"structTilePrefixScanStage.html":[1,0,294]
+"structTileBinningStage_1_1BinningUniformSets.html#ae11ea550780050d374bc5e8cedabab12":[1,0,293,0,2]
 };

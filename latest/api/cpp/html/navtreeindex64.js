@@ -1,5 +1,6 @@
 var NAVTREEINDEX64 =
 {
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a65384a249227ce9ecf235031071967d8":[0,0,26,1,3,41],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a65384a249227ce9ecf235031071967d8":[1,0,18,1,3,41],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a6bd60c45ba1920966f818d9e4c48559b":[0,0,26,1,3,49],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a6bd60c45ba1920966f818d9e4c48559b":[1,0,18,1,3,49],
@@ -248,6 +249,5 @@ var NAVTREEINDEX64 =
 "structgs__layout__hint_1_1LayoutHintFailureCounters.html#a0281bce26aa5bd26863f55ebaadd120c":[0,0,27,1,2],
 "structgs__layout__hint_1_1LayoutHintFailureCounters.html#a0281bce26aa5bd26863f55ebaadd120c":[1,0,19,1,2],
 "structgs__layout__hint_1_1LayoutHintFailureCounters.html#a1384f00bcb38f9da89d9ec8186b80a55":[0,0,27,1,8],
-"structgs__layout__hint_1_1LayoutHintFailureCounters.html#a1384f00bcb38f9da89d9ec8186b80a55":[1,0,19,1,8],
-"structgs__layout__hint_1_1LayoutHintFailureCounters.html#a267d987594c8f554c7e15e4b2b8b6770":[0,0,27,1,6]
+"structgs__layout__hint_1_1LayoutHintFailureCounters.html#a1384f00bcb38f9da89d9ec8186b80a55":[1,0,19,1,8]
 };

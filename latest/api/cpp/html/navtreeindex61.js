@@ -1,5 +1,6 @@
 var NAVTREEINDEX61 =
 {
+"structgs__hlod_1_1QualityResult.html#ad4b98c30c2f6377d891f06fa3efbf33c":[0,0,21,26,1],
 "structgs__hlod_1_1QualityResult.html#ad4b98c30c2f6377d891f06fa3efbf33c":[1,0,14,26,1],
 "structgs__hlod_1_1QualityResult.html#affca79b8d86fb9d6569323e19551e728":[0,0,21,26,2],
 "structgs__hlod_1_1QualityResult.html#affca79b8d86fb9d6569323e19551e728":[1,0,14,26,2],
@@ -248,6 +249,5 @@ var NAVTREEINDEX61 =
 "structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a0e0e8b93bc930f5e49d5a4a244544c28":[0,0,21,2,1,14],
 "structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a0e0e8b93bc930f5e49d5a4a244544c28":[1,0,14,2,1,14],
 "structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a279ac275454a315f936af4491c621e89":[0,0,21,2,1,10],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a279ac275454a315f936af4491c621e89":[1,0,14,2,1,10],
-"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a3188357ad2e1158bf64cae67ed0edf97":[0,0,21,2,1,11]
+"structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a279ac275454a315f936af4491c621e89":[1,0,14,2,1,10]
 };

@@ -4,7 +4,7 @@ var searchData=
   ['import_5fshared_5fasset_1',['import_shared_asset',['../classAssetDependencyManager.html#aa1a71adf602f196dd81275519083c556',1,'AssetDependencyManager']]],
   ['importance_5farea_2',['importance_area',['../namespacegs__hlod.html#a79595189b962484e5dbc9ff49c99960e',1,'gs_hlod']]],
   ['importance_5forder_3',['importance_order',['../namespacegs__hlod.html#aa665bd835f8b57e1bd2fb28617e93901',1,'gs_hlod']]],
-  ['increment_5fframe_5fcounter_4',['increment_frame_counter',['../classRenderDiagnosticsOrchestrator.html#af6da58d14e33d6c270d495800283e4f6',1,'RenderDiagnosticsOrchestrator']]],
+  ['increment_5fframe_5fcounter_4',['increment_frame_counter',['../classRenderDiagnosticsOrchestrator.html#a2efb8e8b8d76a3c3fa7fd26538d2f0cd',1,'RenderDiagnosticsOrchestrator']]],
   ['index_5fdomain_5fto_5fstring_5',['index_domain_to_string',['../namespaceGaussianRenderState.html#a4218918624f7d386c4ccda75fefab934',1,'GaussianRenderState']]],
   ['index_5fin_5fedited_5fleaf_6',['index_in_edited_leaf',['../classGaussianSplatHlodRuntimeData.html#a2af5ab8cdc8d983c1c906d39ece751d7',1,'GaussianSplatHlodRuntimeData']]],
   ['index_5fkey_7',['index_key',['../namespacegs__hlod_1_1tiled__bake.html#a541e4ebfc96b9d9a8e57e075f6246f2c',1,'gs_hlod::tiled_bake']]],
