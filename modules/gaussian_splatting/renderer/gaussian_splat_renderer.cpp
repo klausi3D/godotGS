@@ -490,6 +490,18 @@ bool GaussianSplatRenderer::_finish_shadow_render_result(const ShadowRenderResul
 	if (last_shadow_render_result.route_label.is_empty()) {
 		last_shadow_render_result.route_label = _shadow_failure_reason_label(last_shadow_render_result.failure_reason);
 	}
+	{
+		MutexLock lock(state.shadow_light_snapshot_mutex);
+		auto &last = state.shadow_last_pass;
+		last.valid = true;
+		last.route_label = last_shadow_render_result.route_label;
+		last.rastered_splats = last_shadow_render_result.rastered_splat_count;
+		last.depth_width = last_shadow_render_result.depth_size.x;
+		last.depth_height = last_shadow_render_result.depth_size.y;
+		last.atlas_width = last_shadow_render_result.atlas_rect.size.x;
+		last.atlas_height = last_shadow_render_result.atlas_rect.size.y;
+		last.renderer_frame = last_shadow_render_result.renderer_frame;
+	}
 	return last_shadow_render_result.success;
 }
 
@@ -1746,6 +1758,19 @@ GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_frame_backe
             gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
         plan.hlod_route_reason = "hlod_route_policy_chunk_streaming";
     }
+    // ADR one-route section 12.7 (PR-1): node instances without a world cut take the HLOD route as an objects-only bundle,
+    // which runs on the resident backend. A world without a snapshot next to them was never drawn by the chunk route either
+    // (its row exists only without node instances); the objects-only bundle reports it (hlod_world_producer_reason).
+    // Owner decision OD-2: the cut opt-out does not keep them off the route.
+    if (!plan.prefer_resident_backend && !hlod_world_route_available()) {
+        if (const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+            if (director->get_instance_count_for_renderer(this) > 0) {
+                plan.prefer_resident_backend = true;
+                plan.resident_backend_reason = "hlod_objects_only_bundle";
+                plan.should_attempt_streaming_bootstrap = false;
+            }
+        }
+    }
     return plan;
 }
 
@@ -2050,6 +2075,18 @@ bool GaussianSplatRenderer::_blit_shadow_depth(RID p_source_depth, RID p_shadow_
 
 bool GaussianSplatRenderer::_is_hlod_shadow_route_owner() const {
     const auto &state = get_resource_state();
+    // The objects-only bundle (P0 absent, ADR one-route section 12.7, PR-1) owns the shadow route of its node instances: they
+    // cast through the same caster, with or without LOD, or the pass refuses with its reason. There is no canonical caster.
+    if (state.hlod_objects_only) {
+#ifdef TESTS_ENABLED
+        // Forcing control (a): the snapshot gate as it was before PR-1. The canonical shadow pass then runs and rasters
+        // no caster (#1565), so the node-only scene gate must turn red.
+        if (OS::get_singleton() && OS::get_singleton()->get_environment("GODOTGS_TEST_HLOD_SHADOW_OWNER_REQUIRES_SNAPSHOT") == "1") {
+            return false;
+        }
+#endif
+        return true;
+    }
     const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     return state.hlod_snapshot.is_valid() && director &&
             gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) &&
@@ -2295,6 +2332,14 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
     // Cube views arrive before Godot converts this light's combined mesh/splat cube into the atlas. Explicit type
     // and projection checks prevent identity cameras or direct paraboloids from masquerading as directional views.
     gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass, bundle_current, rows_refusal);
+#ifdef TESTS_ENABLED
+    // GS-COMBINED-1 forcing control 3 (disable_shadow_caster_pass), as a runtime switch: the caster pass draws nothing and
+    // refuses, so S1 must turn red (tests/runtime/gs_combined_1_verdict.py CONTROLS[3]).
+    if (OS::get_singleton() && OS::get_singleton()->get_environment("GODOTGS_TEST_DISABLE_SHADOW_CASTER_PASS") == "1") {
+        plan = gs_shadow_caster::PassPlan();
+        plan.refusal = gs_shadow_caster::Refusal::PIPELINE_UNAVAILABLE;
+    }
+#endif
     bool listed_view = false;
     uint32_t listed_records = 0, available_records = 0;
     if (plan.draws()) {
@@ -3220,7 +3265,7 @@ void GaussianSplatRenderer::render_sorted_splats(RenderDataRD *p_render_data,
 	IFrameMutationAccess &state_mut = frame_provider;
 	frame_context.state_view = &state_view;
 	frame_context.mutation_access = &state_mut;
-    if (get_resource_state().hlod_prepared_snapshot.is_valid()) {
+    if (get_resource_state().has_hlod_prepared_bundle()) {
         // Shared sort indices belong to the last bundle. Rebuild the complete
         // canonical shadow/manual contract before raster; never reuse HLOD indices.
         pipeline_stages->execute_frame_entry(frame_context, true, String(), String(),

@@ -24,6 +24,8 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../nodes/gaussian_splat_world_3d.h"
+#include "../nodes/gaussian_splat_node_3d.h"
+#include "../core/gaussian_splat_asset.h"
 #include "../interfaces/output_compositor.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "gs_test_pump.h"
@@ -1712,3 +1714,129 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] a fading record under le
     }
 }
 } // namespace TestHlodFadeWind
+
+namespace TestHlodObjectsOnlyRows {
+// Codex P1 on #1571: the objects-only publisher (ADR one-route section 12.7) must record, for the rows it uploads, a row
+// generation read BEFORE it collected them. Otherwise a node edited between the collection and the generation read
+// leaves the old row in the bundle tagged with the new generation, and refresh_hlod_instance_rows() never re-uploads it.
+// The hook moves the node exactly in that window, once; two frames later the bundle's row must be the node's current one.
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree][RequiresGPU] objects-only rows edited during publication are re-uploaded, never kept stale") {
+	SceneTree *tree = SceneTree::get_singleton();
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (!tree || !tree->get_root() || !RenderingServer::get_singleton() || !rd || !ps || !director) {
+		FAIL("Node SceneTree GPU harness with a director required");
+		return;
+	}
+	const String cut_key = "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled";
+	const String route_key = "rendering/gaussian_splatting/streaming/route_policy";
+	const Variant cut_before = ps->get_setting(cut_key);
+	const Variant route_before = ps->get_setting(route_key);
+	ps->set_setting(cut_key, true);
+	ps->set_setting(route_key, int64_t(gs::settings::GS_ROUTE_RESIDENT));
+	const bool quantized_before = g_quantization_config.per_chunk_quantization;
+	g_quantization_config.per_chunk_quantization = false;
+	TestHlodRuntimeGpuIdentity::ScopedSortDevice manager_device(rd);
+	Ref<GaussianSplatAsset> asset;
+	asset.instantiate();
+	asset->set_splat_count(4);
+	PackedFloat32Array positions, scales, rotations, dc, opacity;
+	for (uint32_t i = 0; i < 4; ++i) {
+		positions.push_back(0.1f * float(i));
+		positions.push_back(0.0f);
+		positions.push_back(0.0f);
+		for (int a = 0; a < 3; ++a) { scales.push_back(0.05f); dc.push_back(1.0f); }
+		rotations.push_back(0.0f);
+		rotations.push_back(0.0f);
+		rotations.push_back(0.0f);
+		rotations.push_back(1.0f);
+		opacity.push_back(6.0f);
+	}
+	asset->set_positions(positions);
+	asset->set_scales(scales);
+	asset->set_rotations(rotations);
+	asset->set_sh_dc_coefficients(dc);
+	asset->set_opacity_logits(opacity);
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	node->set_splat_asset(asset);
+	node->set_position(Vector3(1.0f, 0.0f, -4.0f));
+	tree->get_root()->add_child(node);
+	tree->process(0.0);
+	struct Cleanup {
+		SceneTree *tree;
+		GaussianSplatNode3D *node;
+		ProjectSettings *ps;
+		String cut_key, route_key;
+		Variant cut_before, route_before;
+		bool quantized_before;
+		~Cleanup() {
+			tree->get_root()->remove_child(node);
+			memdelete(node);
+			tree->process(0.0);
+			ps->set_setting(cut_key, cut_before);
+			ps->set_setting(route_key, route_before);
+			g_quantization_config.per_chunk_quantization = quantized_before;
+		}
+	} cleanup{ tree, node, ps, cut_key, route_key, cut_before, route_before, quantized_before };
+	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+	if (renderer.is_null()) { FAIL("the node did not obtain its shared renderer"); return; }
+	const ObjectID node_id = node->get_instance_id();
+	const float moved_x = 7.5f;
+	bool hook_ran = false;
+	RenderSceneDataRD scene;
+	scene.cam_transform = Transform3D();
+	scene.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+	RenderDataRD render;
+	render.scene_data = &scene;
+	renderer->get_view_state().manual_viewport_override = Size2i(64, 64);
+	// The targetless harness has no present target, so the route's byte ledger is primed by hand (the compositor scratch
+	// a target-backed frame creates); only then can a publication succeed. The hook is armed after that, so the edit lands
+	// in the publication that builds the bundle.
+	const auto ledger = TestGaussianSplatting::gs_pump_until([&]() {
+		renderer->render_scene_instance(&render);
+		OutputCompositor *compositor = renderer->get_subsystem_state().output_compositor.ptr();
+		if (!compositor || renderer->get_tile_renderer().is_null()) { return false; }
+		RD::TextureFormat format;
+		format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+		format.texture_type = RD::TEXTURE_TYPE_2D;
+		format.width = format.height = 64;
+		format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+		compositor->ensure_hlod_scratch(rd, format, Size2i(64, 64));
+		uint64_t bytes = 0;
+		return renderer->get_hlod_owned_byte_upper_bound(bytes);
+	});
+	if (!ledger.ready()) { FAIL("the route's byte ledger never became available: ", ledger.describe()); return; }
+	renderer->test_hlod_objects_only_after_rows = [&]() {
+		Transform3D t;
+		t.origin = Vector3(moved_x, 0.0f, -4.0f);
+		director->update_instance_transform(node_id, t);
+		hook_ran = true;
+	};
+	const auto prepared = TestGaussianSplatting::gs_pump_until([&]() {
+		renderer->render_scene_instance(&render);
+		return hook_ran && renderer->get_resource_state().hlod_objects_only;
+	});
+	if (!prepared.ready()) {
+		FAIL("no objects-only bundle after the edit (hook ran: ", hook_ran, ", reason: ", renderer->get_resource_state().hlod_reason, ") ",
+				prepared.describe());
+		return;
+	}
+	// Two more publications: the rows the bundle holds must follow the director's current row.
+	for (int frame = 0; frame < 2; ++frame) { renderer->render_scene_instance(&render); }
+	const auto &state = renderer->get_resource_state();
+	if (!state.hlod_objects_only || state.hlod_instance_row_data.count() != 2) {
+		FAIL("objects-only bundle with 2 rows expected, objects_only=", state.hlod_objects_only, " rows=", state.hlod_instance_row_data.count());
+		return;
+	}
+	gs_hlod_bundle::Rows current;
+	LocalVector<uint64_t> current_keys;
+	director->build_hlod_instance_rows_for_renderer(renderer.ptr(), current.instances, current.grading, current.asset_ids, current_keys, true);
+	if (current.count() != 2) { FAIL("director rows: expected 2, got ", current.count()); return; }
+	// The edit stuck (otherwise this case could not see a stale row).
+	CHECK(current.instances[1].translation_scale[0] == doctest::Approx(moved_x));
+	CHECK_MESSAGE(state.hlod_instance_row_data.instances[1].translation_scale[0] == doctest::Approx(current.instances[1].translation_scale[0]),
+			"the bundle keeps the row collected before the edit: bundle x=", state.hlod_instance_row_data.instances[1].translation_scale[0],
+			", director x=", current.instances[1].translation_scale[0]);
+}
+} // namespace TestHlodObjectsOnlyRows

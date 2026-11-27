@@ -736,7 +736,8 @@ class ControlTests(unittest.TestCase):
 
     def test_runtime_switch_availability_is_reported(self):
         controls = V.run_controls(passing_record(), CLEAN_LOG)
-        self.assertEqual({n for n, r in controls.items() if not r["runtime_switch"]}, {"1", "2", "3", "7"})
+        # Control 3 has a runtime switch since PR-1 (GODOTGS_TEST_DISABLE_SHADOW_CASTER_PASS=1, tests builds).
+        self.assertEqual({n for n, r in controls.items() if not r["runtime_switch"]}, {"1", "2", "7"})
 
     def test_too_few_fresh_frames_control_turns_every_target_red(self):
         # Control 7 replays base variant A: the serial moves by 5 per frame, one frame is fresh.

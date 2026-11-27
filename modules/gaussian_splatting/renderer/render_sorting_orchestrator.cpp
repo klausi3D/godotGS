@@ -1084,7 +1084,7 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 
 	// Instance sort-cache reuse with identical camera is exact (not approximate),
 	// so it is safe even in strict_global_sort mode.
-	if (!renderer->get_resource_state().hlod_prepared_snapshot.is_valid() && !force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
+	if (!renderer->get_resource_state().has_hlod_prepared_bundle() && !force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
 			instance_pipeline_active && instance_max_visible_splats > 0 &&
 			instance_visible_chunk_count > 0 && instance_max_chunk_splats > 0) {
 		instance_camera_to_world = p_world_to_camera_transform.affine_inverse();

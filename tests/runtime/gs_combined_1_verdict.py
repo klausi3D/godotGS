@@ -48,8 +48,11 @@ Forcing controls (ADR 9.4). Controls 4, 5 and 6 mutate the *captured* record
 (delete a stats key, freeze one timestamp, make pick return no hit) and must
 turn their target assertion from passing to failing on the same data. Controls
 1, 2 and 3 alter the engine (exclusivity, sort input, caster pass); their
-record-level equivalents are applied the same way, and the runtime switches
-they need are reported as not available. A control whose target assertion is
+record-level equivalents are applied the same way. Controls 1 and 2 have no
+runtime switch and are reported as such. Control 3 also has one in builds with
+tests enabled: GODOTGS_TEST_DISABLE_SHADOW_CASTER_PASS=1 makes every HLOD splat
+caster pass draw nothing and refuse (ADR one-route section 12.7, PR-1), so a run
+with it set must turn S1 red. A control whose target assertion is
 already failing proves nothing and is reported ``unproven``, never ``proven``.
 """
 
@@ -1023,7 +1026,7 @@ def _ctl_pick_no_hit(record):
 CONTROLS: Dict[int, Tuple[str, Tuple[str, ...], Callable[[Dict[str, Any]], None], bool]] = {
     1: ("restore_instance_store_exclusivity", ("A1", "A3"), _ctl_restore_exclusivity, False),
     2: ("drop_objects_from_sort_input", ("A2", "A4"), _ctl_drop_objects_from_sort, False),
-    3: ("disable_shadow_caster_pass", ("S1",), _ctl_disable_caster_pass, False),
+    3: ("disable_shadow_caster_pass", ("S1",), _ctl_disable_caster_pass, True),
     4: ("delete_stats_key_object_drawn_splats", ("A1",), _ctl_delete_object_drawn, True),
     5: ("freeze_one_pass_timestamp", ("P3",), _ctl_freeze_timestamp, True),
     6: ("pick_returns_no_hit", ("A6",), _ctl_pick_no_hit, True),

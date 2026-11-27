@@ -512,6 +512,9 @@ func _run() -> void:
 	get_root().use_taa = false
 	get_root().msaa_3d = Viewport.MSAA_DISABLED
 	RenderingServer.set_default_clear_color(Color.BLACK)
+	# ADR one-route section 12.7 (PR-1): the objects-only bundle first, in its own scene without a world (own bound).
+	if not await _run_node_only_proof():
+		return
 
 	var data := GaussianData.new()
 	data.resize(2)
@@ -2245,4 +2248,327 @@ func _run_shadow_receiver_proof() -> bool:
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	get_root().size = WI_SIZE
+	return true
+
+
+# ADR one-route section 12.7, PR-1: the objects-only HLOD bundle (P0 absent). A scene with GaussianSplatNode3D objects and
+# no world cut takes the HLOD route with an empty row 0, and its objects cast through the HLOD splat caster: there is no
+# canonical caster. This phase runs FIRST, in its own scene with no world, and must fail on a base without PR-1.
+#   G1-1 node_only - one node ball under a DirectionalLight3D (one orthogonal pass): on every judged frame hlod_reason is
+#                   "active" with hlod_objects_only, no world record, the node's records drawn; the frame's shadow pass is
+#                   fresh (shadow_caster_frame == frame_count - 1), its route label SHADOW_HLOD_SPLAT_CASTERS, the splats it
+#                   rastered == the asset's splats (also shadow_casters_rastered), and its depth size == its atlas rect.
+#   G1-2 moved_1565 - the #1565 predicate unchanged (not NO_CASTER_RASTERED, rastered == the 9 splats inside the light's
+#                   view, depth == atlas rect), on a director-backed node scene instead of a bare renderer: a 9-splat
+#                   3 x 3 card replaces the ball.
+#   opt_out       - owner decision OD-2: hlod_runtime_cut_enabled = false leaves the objects-only bundle on the route.
+#   no_cast       - forcing control (b): the node's cast_shadow off. No frame may satisfy the G1-1 shadow predicate.
+#   world_drop    - a world WITHOUT an HLOD tree beside the node: the objects stay active; the dropped world is named
+#                   (hlod_world_producer_reason = hlod_world_without_snapshot:<cause>) and counted.
+#   orthographic  - path (c): an orthographic view (refused by the route) still draws the objects through the canonical copy.
+# A missing stat key fails. Forcing control (a) (GODOTGS_TEST_HLOD_SHADOW_OWNER_REQUIRES_SNAPSHOT=1, tests builds) restores
+# the pre-PR-1 snapshot gate of the shadow route owner: G1-1 must then fail on its shadow route label.
+const NO_TIMEOUT_MSEC := 90_000
+const NO_FRAMES := 20
+const NO_BALL_CENTER := Vector3(0.0, 1.5, -2.0)
+const NO_STAT_KEYS := ["frame_count", "hlod_reason", "hlod_objects_only", "hlod_world_draw_records", "hlod_instance_draw_records",
+		"hlod_world_producer_reason", "hlod_world_producer_dropped_frames", "shadow_caster_frame", "shadow_casters_rastered",
+		"shadow_caster_last_refusal", "shadow_last_pass_valid", "shadow_last_route_label", "shadow_last_rastered_splats",
+		"shadow_last_depth_size", "shadow_last_atlas_size", "shadow_last_renderer_frame"]
+
+
+# Awaits one frame and fails the scenario when that frame ended past the phase's wall-clock bound: a frame that finished
+# after the deadline never counts toward a pass, nor toward the consecutive frames of a judged phase (tests/AGENTS.md).
+func _no_frame(deadline: int, what: String) -> bool:
+	await RenderingServer.frame_post_draw
+	var now := Time.get_ticks_msec()
+	return _check(now <= deadline, "%s: the phase's wall-clock deadline passed (%d ms over) before the judged frames completed" % [what, now - deadline])
+
+
+func _no_stats(renderer: GaussianSplatRenderer, what: String) -> Dictionary:
+	var stats := renderer.get_render_stats()
+	for key in NO_STAT_KEYS:
+		if not _check(stats.has(key), "%s: missing renderer field %s" % [what, key]):
+			return {}
+	return stats
+
+
+func _no_card9() -> GaussianSplatAsset:
+	# The #1565 cluster: 9 opaque splats in a 3 x 3 grid, 0.5 m apart, facing the light.
+	var a := GaussianSplatAsset.new()
+	a.set_splat_count(9)
+	var p := PackedFloat32Array()
+	var s := PackedFloat32Array()
+	var r := PackedFloat32Array()
+	var dc := PackedFloat32Array()
+	var o := PackedFloat32Array()
+	var d := _wi_dc(Color(0.9, 0.9, 0.2))
+	for iy in range(3):
+		for ix in range(3):
+			p.append_array(PackedFloat32Array([-0.5 + 0.5 * ix, 0.0, -0.5 + 0.5 * iy]))
+			s.append_array(PackedFloat32Array([0.15, 0.03, 0.15]))
+			r.append_array(PackedFloat32Array([0.0, 0.0, 0.0, 1.0]))
+			dc.append_array(d)
+			o.append(6.0)
+	a.set_positions(p)
+	a.set_scales(s)
+	a.set_rotations(r)
+	a.set_sh_dc_coefficients(dc)
+	a.set_opacity_logits(o)
+	return a
+
+
+# The G1-1 / G1-2 shadow predicate on one frame's stats: the empty string when it holds, otherwise why not.
+func _no_shadow_predicate(st: Dictionary, splats: int) -> String:
+	if not bool(st["shadow_last_pass_valid"]):
+		return "no shadow hook exit recorded"
+	# The route label first: it is written by every route's hook exit, so a canonical pass names itself here.
+	if str(st["shadow_last_route_label"]) != "SHADOW_HLOD_SPLAT_CASTERS":
+		return "shadow route %s (last caster refusal %s)" % [st["shadow_last_route_label"], st["shadow_caster_last_refusal"]]
+	if int(st["shadow_caster_frame"]) != int(st["frame_count"]) - 1:
+		return "no fresh shadow pass (shadow_caster_frame %s, frame_count %s)" % [st["shadow_caster_frame"], st["frame_count"]]
+	if int(st["shadow_last_rastered_splats"]) != splats or int(st["shadow_casters_rastered"]) != splats:
+		return "rastered %s (frame total %s), asset splats %d" % [st["shadow_last_rastered_splats"], st["shadow_casters_rastered"], splats]
+	if Vector2i(st["shadow_last_depth_size"]) != Vector2i(st["shadow_last_atlas_size"]) or Vector2i(st["shadow_last_atlas_size"]) == Vector2i():
+		return "depth %s, atlas rect %s" % [st["shadow_last_depth_size"], st["shadow_last_atlas_size"]]
+	return ""
+
+
+func _no_route_predicate(st: Dictionary) -> String:
+	if str(st["hlod_reason"]) != "active":
+		return "hlod_reason %s" % st["hlod_reason"]
+	if not bool(st["hlod_objects_only"]):
+		return "not an objects-only bundle"
+	if int(st["hlod_world_draw_records"]) != 0 or int(st["hlod_instance_draw_records"]) <= 0:
+		return "world records %s, instance records %s" % [st["hlod_world_draw_records"], st["hlod_instance_draw_records"]]
+	return ""
+
+
+# Waits (wall clock) for the first frame where both predicates hold, then requires NO_FRAMES consecutive frames where they
+# hold. Returns the per-phase summary, or {} after failing the scenario.
+func _no_judge(renderer: GaussianSplatRenderer, splats: int, what: String, deadline: int) -> Dictionary:
+	var why := "no frame"
+	var last := {}
+	while Time.get_ticks_msec() < deadline:
+		if not await _no_frame(deadline, what):
+			return {}
+		last = _no_stats(renderer, what)
+		if last.is_empty():
+			return {}
+		why = _no_route_predicate(last)
+		if why.is_empty():
+			why = _no_shadow_predicate(last, splats)
+		if why.is_empty():
+			break
+	if not why.is_empty():
+		_metrics["node_only_last_stats"] = {"hlod_reason": str(last.get("hlod_reason", "MISSING")),
+				"hlod_objects_only": last.get("hlod_objects_only", "MISSING"),
+				"shadow_last_route_label": str(last.get("shadow_last_route_label", "MISSING")),
+				"shadow_casters_rastered": last.get("shadow_casters_rastered", "MISSING")}
+	if not _check(why.is_empty(), "%s: the objects-only route never cast (%s)" % [what, why]):
+		return {}
+	var first_frame := int(last["frame_count"])
+	for i in range(NO_FRAMES):
+		if not await _no_frame(deadline, what):
+			return {}
+		var st := _no_stats(renderer, what)
+		if st.is_empty():
+			return {}
+		var route_why := _no_route_predicate(st)
+		if not _check(route_why.is_empty(), "%s: frame %d: %s" % [what, i, route_why]):
+			return {}
+		var shadow_why := _no_shadow_predicate(st, splats)
+		if not _check(shadow_why.is_empty(), "%s: frame %d: %s" % [what, i, shadow_why]):
+			return {}
+		last = st
+	return {"first_frame": first_frame, "last_frame": int(last["frame_count"]), "frames": NO_FRAMES,
+			"route_label": str(last["shadow_last_route_label"]), "rastered": int(last["shadow_last_rastered_splats"]),
+			"depth_size": str(last["shadow_last_depth_size"]), "atlas_size": str(last["shadow_last_atlas_size"]),
+			"instance_draw_records": int(last["hlod_instance_draw_records"])}
+
+
+func _no_scene(asset: GaussianSplatAsset) -> Dictionary:
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color.BLACK
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	scene.add_child(world_env)
+	var camera := Camera3D.new()
+	camera.fov = 60.0
+	camera.near = 0.1
+	camera.far = 50.0
+	scene.add_child(camera)
+	camera.look_at_from_position(Vector3(0.0, 3.0, 3.0), NO_BALL_CENTER, Vector3.UP)
+	camera.make_current()
+	var light := DirectionalLight3D.new()
+	light.shadow_enabled = true
+	light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL # One pass per frame: one atlas rect.
+	light.directional_shadow_max_distance = 20.0
+	scene.add_child(light)
+	light.look_at_from_position(Vector3(0.0, 6.0, 0.0), Vector3(0.0, 6.0, 0.0) + SC_LIGHT_DIR.normalized(), Vector3.FORWARD)
+	var floor_mesh := PlaneMesh.new()
+	floor_mesh.size = Vector2(12.0, 12.0)
+	var floor_node := MeshInstance3D.new()
+	floor_node.mesh = floor_mesh
+	floor_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	scene.add_child(floor_node)
+	var node := GaussianSplatNode3D.new()
+	node.set_splat_asset(asset)
+	node.set_cast_shadow(true)
+	node.position = NO_BALL_CENTER
+	scene.add_child(node)
+	return {"scene": scene, "node": node, "camera": camera}
+
+
+func _no_free(scene: Node3D) -> void:
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+
+
+func _no_renderer(node: GaussianSplatNode3D, deadline: int, what: String) -> GaussianSplatRenderer:
+	while Time.get_ticks_msec() < deadline:
+		if not await _no_frame(deadline, what):
+			return null
+		var renderer: GaussianSplatRenderer = node.get_renderer()
+		if renderer != null:
+			return renderer
+	_check(false, "%s: the node never obtained its shared renderer" % what)
+	return null
+
+
+func _run_node_only_proof() -> bool:
+	var deadline := Time.get_ticks_msec() + NO_TIMEOUT_MSEC
+	var summary := {}
+	_metrics["node_only"] = summary
+	# The phase runs at the scenario's 64 x 64 start size: a window shrunk back after a larger phase is clamped by the OS.
+	var control_a := OS.get_environment("GODOTGS_TEST_HLOD_SHADOW_OWNER_REQUIRES_SNAPSHOT") == "1"
+	summary["control_a_snapshot_gate_env"] = control_a
+	# G1-1: the ball.
+	var built := _no_scene(_wi_ball(Color(0.2, 0.8, 0.2), 11))
+	var node: GaussianSplatNode3D = built["node"]
+	var renderer := await _no_renderer(node, deadline, "node only")
+	if renderer == null:
+		return false
+	var g11 := await _no_judge(renderer, WI_INSTANCE_SPLATS, "node only (G1-1)", deadline)
+	if g11.is_empty():
+		return false
+	summary["g1_1"] = g11
+	# OD-2: the opt-out does not take the objects off the route.
+	ProjectSettings.set_setting(WI_CUT_KEY, false)
+	ProjectSettings.emit_signal("settings_changed")
+	var opt_out := await _no_judge(renderer, WI_INSTANCE_SPLATS, "node only, hlod_runtime_cut_enabled = false (OD-2)", deadline)
+	ProjectSettings.set_setting(WI_CUT_KEY, true)
+	ProjectSettings.emit_signal("settings_changed")
+	if opt_out.is_empty():
+		return false
+	summary["opt_out"] = opt_out
+	# Forcing control (b): cast_shadow off. The shadow predicate must not hold on any frame.
+	node.set_cast_shadow(false)
+	var held := 0
+	var judged := 0
+	for i in range(NO_FRAMES + 5):
+		if not await _no_frame(deadline, "node only, cast_shadow off"):
+			return false
+		var st := _no_stats(renderer, "node only, cast_shadow off")
+		if st.is_empty():
+			return false
+		if i < 5:
+			continue # The row sync of the cast flag lands within a frame or two.
+		judged += 1
+		if _no_shadow_predicate(st, WI_INSTANCE_SPLATS).is_empty():
+			held += 1
+		summary["no_cast_last"] = {"route_label": str(st["shadow_last_route_label"]), "rastered": int(st["shadow_casters_rastered"]),
+				"shadow_caster_frame": int(st["shadow_caster_frame"]), "frame_count": int(st["frame_count"]),
+				"hlod_reason": str(st["hlod_reason"])}
+	summary["no_cast_predicate_held_frames"] = held
+	summary["no_cast_judged_frames"] = judged
+	if not _check(not bool(node.get_cast_shadow()), "node only: control (b) not applied (cast_shadow still on)"):
+		return false
+	if not _check(held == 0, "node only: control (b) cast_shadow off, yet the shadow predicate held on %d of %d frames" % [held, judged]):
+		return false
+	node.set_cast_shadow(true)
+	# A world without an HLOD tree beside the node: dropped, named and counted; the objects keep the route and cast.
+	var data := GaussianData.new()
+	data.resize(4)
+	data.set_positions(PackedVector3Array([Vector3(-3, 0.5, -4), Vector3(-2.5, 0.5, -4), Vector3(-3, 1.0, -4), Vector3(-2.5, 1.0, -4)]))
+	data.set_scales(PackedVector3Array([Vector3(0.2, 0.2, 0.05), Vector3(0.2, 0.2, 0.05), Vector3(0.2, 0.2, 0.05), Vector3(0.2, 0.2, 0.05)]))
+	var rotations: Array[Quaternion] = [Quaternion(), Quaternion(), Quaternion(), Quaternion()]
+	data.set_rotations(rotations)
+	data.set_opacities(PackedFloat32Array([0.9, 0.9, 0.9, 0.9]))
+	var sh := PackedFloat32Array()
+	for i in range(4):
+		sh.append_array(_wi_dc(Color(1, 0, 0)))
+	data.set_spherical_harmonics(sh)
+	var plain := GaussianSplatWorld.new()
+	plain.gaussian_data = data
+	if not _check(not plain.has_hlod_tree(), "node only: the plain world unexpectedly has an HLOD tree"):
+		return false
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = plain
+	built["scene"].add_child(world_node)
+	world_node.apply_world()
+	var dropped_before := int(renderer.get_render_stats().get("hlod_world_producer_dropped_frames", -1))
+	var drop := await _no_judge(renderer, WI_INSTANCE_SPLATS, "node + world without a tree", deadline)
+	if drop.is_empty():
+		return false
+	var st_drop := _no_stats(renderer, "node + world without a tree")
+	if st_drop.is_empty():
+		return false
+	drop["world_producer_reason"] = str(st_drop["hlod_world_producer_reason"])
+	drop["dropped_frames_delta"] = int(st_drop["hlod_world_producer_dropped_frames"]) - dropped_before
+	summary["world_drop"] = drop
+	if not _check(str(st_drop["hlod_world_producer_reason"]).begins_with("hlod_world_without_snapshot:"), "node + world without a tree: the dropped world is not named (%s)" % st_drop["hlod_world_producer_reason"]):
+		return false
+	if not _check(dropped_before >= 0 and int(drop["dropped_frames_delta"]) >= NO_FRAMES, "node + world without a tree: dropped frames counted %s (before %s)" % [drop["dropped_frames_delta"], dropped_before]):
+		return false
+	# Path (c): a view the HLOD route does not serve (orthographic, as an editor view) still draws the objects, through the
+	# objects-only bundle's GPU-culled canonical copy, and says why the route refused it.
+	var camera: Camera3D = built["camera"]
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 4.0
+	var ortho := {}
+	var ortho_pixels := 0
+	while Time.get_ticks_msec() < deadline:
+		if not await _no_frame(deadline, "node only, orthographic view"):
+			return false
+		var st := _no_stats(renderer, "node only, orthographic view")
+		if st.is_empty():
+			return false
+		if str(st["hlod_reason"]) != "unsupported_view_or_material" or not bool(st["hlod_objects_only"]):
+			continue
+		var img := get_root().get_texture().get_image()
+		if not _check(img != null and not img.is_empty(), "node only, orthographic view: capture missing"):
+			return false
+		ortho_pixels = 0
+		for y in range(img.get_height()):
+			for x in range(img.get_width()):
+				var c := img.get_pixel(x, y)
+				if c.g > 0.3 and c.g > c.r and c.g > c.b:
+					ortho_pixels += 1
+		ortho = {"hlod_reason": str(st["hlod_reason"]), "objects_only": bool(st["hlod_objects_only"]), "node_pixels": ortho_pixels}
+		if ortho_pixels > 0:
+			break
+	summary["orthographic"] = ortho
+	if not _check(not ortho.is_empty() and ortho_pixels > 0, "node only, orthographic view: the objects are not drawn on the refused view (%s)" % str(ortho)):
+		return false
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	await _no_free(built["scene"])
+	# G1-2: the #1565 predicate on a director-backed node scene, unchanged: 9 splats inside the light's view.
+	built = _no_scene(_no_card9())
+	node = built["node"]
+	renderer = await _no_renderer(node, deadline, "moved #1565")
+	if renderer == null:
+		return false
+	var g12 := await _no_judge(renderer, 9, "moved #1565 (G1-2)", deadline)
+	if g12.is_empty():
+		return false
+	summary["g1_2"] = g12
+	await _no_free(built["scene"])
 	return true

@@ -9,8 +9,10 @@
 // reads the inputs and applies the plan.
 //
 // - rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled (default true) is the explicit opt-out. false restores
-//   the routing from before the automatic route exactly: no snapshot is captured, route_policy decides the backend and
+//   the routing of a WORLD from before the automatic route: no snapshot is captured, route_policy decides the backend and
 //   a V4 paged world loads its payload into memory and takes the resident route (hlod_paged_requires_runtime_cut).
+//   Since PR-1 of ADR one-route section 12.7 (owner decision OD-2) it no longer keeps node instances without a world cut
+//   off the HLOD route: they take it as an objects-only bundle (renderer/hlod_objects_only.h).
 // - rendering/gaussian_splatting/streaming/route_policy is not an opt-out. Its default is streaming, and a value set
 //   equal to a default is indistinguishable from an unset one (docs/architecture/gaussian-project-settings-contract.md),
 //   so "streaming" cannot mean "no HLOD". It keeps deciding the backend of every world that does not take the HLOD route.
