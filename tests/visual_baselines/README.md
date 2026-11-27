@@ -13,7 +13,8 @@ operate in one of two modes:
 | `update` | `GS_VISUAL_BASELINE_MODE=update` | writes the captured frame to this directory as the new baseline. Used to (re)capture after a deliberate change. |
 
 The CI workflow `.github/workflows/baseline_qa.yml` already exposes a `baseline_mode`
-job input that maps to this env var. Nightly schedule runs auto-update; PR runs compare.
+job input that maps to this env var. Every unattended run (PRs, merge queue and the nightly
+schedule) compares; only a manual `workflow_dispatch` with `baseline_mode=update` recaptures (#1553).
 
 ## Canonical capture environment
 
@@ -67,7 +68,8 @@ compared on every qualifying PR.
 The lane is the GPU harness step of `gpu-tests` in `.github/workflows/baseline_qa.yml`,
 which runs `tests/ci/run_gpu_harness.py` on the self-hosted GPU runner (batch
 `CompositorHazard`). It resolves `GS_VISUAL_BASELINE_MODE` to `compare` for
-PRs and `update` for the nightly schedule, records capture provenance (GPU,
+PRs, the merge queue and the nightly schedule, and to `update` only for a manual
+`workflow_dispatch` with `baseline_mode=update` (#1553). It records capture provenance (GPU,
 driver, runner, OS build, commit) to `.provenance.json`, and on `update`
 opens a recapture PR. Mismatches upload `*.actual.png` as the
 `gpu-harness-visual-diffs` artifact.

@@ -343,9 +343,70 @@ class ContractTests(unittest.TestCase):
         self.assertIn("viewport_set_measure_render_time(root.get_viewport_rid(), true)", sample)
         self.assertIn('rec["viewport_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())', sample)
         self.assertIn('target["gpu_frame_ms"] = timing.get("gpu_coherent_total_ms")', sample)
-        # The verdict logic is unchanged: it never reads the added field.
-        verdict_text = (ROOT / "tests/runtime/gs_game_1_verdict.py").read_text(encoding="utf-8")
-        self.assertNotIn("viewport_gpu_ms", verdict_text)
+        # The verdict reports the viewport times in P1's breakdown only; that they
+        # never decide P1's state is proven in test_gs_game_1_verdict.py
+        # (test_p1_breakdown_never_decides_the_state).
+        rec = sample.split("var rec = {", 1)[1]
+        for key in ("viewport_cpu_ms", "frame_setup_cpu_ms", "process_ms", "physics_ms"):
+            self.assertIn(f'rec["{key}"] = ', rec)
+
+    def test_p1_frame_ms_spans_consecutive_post_draw_boundaries(self):
+        # #1552: frame_ms ran from the loop top to post_draw, so the harness's own
+        # statistics/ledger work after post_draw fell outside every sample (run
+        # 45497531161: 23.373 s of samples in a 24.214 s window). Each sample must
+        # be the interval between two consecutive post_draw boundaries, so all
+        # per-sample work, the harness's included, lands inside some interval.
+        sample = self._harness_function("_sample_frames")
+        head, loop = sample.split('\tfor sample in range(int(_plan["samples"])):\n', 1)
+        loop = loop.split("\tvar sampled_end", 1)[0]
+        self.assertRegex(head, r"\n\tawait RenderingServer\.frame_post_draw\n\tvar start = Time\.get_ticks_usec\(\)\n"
+                               r"\tvar previous_boundary = start\n")
+        self.assertEqual(loop.count("await RenderingServer.frame_post_draw"), 1)
+        self.assertIn("\t\tawait RenderingServer.frame_post_draw\n\t\tvar end = Time.get_ticks_usec()\n", loop)
+        self.assertEqual(loop.count('"frame_ms":'), 1)
+        frame_ms = loop.index('"frame_ms": float(end - previous_boundary) / 1000.0')
+        advance = loop.index("\t\tprevious_boundary = end\n")
+        self.assertLess(frame_ms, advance)
+        # Nothing after the advance may start a new interval of its own.
+        self.assertNotIn("previous_boundary =", loop[advance + len("\t\tprevious_boundary = end\n"):])
+        # The forcing control's delay sits after the boundary, where the old window
+        # never reached; the lane never sets it, so a production arm cannot.
+        self.assertLess(advance, loop.index("OS.delay_usec(forcing_delay_usec)"))
+        self.assertIn('_plan.get("p1_forcing_out_of_window_delay_ms", 0)', sample)
+        lane = (ROOT / "tests/runtime/gs_game_1_lane.py").read_text(encoding="utf-8")
+        self.assertNotIn("p1_forcing_out_of_window_delay_ms", lane)
+        tail = sample.split('_raw["rows"]["P1"] = ', 1)[1].split("\n", 1)[0]
+        for key in ('"frame_basis": "post_draw_to_post_draw"', '"capture_start_usec": start',
+                    '"capture_end_usec": previous_boundary', '"forcing_out_of_window_delay_ms"'):
+            self.assertIn(key, tail)
+
+    def test_p1_fixture_is_a_capture_of_what_sample_frames_writes(self):
+        # The verdict tests' P1 baseline is a trimmed producer capture. It must not
+        # drift from the producer: every key it carries is one _sample_frames()
+        # writes, and every frame key the verdict reads is in the capture, so the
+        # verdict tests exercise each field on real values.
+        import gzip
+        import json
+        fixture = ROOT / "tests/runtime/flythrough/fixtures/gs_game_1/p1_subject_frames.json.gz"
+        capture = json.loads(gzip.decompress(fixture.read_bytes()).decode("utf-8"))
+        self.assertIn("Producer capture, not hand-authored", capture["capture"])
+        m = capture["measurement"]
+        sample = self._harness_function("_sample_frames")
+        frame_keys = set().union(*(f.keys() for f in m["frames"]))
+        self.assertEqual(frame_keys, set(m["frames"][0]), "frames carry different key sets")
+        for key in sorted(frame_keys | (set(m) - {"frames"})):
+            with self.subTest(key=key):
+                self.assertRegex(sample, r'"' + re.escape(key) + r'"\s*:|\["' + re.escape(key) + r'"\]\s*=',
+                                 "fixture key the harness never writes")
+        spec = importlib.util.spec_from_file_location("gs_game_1_verdict_for_fixture",
+                                                      ROOT / "tests/runtime/gs_game_1_verdict.py")
+        verdict = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verdict)
+        read = {key for _, key in verdict.P1_BREAKDOWN} | {
+            "sample", "frame", "gpu_frame", "gpu_frame_valid", "frame_ms", "gpu_frame_ms", "spawn",
+            "boundary_usec", "harness_ms", "drawn_frames", "input_digest"}
+        self.assertLessEqual(read, frame_keys, "a frame key the verdict reads is absent from the capture")
+        self.assertEqual(m["frame_basis"], verdict.P1_FRAME_BASIS)
 
     def test_l2_spot_lights_what_pose_a_sees(self):
         # L2 measures spot shadows at pose A. A spot aimed at (0, 0, -10) lit nothing
