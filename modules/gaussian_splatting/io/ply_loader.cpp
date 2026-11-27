@@ -46,12 +46,20 @@ namespace {
 //       shader decodes with the legacy sigmoid. A stale v3 cache is rejected and
 //       the raw PLY re-parsed.
 // v5: semantic properties and PLY island side data must survive cache hits.
-static constexpr int PLY_CACHE_VERSION = 5;
+// v6: the f_rest channel stride follows the declared SH degree (#1546). v1-v5
+//     read every f_rest block with the degree-3 stride (15), so a degree-1 or
+//     degree-2 PLY was cached with its G/B rest coefficients lost or moved into
+//     the wrong bands and a too-high degree (and a degree-4 PLY truncated to
+//     degree 3). A stale pre-v6 cache is rejected and the raw PLY re-parsed.
+static constexpr int PLY_CACHE_VERSION = 6;
 
 static constexpr int SH_DC_COMPONENTS = 3;
-static constexpr int SH_REST_COMPONENTS = 45;
+// Largest f_rest block the loader accepts: degree 4, 24 terms per channel.
+static constexpr int SH_MAX_DEGREE = 4;
+static constexpr int SH_MAX_REST_PER_CHANNEL = (SH_MAX_DEGREE + 1) * (SH_MAX_DEGREE + 1) - 1;
+static constexpr int SH_REST_COMPONENTS = 3 * SH_MAX_REST_PER_CHANNEL;
 static constexpr int SH_FIRST_ORDER_COEFFS = 3;
-static constexpr int SH_HIGH_ORDER_COEFFS = 12;
+static constexpr int SH_HIGH_ORDER_COEFFS = SH_MAX_REST_PER_CHANNEL - SH_FIRST_ORDER_COEFFS;
 static constexpr float SH_C0 = 0.28209479177387814f;
 
 // Byte size of a fixed-size (non-list) PLY scalar property type, or 0 for an
@@ -447,6 +455,61 @@ Error PLYLoader::parse_header(Ref<FileAccess> file) {
     header.vertex_data_offset = static_cast<uint64_t>(header.header_size) +
             static_cast<uint64_t>(pre_vertex_data_bytes);
     header.pre_vertex_row_count = pre_vertex_row_count;
+
+    // #1546: PLY stores f_rest channel-major, T terms per channel, so the
+    // channel stride is a property of the file, not a constant. Derive it from
+    // the f_rest block and refuse any block that is not exactly
+    // f_rest_0..f_rest_{3T-1} for a whole SH degree 1-4: guessing a stride for
+    // such a block would load wrong colours and still report success.
+    // Validated before the cache lookup, so a cache can never stand in for a
+    // file this check refuses.
+    {
+        bool seen[SH_REST_COMPONENTS] = {};
+        int rest_count = 0;
+        for (const PLYProperty &prop : header.properties) {
+            if (!prop.name.begins_with("f_rest_")) {
+                continue;
+            }
+            const String suffix = prop.name.substr(7);
+            const int index = suffix.is_valid_int() ? suffix.to_int() : -1;
+            if (index < 0 || itos(index) != suffix) {
+                GS_LOG_ERROR_DEFAULT(vformat("[PLY] refusing '%s': not an f_rest_<index> property name", prop.name));
+                return ERR_FILE_CORRUPT;
+            }
+            if (index >= SH_REST_COMPONENTS) {
+                GS_LOG_ERROR_DEFAULT(vformat("[PLY] refusing '%s': f_rest blocks above SH degree %d (%d properties) are not supported",
+                        prop.name, SH_MAX_DEGREE, SH_REST_COMPONENTS));
+                return ERR_FILE_CORRUPT;
+            }
+            if (seen[index]) {
+                GS_LOG_ERROR_DEFAULT(vformat("[PLY] refusing duplicate property '%s'", prop.name));
+                return ERR_FILE_CORRUPT;
+            }
+            seen[index] = true;
+            rest_count++;
+        }
+        for (int i = 0; i < rest_count; i++) {
+            if (!seen[i]) {
+                GS_LOG_ERROR_DEFAULT(vformat("[PLY] refusing an f_rest block of %d properties that lacks f_rest_%d", rest_count, i));
+                return ERR_FILE_CORRUPT;
+            }
+        }
+        int per_channel = -1;
+        for (int degree = 0; degree <= SH_MAX_DEGREE; degree++) {
+            const int terms = (degree + 1) * (degree + 1) - 1;
+            if (rest_count == 3 * terms) {
+                per_channel = terms;
+                break;
+            }
+        }
+        if (per_channel < 0) {
+            GS_LOG_ERROR_DEFAULT(vformat("[PLY] refusing an f_rest block of %d properties: a degree-d SH block has 3 * ((d+1)^2 - 1) "
+                                         "(0, 9, 24, 45 or 72) properties",
+                    rest_count));
+            return ERR_FILE_CORRUPT;
+        }
+        header.sh_rest_per_channel = per_channel;
+    }
 
     return OK;
 }
@@ -1240,9 +1303,11 @@ int PLYLoader::assemble_sh_coefficients(Gaussian &r_gaussian,
     r_gaussian.sh_dc = sh_dc;
     r_gaussian.render_meta = gaussian_set_dc_encoding(r_gaussian.render_meta, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
 
-    // PLY stores f_rest_0-44 in channel-major order (all R coeffs, then G, then B).
-    // Repack into coefficient-major RGB triplets for the renderer.
-    const int sh_coeffs_per_channel = SH_REST_COMPONENTS / 3;
+    // PLY stores f_rest channel-major (all R terms, then G, then B), T terms per
+    // channel where T follows from the file's own f_rest count (#1546;
+    // validated in parse_header). Repack into coefficient-major RGB triplets
+    // for the renderer. Terms at or past T do not exist in this file.
+    const int sh_coeffs_per_channel = header.sh_rest_per_channel;
     Vector3 sh_band1[SH_FIRST_ORDER_COEFFS];
     for (int i = 0; i < SH_FIRST_ORDER_COEFFS; i++) {
         sh_band1[i] = Vector3();
@@ -1251,6 +1316,9 @@ int PLYLoader::assemble_sh_coefficients(Gaussian &r_gaussian,
     for (int coeff = 0; coeff < SH_FIRST_ORDER_COEFFS; coeff++) {
         Vector3 coeff_value;
         bool has_value = false;
+        if (coeff >= sh_coeffs_per_channel) {
+            break;
+        }
         int base_r = coeff;
         int base_g = coeff + sh_coeffs_per_channel;
         int base_b = coeff + 2 * sh_coeffs_per_channel;
@@ -1272,7 +1340,7 @@ int PLYLoader::assemble_sh_coefficients(Gaussian &r_gaussian,
         sh_band1[coeff] = coeff_value;
     }
 
-    // Higher order bands (l=2..3) occupy the remaining coefficients.
+    // Higher order bands (l=2..4) occupy the remaining coefficients.
     Vector3 sh_high[SH_HIGH_ORDER_COEFFS];
     for (int i = 0; i < SH_HIGH_ORDER_COEFFS; i++) {
         sh_high[i] = Vector3();
@@ -1282,6 +1350,9 @@ int PLYLoader::assemble_sh_coefficients(Gaussian &r_gaussian,
         Vector3 coeff_value;
         bool has_value = false;
         int coeff_index = coeff + SH_FIRST_ORDER_COEFFS;
+        if (coeff_index >= sh_coeffs_per_channel) {
+            break;
+        }
         int base_r = coeff_index;
         int base_g = coeff_index + sh_coeffs_per_channel;
         int base_b = coeff_index + 2 * sh_coeffs_per_channel;

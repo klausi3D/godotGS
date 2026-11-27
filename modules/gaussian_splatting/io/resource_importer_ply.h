@@ -110,7 +110,15 @@ public:
     //       PLY_CACHE_VERSION bump: the selection runs after the raw decode.
     //   v13: semantic words and island ids travel with packed-lane source rows.
     //       Older imported assets dropped optional semantic PLY properties.
-    virtual int get_format_version() const override { return 13; }
+    //   v14: the PLY loader derives the f_rest channel stride from the file's
+    //       SH degree instead of assuming degree 3 (#1546). An asset imported by
+    //       v1-v13 from a degree-1 or degree-2 PLY holds lost or misplaced G/B
+    //       SH coefficients and too many SH bands (a degree-4 PLY was truncated
+    //       to degree 3), so bumping the format version makes Godot's scanner
+    //       re-run import(). Pairs with PLY_CACHE_VERSION 5 -> 6, which
+    //       invalidates the raw .gsplatcache the same way. Degree-3 and
+    //       degree-0 PLYs import exactly as before.
+    virtual int get_format_version() const override { return 14; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;

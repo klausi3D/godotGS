@@ -48,13 +48,14 @@ static constexpr float SAVE_TO_FILE_FALLBACK_OPACITY = 0.5f;
 // f_rest_[0..14] are the R values of SH terms 1..15, f_rest_[15..29] the G values
 // and f_rest_[30..44] the B values. This is the exact inverse of
 // PLYLoader::assemble_sh_coefficients(), which reads term t (1-based) channel c
-// from f_rest_[(t - 1) + c * 15] with a FIXED per-channel stride of 15.
+// from f_rest_[(t - 1) + c * T], T being the per-channel term count it derives
+// from the file's f_rest count (15 for these 45 columns; #1546).
 //
-// Because that reader's stride is fixed, a payload of degree < 3 is written
-// zero-padded to all 45 columns rather than with a degree-dependent stride:
-// every 3DGS reader (including ours) then decodes it as a degree-3 asset whose
-// missing bands are exactly zero, i.e. the same radiance. A degree-dependent
-// stride would be canonical for third-party tools but misread by our own loader.
+// A payload of degree < 3 is written zero-padded to all 45 columns: every 3DGS
+// reader (including ours) decodes it as a degree-3 asset whose missing bands
+// are exactly zero, i.e. the same radiance. (Before #1546 our loader assumed
+// T = 15 for every file, so this padding was also the only layout it read
+// correctly.)
 static constexpr int SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL = 15;
 static constexpr int SAVE_TO_FILE_SH_REST_COMPONENTS = SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL * 3;
 static constexpr uint32_t SAVE_TO_FILE_SH_FIRST_ORDER_TERMS = 3u;

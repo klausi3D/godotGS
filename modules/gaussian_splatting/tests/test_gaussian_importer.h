@@ -192,8 +192,9 @@ Error _write_binary_ply_with_nan_past_index_0(const String &p_path) {
 }
 
 // PLY fixture with one splat that carries DC plus full Inria SH3 layout
-// (45 f_rest_* properties). The PLY loader (ply_loader.cpp:797-826) treats
-// f_rest_* as channel-major with stride SH_REST_COMPONENTS / 3 = 15, then
+// (45 f_rest_* properties). The PLY loader (PLYLoader::assemble_sh_coefficients)
+// treats f_rest_* as channel-major with the stride the f_rest count implies
+// (45 / 3 = 15 here; #1546), then
 // repacks into coefficient-major RGB triplets. Only band 1 (terms 0/1/2) is
 // populated with non-zero values; bands 2-3 are zero but declared so the
 // `present` map flags them and the loader infers high_order_count = 12.
