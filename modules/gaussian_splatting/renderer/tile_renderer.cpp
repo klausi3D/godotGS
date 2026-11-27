@@ -2201,8 +2201,11 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
 
 	bool recreate_buffers = tile_size_changed || format_changed || size_changed;
 	// Debug/diagnostic buffers are required in both modes.
+	// #1544 (Codex P1 on #1570): the total-order counters buffer is required too. Without it the
+	// order pass cannot run, so a missing buffer is re-created (retried) on every frame.
 	recreate_buffers = recreate_buffers || !debug_stats.debug_counter_buffer.is_valid() ||
-            !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid();
+            !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid() ||
+            !debug_stats.tile_order_stats_buffer.is_valid();
 
 	if (recreate_buffers) {
 		projection_buffers.release(device);
@@ -2218,7 +2221,8 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
         _create_output_texture(p_size, config_state.desired_output_format);
 
 		bool allocation_failed = !render_targets.output_texture.is_valid() || !debug_stats.debug_counter_buffer.is_valid() ||
-                !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid();
+                !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid() ||
+                !debug_stats.tile_order_stats_buffer.is_valid();
         if (allocation_failed && tile_size_changed) {
             GS_LOG_WARN_DEFAULT("[TileRenderer] Adaptive tile size allocation failed, reverting to previous tile size");
             config_state.tile_size = previous_tile_size;
@@ -2250,8 +2254,17 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
                 !render_targets.tile_framebuffer.is_valid() ||
                 !debug_stats.debug_counter_buffer.is_valid() ||
                 !debug_stats.overflow_statistics_buffer.is_valid() ||
-                !debug_stats.debug_splat_audit_buffer.is_valid();
+                !debug_stats.debug_splat_audit_buffer.is_valid() ||
+                !debug_stats.tile_order_stats_buffer.is_valid();
         if (resources_incomplete) {
+            if (!debug_stats.tile_order_stats_buffer.is_valid()) {
+                // #1544: this frame cannot run the total-order pass; it is refused (not presented)
+                // and counted, and the next frame retries the allocation.
+                const uint64_t missing = ++debug_stats.tile_order_pass_missing_frames;
+                if (missing == 1u) {
+                    GS_LOG_WARN_DEFAULT("[TileRenderer] #1544: the total-order counters buffer could not be allocated; frames are refused until it is (tile_order_pass_missing_frames)");
+                }
+            }
             GS_LOG_ERROR_DEFAULT("[TileRenderer] Resource allocation failed during _ensure_resources; failing initialization instead of returning a partially-initialised renderer (#643)");
             projection_buffers.release(device);
             debug_stats.free_buffers(device);
