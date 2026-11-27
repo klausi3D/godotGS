@@ -2055,6 +2055,10 @@ void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWo
 	// Rows 1..N: the visible node instances with data, with the same skip rule and the same row and grading content as
 	// build_instance_buffer_for_renderer / build_instance_grading_buffer_for_renderer (no shadow-caster filter: the HLOD
 	// route refuses the shadow instance filter domain).
+	// The pipeline trace's instance flags (identity-transform handling, what qa_static_fast_path pins) describe the node
+	// rows this route uploads, exactly as build_instance_buffer_for_renderer records them for the canonical routes.
+	const bool trace_enabled = GaussianSplatting::debug_trace_is_enabled();
+	uint32_t traced_total = 0, traced_rotation_identity = 0, traced_scale_identity = 0, traced_translation_zero = 0, traced_fully_identity = 0;
 	for (const InstanceRecord &record : world->instance_store.records()) {
 		if (!record.visible || !record.sort_identity_refusal.is_empty()) {
 			continue;
@@ -2071,6 +2075,21 @@ void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWo
 		r_grading.push_back(grading);
 		r_asset_ids.push_back(record.asset_id);
 		r_instance_keys.push_back(uint64_t(record.node_id));
+		if (trace_enabled) {
+			const uint32_t flags = entry.ids[1];
+			const bool rotation_identity = (flags & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0u;
+			const bool scale_identity = (flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u;
+			const bool translation_zero = (flags & GS_INSTANCE_FLAG_TRANSLATION_ZERO) != 0u;
+			++traced_total;
+			traced_rotation_identity += rotation_identity ? 1u : 0u;
+			traced_scale_identity += scale_identity ? 1u : 0u;
+			traced_translation_zero += translation_zero ? 1u : 0u;
+			traced_fully_identity += (rotation_identity && scale_identity && translation_zero) ? 1u : 0u;
+		}
+	}
+	if (trace_enabled && traced_total > 0) {
+		GaussianSplatting::debug_trace_record_instance_flags(traced_total, traced_rotation_identity, traced_scale_identity,
+				traced_translation_zero, traced_fully_identity);
 	}
 }
 
