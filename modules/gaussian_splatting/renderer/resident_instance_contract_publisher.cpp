@@ -3010,6 +3010,12 @@ int GaussianSplatRenderer::try_publish_hlod_objects_only_contract(String &r_reas
         if (state.hlod_objects_only) { release_hlod_resources(); }
         return 0;
     }
+    // The generations the bundle records are read BEFORE its rows are collected (as the world publisher does): a node edited
+    // in between then leaves the recorded generation behind the director's, so the readiness check below refuses the
+    // candidate or the next refresh_hlod_instance_rows() re-uploads the rows. Read after, the old rows would carry the new
+    // generation and never be uploaded again (Codex P1 on #1571).
+    const uint64_t instance_generation = hlod_row_generation(director);
+    const uint64_t instance_asset_generation = director->get_instance_asset_generation_for_renderer(this);
     // The rows this bundle would hold: an empty row 0, then the visible node instances with data (the director's rule).
     gs_hlod_bundle::Rows rows;
     LocalVector<uint64_t> row_keys;
@@ -3066,8 +3072,6 @@ int GaussianSplatRenderer::try_publish_hlod_objects_only_contract(String &r_reas
     const uint32_t position_bits = MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX);
     const uint32_t scale_bits = MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX);
     const bool quantize_scales = g_quantization_config.quantize_scales;
-    const uint64_t instance_generation = hlod_row_generation(director);
-    const uint64_t instance_asset_generation = director->get_instance_asset_generation_for_renderer(this);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     const uint64_t owner_key = state.hlod_owner_key;
     LocalVector<InstanceAssetRegistration> registered;
