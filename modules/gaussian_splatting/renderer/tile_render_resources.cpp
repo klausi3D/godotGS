@@ -1055,6 +1055,9 @@ void TileShaderResources::release(RenderingDevice *p_device, RenderingDevice *p_
 		if (tile_prefix_pipeline_pass3.is_valid() && pipeline_owner->compute_pipeline_is_valid(tile_prefix_pipeline_pass3)) {
 			pipeline_owner->free(tile_prefix_pipeline_pass3);
 		}
+		if (tile_prefix_pipeline_pass4.is_valid() && pipeline_owner->compute_pipeline_is_valid(tile_prefix_pipeline_pass4)) {
+			pipeline_owner->free(tile_prefix_pipeline_pass4);
+		}
 		if (tile_raster_pipeline.is_valid() && pipeline_owner->render_pipeline_is_valid(tile_raster_pipeline)) {
 			pipeline_owner->free(tile_raster_pipeline);
 		}
@@ -1081,6 +1084,9 @@ void TileShaderResources::release(RenderingDevice *p_device, RenderingDevice *p_
 		if (tile_prefix_shader_pass3.is_valid()) {
 			p_device->free(tile_prefix_shader_pass3);
 		}
+		if (tile_prefix_shader_pass4.is_valid()) {
+			p_device->free(tile_prefix_shader_pass4);
+		}
 		if (tile_raster_shader.is_valid()) {
 			p_device->free(tile_raster_shader);
 		}
@@ -1101,6 +1107,7 @@ void TileShaderResources::reset_state() {
 	tile_prefix_pipeline_pass1 = RID();
 	tile_prefix_pipeline_pass2 = RID();
 	tile_prefix_pipeline_pass3 = RID();
+	tile_prefix_pipeline_pass4 = RID();
 	tile_raster_pipeline = RID();
 	cached_raster_framebuffer_format = RD::INVALID_ID;
 	tile_raster_compute_pipeline = RID();
@@ -1110,6 +1117,7 @@ void TileShaderResources::reset_state() {
 	tile_prefix_shader = RID();
 	tile_prefix_shader_pass2 = RID();
 	tile_prefix_shader_pass3 = RID();
+	tile_prefix_shader_pass4 = RID();
 	tile_raster_shader = RID();
 	tile_raster_compute_shader = RID();
 	tile_resolve_shader = RID();

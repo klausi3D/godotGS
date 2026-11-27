@@ -38,6 +38,7 @@
 #include "gpu_sorting_constants.h"
 #include <atomic>
 #include <chrono>
+#include <functional>
 
 // Forward declarations
 class RenderingDevice;
@@ -170,6 +171,7 @@ protected:
     // (BV-04b), so the two sorts never land in the same timing slot.
     String timestamp_label_prefix = "TileOverlapSort_";
     GaussianSplatting::GpuPassTiming::Pass dispatch_timing_pass = GaussianSplatting::GpuPassTiming::PASS_OVERLAP_SORT;
+    std::function<bool(RenderingDevice *, RenderingDevice::ComputeListID)> post_sort_recorder; // #1544, see set_post_sort_recorder
 
     // CPU-side timing utilities for measuring command recording/submission time.
     // WARNING: These measure wall-clock time on the CPU, NOT actual GPU execution time.
@@ -221,6 +223,14 @@ public:
     void set_timestamp_label_prefix(const String &p_prefix) { timestamp_label_prefix = p_prefix; }
     void set_dispatch_timing_pass(GaussianSplatting::GpuPassTiming::Pass p_pass) { dispatch_timing_pass = p_pass; }
     const String &get_timestamp_label_prefix() const { return timestamp_label_prefix; }
+
+    // #1544: work recorded into the indirect sort's own compute list after the last scatter pass, once
+    // the sorted keys and values are in the caller's buffers, and before the sort's _End timestamp (so
+    // its GPU time is part of the sort's). The tile renderer uses it for the total-order pass. Returns
+    // whether it recorded anything. Only RadixSort's indirect path calls it; the caller checks that it
+    // ran, so a sorter that ignores it is visible, not silent. Cleared by the caller after the sort.
+    using PostSortRecorder = std::function<bool(RenderingDevice *, RenderingDevice::ComputeListID)>;
+    void set_post_sort_recorder(PostSortRecorder p_recorder) { post_sort_recorder = std::move(p_recorder); }
 
     // Last completed sort dispatch's GPU-timestamp range. Default-invalid for
     // sorters that don't capture timestamps. Consumers may resolve the

@@ -1791,6 +1791,13 @@ void main() {
             gs_membership_append(tile_idx, global_idx, splat_ref_idx, gaussian_idx, splat_ref.instance_id, splat_ref.atlas_index);
 #endif
             uint local_offset = atomicAdd(tile_counts.counts[tile_idx], 1u);
+#if defined(GS_TESTS_ENABLED) && defined(GS_TEST_TILE_EMIT_ORDER_PERMUTE)
+            // #1544 test hook: a forced per-frame permutation of the emit order. Odd frames take the
+            // tile's slots in reverse, so equal sort keys reach the sort in a different order.
+            if ((debug_audit.frame_id & 1u) != 0u && local_offset < range.y) {
+                local_offset = range.y - 1u - local_offset;
+            }
+#endif
             if (local_offset >= range.y) {
                 // Undo the cursor increment so tile_counts reflects emitted (clamped) records.
                 atomicAdd(tile_counts.counts[tile_idx], 0xFFFFFFFFu); // -1

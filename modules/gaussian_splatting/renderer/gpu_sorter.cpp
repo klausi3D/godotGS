@@ -2863,6 +2863,11 @@ uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer, RID values_buffer, 
             WARN_PRINT_ONCE("[RadixSort] Odd number of passes detected in sort_indirect; sort results may be in the wrong buffer. Sort skipped.");
             return false;
         }
+        // #1544: after an even number of passes the sorted data is back in the caller's buffers.
+        if (post_sort_recorder) {
+            command_rd->compute_list_add_barrier(compute_list);
+            post_sort_recorder(command_rd, compute_list);
+        }
         return true;
     };
 

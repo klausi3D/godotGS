@@ -661,6 +661,8 @@ INDIRECT_DISPATCH_HOST_STRUCT_MIRRORS: tuple[tuple[Path, str], ...] = (
 # therefore fails unless someone deliberately lists it, rather than being credited to the first.
 INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
     (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "IndirectDispatch", 0, 5),
+    # #1544: pass 4 (total order of the sorted overlap records) reads element_count.
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "OrderCount", 0, 2),
     (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer.glsl", "IndirectDispatch", 0, 6),
     (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer_compute.glsl", "IndirectDispatch", 0, 6),
     (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl", "IndirectDispatch", 0, 9),
@@ -704,6 +706,12 @@ INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
         ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_binning.cpp",
         "global_sort_resources.indirect_dispatch_buffer",
         9,
+        1,
+    ),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_order.cpp",
+        "global_sort_resources.indirect_dispatch_buffer",
+        2,  # #1544: tile_prefix_scan.glsl pass 4 OrderCount
         1,
     ),
     (
@@ -1418,6 +1426,12 @@ PUSH_CONSTANT_MIRRORS: tuple[tuple[Path, str, tuple[tuple[Path, str], ...]], ...
         TILE_PREFIX_SCAN_UTILS_H,
         "TilePrefixPass2ControlLayout",
         ((ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "PrefixPass2Control"),),
+    ),
+    (
+        # #1544: total-order pass (tile_prefix_scan.glsl pass 4).
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_order_contract.h",
+        "TileOrderControlGPU",
+        ((ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "OrderControl"),),
     ),
     (
         RENDER_PIPELINE_IO_TYPES_H,

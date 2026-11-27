@@ -23,6 +23,7 @@
 #include "tile_render_types.h"
 #include "tile_render_resources.h"
 #include "tile_prefix_scan_utils.h"
+#include "tile_order_contract.h"
 #include "camera_cut_policy.h"
 
 class GPUPerformanceMonitor;
@@ -344,6 +345,15 @@ public:
     int get_overflow_tile_count() const { return debug_stats.cached_overflow_stats.overflow_tile_count; }
     int get_clamped_records() const { return debug_stats.cached_overflow_stats.overflow_splats_clamped; }
     int get_aggregated_count() const { return debug_stats.cached_overflow_stats.overflow_splats_aggregated; }
+    // #1544: last sampled cumulative counters of the total-order pass (frame serial 0 = never sampled),
+    // and the sorted frames whose sorter never ran that pass.
+    GaussianSplatting::TileOrderStatsGPU get_tile_order_stats_sample(uint64_t *r_frame_serial = nullptr) const {
+        if (r_frame_serial) {
+            *r_frame_serial = debug_stats.cached_tile_order_frame_serial;
+        }
+        return debug_stats.cached_tile_order_stats;
+    }
+    uint64_t get_tile_order_pass_missing_frames() const { return debug_stats.tile_order_pass_missing_frames; }
 
 #ifdef TESTS_ENABLED
     // Exercise the real cache range hook and the next same-frame GPU consumer.
@@ -357,6 +367,9 @@ public:
     }
     bool test_address_identity_enabled = false;
     uint32_t test_game_shader_variant = 0;
+    uint32_t test_tile_order_shader_variant = 0; // #1544 GSTileOrderTestControl::shader_variant()
+    // #1544: synchronous read of the cumulative total-order counters (tests only).
+    bool test_read_tile_order_stats(GaussianSplatting::TileOrderStatsGPU &r_stats) const;
     bool _test_uses_address_identity() const { return shader_resources.tile_binning_pipeline.is_valid() && test_address_identity_enabled; }
     // Test-only accessors. Mirror the pattern used in core/gaussian_streaming.h
     // (search for `_test_*`). Replaced the `#define private public` macro that
@@ -544,6 +557,10 @@ private:
     SortKeyConfig _get_effective_sort_key_config() const;
     Vector<String> _build_common_shader_defines(bool p_include_dispatch_group) const;
     Vector<String> _build_binning_shader_defines() const;
+    // #1544: low overlap-key bits holding the tie (GS_SORT_TIE_BITS), shared with the total-order pass.
+    uint32_t _get_sort_tie_bits() const;
+    // #1544: records the total-order pass into the overlap sort's compute list (IGPUSorter post-sort recorder).
+    bool _record_tile_order_pass(RenderingDevice *p_device, RD::ComputeListID p_compute_list);
     Vector<String> _build_raster_shader_defines() const;
     // The per-tile raster cap compiled into the raster shaders as GS_MAX_RASTER_SPLATS_PER_TILE
     // (single source for the define, the render stats and the #1137 cap warning).
@@ -674,6 +691,7 @@ private:
     void _on_overflow_stats_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_signal_readback(const Vector<uint8_t> &p_data);
     void _on_hlod_level_stats_readback(const Vector<uint8_t> &p_data); // BV-04b
+    void _on_tile_order_stats_readback(const Vector<uint8_t> &p_data); // #1544
 #ifdef TESTS_ENABLED
 	void _on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce);
 #endif

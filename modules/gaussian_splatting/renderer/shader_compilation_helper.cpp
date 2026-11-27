@@ -468,6 +468,12 @@ Error ShaderCompilationManager::compile_prefix_shaders(RenderingDevice *p_device
 							 owner.shader_resources.tile_prefix_pipeline_pass3,
 							 "tile_prefix_pass3"),
 			ERR_CANT_CREATE);
+	// #1544: pass 4 orders runs of equal overlap keys by global_idx (total raster order).
+	ERR_FAIL_COND_V(!compile_prefix(4, int(GaussianSplatting::kTilePrefixPassLocalSize),
+							 owner.shader_resources.tile_prefix_shader_pass4,
+							 owner.shader_resources.tile_prefix_pipeline_pass4,
+							 "tile_prefix_pass4_order"),
+			ERR_CANT_CREATE);
 
 	return OK;
 }
