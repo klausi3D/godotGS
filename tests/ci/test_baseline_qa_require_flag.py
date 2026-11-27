@@ -2788,5 +2788,133 @@ class QaCorpusIsPinnedTest(unittest.TestCase):
         self.assertIsNone(_world_header_splat_count(header[:12]))
 
 
+_GHA_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+
+
+def _usable_bash() -> str | None:
+    """A POSIX bash that reads a script from stdin, or None.
+
+    On Windows, `bash` on PATH can be the WSL launcher in System32, which does
+    not run against this checkout; prefer the bash that ships with Git.
+    """
+    import os
+    import shutil
+
+    candidates = []
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git:
+            git_root = Path(git).resolve().parent.parent
+            candidates += [git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe"]
+    found = shutil.which("bash")
+    if found and "system32" not in found.lower():
+        candidates.append(Path(found))
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return str(candidate)
+    return None
+
+
+class HarnessVisualBaselineModeTest(unittest.TestCase):
+    """#1553: no unattended event may run the GPU harness in baseline UPDATE mode.
+
+    The GPU harness compares its PNGs against the committed references in
+    `tests/visual_baselines/` only in `compare` mode. `update` recaptures them
+    instead, so a run in update mode cannot see an image regression. The nightly
+    used to resolve `update` on `schedule`, so the one run with every path filter
+    off never compared the harness PNGs at all.
+
+    The property, asserted by EXECUTING the workflow's own mode-resolution
+    script for every event the workflow is triggered by (derived from `on:`,
+    not listed by hand): only a manual `workflow_dispatch` with
+    `baseline_mode=update` resolves to `update`. A second test proves the
+    resolved mode is the only route to the harness's GS_VISUAL_BASELINE_MODE,
+    so the resolution cannot be bypassed by a job env or a CLI flag.
+
+    Limits: this does not prove the changes job sets run_harness on schedule
+    (that is JavaScript); a skipped harness is reported by the separate
+    "Report skipped GPU harness" step, never as a compare pass.
+    """
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "baseline_qa.yml"
+
+    @classmethod
+    def setUpClass(cls):
+        import yaml
+
+        cls.workflow = yaml.safe_load(cls.WORKFLOW.read_text(encoding="utf-8"))
+        cls.job = cls.workflow["jobs"]["gpu-tests"]
+        cls.steps = cls.job["steps"]
+
+    def _step(self, step_id):
+        matches = [s for s in self.steps if s.get("id") == step_id]
+        self.assertEqual(len(matches), 1, f"expected exactly one step with id {step_id!r}")
+        return matches[0]
+
+    def _resolve(self, event, baseline_mode_input):
+        script = self._step("baseline_mode")["run"]
+        values = {"github.event_name": event, "inputs.baseline_mode": baseline_mode_input}
+
+        def substitute(match):
+            expression = match.group(1)
+            if expression not in values:
+                self.fail(f"mode resolution reads an expression this test cannot model: {expression!r}")
+            return values[expression]
+
+        bash = _usable_bash()
+        if bash is None:
+            self.fail("no usable bash found; the mode-resolution script cannot be executed")
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "github_output"
+            output.write_text("", encoding="utf-8")
+            rendered = f"set -eu\nGITHUB_OUTPUT='{output.as_posix()}'\n" + _GHA_EXPRESSION_RE.sub(substitute, script)
+            proc = subprocess.run([bash, "-s"], input=rendered, capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            lines = output.read_text(encoding="utf-8").splitlines()
+        outputs = dict(line.split("=", 1) for line in lines if "=" in line)
+        self.assertIn(outputs.get("mode"), ("compare", "update"), proc.stdout)
+        return outputs["mode"], outputs.get("reason", "")
+
+    def test_only_a_manual_update_dispatch_resolves_update(self):
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        self.assertIn("schedule", triggers, "the nightly trigger this test exists for is gone")
+        dispatch_choices = triggers["workflow_dispatch"]["inputs"]["baseline_mode"]["options"]
+        self.assertEqual(set(dispatch_choices), {"compare", "update"})
+        cases = []
+        for event in triggers:
+            inputs = dispatch_choices if event == "workflow_dispatch" else [""]
+            cases += [(event, value) for value in inputs]
+        for event, value in cases:
+            with self.subTest(event=event, baseline_mode=value):
+                mode, reason = self._resolve(event, value)
+                manual_update = event == "workflow_dispatch" and value == "update"
+                self.assertEqual(mode, "update" if manual_update else "compare",
+                                 f"{event} resolves the GPU harness to {mode} ({reason})")
+
+    def test_the_resolved_mode_is_the_only_route_to_the_harness(self):
+        harness = self._step("harness")
+        self.assertEqual(
+            harness.get("env", {}).get("GS_VISUAL_BASELINE_MODE"), "${{ steps.baseline_mode.outputs.mode }}"
+        )
+        self.assertNotIn("--baseline-mode", harness["run"])
+        self.assertNotIn("continue-on-error", harness, "a compare failure must fail the job")
+        self.assertNotIn("event_name", harness.get("if", ""), "the harness must not be gated on the event")
+        for scope, env in (("workflow", self.workflow.get("env", {})), ("job", self.job.get("env", {}))):
+            self.assertNotIn("GS_VISUAL_BASELINE_MODE", env or {}, f"{scope}-level env overrides the mode")
+        for step in self.steps:
+            if step is harness:
+                continue
+            text = repr(step.get("env", {})) + str(step.get("run", ""))
+            self.assertNotIn("GS_VISUAL_BASELINE_MODE", text, f"step {step.get('name')!r} touches the mode")
+
+    def test_a_scheduled_run_is_not_handed_the_recapture_token(self):
+        checkout = next(s for s in self.steps if "actions/checkout" in s.get("uses", ""))
+        token = checkout["with"]["token"]
+        self.assertNotIn("schedule", token)
+        self.assertIn("inputs.baseline_mode == 'update'", token)
+
+
 if __name__ == "__main__":
     unittest.main()
