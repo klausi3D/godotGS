@@ -37,6 +37,7 @@ def _frame(i: int, variant: str) -> dict:
     frozen = 240 <= i < 360
     stats = {
         "frame_count": 1000 + i,
+        "main_view_frame_count": 2000 + i,
         "world_drawn_splats": 50000,
         "object_drawn_splats": [500] * 32,
         "sort_input_sources": ["world", "objects"],
@@ -72,7 +73,7 @@ def _frame(i: int, variant: str) -> dict:
         probes.append({"probe": k, "cpu_front": front, "pixel": list(obj if front == "object" else world),
                        "object_ref": obj, "world_ref": world})
     return {
-        "frame": i, "t": t, "frozen": frozen, "stats": stats,
+        "frame": i, "engine_frame": 300 + i, "t": t, "frozen": frozen, "stats": stats,
         "frustum_objects": list(range(32)),
         "a4_probes": probes,
         "a5_tracers": {"errors_px": [0.1, 0.2, 0.3], "excluded": {}},
@@ -93,6 +94,7 @@ def passing_record(variant: str = "B") -> dict:
         "gpu_class": "rtx3090", "build_optimized": True,
         "split_screen": None,
         "warmup": {"ready": True, "frames": 40, "msec": 500, "timeout_msec": 240000},
+        "serial_before": {"main_view_frame_count": 1999, "engine_frame": 299},
         "frames": [_frame(i, variant) for i in range(600)],
     }
 
@@ -216,16 +218,97 @@ class FailClosedTests(unittest.TestCase):
 
     def test_stale_serial_fails_and_does_not_count(self):
         record = passing_record()
-        record["frames"][300]["stats"]["frame_count"] = record["frames"][299]["stats"]["frame_count"]
+        record["frames"][300]["stats"]["main_view_frame_count"] = record["frames"][299]["stats"]["main_view_frame_count"]
         states, v = _states(record)
         for aid in ("A1", "A4", "S3", "B1", "T1", "P3"):
             self.assertEqual(states[aid], "live-fail", aid)
-            self.assertIn("stale:frame_count", v["assertions"][aid]["codes"])
+            self.assertIn("stale:frame_serial", v["assertions"][aid]["codes"])
 
-    def test_missing_frame_count_is_stale(self):
+    def test_missing_frame_serial_is_stale(self):
         record = passing_record()
-        del record["frames"][5]["stats"]["frame_count"]
-        self.assertEqual(V.fresh_frames(record["frames"]).count(False), 2)
+        del record["frames"][5]["stats"]["main_view_frame_count"]
+        self.assertEqual(V.fresh_frames(record).count(False), 2)
+
+
+class FrameIdentityTests(unittest.TestCase):
+    """#1519: freshness keys on the main-view serial, never on the renderer pass serial."""
+
+    @staticmethod
+    def _shadow_passes(record, per_frame=5):
+        # What base variant A recorded (GC1 run 45959114758 and the local base run): four
+        # canonical cascade passes plus the main view advance `frame_count` by 5 per frame.
+        for frame in record["frames"]:
+            i = frame["frame"]
+            frame["stats"]["frame_count"] = 1000 + per_frame * i
+            frame["stats"]["sort_dispatch_frame"] = 1000 + per_frame * i - 1
+        return record
+
+    def test_shadow_passes_do_not_make_frames_stale(self):
+        record = self._shadow_passes(passing_record("A"))
+        self.assertEqual(V.fresh_frames(record).count(True), 600)
+        states, v = _states(record)
+        self.assertEqual({a: s for a, s in states.items() if s != "live-pass"}, {"V1": "live-fail"})
+        self.assertEqual(v["freshness"]["fresh_frames"], 600)
+
+    def test_base_variant_a_pattern_judges_nothing_and_fails(self):
+        # The base renderer published no main-view serial: the record holds only the pass serial.
+        record = self._shadow_passes(passing_record("A"))
+        _all_frames(record, lambda f: f["stats"].pop("main_view_frame_count"))
+        states, v = _states(record)
+        self.assertEqual(v["freshness"]["fresh_frames"], 0)
+        self.assertFalse(v["gate_met"])
+        self.assertTrue(all(s == "live-fail" for s in states.values()), states)
+
+    def test_first_frame_needs_its_predecessor(self):
+        record = passing_record()
+        del record["serial_before"]
+        fresh = V.fresh_frames(record)
+        self.assertFalse(fresh[0])
+        self.assertEqual(fresh.count(False), 1)
+        states, _ = _states(record)
+        self.assertEqual(states["A1"], "live-fail")
+
+    def test_engine_frame_must_advance_by_one(self):
+        record = passing_record()
+        for frame in record["frames"][100:]:
+            frame["engine_frame"] += 1
+        self.assertEqual(V.fresh_frames(record).count(False), 1)
+        del record["frames"][7]["engine_frame"]
+        self.assertEqual(V.fresh_frames(record).count(False), 3)
+
+    def test_two_main_views_in_one_frame_are_stale(self):
+        record = passing_record()
+        for frame in record["frames"][50:]:
+            frame["stats"]["main_view_frame_count"] += 1
+        self.assertEqual(V.fresh_frames(record).count(False), 1)
+
+    def test_fresh_minimum_is_every_frame(self):
+        self.assertEqual(V.FRESH_FRAMES_MIN, V.FRAMES_REQUIRED)
+        self.assertEqual(V.FRAME_SERIAL_KEY, "main_view_frame_count")
+
+    def test_too_few_fresh_frames_cannot_pass_even_if_every_other_code_is_blocked(self):
+        record = self._shadow_passes(passing_record("A"))
+        _all_frames(record, lambda f: f["stats"].pop("main_view_frame_count"))
+        _, v = _states(record)
+        blocked = {"A": {}, "B": {}}
+        for aid, row in v["assertions"].items():
+            others = [c for c in row["codes"] if c != "stale:frame_serial"]
+            if others:
+                blocked["A"][aid] = {"issue": "#1", "reason": "x", "expected_failures": others}
+        _, v2 = _states(record, blocked)
+        self.assertFalse(v2["gate_met"])
+        for aid in V.ASSERTION_IDS:
+            if aid != "V1":
+                self.assertEqual(v2["assertions"][aid]["state"], "live-fail", aid)
+
+    def test_expectations_cannot_block_a_stale_serial(self):
+        good = json.loads(EXPECTATIONS_PATH.read_text(encoding="utf-8"))
+        for pattern in ("stale:frame_serial", "stale:*", "stale:frame*"):
+            data = copy.deepcopy(good)
+            data["blocked"]["A"]["A1"] = {"issue": "#1", "reason": "x", "expected_failures": [pattern]}
+            with self.subTest(pattern=pattern):
+                with self.assertRaises(V.RecordError):
+                    V.load_expectations(data)
 
     def test_nan_fails(self):
         record = passing_record()
@@ -646,14 +729,22 @@ class ExpectationsLoaderTests(unittest.TestCase):
 class ControlTests(unittest.TestCase):
     def test_every_control_is_proven_on_a_passing_record(self):
         controls = V.run_controls(passing_record(), CLEAN_LOG)
-        self.assertEqual(set(controls), {"1", "2", "3", "4", "5", "6"})
+        self.assertEqual(set(controls), {"1", "2", "3", "4", "5", "6", "7"})
         for number, result in controls.items():
             with self.subTest(control=number):
                 self.assertEqual(result["state"], "proven", result)
 
     def test_runtime_switch_availability_is_reported(self):
         controls = V.run_controls(passing_record(), CLEAN_LOG)
-        self.assertEqual({n for n, r in controls.items() if not r["runtime_switch"]}, {"1", "2", "3"})
+        self.assertEqual({n for n, r in controls.items() if not r["runtime_switch"]}, {"1", "2", "3", "7"})
+
+    def test_too_few_fresh_frames_control_turns_every_target_red(self):
+        # Control 7 replays base variant A: the serial moves by 5 per frame, one frame is fresh.
+        control = V.run_controls(passing_record("A"), CLEAN_LOG)["7"]
+        self.assertEqual(control["state"], "proven", control)
+        self.assertEqual(set(control["targets"]), set(V.ASSERTION_IDS) - {"V1"})
+        for aid, codes in control["target_codes_after"].items():
+            self.assertIn("stale:frame_serial", codes, aid)
 
     def test_control_on_an_already_failing_target_is_unproven(self):
         record = _all_frames(passing_record(), lambda f: f["pick"].__setitem__("api_available", False))

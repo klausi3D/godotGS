@@ -2227,9 +2227,9 @@ void RenderPipelineStages::clear_stage_metrics() {
 	debug_state_orchestrator->clear_stage_metrics();
 }
 
-void RenderPipelineStages::increment_frame_counter() {
+void RenderPipelineStages::increment_frame_counter(bool p_main_view_completed) {
 	ERR_FAIL_NULL(diagnostics_orchestrator);
-	diagnostics_orchestrator->increment_frame_counter();
+	diagnostics_orchestrator->increment_frame_counter(p_main_view_completed);
 }
 
 void RenderPipelineStages::finalize_frame_metrics(uint64_t p_frame_start_usec) {
@@ -3098,9 +3098,12 @@ void RenderPipelineStages::render_sorted_splats_with_context(const GaussianSplat
 			clear_stage_metrics();
 		}
 	};
+	// Every exit of this pass ends here or at the tail below, exactly once: the one place a pass
+	// is counted. Only a MAIN_VIEW pass advances frame identity (#1519); shadow passes do not.
+	const bool main_view_pass = p_context.pass_kind == GaussianSplatRenderer::RenderPassKind::MAIN_VIEW;
 	auto finalize_frame = [&]() {
 		emit_stage_metrics();
-		increment_frame_counter();
+		increment_frame_counter(main_view_pass);
 		finalize_frame_metrics(frame_start_usec);
 	};
 
@@ -3308,7 +3311,7 @@ void RenderPipelineStages::render_sorted_splats_with_context(const GaussianSplat
 	emit_stage_metrics();
 	log_stage_result("Raster", raster_result);
 	log_stage_result("Composite", composite_result);
-	increment_frame_counter();
+	increment_frame_counter(main_view_pass);
 	finalize_frame_metrics(frame_start_usec);
 }
 

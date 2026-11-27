@@ -31,7 +31,7 @@ const SCREENSHOT_FRAMES := [0, 100, 199, 240, 300, 399, 450, 599]
 # Spec keys (ADR 9.3) first, then the PR1b / renderer counters the verdict also reads.
 # Copied only if present; never defaulted.
 const STATS_KEYS := [
-	"frame_count", "world_drawn_splats", "object_drawn_splats", "sort_input_sources",
+	"frame_count", "main_view_frame_count", "world_drawn_splats", "object_drawn_splats", "sort_input_sources",
 	"splat_composite_passes_frame", "route_skip_reason", "dropped_sources", "lights_dropped",
 	"shadow_casters_rastered", "shadow_no_caster_rastered", "shadow_light_frame", "shadow_light_pass_kinds", "ledger_bytes", "device_allocated_bytes",
 	"ledger_budget_bytes", "silent_truncation_frames",
@@ -889,8 +889,12 @@ func _run() -> void:
 	var warm := {"ready": false, "frames": 0, "msec": 0, "timeout_msec": WARMUP_TIMEOUT_MSEC}
 	var warm_start := Time.get_ticks_msec()
 	var stable := 0
+	# The last warm-up frame's serials: the verdict judges frame 0's freshness against them
+	# (#1519), so the first recorded frame is never fresh by default. Absent key stays absent.
+	var serial_before := {}
 	while stable < 30:
 		await RenderingServer.frame_post_draw
+		serial_before = {}
 		var elapsed := Time.get_ticks_msec() - warm_start
 		warm["msec"] = elapsed
 		if elapsed > WARMUP_TIMEOUT_MSEC:
@@ -900,6 +904,9 @@ func _run() -> void:
 		if r == null:
 			continue
 		var st := r.get_render_stats()
+		serial_before = {"engine_frame": Engine.get_frames_drawn()}
+		if st.has("main_view_frame_count"):
+			serial_before["main_view_frame_count"] = st["main_view_frame_count"]
 		var ready := r.has_rendered_content()
 		if _variant_id == "B":
 			ready = ready and str(st.get("hlod_reason", "")) == "active" and int(st.get("hlod_world_draw_records", 0)) > 0 and int(st.get("hlod_instance_draw_records", 0)) > 0
@@ -998,6 +1005,7 @@ func _run() -> void:
 				"pick_target": Content.PICK_TARGET_INDEX, "interpenetrating": 8},
 		"shader_time_note": "No material in the scene reads TIME and no wind or effector is present; the harness cannot freeze the engine's own shader clock.",
 		"warmup": warm,
+		"serial_before": serial_before,
 		"stats_keys_frame0": stats_keys_frame0,
 		"timing_sources": timing_sources,
 		"screenshots": shots,

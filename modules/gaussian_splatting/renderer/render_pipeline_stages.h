@@ -138,7 +138,7 @@ private:
 	void reset_debug_overlay_metrics(float p_sort_ms);
 	void store_stage_metrics(const GaussianSplatRenderer::StageMetrics &p_metrics);
 	void clear_stage_metrics();
-	void increment_frame_counter();
+	void increment_frame_counter(bool p_main_view_completed = false);
 	void finalize_frame_metrics(uint64_t p_frame_start_usec);
 
 	bool execute_raster_composite_pipeline(const GaussianSplatRenderer::RenderFrameContext &p_context,
