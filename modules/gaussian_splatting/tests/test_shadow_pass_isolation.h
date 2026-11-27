@@ -273,3 +273,80 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Shadow pass leaves the at
 			vformat("the shadow pass wrote %d of %d atlas texels (first %f, clear %f) with no splat in the light's view (route %s)",
 					written, size.x * size.y, first_written, sentinel, result.route_label));
 }
+
+// #1519: a canonical (non-HLOD) shadow pass runs the whole splat pipeline, and every completed
+// pass advances the renderer's pass serial `frame_count`. One directional light with four
+// cascades therefore moved it by five per frame in GS-COMBINED-1 variant A, so the gate's
+// freshness filter, which keyed on it, judged one frame of 600. Frame identity is
+// `main_view_frame_count`: one per completed main view, never per shadow pass.
+// Property: between two main views, any number of shadow passes leaves it at +1.
+TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Canonical shadow passes do not advance the main-view frame serial (#1519)") {
+	if (RenderingServer::get_singleton() == nullptr) {
+		FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case - the harness is required to provide one");
+		return;
+	}
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (rd == nullptr) {
+		FAIL("RenderingDevice unavailable in a [RequiresGPU] case");
+		return;
+	}
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate(rd);
+	if (!renderer.is_valid()) {
+		FAIL("renderer did not instantiate");
+		return;
+	}
+	renderer->initialize();
+	renderer->set_painterly_enabled(false);
+	renderer->set_max_splats(9);
+	if (renderer->set_gaussian_data(TestShadowFailClosed::make_opaque_cluster(Vector3(0.0f, 0.0f, -3.0f))) != OK) {
+		FAIL("set_gaussian_data failed");
+		return;
+	}
+	const Size2i size(64, 64);
+	Projection camera_projection;
+	camera_projection.set_perspective(60.0f, 1.0f, 0.1f, 50.0f);
+	const TestGaussianSplatting::GSPumpOutcome outcome = TestGaussianSplatting::gs_pump_until([&]() {
+		return renderer->render_for_view(Transform3D(), camera_projection, RID(), size);
+	});
+	if (!outcome.ready()) {
+		FAIL(vformat("render_for_view never reported a rendered frame: %s", outcome.describe()));
+		return;
+	}
+	const Dictionary before = renderer->get_render_stats();
+	if (!before.has("main_view_frame_count") || !before.has("frame_count")) {
+		FAIL("get_render_stats() publishes no main_view_frame_count (or no frame_count): no frame-identity signal (#1519)");
+		return;
+	}
+	const int64_t main_before = int64_t(before["main_view_frame_count"]);
+	const int64_t pass_before = int64_t(before["frame_count"]);
+
+	// Four cascades of one directional light; the light looks down -Z at the cluster.
+	Projection light_projection;
+	light_projection.set_orthogonal(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 20.0f);
+	for (int cascade = 0; cascade < 4; cascade++) {
+		renderer->render_shadow_depth_map(light_projection, Transform3D(), Rect2i(Point2i(), size), RID(), true);
+	}
+	const Dictionary mid = renderer->get_render_stats();
+	const int64_t pass_mid = int64_t(mid.get("frame_count", int64_t(-1)));
+	if (pass_mid <= pass_before) {
+		renderer.unref();
+		FAIL(vformat("premise: the canonical shadow passes ran no pipeline pass (frame_count %d -> %d), so this case cannot see #1519",
+				pass_before, pass_mid));
+		return;
+	}
+	CHECK_MESSAGE(int64_t(mid.get("main_view_frame_count", int64_t(-1))) == main_before,
+			vformat("shadow passes advanced main_view_frame_count %d -> %d", main_before,
+					int64_t(mid.get("main_view_frame_count", int64_t(-1)))));
+
+	renderer->render_for_view(Transform3D(), camera_projection, RID(), size);
+	const Dictionary after = renderer->get_render_stats();
+	renderer.unref();
+	const int64_t main_after = int64_t(after.get("main_view_frame_count", int64_t(-1)));
+	const int64_t pass_after = int64_t(after.get("frame_count", int64_t(-1)));
+	CHECK_MESSAGE(main_after == main_before + 1,
+			vformat("one main view after %d shadow passes moved main_view_frame_count %d -> %d (want +1)", 4, main_before, main_after));
+	// The pass serial is not frame identity: it moved once per shadow pass and once for the view.
+	CHECK_MESSAGE(pass_after - pass_before >= 2,
+			vformat("frame_count moved %d -> %d across 4 shadow passes and one main view", pass_before, pass_after));
+}
