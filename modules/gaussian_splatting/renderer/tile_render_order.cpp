@@ -16,6 +16,7 @@
 #include "gpu_pass_timing.h"
 #include "tile_order_contract.h"
 #include "../logger/gs_logger.h"
+#include "../interfaces/sync_policy.h"
 
 #include <cstring>
 
@@ -141,7 +142,7 @@ bool TileRenderer::test_read_tile_order_stats(GaussianSplatting::TileOrderStatsG
 	if (!device || !debug_stats.tile_order_stats_buffer.is_valid()) {
 		return false;
 	}
-	const Vector<uint8_t> bytes = device->buffer_get_data(debug_stats.tile_order_stats_buffer, 0,
+	const Vector<uint8_t> bytes = gs_device_utils::safe_buffer_get_data(device, debug_stats.tile_order_stats_buffer, 0,
 			sizeof(GaussianSplatting::TileOrderStatsGPU));
 	if ((size_t)bytes.size() < sizeof(GaussianSplatting::TileOrderStatsGPU)) {
 		return false;
