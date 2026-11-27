@@ -2078,6 +2078,13 @@ bool GaussianSplatRenderer::_is_hlod_shadow_route_owner() const {
     // The objects-only bundle (P0 absent, ADR one-route section 12.7, PR-1) owns the shadow route of its node instances: they
     // cast through the same caster, with or without LOD, or the pass refuses with its reason. There is no canonical caster.
     if (state.hlod_objects_only) {
+#ifdef TESTS_ENABLED
+        // Forcing control (a): the snapshot gate as it was before PR-1. The canonical shadow pass then runs and rasters
+        // no caster (#1565), so the node-only scene gate must turn red.
+        if (OS::get_singleton() && OS::get_singleton()->get_environment("GODOTGS_TEST_HLOD_SHADOW_OWNER_REQUIRES_SNAPSHOT") == "1") {
+            return false;
+        }
+#endif
         return true;
     }
     const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
@@ -2325,6 +2332,14 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
     // Cube views arrive before Godot converts this light's combined mesh/splat cube into the atlas. Explicit type
     // and projection checks prevent identity cameras or direct paraboloids from masquerading as directional views.
     gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass, bundle_current, rows_refusal);
+#ifdef TESTS_ENABLED
+    // GS-COMBINED-1 forcing control 3 (disable_shadow_caster_pass), as a runtime switch: the caster pass draws nothing and
+    // refuses, so S1 must turn red (tests/runtime/gs_combined_1_verdict.py CONTROLS[3]).
+    if (OS::get_singleton() && OS::get_singleton()->get_environment("GODOTGS_TEST_DISABLE_SHADOW_CASTER_PASS") == "1") {
+        plan = gs_shadow_caster::PassPlan();
+        plan.refusal = gs_shadow_caster::Refusal::PIPELINE_UNAVAILABLE;
+    }
+#endif
     bool listed_view = false;
     uint32_t listed_records = 0, available_records = 0;
     if (plan.draws()) {
