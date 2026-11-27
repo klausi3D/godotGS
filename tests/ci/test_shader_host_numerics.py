@@ -932,7 +932,7 @@ class HlodPositionalRefreshTests(unittest.TestCase):
         for required in ("gaussian_get_casts_shadow(owner_rid)", "!renderer->uses_hlod_shadow_casters()",
                          "record.bundle_builds != state.hlod_bundle_builds", "record.draw_list_upload != state.hlod_draw_list_uploads",
                          "record.row_casts.size() != state.hlod_instance_row_data.instances.size()",
-                         "owner.bounds = storage->gaussian_get_aabb(owner_rid)",
+                         "owner.bounds = storage->gaussian_get_world_aabb(owner_rid)",
                          "gs_wind::wind_active_on_casting_row(wind, rows[row], casts)",
                          "effectors_active_on_casting_row(rows[row], casts, effects.effector_meta,",
                          "pack_deformation_effectors", "owner.bounds.grow_by",
