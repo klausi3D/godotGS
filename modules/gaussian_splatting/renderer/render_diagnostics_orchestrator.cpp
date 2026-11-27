@@ -1651,6 +1651,11 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_failed_total"] = int64_t(t.failed_total);
         stats["hlod_stream_failed_permanent_total"] = int64_t(t.failed_permanent_total);
         stats["hlod_stream_failed_retry_later_total"] = int64_t(t.failed_retry_later_total);
+        // MF-5: nodes that entered permanent failure (once each), and those that exhausted the bounded retry-later.
+        stats["hlod_stream_nodes_failed_permanently_total"] = int64_t(t.nodes_failed_permanently_total);
+        stats["hlod_stream_retry_later_exhausted_total"] = int64_t(t.retry_later_exhausted_total);
+        stats["hlod_stream_last_permanent_failure_node"] = t.last_permanent_failure_node == UINT32_MAX ?
+                Variant() : Variant(int64_t(t.last_permanent_failure_node));
         stats["hlod_stream_skipped_groups_total"] = int64_t(t.skipped_groups_total);
         stats["hlod_stream_stall_frames"] = t.stall_frames;
         stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;

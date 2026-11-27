@@ -697,10 +697,39 @@ HlodNodeStreamer::TestSnapshot HlodNodeStreamer::_test_snapshot() const {
 	return result;
 }
 
-Vector<HlodNodeStreamer::TestPublication> HlodNodeStreamer::_test_publications() const {
-	if (ledger.is_null()) { return Vector<TestPublication>(); }
+Error HlodNodeStreamer::_test_observe_publications(uint32_t p_capacity) {
+	if (ledger.is_null()) { return ERR_UNAVAILABLE; }
+	if (p_capacity == 0) { return ERR_INVALID_PARAMETER; }
 	MutexLock lock(ledger->mutex);
-	return ledger->publications;
+	ledger->observe_publications = true;
+	ledger->publication_capacity = p_capacity;
+	ledger->publications.clear();
+	ledger->publications_dropped = 0;
+	return OK;
+}
+
+Error HlodNodeStreamer::_test_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped) const {
+	r_publications.clear();
+	if (r_dropped) { *r_dropped = 0; }
+	if (ledger.is_null()) { return ERR_UNAVAILABLE; }
+	MutexLock lock(ledger->mutex);
+	if (!ledger->observe_publications) { return ERR_UNAVAILABLE; }
+	r_publications = ledger->publications;
+	if (r_dropped) { *r_dropped = ledger->publications_dropped; }
+	return OK;
+}
+
+Error HlodNodeStreamer::_test_take_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped) {
+	r_publications.clear();
+	if (r_dropped) { *r_dropped = 0; }
+	if (ledger.is_null()) { return ERR_UNAVAILABLE; }
+	MutexLock lock(ledger->mutex);
+	if (!ledger->observe_publications) { return ERR_UNAVAILABLE; }
+	r_publications = ledger->publications;
+	if (r_dropped) { *r_dropped = ledger->publications_dropped; }
+	ledger->publications.clear();
+	ledger->publications_dropped = 0;
+	return OK;
 }
 
 Error HlodNodeStreamer::_test_observe_shadow_transfers() {
@@ -841,6 +870,7 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	test_quantization.clear();
 #endif
 	telemetry = Telemetry();
+	permanent_failure_reported = false;
 	// A reset restarts residency counters and eviction sequence numbers, even
 	// when the same world/device snapshot is reused. Reports need that boundary.
 	static std::atomic<uint64_t> pressure_epoch_serial{ 0 };
@@ -944,7 +974,22 @@ void HlodNodeStreamer::shutdown() {
 	page_store = nullptr;
 }
 
+// MF-6: this runs on the render thread (teardown, rebuild through init(), and the fail-closed path) and it must join.
+// Why it cannot detach the jobs instead:
+// - Each job borrows `job->store`, a raw PayloadPageStore pointer. The renderer shuts that store down and frees it
+//   right after this streamer's shutdown (ResidentInstanceContractPublisher's HLOD release), so a detached job would
+//   use a freed store.
+// - Jobs hold the snapshot Ref. Joining keeps its last reference, and the world resource it owns, from being dropped
+//   on a worker thread.
+// - WorkerThreadPool requires every native task to be waited for exactly once.
+// The bound: cancel_outstanding_jobs() marks every token and cancels every store requester before the join (#1491).
+// Queued reads are dropped. A running read stops at its next read slice (PayloadReadService::read_slice_bytes, 1 MiB).
+// A worker past its read finishes at most its current decode window or pack_node() call. So the wait is at most one
+// file open plus one 1 MiB slice per reader, plus one decode or pack step per worker. A file call that the OS itself
+// blocks (a hung network share) cannot be interrupted from user space; that residue is measured below and reported.
 void HlodNodeStreamer::drain_jobs_and_output() {
+	const uint64_t drain_started_usec = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+	const bool had_tasks = !tasks.is_empty();
 	cancel_outstanding_jobs(); // Teardown only; source replacement still joins without cancelling old output.
 #ifdef TESTS_ENABLED
 	if (ledger.is_valid()) {
@@ -956,6 +1001,18 @@ void HlodNodeStreamer::drain_jobs_and_output() {
 	// Jobs hold only the snapshot and the mailbox, never this object, but waiting here keeps the last
 	// reference to the snapshot (and its world) from being dropped on a worker thread.
 	collect_finished_tasks(true);
+	if (had_tasks && OS::get_singleton()) {
+		const uint64_t waited = OS::get_singleton()->get_ticks_usec() - drain_started_usec;
+		last_drain_usec = waited;
+		max_drain_usec = MAX(max_drain_usec, waited);
+		if (waited >= DRAIN_STALL_WARN_USEC) {
+			++slow_drains_total;
+			WARN_PRINT(vformat("HLOD streaming teardown blocked the render thread for %d ms waiting for in-flight reads "
+							   "or decodes to finish (expected: at most one 1 MiB read slice per reader). Slow or "
+							   "network storage, or a blocked file call, is the usual cause.",
+					int64_t(waited / 1000)));
+		}
+	}
 	residency.cancel_edit();
 	for (uint32_t node = 0; node < residency.node_count(); ++node) {
 		residency.cancel(node); // Also releases bootstrap reservations whose tickets were not issued.
@@ -2131,7 +2188,10 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	}
 	if (ok) { record_upload_completion(r); }
 #ifdef TESTS_ENABLED
-	if (ok) {
+	// F10: opt-in and bounded; a full history counts the drop instead of growing.
+	if (ok && ledger->observe_publications && uint32_t(ledger->publications.size()) >= ledger->publication_capacity) {
+		++ledger->publications_dropped;
+	} else if (ok && ledger->observe_publications) {
 		TestPublication publication;
 		publication.node = r.ticket.node;
 		publication.source_instance_id = r.source_instance_id;
@@ -2392,6 +2452,20 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.failed_total = s.failed_total;
 	telemetry.failed_permanent_total = s.failed_permanent_total;
 	telemetry.failed_retry_later_total = s.failed_retry_later_total;
+	telemetry.nodes_failed_permanently_total = s.nodes_failed_permanently_total;
+	telemetry.retry_later_exhausted_total = s.retry_later_exhausted_total;
+	telemetry.last_permanent_failure_node = s.last_permanent_failure_node;
+	if (s.nodes_failed_permanently_total > 0 && !permanent_failure_reported) {
+		// MF-5: the parent stays drawn, so without this the world just looks coarse forever. One warning per world
+		// load (WARN_PRINT_ONCE would be once per process); the counts stay queryable in get_render_stats().
+		permanent_failure_reported = true;
+		WARN_PRINT(vformat("HLOD streaming: node %d permanently failed to load (%s) and will not be retried until the world "
+						   "is reloaded; its parent stays drawn at coarser detail. See get_render_stats() "
+						   "hlod_stream_permanently_failed_nodes and hlod_stream_nodes_failed_permanently_total.",
+				int64_t(s.last_permanent_failure_node),
+				s.last_permanent_failure_retry_exhausted ? "a transient error such as out-of-memory or busy IO did not clear" :
+														   "read, validation or upload failed repeatedly"));
+	}
 	telemetry.skipped_groups_total = s.skipped_groups_total;
 	telemetry.pressure_measured = s.pressure_measured;
 	telemetry.pages_free = s.pages_free;

@@ -965,8 +965,18 @@ bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 	++n.failures;
 	n.retry_after_frame = current_frame + uint64_t(cfg.retry_delay_frames) * n.failures;
 	++totals.failed_total;
+	if (n.failures == cfg.max_failures || (cfg.max_failures == 0 && n.failures == 1)) {
+		note_permanent_failure(p_ticket.node, false);
+	}
 	retire_run(n); // The GPU may have partly written the run.
 	return true;
+}
+
+void NodeResidency::note_permanent_failure(uint32_t p_node, bool p_retry_exhausted) {
+	++totals.nodes_failed_permanently_total;
+	if (p_retry_exhausted) { ++totals.retry_later_exhausted_total; }
+	totals.last_permanent_failure_node = p_node;
+	totals.last_permanent_failure_retry_exhausted = p_retry_exhausted;
 }
 
 bool NodeResidency::fail_load(const Ticket &p_ticket, FailureClass p_class) {
@@ -986,12 +996,20 @@ bool NodeResidency::fail_load(const Ticket &p_ticket, FailureClass p_class) {
 				uint64_t(cfg.retry_delay_frames) << shift, cfg.retry_later_max_delay_frames));
 		n.retry_after_frame = current_frame > UINT64_MAX - backoff ? UINT64_MAX : current_frame + backoff;
 		++totals.failed_retry_later_total;
+		// MF-5: retry-later is bounded. The attempt stays counted in its own class; only the node's state escalates.
+		if (n.retry_later_failures >= std::max<uint32_t>(1u, cfg.retry_later_max_attempts) && n.failures < cfg.max_failures) {
+			n.failures = cfg.max_failures;
+			note_permanent_failure(p_ticket.node, true);
+		}
 	} else {
 		n.last_failure_class = FAILURE_PERMANENT;
 		n.retry_later_failures = 0;
 		++n.failures;
 		n.retry_after_frame = current_frame + uint64_t(cfg.retry_delay_frames) * n.failures;
 		++totals.failed_permanent_total;
+		if (n.failures == cfg.max_failures || (cfg.max_failures == 0 && n.failures == 1)) {
+			note_permanent_failure(p_ticket.node, false);
+		}
 	}
 	++totals.failed_total;
 	release_run_now(n); // Nothing reached the GPU.

@@ -1,6 +1,7 @@
 extern "C" int test_hlod_upload_sizing_cpp_force_link() { return 0; }
 
 #include "gs_hlod_edit_shadow_test_fixture.h"
+#include "gs_hlod_publication_capture.h"
 #include "../io/gs_payload_page_store.h"
 #include "core/os/thread.h"
 
@@ -111,6 +112,7 @@ struct Harness {
 		sc.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
 		if (store.start(sc) != OK || streamer.init_with_page_store(fixture.source.snapshot, cfg, 21, 41, store) != OK ||
 				!history.reserve(fixture.source.node_count)) { FAIL("D3-4 real streamer/cut initialization failed"); return false; }
+		if (!TestHlodPublicationCapture::observe_publications(streamer)) { return false; }
 		control.cpu_upload_sink = true;
 		control.hold_uploads = true;
 		control.reverse_free_pages = p_reverse;
@@ -489,6 +491,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] unavailable ordinary dev
 	if (!streamer.init(fixture.snapshot, cfg, 21, 41) || streamer._test_observe_shadow_transfers() != OK) {
 		FAIL("D3-4 deviceless streamer or real write observations failed to initialize"); return;
 	}
+	if (!TestHlodPublicationCapture::observe_publications(streamer)) { return; }
 	Streamer::TestSnapshot sample;
 	Streamer::Telemetry telemetry;
 	Vector<Streamer::TestWrite> writes;
@@ -532,7 +535,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] unavailable ordinary dev
 	CHECK(sample.ready_outputs == 0);
 	CHECK(sample.mailbox_outputs == 0);
 	CHECK(writes.is_empty()); // Includes atlas, quantization and metadata writes.
-	CHECK(streamer._test_publications().is_empty());
+	CHECK(TestHlodPublicationCapture::publications(streamer).is_empty());
 	for (const auto &wanted : demand) { CHECK(streamer.get_residency().state(wanted.node) == Residency::FAILED); }
 	// The same demand cannot retry inside this logical frame or release a permit twice.
 	streamer.update(nullptr, Streamer::Buffers(), demand.ptr(), demand.size(), nullptr, 0);
@@ -573,7 +576,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] unavailable ordinary dev
 	CHECK(h.sample.partial_upload_bytes == 0);
 	CHECK(uint32_t(h.writes.size()) == writes_before);
 	for (const auto &write : h.writes) { CHECK(write.kind == Streamer::TestWrite::ATLAS); }
-	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(TestHlodPublicationCapture::publications(h.streamer).is_empty());
 	h.streamer.update(nullptr, Streamer::Buffers(), &h.demand, 1, nullptr, 0);
 	CHECK(h.streamer._test_snapshot().reservations_released == 1);
 }
@@ -655,6 +658,7 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] CPU and pool slots bound
 		sc.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
 		if (store.start(sc) != OK || streamer.init_with_page_store(fixture.snapshot, cfg, 21, 41, store) != OK ||
 				!retained_cap(fixture, cfg, frozen_cap)) { FAIL("D3-4 concurrent streamer/cap oracle init failed"); return; }
+		if (!TestHlodPublicationCapture::observe_publications(streamer)) { return; }
 		CHECK(frozen_cap > cfg.max_inflight_read_bytes); // Non-vacuous: replacing K with effective slots shrinks C.
 		CHECK(streamer.get_retained_byte_cap() == frozen_cap);
 		Streamer::TestControl control;

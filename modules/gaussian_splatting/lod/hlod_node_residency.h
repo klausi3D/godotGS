@@ -75,7 +75,8 @@ public:
 		LOADING, // Run allocated, payload being read/packed. Not drawable.
 		UPLOADING, // Payload ready, GPU upload in progress. Not drawable.
 		RESIDENT, // Validated, completely uploaded, valid GPU lifetime. The only drawable state.
-		FAILED, // Read, validation or upload failed; retried after a delay, permanent after max_failures.
+		FAILED, // Read, validation or upload failed; retried after a delay, permanent after max_failures
+				// (or after retry_later_max_attempts consecutive retry-later failures).
 	};
 
 	struct NodeInfo {
@@ -97,6 +98,10 @@ public:
 		uint32_t cancel_grace_frames = 4;
 		uint32_t retry_delay_frames = 8;
 		uint32_t retry_later_max_delay_frames = 64; // Zero is treated as one frame.
+		// MF-5: consecutive retry-later failures before the node is treated as permanently failed. A deterministic
+		// out-of-memory, or a store that stays busy, must not re-read and re-decode the node forever. With the default
+		// delays this is about 4000 frames (about a minute at 60 fps). Zero is treated as one attempt: never unbounded.
+		uint32_t retry_later_max_attempts = 64;
 		uint32_t max_failures = 3;
 		bool pin_root = true; // The root is the complete coarse fallback; it is never evicted.
 		uint64_t committed_edit_revision = 0; // Package F1: the edit revision of the snapshot this table describes.
@@ -137,6 +142,12 @@ public:
 		uint64_t failed_total = 0;
 		uint64_t failed_permanent_total = 0; // fail_load attempts only, by class.
 		uint64_t failed_retry_later_total = 0;
+		// MF-5: nodes that entered the permanent-failure state (each counted once per entry), and how many of them
+		// got there by exhausting retry_later_max_attempts. The last one is kept for the one-time report.
+		uint64_t nodes_failed_permanently_total = 0;
+		uint64_t retry_later_exhausted_total = 0;
+		uint32_t last_permanent_failure_node = UINT32_MAX;
+		bool last_permanent_failure_retry_exhausted = false;
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
 		bool transitions_measured = false;
 		uint32_t protected_sibling_nodes = 0;
@@ -445,6 +456,8 @@ private:
 	uint32_t eviction_events_next = 0, eviction_events_count = 0;
 	void record_eviction(uint32_t p_node);
 	void record_allocation_refusal(uint32_t p_pages, uint32_t p_exclude_parent);
+	// MF-5: counts a node's entry into the permanent-failure state (failures just reached max_failures).
+	void note_permanent_failure(uint32_t p_node, bool p_retry_exhausted);
 	// Package F1: the staged edit.
 	bool edit_staged = false;
 	uint64_t staged_revision = 0;

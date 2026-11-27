@@ -9,6 +9,7 @@ extern "C" int test_hlod_stream_priority_cpp_force_link() { return 0; }
 // device writes. One worker slot makes the read order observable: completion order equals start order.
 
 #include "gs_hlod_page_store_test_fixture.h"
+#include "gs_hlod_publication_capture.h"
 #include "gs_test_pump.h"
 #include "../io/gs_payload_page_store.h"
 #include "../renderer/hlod_node_streamer.h"
@@ -48,6 +49,7 @@ struct Harness {
 		if (store.start(sc) != OK || streamer.init_with_page_store(fixture.snapshot, cfg, 21, 41, store) != OK) {
 			FAIL("priority harness: real streamer initialization failed"); return false;
 		}
+		if (!TestHlodPublicationCapture::observe_publications(streamer)) { return false; }
 		control.cpu_upload_sink = true;
 		return set_control();
 	}
@@ -67,7 +69,7 @@ struct Harness {
 	}
 	Vector<uint32_t> published() const {
 		Vector<uint32_t> order;
-		for (const Streamer::TestPublication &p : streamer._test_publications()) { order.push_back(p.node); }
+		for (const Streamer::TestPublication &p : TestHlodPublicationCapture::publications(streamer)) { order.push_back(p.node); }
 		return order;
 	}
 	static int position(const Vector<uint32_t> &p_order, uint32_t p_node) {

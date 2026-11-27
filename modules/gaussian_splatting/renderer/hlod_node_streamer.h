@@ -134,6 +134,11 @@ public:
 		uint64_t failed_total = 0;
 		uint64_t failed_permanent_total = 0;
 		uint64_t failed_retry_later_total = 0;
+		// MF-5: nodes that entered permanent failure, and those that got there by exhausting bounded retry-later.
+		// A permanent failure also prints one warning per streamer epoch (one world load).
+		uint64_t nodes_failed_permanently_total = 0;
+		uint64_t retry_later_exhausted_total = 0;
+		uint32_t last_permanent_failure_node = UINT32_MAX; // UINT32_MAX: none.
 		uint64_t skipped_groups_total = 0;
 		uint32_t stall_frames = 0; // Consecutive frames with demand, nothing in flight and nothing placeable.
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
@@ -247,8 +252,16 @@ public:
 			uint64_t p_world_generation, uint64_t p_device_generation, PayloadPageStore &p_store);
 	// Cancels outstanding jobs/store requesters before joining workers and dropping
 	// pending payloads. Active IO drains at its next read-slice boundary. Idempotent.
+	// MF-6: the join stays on the calling (render) thread; the reason and the bound are at drain_jobs_and_output().
 	void shutdown();
 	bool is_active() const { return active; }
+	// MF-6: a drain that waited at least this long prints a warning.
+	static constexpr uint64_t DRAIN_STALL_WARN_USEC = 100 * 1000;
+	// Render-thread wait of the last join of live jobs (0: none yet), the worst one, and how many reached
+	// DRAIN_STALL_WARN_USEC. They survive init() and shutdown() for this object's lifetime.
+	uint64_t get_last_drain_usec() const { return last_drain_usec; }
+	uint64_t get_max_drain_usec() const { return max_drain_usec; }
+	uint64_t get_slow_drains_total() const { return slow_drains_total; }
 	// Render-thread ownership check; the caller owns p_store through worker drain.
 	bool uses_page_store(const PayloadPageStore *p_store) const { return active && p_store != nullptr && page_store == p_store; }
 	// Render-thread derived shared cap; ordinary and shadow reservations include queued output.
@@ -385,7 +398,16 @@ public:
 	Error _test_set_fault(TestFault p_fault);
 	// Cumulative owner/peak counters survive epoch replacement and shutdown.
 	TestSnapshot _test_snapshot() const;
-	Vector<TestPublication> _test_publications() const;
+	// F10: publication capture is opt-in and bounded. Without it, a tests-enabled binary (editor, QA, the game lane)
+	// would keep one entry per successful upload for the streamer's lifetime. Call after init(): init() installs a
+	// fresh ledger, so capture is off again and must be re-enabled. Clears the history and the drop count.
+	static constexpr uint32_t TEST_PUBLICATION_DEFAULT_CAPACITY = 4096;
+	Error _test_observe_publications(uint32_t p_capacity = TEST_PUBLICATION_DEFAULT_CAPACITY);
+	// ERR_UNAVAILABLE while capture is off: an unobserved streamer never reports an (vacuously clean) empty history.
+	// r_dropped: publications not kept because the capacity was full (truncation; the earliest ones are kept).
+	Error _test_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped = nullptr) const;
+	// Same, then empties the history and resets the drop count, so a long run can drain it in bounded pieces.
+	Error _test_take_publications(Vector<TestPublication> &r_publications, uint64_t *r_dropped = nullptr);
 	// Observation capability only, never an opt-in to production transfer behavior.
 	// The trace records CPU-sink or device writes cumulatively, at the
 	// actual write boundary, including commit and eviction metadata/quantization.
@@ -482,7 +504,10 @@ private:
 		uint32_t held_workers = 0;
 		uint64_t mailbox_publications = 0;
 		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
-		Vector<TestPublication> publications;
+		Vector<TestPublication> publications; // F10: only while observe_publications; at most publication_capacity.
+		bool observe_publications = false;
+		uint32_t publication_capacity = 0;
+		uint64_t publications_dropped = 0;
 		bool observe_shadows = false;
 		uint64_t shadow_live = 0;
 		Vector<TestWrite> writes;
@@ -671,6 +696,8 @@ private:
 	void record_upload_completion(const PackResult &p_result);
 
 	bool active = false;
+	bool permanent_failure_reported = false; // MF-5: render-thread owned; reset by init() (one report per world load).
+	uint64_t last_drain_usec = 0, max_drain_usec = 0, slow_drains_total = 0; // MF-6: render-thread owned.
 	Config cfg;
 	uint64_t retained_byte_cap = 0; // Render-thread owned, immutable between source installations.
 	// Derivation inputs share retained_byte_cap's render-thread ownership.

@@ -819,8 +819,9 @@ inconsistency. The #420 importance clamp is retired in the same slice.
     node-relative positions.
   - Importer: v2 sources are fully validated before they can replace a previous import; an
     in-place import (destination is the source) is copied, not baked; **a failed bake falls
-    back to the plain tree-less copy with a warning** (`hlod_skip_reason = "bake_failed"`),
-    so a world that imported before the bump still imports. While baking, the importer holds
+    back to the plain tree-less copy with an error-level diagnostic** (`hlod_skip_reason =
+    "bake_failed"`, and the bake's Error code in `hlod_bake_error`), so a world that imported
+    before the bump still imports, but never silently. While baking, the importer holds
     three full-sized payload copies (source, snapshot, bake working set), plus merged nodes,
     scratch and allocator overhead, then two full-sized copies while saving. This is copy
     accounting, not a peak-RSS bound. The actual Windows editor importer at `50254cdace5`
