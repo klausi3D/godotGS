@@ -1229,5 +1229,99 @@ class AutoTreeWiringTests(unittest.TestCase):
                 self.assertNotIn(absent, output.getvalue())
 
 
+class StringNameOrphanGuardNotRunTests(unittest.TestCase):
+    """#1563: a StringName orphan guard that did not run is never a pass.
+
+    Before the fix a missing binary, an unspecified binary or a missing probe
+    project emitted ``"passed": true`` with a ``fail_reason`` and returned
+    None, so a consumer that reads ``passed`` saw a green guard that never ran.
+    """
+
+    ENV = ("GODOT_BINARY", "GS_STRINGNAME_ORPHAN_PROJECT", "GS_STRINGNAME_ORPHAN_THRESHOLD")
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in self.ENV:
+            os.environ.pop(name, None)
+        self.addCleanup(setattr, harness, "_GUARD_GODOT_BINARY_EXPLICIT", harness._GUARD_GODOT_BINARY_EXPLICIT)
+        harness._GUARD_GODOT_BINARY_EXPLICIT = False
+
+    def run_guard(self, godot, *, explicit=False, which=None):
+        harness._GUARD_GODOT_BINARY_EXPLICIT = explicit
+        with mock.patch.object(harness.shutil, "which", return_value=which),                 mock.patch.object(harness.subprocess, "run") as run,                 contextlib.redirect_stdout(io.StringIO()) as output:
+            code = harness._run_stringname_orphan_guard_step(godot)
+        lines = [line for line in output.getvalue().splitlines() if line.startswith("[GS-LIFETIME] ")]
+        self.assertEqual(len(lines), 1, output.getvalue())
+        return code, json.loads(lines[0][len("[GS-LIFETIME] "):]), run, output.getvalue()
+
+    def assert_not_run(self, payload, fail_reason):
+        self.assertIs(payload["passed"], False, payload)
+        self.assertEqual(payload["status"], "not_run", payload)
+        self.assertEqual(payload["fail_reason"], fail_reason, payload)
+        self.assertEqual(payload["stringname_orphan_delta"], -1, payload)
+
+    def test_unselected_missing_binary_is_an_advisory_not_run(self):
+        # The guard-only lane: default `godot`, not on PATH, nothing selected.
+        code, payload, run, output = self.run_guard("godot")
+        self.assertIsNone(code)
+        self.assert_not_run(payload, "binary_missing")
+        self.assertIn("NOT_RUN", output)
+        run.assert_not_called()
+
+    def test_unspecified_binary_is_an_advisory_not_run(self):
+        code, payload, run, _ = self.run_guard("")
+        self.assertIsNone(code)
+        self.assert_not_run(payload, "binary_unspecified")
+        run.assert_not_called()
+
+    def test_selected_missing_binary_fails_the_lane(self):
+        missing = str(Path(tempfile.gettempdir()) / "gs-1563-no-such-godot.exe")
+        code, payload, run, output = self.run_guard(missing, explicit=True)
+        self.assertEqual(code, 1)
+        self.assert_not_run(payload, "binary_missing")
+        self.assertIn("FAILED", output)
+        run.assert_not_called()
+        # An exported GODOT_BINARY is a selection too.
+        os.environ["GODOT_BINARY"] = missing
+        code, payload, _, _ = self.run_guard(missing)
+        self.assertEqual(code, 1)
+        self.assert_not_run(payload, "binary_missing")
+
+    def test_missing_probe_project_is_not_run_and_required_when_selected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["GS_STRINGNAME_ORPHAN_PROJECT"] = str(Path(directory) / "absent")
+            code, payload, run, _ = self.run_guard(sys.executable, explicit=True)
+            self.assertEqual(code, 1)
+            self.assert_not_run(payload, "project_missing")
+            run.assert_not_called()
+            # Unselected default resolvable on PATH: still not a pass, but advisory.
+            code, payload, run, _ = self.run_guard("godot", which=sys.executable)
+            self.assertIsNone(code)
+            self.assert_not_run(payload, "project_missing")
+            run.assert_not_called()
+
+    def test_a_run_that_passes_still_reports_passed(self):
+        # The legal route: a selected binary that ran clean is a pass.
+        harness._GUARD_GODOT_BINARY_EXPLICIT = True
+        done = harness.subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with mock.patch.object(harness.subprocess, "run", return_value=done) as run,                 contextlib.redirect_stdout(io.StringIO()) as output:
+            code = harness._run_stringname_orphan_guard_step(sys.executable)
+        run.assert_called_once()
+        self.assertIsNone(code)
+        line = next(line for line in output.getvalue().splitlines() if line.startswith("[GS-LIFETIME] "))
+        payload = json.loads(line[len("[GS-LIFETIME] "):])
+        self.assertIs(payload["passed"], True, payload)
+        self.assertEqual(payload["status"], "passed", payload)
+        self.assertEqual(payload["stringname_orphan_delta"], 0, payload)
+
+    def test_emitter_refuses_not_run_with_passed_true(self):
+        with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+            harness._emit_stringname_orphan_lifetime_line(
+                passed=True, delta=-1, threshold=5, fail_reason="x", status=harness.STRINGNAME_ORPHAN_STATUS_NOT_RUN
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

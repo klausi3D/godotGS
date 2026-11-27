@@ -505,6 +505,9 @@ STRINGNAME_ORPHAN_GUARD_DEFAULT_THRESHOLD = 5
 STRINGNAME_ORPHAN_GUARD_THRESHOLD_ENV = "GS_STRINGNAME_ORPHAN_THRESHOLD"
 STRINGNAME_ORPHAN_GUARD_BINARY_ENV = "GODOT_BINARY"
 STRINGNAME_ORPHAN_GUARD_TIMEOUT_SEC = 120
+# #1563: the [GS-LIFETIME] status of a guard that did not run. Never paired
+# with passed=true.
+STRINGNAME_ORPHAN_STATUS_NOT_RUN = "not_run"
 STRINGNAME_ORPHAN_LINE_RE = re.compile(
     r"^Orphan StringName:\s*(?P<name>[^\(]+?)\s*\(.*\)\s*$", re.MULTILINE
 )
@@ -3897,11 +3900,19 @@ def _count_stringname_orphans(output: str) -> tuple[int, list[str]]:
 
 
 def _emit_stringname_orphan_lifetime_line(
-    passed: bool, delta: int, threshold: int, fail_reason: str
+    passed: bool, delta: int, threshold: int, fail_reason: str, status: str | None = None
 ) -> None:
+    # #1563: `status` separates "ran and passed", "ran and failed" and "did
+    # not run". A guard that did not run reports passed=false (never true), so
+    # a consumer that only reads `passed` cannot score it as a pass.
+    if status is None:
+        status = "passed" if passed else "failed"
+    if status == STRINGNAME_ORPHAN_STATUS_NOT_RUN and passed:
+        raise ValueError("a StringName orphan guard that did not run cannot report passed=true")
     payload = {
         "scenario": "stringname_orphans",
         "passed": passed,
+        "status": status,
         "stringname_orphan_delta": delta,
         "threshold_orphans": threshold,
         "fail_reason": fail_reason,
@@ -3920,6 +3931,26 @@ def _resolve_stringname_orphan_project() -> Path:
     return STRINGNAME_ORPHAN_GUARD_DEFAULT_PROJECT
 
 
+def _stringname_orphan_guard_not_run(required: bool, threshold: int, fail_reason: str, why: str) -> int | None:
+    """Report a guard that did not run (#1563): never a pass.
+
+    Required (the caller selected a Godot binary: --godot-binary, or an
+    exported GODOT_BINARY): the lane fails. Advisory (no binary selected, as in
+    the binary-free --guard-only lane): the lane continues and the line says
+    NOT_RUN.
+    """
+    disposition = "FAILED (required: a Godot binary was selected)" if required else "NOT_RUN (advisory: no Godot binary selected)"
+    print(f"[module-tests] StringName orphan guard {disposition}: {why}")
+    _emit_stringname_orphan_lifetime_line(
+        passed=False,
+        delta=-1,
+        threshold=threshold,
+        fail_reason=fail_reason,
+        status=STRINGNAME_ORPHAN_STATUS_NOT_RUN,
+    )
+    return 1 if required else None
+
+
 def _run_stringname_orphan_guard_step(godot: str) -> int | None:
     """Subprocess CI guard for PR 6 of work package #352.
 
@@ -3930,28 +3961,29 @@ def _run_stringname_orphan_guard_step(godot: str) -> int | None:
     JSON line shaped to match the stringname_orphans scenario PR 7's
     manifest gate will consume.
 
-    The guard is informational for now: it passes when the orphan count
-    is at or below threshold. PR 7 tightens this to ``delta vs baseline
-    must be 0``. Missing binary path or missing probe project is
-    non-fatal (the guard short-circuits and emits a passing line with a
-    sentinel delta of -1 so guard-only mode still completes in
-    environments without a built binary or sample project).
+    The guard passes when the orphan count is at or below threshold. PR 7
+    tightens this to ``delta vs baseline must be 0``.
+
+    #1563: a guard that could not run (no binary, missing binary, missing
+    probe project) reports ``status: not_run`` with ``passed: false`` and a
+    sentinel delta of -1, never a pass. When the caller selected a binary
+    (``_selected_producer_binary``) the guard is required and the step fails;
+    without a selection (the binary-free --guard-only lane) it is advisory and
+    the lane continues.
     """
     threshold = _resolve_stringname_orphan_threshold()
     project = _resolve_stringname_orphan_project()
     normalized_binary = _normalize_process_arg(godot)
+    required = bool(normalized_binary) and _selected_producer_binary(
+        normalized_binary, explicit=_GUARD_GODOT_BINARY_EXPLICIT
+    ) is not None
     if not normalized_binary:
-        print(
-            "[module-tests] StringName orphan guard skipped: no Godot binary "
-            f"specified (set --godot-binary or {STRINGNAME_ORPHAN_GUARD_BINARY_ENV})."
+        return _stringname_orphan_guard_not_run(
+            required,
+            threshold,
+            "binary_unspecified",
+            f"no Godot binary specified (set --godot-binary or {STRINGNAME_ORPHAN_GUARD_BINARY_ENV}).",
         )
-        _emit_stringname_orphan_lifetime_line(
-            passed=True,
-            delta=-1,
-            threshold=threshold,
-            fail_reason="binary_unspecified",
-        )
-        return None
 
     binary_path = Path(normalized_binary)
     # Accept either a direct file path or a command-style name that is
@@ -3959,17 +3991,12 @@ def _run_stringname_orphan_guard_step(godot: str) -> int | None:
     # PATHEXT on Windows so `godot` can resolve to `godot.exe`/`.bat`.
     path_resolved_binary = shutil.which(normalized_binary)
     if not binary_path.is_file() and path_resolved_binary is None:
-        print(
-            f"[module-tests] StringName orphan guard skipped: binary not found "
-            f"at '{normalized_binary}' and not resolvable via PATH."
+        return _stringname_orphan_guard_not_run(
+            required,
+            threshold,
+            "binary_missing",
+            f"binary not found at '{normalized_binary}' and not resolvable via PATH.",
         )
-        _emit_stringname_orphan_lifetime_line(
-            passed=True,
-            delta=-1,
-            threshold=threshold,
-            fail_reason="binary_missing",
-        )
-        return None
     # Prefer the literal path when it exists; otherwise use the PATH-resolved
     # location so subprocess.run does not need to re-resolve via PATHEXT.
     invocation_binary = (
@@ -3977,17 +4004,12 @@ def _run_stringname_orphan_guard_step(godot: str) -> int | None:
     )
 
     if not project.is_dir() or not (project / "project.godot").is_file():
-        print(
-            f"[module-tests] StringName orphan guard skipped: probe project "
-            f"not found at '{project}'."
+        return _stringname_orphan_guard_not_run(
+            required,
+            threshold,
+            "project_missing",
+            f"probe project not found at '{project}'.",
         )
-        _emit_stringname_orphan_lifetime_line(
-            passed=True,
-            delta=-1,
-            threshold=threshold,
-            fail_reason="project_missing",
-        )
-        return None
 
     command = [
         invocation_binary,
