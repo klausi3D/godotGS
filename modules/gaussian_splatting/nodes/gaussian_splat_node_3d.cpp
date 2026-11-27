@@ -2519,7 +2519,10 @@ void GaussianSplatNode3D::_ensure_gaussian_base() {
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
 	storage->gaussian_set_renderer(gaussian_base, renderer);
 #endif
-	storage->gaussian_set_aabb(gaussian_base, world_aabb);
+	// Local bounds for the scene cull, which applies the instance transform; world bounds for
+	// the HLOD shadow refresh, which holds only the slot (#1548).
+	storage->gaussian_set_aabb(gaussian_base, local_aabb);
+	storage->gaussian_set_world_aabb(gaussian_base, world_aabb);
 	storage->gaussian_set_casts_shadow(gaussian_base, cast_shadow);
 	_set_instance_base(gaussian_base);
 }
@@ -2569,7 +2572,10 @@ void GaussianSplatNode3D::_sync_gaussian_storage() {
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
 	storage->gaussian_set_renderer(gaussian_base, renderer);
 #endif
-	storage->gaussian_set_aabb(gaussian_base, world_aabb);
+	// Local bounds for the scene cull, which applies the instance transform; world bounds for
+	// the HLOD shadow refresh, which holds only the slot (#1548).
+	storage->gaussian_set_aabb(gaussian_base, local_aabb);
+	storage->gaussian_set_world_aabb(gaussian_base, world_aabb);
 	storage->gaussian_set_casts_shadow(gaussian_base, cast_shadow);
 }
 

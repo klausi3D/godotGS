@@ -2098,7 +2098,11 @@ void RendererSceneCull::_update_instance_aabb(Instance *p_instance) const {
                         new_aabb = RSG::fog->fog_volume_get_aabb(p_instance->base);
                 } break;
                 case RenderingServer::INSTANCE_GAUSSIAN_SPLAT: {
-                        if (RendererRD::GaussianSplatStorage::get_singleton()) {
+                        // Instance-local bounds, like every other base type: _update_instance() applies the
+                        // instance transform (#1548).
+                        if (p_instance->custom_aabb) {
+                                new_aabb = *p_instance->custom_aabb;
+                        } else if (RendererRD::GaussianSplatStorage::get_singleton()) {
                                 new_aabb = RendererRD::GaussianSplatStorage::get_singleton()->gaussian_get_aabb(p_instance->base);
                         }
                 } break;
