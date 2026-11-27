@@ -6,6 +6,7 @@ extern "C" int test_hlod_world_instances_cpp_force_link() { return 0; }
 #include "../core/gs_project_settings.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/hlod_world_instances.h"
+#include "../renderer/hlod_objects_only.h"
 #include "../renderer/gs_wind_bounds.h"
 #include "core/math/random_pcg.h"
 #include "scene/3d/node_3d.h"
@@ -1152,6 +1153,129 @@ TEST_CASE("[GaussianSplatting][HLOD] instance draw records name their row and ch
 		// control shows the precise path is what keeps it.
 		const float naive = float(t.x) - float(camera_abs[0]);
 		if (distance > 50000.0) { CHECK(std::fabs(double(naive) - 1.2345) > 1.0e-5); }
+	}
+}
+
+
+// G1-3 (ADR one-route section 12.7, PR-1): the objects-only HLOD bundle's route matrix (renderer/hlod_objects_only.h). Node
+// instances without a world cut take the HLOD route with an empty row 0, whatever the opt-out says (owner decision OD-2);
+// a submitted world without a snapshot is named, never dropped silently; without node instances nothing changes.
+TEST_CASE("[GaussianSplatting][HLOD] objects-only route matrix: nodes without a world cut take the route, a dropped world is named") {
+	using gs_hlod_objects_only::Inputs;
+	using gs_hlod_objects_only::Plan;
+	struct Row {
+		bool world_route;
+		uint32_t node_rows;
+		bool world_submission;
+		bool snapshot;
+		bool cut_enabled;
+		const char *submission_reason;
+		bool objects_only;
+		const char *world_reason;
+	};
+	const Row matrix[] = {
+		// The world path is open: it decides (with or without nodes, with or without the opt-out it never is open).
+		{ true, 0, true, true, true, "", false, "" },
+		{ true, 8, true, true, true, "", false, "" },
+		// No node instance: nothing changes, whatever the world is.
+		{ false, 0, false, false, true, "", false, "" },
+		{ false, 0, true, false, true, "", false, "" },
+		{ false, 0, true, false, false, "", false, "" },
+		// Node-only scene: objects-only, no world to name. The opt-out does not keep it off the route (OD-2).
+		{ false, 1, false, false, true, "", true, "" },
+		{ false, 32, false, false, false, "", true, "" },
+		// A world without a snapshot beside nodes: objects-only, the world named with its cause.
+		{ false, 1, true, false, true, "", true, "hlod_world_without_snapshot:no_runtime_tree" },
+		{ false, 1, true, false, false, "", true, "hlod_world_without_snapshot:runtime_cut_disabled" },
+		{ false, 4, true, false, true, "hlod_world_transform_unsupported", true, "hlod_world_without_snapshot:hlod_world_transform_unsupported" },
+		{ false, 4, true, false, true, "hlod_auto_route_unavailable:lod_disabled", true,
+				"hlod_world_without_snapshot:hlod_auto_route_unavailable:lod_disabled" },
+		// A snapshot whose submission this renderer does not own (the world path is closed).
+		{ false, 2, true, true, true, "", true, "hlod_world_without_snapshot:world_submission_not_owned" },
+	};
+	for (uint32_t i = 0; i < sizeof(matrix) / sizeof(matrix[0]); ++i) {
+		const Row &row = matrix[i];
+		Inputs in;
+		in.world_route = row.world_route;
+		in.node_rows = row.node_rows;
+		in.world_submission = row.world_submission;
+		in.snapshot = row.snapshot;
+		in.cut_enabled = row.cut_enabled;
+		in.submission_reason = row.submission_reason;
+		const Plan plan = gs_hlod_objects_only::plan(in);
+		CHECK_MESSAGE(plan.objects_only == row.objects_only, "row ", i);
+		CHECK_MESSAGE(plan.world_reason == String(row.world_reason), "row ", i, ": ", plan.world_reason);
+	}
+}
+
+// G1-3: no world floor without a world (P0 absent). The floor protects the world cut; applied to a node-only scene it would
+// silently halve every object's share of the view caps.
+TEST_CASE("[GaussianSplatting][HLOD] objects-only capacities: the world floor applies only when the world cut exists") {
+	const uint64_t cap = 1000;
+	CHECK(object_share_splats(cap) == cap - world_floor_splats(cap));
+	CHECK(object_share_splats(cap, true) == object_share_splats(cap));
+	CHECK(object_share_splats(cap, false) == cap);
+	CHECK(object_share_records(2000.0, 1000.0, 300.0) == doctest::Approx(object_share_records(2000.0, 1000.0, 300.0, true)));
+	CHECK(object_share_records(2000.0, 1000.0, 300.0, false) == doctest::Approx(1000.0));
+	InstanceRegion region;
+	region.row_splats = 900;
+	// With a world of 0 leaves the floor still takes half of the view (the pre-PR-1 arithmetic): 500 of 900.
+	CHECK(relative_capacity(0u, 1000, cap, region) == 500u);
+	// P0 absent: the rows fill the view cap.
+	CHECK(relative_capacity(0u, 1000, cap, region, false) == 900u);
+	region.row_splats = 5000;
+	CHECK(relative_capacity(0u, 1000, cap, region, false) == uint32_t(cap));
+	// A world keeps its PR1b arithmetic exactly.
+	region.row_splats = 900;
+	CHECK(relative_capacity(400u, 1000, cap, region) == relative_capacity(400u, 1000, cap, region, true));
+}
+
+// G1-3: the director's P0-absent rows. Row 0 is an empty identity row (asset 0, key 0, no wind, no effectors) with or
+// without a world submission; without the mode, no world submission still means no rows (the world path is unchanged).
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] objects-only rows: an empty row 0 before the node rows, with or without a world") {
+	DirectorScene scene;
+	GS_NEED(scene.init());
+	Ref<GaussianSplatAsset> asset = blob_asset(7);
+	const uint64_t asset_id = uint64_t(asset->get_instance_id());
+	for (uint32_t i = 0; i < 3; ++i) {
+		Node3D *node = scene.add_node();
+		Transform3D t;
+		t.origin = Vector3(float(i), 0.0f, -4.0f);
+		scene.director->register_instance(node->get_instance_id(), asset, t, 1.0f, 0.0f, 0u, false, 1.0f,
+				GaussianSplatSceneDirector::INSTANCE_WIND_INHERIT, Vector3(), 1.0f, /*visible=*/true);
+	}
+	for (bool with_world : { true, false }) {
+		if (!with_world) { scene.director->release_world_submission(scene.owner->get_instance_id()); }
+		Rows rows;
+		LocalVector<uint64_t> keys;
+		scene.director->test_build_hlod_instance_rows_for_scenario(scene.scenario, rows.instances, rows.grading, rows.asset_ids, keys, true);
+		if (rows.count() != 4 || keys.size() != 4 || rows.asset_ids.size() != 4 || rows.grading.size() != 4) {
+			FAIL("with_world=", with_world, ": expected 4 parallel rows, got ", rows.count(), "/", keys.size(), "/", rows.asset_ids.size());
+			return;
+		}
+		CHECK(rows.asset_ids[0] == WORLD_ASSET_ID);
+		CHECK(keys[0] == 0u);
+		CHECK(rows.instances[0].ids[0] == 0u);
+		CHECK(rows.instances[0].translation_scale[3] == 1.0f);
+		CHECK(rows.instances[0].params[2] == 0.0f); // No wind intensity on the empty row.
+		CHECK(rows.instances[0].effect_params[0] == 0.0f); // No effectors.
+		for (uint32_t r = 1; r < 4; ++r) {
+			CHECK(rows.asset_ids[r] == asset_id);
+			CHECK(keys[r] == uint64_t(scene.nodes[r - 1]->get_instance_id()));
+		}
+		// The region packs the node asset once; the rows are admissible with zero world nodes.
+		LocalVector<uint64_t> assets;
+		LocalVector<uint64_t> splats;
+		assets.push_back(asset_id);
+		splats.push_back(7);
+		const InstanceRegion region = region_for(assets, splats, 4096u, &rows);
+		const char *reason = rows_refusal(rows, 0u, region);
+		CHECK_MESSAGE(reason == nullptr, "with_world=", with_world, " reason=", reason ? reason : "");
+		// Without the mode: rows only with a world submission (unchanged world path).
+		Rows world_rows;
+		LocalVector<uint64_t> world_keys;
+		scene.rows(world_rows, world_keys);
+		CHECK(world_rows.count() == (with_world ? 4u : 0u));
 	}
 }
 

@@ -94,6 +94,18 @@ struct ResourceState {
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
+    // The P0-absent mode (ADR one-route section 12.7, PR-1; renderer/hlod_objects_only.h): the prepared bundle holds the
+    // node instances only, with an empty row 0 and no world cut. hlod_prepared_snapshot is null then. Its bundles are
+    // identified by hlod_objects_only_generation (a serial per build) where a world bundle uses the snapshot's object id.
+    bool hlod_objects_only = false;
+    uint64_t hlod_objects_only_generation = 0;
+    uint64_t hlod_objects_only_serial = 0;
+    // Why a submitted world draws nothing next to the objects of an objects-only bundle (hlod_world_without_snapshot:<cause>),
+    // empty when no world was submitted or the world has its cut. Main views that dropped it are counted.
+    String hlod_world_producer_reason;
+    String hlod_world_producer_warned_reason;
+    uint64_t hlod_world_producer_dropped_frames = 0;
+    bool has_hlod_prepared_bundle() const { return hlod_prepared_snapshot.is_valid() || hlod_objects_only; }
     // Package E1: why the last paged provisioning attempt failed (empty = fine); the warmup reasons report it instead of hiding it.
     String hlod_paged_provision_reason;
     HlodBundle hlod_canonical;
@@ -245,6 +257,16 @@ struct ResourceState {
     Mutex shadow_light_snapshot_mutex;
     gs_shadow_caster::LightFrameStats::Snapshot shadow_light_snapshot;
     gs_shadow_caster::RowSyncSnapshot hlod_shadow_rows_snapshot; // Same mutex as shadow_light_snapshot, including entry count.
+    // The last shadow hook exit of any route (same mutex): its route label, the splats it rastered, the depth size it
+    // wrote and the atlas rect it was asked for. The node-only scene gate of ADR one-route section 12.7 reads it.
+    struct ShadowLastPass {
+        bool valid = false;
+        String route_label;
+        uint64_t rastered_splats = 0;
+        int32_t depth_width = 0, depth_height = 0;
+        int32_t atlas_width = 0, atlas_height = 0;
+        uint64_t renderer_frame = 0;
+    } shadow_last_pass;
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
     Mutex hlod_instance_refusal_mutex;

@@ -166,8 +166,10 @@ inline uint64_t bundle_bytes(uint64_t p_node_count, uint64_t p_records, bool p_r
 inline uint64_t world_floor_splats(uint64_t p_cap) {
 	return (p_cap * WORLD_FLOOR_NUMERATOR + WORLD_FLOOR_DENOMINATOR - 1u) / WORLD_FLOOR_DENOMINATOR;
 }
-inline uint64_t object_share_splats(uint64_t p_cap) {
-	return p_cap - world_floor_splats(p_cap);
+// P0-absent mode (ADR one-route §12.7, PR-1): the floor protects the world cut. Without a world cut there is nothing to
+// protect, so the objects' share is the whole cap; applied anyway, it would silently halve every node-only scene.
+inline uint64_t object_share_splats(uint64_t p_cap, bool p_world_present = true) {
+	return p_world_present ? p_cap - world_floor_splats(p_cap) : p_cap;
 }
 inline double world_floor_records(double p_cap) {
 	return p_cap * double(WORLD_FLOOR_NUMERATOR) / double(WORLD_FLOOR_DENOMINATOR);
@@ -178,7 +180,9 @@ inline double object_share_records(double p_cap) {
 // The objects' share of the overlap records: at most C_view - F (C_view = the configured record cap, or the storage when
 // none is configured), and never more than the allocated storage holds beyond the world's need (capped at its floor),
 // so the world keeps min(world need, storage / 2) and is not degraded at all when the storage holds both.
-inline double object_share_records(double p_view_cap, double p_storage, double p_world_need) {
+// Without a world cut (P0 absent) the objects may use the whole allocated storage.
+inline double object_share_records(double p_view_cap, double p_storage, double p_world_need, bool p_world_present = true) {
+	if (!p_world_present) { return MAX(0.0, p_storage); }
 	const double view = MAX(p_view_cap, p_storage);
 	return MAX(0.0, MIN(object_share_records(view), p_storage - MIN(p_world_need, world_floor_records(p_storage))));
 }
@@ -222,10 +226,12 @@ inline uint64_t world_need_splats(uint32_t p_leaf_count, int p_max_splats) {
 
 // Splat-ref capacity of the relative bundle: the world's need W plus what the rows can be admitted to (at most the
 // object share of C), never above max(C, W). For an empty region it is PR1a's min(leaf_count, S).
-inline uint32_t relative_capacity(uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, const InstanceRegion &p_region) {
-	const uint64_t world = world_need_splats(p_leaf_count, p_max_splats);
+// P0 absent (`p_world_present` false, leaf_count 0): the rows may fill the whole view cap.
+inline uint32_t relative_capacity(uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, const InstanceRegion &p_region,
+		bool p_world_present = true) {
+	const uint64_t world = p_world_present ? world_need_splats(p_leaf_count, p_max_splats) : 0u;
 	const uint64_t view = MAX(MAX(p_view_cap, uint64_t(1)), world);
-	const uint64_t objects = MIN(p_region.row_splats, object_share_splats(view));
+	const uint64_t objects = MIN(p_region.row_splats, object_share_splats(view, p_world_present));
 	return uint32_t(MIN(MIN(world + objects, view), uint64_t(UINT32_MAX)));
 }
 // The canonical (GPU-culled whole-tree) bundle holds every leaf and every row's whole asset. UINT32_MAX when it would

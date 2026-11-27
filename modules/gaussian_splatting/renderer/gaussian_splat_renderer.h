@@ -925,6 +925,12 @@ public:
     // dense asset-ID remap sidecar.
     // C++ runtime seams; deliberately not script-visible APIs.
     int try_publish_hlod_resident_contract(String &r_reason);
+    // The world path of the HLOD route is open: a snapshot, the cut enabled and the world submission owned by this renderer.
+    bool hlod_world_route_available() const;
+    // The P0-absent mode (renderer/hlod_objects_only.h, ADR one-route section 12.7): the objects-only bundle of a renderer
+    // whose node instances have no world cut next to them. 1: published (awaiting view admission); 0: not taken or not
+    // ready, with the reason in hlod_reason. `r_applies` says whether the objects-only plan applies to this frame.
+    int try_publish_hlod_objects_only_contract(String &r_reason, bool &r_applies);
     // Package E1: for a V4 paged world, creates (without drawing) what the HLOD route waits for on every other world
     // until a canonical frame has been composited: tile output targets + overlap storage and the compositor scratch
     // ledger. False with a reason when no render target exists yet.

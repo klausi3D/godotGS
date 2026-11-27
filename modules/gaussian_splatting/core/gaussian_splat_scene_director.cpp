@@ -1982,13 +1982,14 @@ void GaussianSplatSceneDirector::_fill_instance_row(const InstanceRecord &p_reco
 
 void GaussianSplatSceneDirector::build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
-		LocalVector<uint64_t> &r_instance_keys) const {
+		LocalVector<uint64_t> &r_instance_keys, bool p_empty_world_row) const {
 	Ref<ColorGradingResource> renderer_default;
 	if (p_renderer) {
 		renderer_default = const_cast<GaussianSplatRenderer *>(p_renderer)->get_color_grading();
 	}
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	_build_hlod_instance_rows_locked(_find_world_for_renderer(p_renderer), renderer_default, r_rows, r_grading, r_asset_ids, r_instance_keys);
+	_build_hlod_instance_rows_locked(_find_world_for_renderer(p_renderer), renderer_default, r_rows, r_grading, r_asset_ids, r_instance_keys,
+			p_empty_world_row);
 }
 
 bool GaussianSplatSceneDirector::collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer,
@@ -2017,23 +2018,34 @@ void GaussianSplatSceneDirector::set_world_submission_casts_shadow(ObjectID p_ow
 
 void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
 		LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
-		LocalVector<uint64_t> &r_instance_keys) {
+		LocalVector<uint64_t> &r_instance_keys, bool p_empty_world_row) {
 	r_rows.clear();
 	r_grading.clear();
 	r_asset_ids.clear();
 	r_instance_keys.clear();
 	const SharedWorld *world = p_world;
-	if (!world || !world->submission_store.is_active() ||
-			!SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
+	if (!world) {
+		return;
+	}
+	if (!p_empty_world_row && (!world->submission_store.is_active() ||
+			!SubmissionStore::record_has_renderable_payload(world->submission_store.get_record()))) {
 		return;
 	}
 	const Ref<ColorGradingResource> &renderer_default = p_renderer_default;
 	LocalVector<SphereEffectorSelection> scene_payload;
 	_build_sorted_sphere_effector_payload(*world, scene_payload);
 	r_rows.reserve(world->instance_store.instance_count() + 1);
-	// Row 0: the world, exactly the row build_instance_buffer_for_renderer emits for a world without node instances.
+	// Row 0: the world, exactly the row build_instance_buffer_for_renderer emits for a world without node instances. In the
+	// P0-absent mode it is the identity row of an empty submission (no wind, no effectors): nothing draws against it.
 	InstanceDataGPU world_row = {};
-	_fill_world_identity_row(world->submission_store.get_record(), scene_payload, world_row);
+	if (p_empty_world_row) {
+		WorldSubmissionRecord empty_world;
+		empty_world.wind_intensity = 0.0f;
+		empty_world.casts_shadow = false;
+		_fill_world_identity_row(empty_world, LocalVector<SphereEffectorSelection>(), world_row);
+	} else {
+		_fill_world_identity_row(world->submission_store.get_record(), scene_payload, world_row);
+	}
 	r_rows.push_back(world_row);
 	InstanceGradingGPU world_grading = {};
 	fill_instance_grading_entry(renderer_default, world_grading);
@@ -3137,6 +3149,19 @@ bool GaussianSplatSceneDirector::has_world_submission_for_renderer(const Gaussia
 	return SubmissionStore::record_has_renderable_payload(world->submission_store.get_record());
 }
 
+bool GaussianSplatSceneDirector::get_world_submission_hlod_reason_for_renderer(const GaussianSplatRenderer *p_renderer,
+		String &r_hlod_reason) const {
+	r_hlod_reason = String();
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = _find_world_for_renderer(p_renderer);
+	if (!world || !world->submission_store.is_active() ||
+			!SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
+		return false;
+	}
+	r_hlod_reason = world->submission_store.get_record().hlod_reason;
+	return true;
+}
+
 bool GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer(const GaussianSplatRenderer *p_renderer,
 		int32_t *r_hint, String *r_source) const {
 	ERR_FAIL_NULL_V(r_hint, false);
@@ -3395,10 +3420,11 @@ GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::test_
 }
 
 void GaussianSplatSceneDirector::test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
-		LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const {
+		LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys,
+		bool p_empty_world_row) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	_build_hlod_instance_rows_locked(world_registry.find(p_scenario), Ref<ColorGradingResource>(), r_rows, r_grading, r_asset_ids,
-			r_instance_keys);
+			r_instance_keys, p_empty_world_row);
 }
 
 double GaussianSplatSceneDirector::test_deformation_visibility_margin_for_scenario(const RID &p_scenario,

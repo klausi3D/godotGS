@@ -443,7 +443,8 @@ public:
     bool test_request_hlod_auto_route_demotion_for_scenario(const RID &p_scenario, uint64_t p_owner,
             const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
     void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
-            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys,
+            bool p_empty_world_row = false) const;
     double test_deformation_visibility_margin_for_scenario(const RID &p_scenario,
             const gs::settings::GSWindSettings &p_wind) const;
     // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
@@ -473,13 +474,20 @@ public:
     bool collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<uint64_t> &r_keys) const;
     // The world node's cast_shadow changed: update the active submission in place (no resubmission, no bundle rebuild).
     void set_world_submission_casts_shadow(ObjectID p_owner_id, bool p_casts_shadow);
+    // p_empty_world_row (the P0-absent mode, ADR one-route section 12.7, PR-1): row 0 is an empty identity row (asset 0,
+    // no wind, no effectors) whatever the world submission is, and the rows exist without any world submission. The
+    // bundle draws no world record against it; it only keeps WORLD_ROW == 0.
     void build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<InstanceDataGPU> &r_rows,
-            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys,
+            bool p_empty_world_row = false) const;
     // The node's HLOD-route admission state in the last main view its renderer prepared: empty when it was drawn (or
     // not visible in that view), otherwise the refusal reason (hlod_instance_reserve_exceeds_object_share). Internal,
     // not a bound API (a bound query is a public-surface change).
     String get_hlod_instance_refusal_for_node(ObjectID p_node_id) const;
     bool has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const;
+    // has_world_submission_for_renderer(), and the submission's hlod_reason (the automatic route's reason; empty when it
+    // names none). The P0-absent mode names a dropped world with it (renderer/hlod_objects_only.h).
+    bool get_world_submission_hlod_reason_for_renderer(const GaussianSplatRenderer *p_renderer, String &r_hlod_reason) const;
     // Current hint precedence is active world > homogeneous instance submissions.
     // Conflicting instance submission hints return false with source "mixed_instance_submissions".
     bool get_submission_residency_hint_for_renderer(const GaussianSplatRenderer *p_renderer,
@@ -653,7 +661,7 @@ private:
     // world_mutex held by the caller.
     static void _build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
             LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
-            LocalVector<uint64_t> &r_instance_keys);
+            LocalVector<uint64_t> &r_instance_keys, bool p_empty_world_row = false);
     static void _fill_world_identity_row(const WorldSubmissionRecord &p_record,
             const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry);
     static double _deformation_visibility_margin_locked(const SharedWorld *p_world,
