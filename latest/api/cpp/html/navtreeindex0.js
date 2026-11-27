@@ -247,7 +247,7 @@ var NAVTREEINDEX0 =
 "classDebugOverlaySystem.html#aff7ba01767b3bdaf70b3c9ab8e7c33aa":[1,0,68,23],
 "classDeviceVramLedger.html":[1,0,71],
 "classDeviceVramLedger.html#a07df23c8820b08e12e41a32534360773":[1,0,71,9],
-"classDeviceVramLedger.html#a0958a8bd8f4c3ffe0f688c1f955c942e":[1,0,71,14],
+"classDeviceVramLedger.html#a0958a8bd8f4c3ffe0f688c1f955c942e":[1,0,71,15],
 "classDeviceVramLedger.html#a17f1134af3d6b64cdad848b213797251":[1,0,71,10],
-"classDeviceVramLedger.html#a3db833cb0c09d9f8e236ba62c6d1e7fd":[1,0,71,12]
+"classDeviceVramLedger.html#a3db833cb0c09d9f8e236ba62c6d1e7fd":[1,0,71,13]
 };

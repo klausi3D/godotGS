@@ -1,8 +1,9 @@
 var NAVTREEINDEX1 =
 {
 "classDeviceVramLedger.html#a43acb8799e64462db0235f2058fd2e63":[1,0,71,6],
-"classDeviceVramLedger.html#a44ed98d090b0db6220076f7e2a462800":[1,0,71,11],
-"classDeviceVramLedger.html#ab803d2b79a871de94559cb0433d0f629":[1,0,71,13],
+"classDeviceVramLedger.html#a44ed98d090b0db6220076f7e2a462800":[1,0,71,12],
+"classDeviceVramLedger.html#a5a4efbce012ec9c903a2fba73a31a77e":[1,0,71,8],
+"classDeviceVramLedger.html#ab803d2b79a871de94559cb0433d0f629":[1,0,71,14],
 "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69":[1,0,71,4],
 "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a3a5974efbe92686d30f0261a204e6ee7":[1,0,71,4,3],
 "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a5d9e1c5b843821d984195539a9f8763b":[1,0,71,4,2],
@@ -10,9 +11,9 @@ var NAVTREEINDEX1 =
 "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69a85555e185170d6d8e219800781a48477":[1,0,71,4,4],
 "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69aaa806ba724e3de6a87efe5e62578065e":[1,0,71,4,1],
 "classDeviceVramLedger.html#ac6a45c5dc489780183955a5cc15aeb69ab50339a10e1de285ac99d4c3990b8693":[1,0,71,4,0],
-"classDeviceVramLedger.html#ac81b158d1b3119f68f80fb9da120c5a4":[1,0,71,15],
+"classDeviceVramLedger.html#ac81b158d1b3119f68f80fb9da120c5a4":[1,0,71,16],
 "classDeviceVramLedger.html#ad017e732fc79007da46126fbeb06de57":[1,0,71,7],
-"classDeviceVramLedger.html#ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6":[1,0,71,8],
+"classDeviceVramLedger.html#ad0d7291a6b923c44b144570ce10dbe34":[1,0,71,11],
 "classDeviceVramLedger.html#ae959c064081bc19a0fc3afb5e540cfd4":[1,0,71,5],
 "classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6":[1,0,71,3],
 "classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6a07fce97e1013d0cfbf5526d9b323a4e9":[1,0,71,3,4],
@@ -248,6 +249,5 @@ var NAVTREEINDEX1 =
 "classGaussianAtlasAllocator.html#a21d4ffda2e71c768a5718106f286e88d":[1,0,77,5],
 "classGaussianAtlasAllocator.html#a47f3460f08b6668324a468142140c32e":[1,0,77,6],
 "classGaussianAtlasAllocator.html#a4c1bd010f80c684f257e1a26b84fc86a":[1,0,77,11],
-"classGaussianAtlasAllocator.html#a4f2b97d27dab66d776acd206f553fa23":[1,0,77,9],
-"classGaussianAtlasAllocator.html#a6ebdae9c8cec4e46dc969504f971f419":[1,0,77,7]
+"classGaussianAtlasAllocator.html#a4f2b97d27dab66d776acd206f553fa23":[1,0,77,9]
 };

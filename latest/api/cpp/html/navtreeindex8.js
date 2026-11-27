@@ -1,5 +1,6 @@
 var NAVTREEINDEX8 =
 {
+"classGaussianSplatWorld.html#a6f147b2db0492ae56af3966df1784d7f":[1,0,118,1],
 "classGaussianSplatWorld.html#a713349167f77ca11ad95c070c36811d2":[1,0,118,0],
 "classGaussianSplatWorld.html#a769445adfd0033916330faf1c097ccd4":[1,0,118,33],
 "classGaussianSplatWorld.html#a7b04e560ed87faa07003739fa1ecf629":[1,0,118,48],
@@ -248,6 +249,5 @@ var NAVTREEINDEX8 =
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a5e6dd3c6aa7ef0e57333b35d808ba7af":[0,0,12,27,10],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a5e6dd3c6aa7ef0e57333b35d808ba7af":[1,0,9,26,10],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a621edfe9eacfd33a7c1198e910410991":[0,0,12,27,22],
-"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a621edfe9eacfd33a7c1198e910410991":[1,0,9,26,22],
-"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a6908144512b2ad28fbca5ea242a0df24":[0,0,12,27,19]
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a621edfe9eacfd33a7c1198e910410991":[1,0,9,26,22]
 };

@@ -1,5 +1,11 @@
 var NAVTREEINDEX28 =
 {
+"painterly__material_8h.html#a471f7d9ee7dc5d039ee156adf2ef6e3f":[2,0,0,0,10,1,1],
+"painterly__material_8h_source.html":[2,0,0,0,10,1],
+"painterly__material__manager_8cpp.html":[2,0,0,0,5,20],
+"painterly__material__manager_8h.html":[2,0,0,0,5,21],
+"painterly__material__manager_8h_source.html":[2,0,0,0,5,21],
+"painterly__pass__graph_8cpp.html":[2,0,0,0,12,48],
 "painterly__pass__graph_8h.html":[2,0,0,0,12,49],
 "painterly__pass__graph_8h_source.html":[2,0,0,0,12,49],
 "painterly__renderer_8cpp.html":[2,0,0,0,5,22],
@@ -243,11 +249,5 @@ var NAVTREEINDEX28 =
 "sorting__settings__utils_8h.html":[2,0,0,0,12,102],
 "sorting__settings__utils_8h_source.html":[2,0,0,0,12,102],
 "sphere__effector__3d_8cpp.html":[2,0,0,0,9,16],
-"sphere__effector__3d_8h.html":[2,0,0,0,9,17],
-"sphere__effector__3d_8h.html#a6e09bab545858d2f3edc4ff7be5b4e3b":[2,0,0,0,9,17,1],
-"sphere__effector__3d_8h_source.html":[2,0,0,0,9,17],
-"spirv__disk__cache_8cpp.html":[2,0,0,0,12,103],
-"spirv__disk__cache_8h.html":[2,0,0,0,12,104],
-"spirv__disk__cache_8h_source.html":[2,0,0,0,12,104],
-"splat-c-types_8h.html":[2,0,0,0,14,0,3]
+"sphere__effector__3d_8h.html":[2,0,0,0,9,17]
 };

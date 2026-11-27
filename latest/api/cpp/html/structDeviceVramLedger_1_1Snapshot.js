@@ -9,6 +9,7 @@ var structDeviceVramLedger_1_1Snapshot =
     [ "headroom_bytes", "structDeviceVramLedger_1_1Snapshot.html#a39b4249fd9a029f8fc4dfd3b9690d728", null ],
     [ "limit_bytes", "structDeviceVramLedger_1_1Snapshot.html#a383d03a7edf0544f0edf1d2f9fd42bdc", null ],
     [ "live", "structDeviceVramLedger_1_1Snapshot.html#a5505e2759be05b40d7955ad229d46d70", null ],
+    [ "max_buffer_bytes", "structDeviceVramLedger_1_1Snapshot.html#a5ab60043cac51eeb8d2fe4f121c401e0", null ],
     [ "pending", "structDeviceVramLedger_1_1Snapshot.html#a536ad61d9cf668422aaf4b1fa29da1f9", null ],
     [ "pending_bytes", "structDeviceVramLedger_1_1Snapshot.html#a43fe00455e0b24e1c131bf91c4b6a935", null ],
     [ "refused_reservations", "structDeviceVramLedger_1_1Snapshot.html#a7966571e879d01999a74013f2c13c202", null ],

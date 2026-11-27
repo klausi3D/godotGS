@@ -1,5 +1,6 @@
 var structGaussianRenderFacadeState_1_1HlodBundle =
 [
+    [ "binding_range_refused", "structGaussianRenderFacadeState_1_1HlodBundle.html#ae9a4eddb4cb8bcdbf31b5c22167cb962", null ],
     [ "buffers", "structGaussianRenderFacadeState_1_1HlodBundle.html#ab1041c3bd8642cfa8c14410d53e48638", null ],
     [ "bytes", "structGaussianRenderFacadeState_1_1HlodBundle.html#ae6ce7160373edea23fa942482c6fc43e", null ],
     [ "device_id", "structGaussianRenderFacadeState_1_1HlodBundle.html#a7350f141e62efb1933f25bbca7b31d6b", null ],

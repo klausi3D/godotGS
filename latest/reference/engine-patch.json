@@ -41,6 +41,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+      "old_path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "drivers/gles3/rasterizer_gles3.h",
       "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
       "lines_added": 5,
@@ -80,9 +93,22 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "drivers/metal/rendering_device_driver_metal.mm",
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "drivers/metal/rendering_device_driver_metal.mm",
+      "old_path": "drivers/metal/rendering_device_driver_metal.mm",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
-      "last_touch_commit": "eaaa8374d2045837136c6d89430b9178fa8f2c64",
-      "lines_added": 150,
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 152,
       "lines_deleted": 0,
       "new_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
       "old_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
@@ -470,6 +496,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "servers/rendering/rendering_device_commons.h",
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "servers/rendering/rendering_device_commons.h",
+      "old_path": "servers/rendering/rendering_device_commons.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "servers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "servers/rendering/rendering_device_driver.h",
       "last_touch_commit": "eaaa8374d2045837136c6d89430b9178fa8f2c64",
       "lines_added": 32,
@@ -536,9 +575,9 @@
   ],
   "engine_source_summary": {
     "deleted": 0,
-    "modified": 41,
+    "modified": 44,
     "renamed": 0,
-    "total_files": 41
+    "total_files": 44
   },
   "entries": [
     {
@@ -1128,6 +1167,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+      "old_path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "drivers/gles3/rasterizer_gles3.h",
       "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
       "lines_added": 5,
@@ -1167,9 +1219,22 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "drivers/metal/rendering_device_driver_metal.mm",
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "drivers/metal/rendering_device_driver_metal.mm",
+      "old_path": "drivers/metal/rendering_device_driver_metal.mm",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
-      "last_touch_commit": "eaaa8374d2045837136c6d89430b9178fa8f2c64",
-      "lines_added": 150,
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 152,
       "lines_deleted": 0,
       "new_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
       "old_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
@@ -2298,6 +2363,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "servers/rendering/rendering_device_commons.h",
+      "last_touch_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "servers/rendering/rendering_device_commons.h",
+      "old_path": "servers/rendering/rendering_device_commons.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "servers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "servers/rendering/rendering_device_driver.h",
       "last_touch_commit": "eaaa8374d2045837136c6d89430b9178fa8f2c64",
       "lines_added": 32,
@@ -2482,7 +2560,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "8ae515b64e94da230ef5a1241e50379df2a2678f",
+    "head_commit": "36f1435896143872214a6cc830fd0c8c811d25bb",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
@@ -2538,7 +2616,7 @@
       "name": "doc"
     },
     {
-      "count": 5,
+      "count": 7,
       "name": "drivers"
     },
     {
@@ -2578,7 +2656,7 @@
       "name": "platform/windows"
     },
     {
-      "count": 26,
+      "count": 27,
       "name": "servers"
     },
     {
@@ -2596,9 +2674,9 @@
   ],
   "summary": {
     "deleted": 37,
-    "modified": 110,
+    "modified": 113,
     "renamed": 0,
-    "total_files": 147
+    "total_files": 150
   },
   "warnings": []
 }

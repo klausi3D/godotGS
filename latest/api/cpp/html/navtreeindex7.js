@@ -1,5 +1,6 @@
 var NAVTREEINDEX7 =
 {
+"classGaussianSplatRenderer.html#aff72062684f872bd67faf008c391081d":[1,0,113,449],
 "classGaussianSplatRenderer.html#aff9b54979d6c711437ce733ba59ebe82":[1,0,113,441],
 "classGaussianSplatRenderer.html#affcea0a29ee7beafd2cabfdce25f7d68":[1,0,113,370],
 "classGaussianSplatRenderer_1_1FrameStateProvider.html":[1,0,113,7],
@@ -248,6 +249,5 @@ var NAVTREEINDEX7 =
 "classGaussianSplatWorld.html#a63c8ce147e980bd0fa3221b2169ff963":[1,0,118,12],
 "classGaussianSplatWorld.html#a6810948383154cc06e648c37deb59a51":[1,0,118,29],
 "classGaussianSplatWorld.html#a6e9fe19e2518e3d32dd4d3d85bb86d31":[1,0,118,7],
-"classGaussianSplatWorld.html#a6ef04a7a32fa2283f352210345bec52d":[1,0,118,47],
-"classGaussianSplatWorld.html#a6f147b2db0492ae56af3966df1784d7f":[1,0,118,1]
+"classGaussianSplatWorld.html#a6ef04a7a32fa2283f352210345bec52d":[1,0,118,47]
 };

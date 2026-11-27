@@ -1,5 +1,6 @@
 var NAVTREEINDEX15 =
 {
+"classRenderDeviceManager.html#ae2ef7e55a6e3e6454fe4a5299b484c5f":[1,0,227,10],
 "classRenderDeviceOrchestrator.html":[1,0,228],
 "classRenderDeviceOrchestrator.html#a009d108e3c931224f3c3421c6e11e0af":[1,0,228,3],
 "classRenderDeviceOrchestrator.html#a019c692ee1c6e973d10a50c3c8a36cb5":[1,0,228,15],
@@ -248,6 +249,5 @@ var NAVTREEINDEX15 =
 "classResourceFormatLoaderGaussianSplatWorld.html#a9c5c5f124cf6f1bc7e2f0e19d42f2646":[1,0,244,2],
 "classResourceFormatLoaderImportedGaussianSplatWorld.html":[1,0,245],
 "classResourceFormatLoaderImportedGaussianSplatWorld.html#a09c3bcb19bd1e5fdfad6b0aae236ab06":[1,0,245,0],
-"classResourceFormatLoaderImportedGaussianSplatWorld.html#a7216b60a658ccb4cc4ad1eca64fe13e2":[1,0,245,6],
-"classResourceFormatLoaderImportedGaussianSplatWorld.html#a831c2208773800dcedf81fc68ffdbe89":[1,0,245,5]
+"classResourceFormatLoaderImportedGaussianSplatWorld.html#a7216b60a658ccb4cc4ad1eca64fe13e2":[1,0,245,6]
 };

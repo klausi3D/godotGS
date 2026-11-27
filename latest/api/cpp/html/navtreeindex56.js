@@ -1,5 +1,16 @@
 var NAVTREEINDEX56 =
 {
+"structSPZLoader_1_1SPZHeader.html#a78ab135132696b2311eb466fceac4c51":[1,0,276,0,1],
+"structSPZLoader_1_1SPZHeader.html#a8410a887440f1c31ae515f1c34843f8b":[1,0,276,0,4],
+"structSPZLoader_1_1SPZHeader.html#ad63d4979c0fcbce16b5983e9e0950f62":[1,0,276,0,6],
+"structSelectionState.html":[1,0,250],
+"structSelectionState.html#a34f0d9a2573568ea56c406217d0abf9a":[1,0,250,0],
+"structSelectionState.html#a4136320bb8d73cd3b571f05ea101059b":[1,0,250,3],
+"structSelectionState.html#ac4eee0ddc544b09e4c5bee411e9c4717":[1,0,250,4],
+"structSelectionState.html#ae0359dc0bb31deeb4dadac4e2d15a8c6":[1,0,250,1],
+"structSelectionState.html#afd3af6e72ea38e7633e9eea515d7b2e3":[1,0,250,2],
+"structSortBufferHandles.html":[1,0,255],
+"structSortBufferHandles.html#a17c93720fc0e7143fa5f195dc8bb4281":[1,0,255,2],
 "structSortBufferHandles.html#a25ac68ea71e5730fff8cca31465f18da":[1,0,255,0],
 "structSortBufferHandles.html#a4c756813aa2e74fc5db5e6485b42e89f":[1,0,255,1],
 "structSortBufferHandles.html#af45c8e7d62d549994deb9b6873c23810":[1,0,255,3],
@@ -238,16 +249,5 @@ var NAVTREEINDEX56 =
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a17bf1bf9e08f7e40790eb2d2ada341bf":[1,0,286,0,0],
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a3abec082e0acaae4a66e46fdcb84ccab":[1,0,286,0,2],
 "structStreamingQueuePressureController_1_1ScanBudgetInput.html#a40ec51ffa4bdd96bb2563362ed5e34d3":[1,0,286,0,5],
-"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a4296adcc14a0a8692d615de97343334f":[1,0,286,0,6],
-"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a83ae4de0981483b14633740089f0f7b8":[1,0,286,0,4],
-"structStreamingQueuePressureController_1_1ScanBudgetInput.html#af764edea42c38a3d6df05a1c65ceee50":[1,0,286,0,1],
-"structStreamingQueuePressureController_1_1ScanBudgetResult.html":[1,0,286,1],
-"structStreamingQueuePressureController_1_1ScanBudgetResult.html#a9f2a9ebcfe165c5f39aa8da22f241aa4":[1,0,286,1,0],
-"structStreamingQueuePressureController_1_1ScanBudgetResult.html#aadaf2d60812abdbc40999cbfe7f438b6":[1,0,286,1,1],
-"structStreamingQueuePressureController_1_1ScanBudgetResult.html#ab11656c7f63b30ca90f90509dc6458e5":[1,0,286,1,2],
-"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html":[1,0,286,4],
-"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#a1d6b9f80a2c0d9075f91c9845b1dad5e":[1,0,286,4,1],
-"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#a31830c5cc42fa29223d18bb925aae3d6":[1,0,286,4,2],
-"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#aa37a229c6a37c5ac2ce90bd09dc7c627":[1,0,286,4,0],
-"structStreamingStats.html":[1,0,287]
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a4296adcc14a0a8692d615de97343334f":[1,0,286,0,6]
 };

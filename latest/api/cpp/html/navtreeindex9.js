@@ -1,5 +1,6 @@
 var NAVTREEINDEX9 =
 {
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a6908144512b2ad28fbca5ea242a0df24":[0,0,12,27,19],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a6908144512b2ad28fbca5ea242a0df24":[1,0,9,26,19],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a75bd2d2224879d35d071ccc3eb606e0e":[0,0,12,27,7],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a75bd2d2224879d35d071ccc3eb606e0e":[1,0,9,26,7],
@@ -248,6 +249,5 @@ var NAVTREEINDEX9 =
 "classGaussianStreamingSystem.html#a1a241833868171dee44a0e1142a08236":[1,0,123,106],
 "classGaussianStreamingSystem.html#a1b4551ae1651ed8f1b4ac5195c4697db":[1,0,123,83],
 "classGaussianStreamingSystem.html#a217730ba2716c395aa8c6a4279adcf20":[1,0,123,74],
-"classGaussianStreamingSystem.html#a2335c5833179e8c03b316a876c55d1da":[1,0,123,68],
-"classGaussianStreamingSystem.html#a259624ed8743a7fc399f7afb96a7b996":[1,0,123,69]
+"classGaussianStreamingSystem.html#a2335c5833179e8c03b316a876c55d1da":[1,0,123,68]
 };

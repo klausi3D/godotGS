@@ -31,6 +31,12 @@ var classTileRenderer =
     [ "TileTimingState", "classTileRenderer.html#a1ffae647d7440c60219e4802f57163f8", null ],
     [ "TileUniformBuffers", "classTileRenderer.html#ad466f29858c1945d90314f99ed5663b1", null ],
     [ "TimestampRange", "classTileRenderer.html#aece9127de16278f5ffddd9b2041cc2fc", null ],
+    [ "HlodOverlapGrowth", "classTileRenderer.html#a0c4350df501a8c4025db1617b0d23464", [
+      [ "HELD", "classTileRenderer.html#a0c4350df501a8c4025db1617b0d23464ab33343cae11179cc3df2575f7f6ddc33", null ],
+      [ "GREW", "classTileRenderer.html#a0c4350df501a8c4025db1617b0d23464a521d53f59fb7ca063c9e3ba55156c5aa", null ],
+      [ "REFUSED_HEADROOM", "classTileRenderer.html#a0c4350df501a8c4025db1617b0d23464ae27703b85f15646c236839bc632a4267", null ],
+      [ "ALLOCATION_FAILED", "classTileRenderer.html#a0c4350df501a8c4025db1617b0d23464adcda066639ec16527e09a645c4db4bce", null ]
+    ] ],
     [ "TileRenderer", "classTileRenderer.html#a0d0ed628f20dbc30b4e2d929c4a5534d", null ],
     [ "~TileRenderer", "classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c", null ],
     [ "access_adaptive_overlap_budget_runtime_state", "classTileRenderer.html#ac84c2475fa82ee0cc2582a35afd2dd22", null ],
@@ -40,7 +46,7 @@ var classTileRenderer =
     [ "clear_adaptive_overlap_budget_runtime_state", "classTileRenderer.html#ae399447889cb663ffc95b6414cdc6d0e", null ],
     [ "clear_output_invalidation_callback", "classTileRenderer.html#ad33999d11f696316ce16334f4b3e8dd8", null ],
     [ "clear_output_resource_tracking", "classTileRenderer.html#a6069667547eb96b7d75626fe9bac7c9b", null ],
-    [ "ensure_hlod_overlap_capacity", "classTileRenderer.html#a856c1623f0913de03dc9ada379cce0c0", null ],
+    [ "ensure_hlod_overlap_capacity", "classTileRenderer.html#a1469aaa3360306fc7c2b071f09792281", null ],
     [ "estimate_hlod_texture_bytes_for_viewport", "classTileRenderer.html#a98b6e68c73eaae9deab42e2ef6dbf180", null ],
     [ "get_active_device", "classTileRenderer.html#aeea41e4d972d791eb82b5072a769e37f", null ],
     [ "get_adaptive_overlap_budget_runtime_state_ptr", "classTileRenderer.html#a2f4b07dec1eaf8a735f26c9bb110bad8", null ],

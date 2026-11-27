@@ -131,8 +131,9 @@ Public Types</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6" id="r_ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6">configure</a> (uint64_t p_device_heap_bytes, uint64_t p_fixed_cap_bytes, uint64_t p_limit_clamp=0)</td></tr>
+<tr class="memitem:a5a4efbce012ec9c903a2fba73a31a77e" id="r_a5a4efbce012ec9c903a2fba73a31a77e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5a4efbce012ec9c903a2fba73a31a77e">configure</a> (uint64_t p_device_heap_bytes, uint64_t p_fixed_cap_bytes, uint64_t p_limit_clamp=0, uint64_t p_storage_buffer_range=<a class="el" href="#a743543cefef070c42c205f22d7638e76">kMaxAtlasBufferBytes</a>)</td></tr>
 <tr class="memitem:a17f1134af3d6b64cdad848b213797251" id="r_a17f1134af3d6b64cdad848b213797251"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a17f1134af3d6b64cdad848b213797251">limit</a> () const</td></tr>
+<tr class="memitem:ad0d7291a6b923c44b144570ce10dbe34" id="r_ad0d7291a6b923c44b144570ce10dbe34"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad0d7291a6b923c44b144570ce10dbe34">max_buffer_bytes</a> () const</td></tr>
 <tr class="memitem:a43acb8799e64462db0235f2058fd2e63" id="r_a43acb8799e64462db0235f2058fd2e63"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a43acb8799e64462db0235f2058fd2e63">atlas_limit</a> (uint32_t p_override_mb) const</td></tr>
 <tr class="memitem:a44ed98d090b0db6220076f7e2a462800" id="r_a44ed98d090b0db6220076f7e2a462800"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a44ed98d090b0db6220076f7e2a462800">observe_device_bytes</a> (uint64_t p_bytes)</td></tr>
 <tr class="memitem:ae959c064081bc19a0fc3afb5e540cfd4" id="r_ae959c064081bc19a0fc3afb5e540cfd4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae959c064081bc19a0fc3afb5e540cfd4">admit_device_bytes</a> (uint64_t p_bytes)</td></tr>
@@ -145,6 +146,8 @@ Public Member Functions</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
+<tr class="memitem:a8e44d91013b8725249325cecfacfd15d" id="r_a8e44d91013b8725249325cecfacfd15d"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8e44d91013b8725249325cecfacfd15d">binding_limit_for_device</a> (uint64_t p_storage_buffer_range)</td></tr>
+<tr class="memitem:a478b1e6d34794e10b7d353f85e96cf3b" id="r_a478b1e6d34794e10b7d353f85e96cf3b"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a478b1e6d34794e10b7d353f85e96cf3b">binding_fits</a> (uint64_t p_bytes, uint64_t p_binding_limit)</td></tr>
 <tr class="memitem:ab2bf297ee3af906ca36f14aa1bff3be3" id="r_ab2bf297ee3af906ca36f14aa1bff3be3"><td class="memItemLeft" align="right" valign="top">static const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab2bf297ee3af906ca36f14aa1bff3be3">streamed_atlas_bound_name</a> (<a class="el" href="#ac6a45c5dc489780183955a5cc15aeb69">StreamedAtlasBound</a> p_bound)</td></tr>
 <tr class="memitem:a88072990329a0956a14081e7409374bd" id="r_a88072990329a0956a14081e7409374bd"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="structDeviceVramLedger_1_1StreamedAtlasLimit.html">StreamedAtlasLimit</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a88072990329a0956a14081e7409374bd">streamed_atlas_limit_for_device</a> (uint64_t p_device_heap_bytes, uint64_t p_ledger_limit_bytes, uint32_t p_override_mb, uint64_t p_frame_reserve_bytes, uint64_t p_max_buffer_bytes=<a class="el" href="#a743543cefef070c42c205f22d7638e76">kMaxAtlasBufferBytes</a>, uint64_t p_staging_ceiling_bytes=<a class="el" href="#a0b9cba01849d434edcf2cc71ac21fd86">kResidentStagingCeilingBytes</a>, uint64_t p_min_trusted_bytes=<a class="el" href="#a86fa10fbce43146d61fd8f4db1d0a91c">kMinTrustedDeviceBytes</a>)</td></tr>
 <tr class="memitem:a161163895e76e59abc69725ec0b38ec9" id="r_a161163895e76e59abc69725ec0b38ec9"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a161163895e76e59abc69725ec0b38ec9">atlas_limit_for_device</a> (uint64_t p_device_bytes, uint32_t p_override_mb, uint64_t p_staging_ceiling_bytes=<a class="el" href="#a0b9cba01849d434edcf2cc71ac21fd86">kResidentStagingCeilingBytes</a>, double p_share=<a class="el" href="#a87357f8b1ed941116e49a3ac30c2f39e">kGsDeviceShare</a>, uint64_t p_min_trusted_bytes=<a class="el" href="#a86fa10fbce43146d61fd8f4db1d0a91c">kMinTrustedDeviceBytes</a>)</td></tr>
@@ -312,6 +315,60 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a478b1e6d34794e10b7d353f85e96cf3b" name="a478b1e6d34794e10b7d353f85e96cf3b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a478b1e6d34794e10b7d353f85e96cf3b">&#9670;&#160;</a></span>binding_fits()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool DeviceVramLedger::binding_fits </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_binding_limit</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8e44d91013b8725249325cecfacfd15d" name="a8e44d91013b8725249325cecfacfd15d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8e44d91013b8725249325cecfacfd15d">&#9670;&#160;</a></span>binding_limit_for_device()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t DeviceVramLedger::binding_limit_for_device </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_storage_buffer_range</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a64ae9fe0a48c574562eb31aec62ce44a" name="a64ae9fe0a48c574562eb31aec62ce44a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a64ae9fe0a48c574562eb31aec62ce44a">&#9670;&#160;</a></span>category_name()</h2>
 
@@ -362,8 +419,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6" name="ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6">&#9670;&#160;</a></span>configure()</h2>
+<a id="a5a4efbce012ec9c903a2fba73a31a77e" name="a5a4efbce012ec9c903a2fba73a31a77e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5a4efbce012ec9c903a2fba73a31a77e">&#9670;&#160;</a></span>configure()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -384,7 +441,12 @@ Static Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_limit_clamp</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_limit_clamp</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_storage_buffer_range</em></span><span class="paramdefsep"> = </span><span class="paramdefval"><a class="el" href="#a743543cefef070c42c205f22d7638e76">kMaxAtlasBufferBytes</a></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -496,6 +558,31 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t DeviceVramLedger::limit </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad0d7291a6b923c44b144570ce10dbe34" name="ad0d7291a6b923c44b144570ce10dbe34"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad0d7291a6b923c44b144570ce10dbe34">&#9670;&#160;</a></span>max_buffer_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t DeviceVramLedger::max_buffer_bytes </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>

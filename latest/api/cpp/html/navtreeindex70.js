@@ -1,5 +1,16 @@
 var NAVTREEINDEX70 =
 {
+"structspz_1_1SpzExtensionBase.html":[1,0,34,8],
+"structspz_1_1SpzExtensionBase.html#a2029c7bb727af2934dfe3a995cb4e308":[0,0,49,8,8],
+"structspz_1_1SpzExtensionBase.html#a2029c7bb727af2934dfe3a995cb4e308":[1,0,34,8,8],
+"structspz_1_1SpzExtensionBase.html#a532d04467aba43fd638906d93044f54c":[0,0,49,8,0],
+"structspz_1_1SpzExtensionBase.html#a532d04467aba43fd638906d93044f54c":[1,0,34,8,0],
+"structspz_1_1SpzExtensionBase.html#a66fbbd60ff8243d3495f0530f9ac12c7":[0,0,49,8,1],
+"structspz_1_1SpzExtensionBase.html#a66fbbd60ff8243d3495f0530f9ac12c7":[1,0,34,8,1],
+"structspz_1_1SpzExtensionBase.html#a8356a2dbe43644e72043daeb3939f519":[0,0,49,8,6],
+"structspz_1_1SpzExtensionBase.html#a8356a2dbe43644e72043daeb3939f519":[1,0,34,8,6],
+"structspz_1_1SpzExtensionBase.html#aa973d448547651c977a901f4866837c2":[0,0,49,8,7],
+"structspz_1_1SpzExtensionBase.html#aa973d448547651c977a901f4866837c2":[1,0,34,8,7],
 "structspz_1_1SpzExtensionBase.html#aba7b3c9764e8db5deaeb366c706efc9e":[0,0,49,8,4],
 "structspz_1_1SpzExtensionBase.html#aba7b3c9764e8db5deaeb366c706efc9e":[1,0,34,8,4],
 "structspz_1_1SpzExtensionBase.html#abadede1c53f23b9c77978c1bbe17e582":[0,0,49,8,2],

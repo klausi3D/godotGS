@@ -1,5 +1,11 @@
 var NAVTREEINDEX23 =
 {
+"gs__raster__thresholds_8h_source.html":[2,0,0,0,5,10],
+"gs__region__override__buffer_8h.html":[2,0,0,0,12,29],
+"gs__region__override__buffer_8h_source.html":[2,0,0,0,12,29],
+"gs__scene__depth__linearize_8h.html":[2,0,0,0,5,11],
+"gs__scene__depth__linearize_8h.html#a5dfd987b7d9b21be572dc03a51bf5d9c":[2,0,0,0,5,11,1],
+"gs__scene__depth__linearize_8h_source.html":[2,0,0,0,5,11],
 "gs__shadow__caster_8cpp.html":[2,0,0,0,12,30],
 "gs__shadow__caster_8h.html":[2,0,0,0,12,31],
 "gs__shadow__caster_8h_source.html":[2,0,0,0,12,31],
@@ -243,11 +249,5 @@ var NAVTREEINDEX23 =
 "namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a4cc58d806c6b6a9cd0c890f5104c1b45":[0,0,12,98,2],
 "namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a720b556cb0eb235fd8bbc3a3d28bc7aa":[0,0,12,98,3],
 "namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73ab50339a10e1de285ac99d4c3990b8693":[0,0,12,98,0],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73aed5137c562c73ba7dcee203d32c421c6":[0,0,12,98,4],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73af0c1640c1b7a985c2f3863b8c0fc9438":[0,0,12,98,1],
-"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785":[0,0,12,86],
-"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785a5510bcacba1d20ba403e62c74f3f6f90":[0,0,12,86,1],
-"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785a98d676443126a0ffacaf307d669093a2":[0,0,12,86,0],
-"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785af07fb9f447aea26afee9ea6f91fe022c":[0,0,12,86,2],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fe":[0,0,12,83]
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73aed5137c562c73ba7dcee203d32c421c6":[0,0,12,98,4]
 };

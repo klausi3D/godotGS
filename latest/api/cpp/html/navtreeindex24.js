@@ -1,5 +1,11 @@
 var NAVTREEINDEX24 =
 {
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73af0c1640c1b7a985c2f3863b8c0fc9438":[0,0,12,98,1],
+"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785":[0,0,12,86],
+"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785a5510bcacba1d20ba403e62c74f3f6f90":[0,0,12,86,1],
+"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785a98d676443126a0ffacaf307d669093a2":[0,0,12,86,0],
+"namespaceGaussianSplatting.html#a074b3342c048f8fd8d3c876503f28785af07fb9f447aea26afee9ea6f91fe022c":[0,0,12,86,2],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fe":[0,0,12,83],
 "namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea05f06463532933fff1375106025a4357":[0,0,12,83,2],
 "namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea1292719256e4e16cdec3bd0442de3287":[0,0,12,83,1],
 "namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea30de1b99ca5457e514fbca676c577e7c":[0,0,12,83,0],
@@ -243,11 +249,5 @@ var NAVTREEINDEX24 =
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a88292068f7f20c39ee0bb4a0e6ecce9cadf62ca1571e1f62583fd61a11822e3d7":[0,0,12,3,1,5],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#ac9c587d6edef9bce170113a746e79bab":[0,0,12,3,12],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#ada38369ba4eccbd766aeaf6d3bd78972":[0,0,12,3,3],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#ae52adcc46f332a82e88e0a7a09d63e98":[0,0,12,3,15],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#af1024a23e177b9ff928f055dba1dfe6d":[0,0,12,3,8],
-"namespaceGaussianSplatting_1_1ScenePayload.html":[0,0,12,1],
-"namespaceGaussianSplatting_1_1ScenePayload.html#a0d7380c467326c03d948169a319aba77":[0,0,12,1,7],
-"namespaceGaussianSplatting_1_1ScenePayload.html#a5e440e26175706f89d93d454e4644fff":[0,0,12,1,5],
-"namespaceGaussianSplatting_1_1ScenePayload.html#a78c3bf258130c87603609039ab1cfac7":[0,0,12,1,6],
-"namespaceGaussianSplatting_1_1ScenePayload.html#a7a143bdd88a3ce772d60ac16133b0313":[0,0,12,1,0]
+"namespaceGaussianSplatting_1_1InstancePipelineContract.html#ae52adcc46f332a82e88e0a7a09d63e98":[0,0,12,3,15]
 };

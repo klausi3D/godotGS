@@ -112,6 +112,11 @@ Classes</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-types" class="groupheader"><a id="pub-types" name="pub-types"></a>
 Public Types</h2></td></tr>
+<tr class="memitem:a0c4350df501a8c4025db1617b0d23464" id="r_a0c4350df501a8c4025db1617b0d23464"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c4350df501a8c4025db1617b0d23464">HlodOverlapGrowth</a> : uint8_t { <a class="el" href="#a0c4350df501a8c4025db1617b0d23464ab33343cae11179cc3df2575f7f6ddc33">HELD</a>
+, <a class="el" href="#a0c4350df501a8c4025db1617b0d23464a521d53f59fb7ca063c9e3ba55156c5aa">GREW</a>
+, <a class="el" href="#a0c4350df501a8c4025db1617b0d23464ae27703b85f15646c236839bc632a4267">REFUSED_HEADROOM</a>
+, <a class="el" href="#a0c4350df501a8c4025db1617b0d23464adcda066639ec16527e09a645c4db4bce">ALLOCATION_FAILED</a>
+ }</td></tr>
 <tr class="memitem:a3568e572f8ebe78eab798fbdc127e4dc" id="r_a3568e572f8ebe78eab798fbdc127e4dc"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3568e572f8ebe78eab798fbdc127e4dc">AdaptiveSettings</a> = <a class="el" href="structGaussianSplatting_1_1TileAdaptiveSettings.html">GaussianSplatting::TileAdaptiveSettings</a></td></tr>
 <tr class="memitem:a77c74c22b69227e46ce6780318e15354" id="r_a77c74c22b69227e46ce6780318e15354"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a77c74c22b69227e46ce6780318e15354">DebugCounterSnapshot</a> = <a class="el" href="structGaussianSplatting_1_1TileDebugCounterSnapshot.html">GaussianSplatting::TileDebugCounterSnapshot</a></td></tr>
 <tr class="memitem:a87102b3edbed976a1cf8c54e32db035b" id="r_a87102b3edbed976a1cf8c54e32db035b"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a87102b3edbed976a1cf8c54e32db035b">OverflowStatsSnapshot</a> = <a class="el" href="structGaussianSplatting_1_1TileOverflowStatsSnapshot.html">GaussianSplatting::TileOverflowStatsSnapshot</a></td></tr>
@@ -188,7 +193,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4423da28a8be2a9947c0e862d2640209" id="r_a4423da28a8be2a9947c0e862d2640209"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4423da28a8be2a9947c0e862d2640209">get_hlod_overlap_bytes_per_record</a> () const</td></tr>
 <tr class="memitem:a98b6e68c73eaae9deab42e2ef6dbf180" id="r_a98b6e68c73eaae9deab42e2ef6dbf180"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a98b6e68c73eaae9deab42e2ef6dbf180">estimate_hlod_texture_bytes_for_viewport</a> (const Vector2i &amp;p_viewport) const</td></tr>
 <tr class="memitem:a0bfc49ff07d9ba50e2bf839403b3fcb3" id="r_a0bfc49ff07d9ba50e2bf839403b3fcb3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0bfc49ff07d9ba50e2bf839403b3fcb3">grow_hlod_overlap_storage</a> (uint64_t p_headroom)</td></tr>
-<tr class="memitem:a856c1623f0913de03dc9ada379cce0c0" id="r_a856c1623f0913de03dc9ada379cce0c0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a856c1623f0913de03dc9ada379cce0c0">ensure_hlod_overlap_capacity</a> (uint32_t p_records, uint64_t p_headroom)</td></tr>
+<tr class="memitem:a1469aaa3360306fc7c2b071f09792281" id="r_a1469aaa3360306fc7c2b071f09792281"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a0c4350df501a8c4025db1617b0d23464">HlodOverlapGrowth</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1469aaa3360306fc7c2b071f09792281">ensure_hlod_overlap_capacity</a> (uint32_t p_records, uint32_t p_padded_records, uint64_t p_headroom)</td></tr>
 <tr class="memitem:a6136e9f15e454651d1038dc5debcd1cc" id="r_a6136e9f15e454651d1038dc5debcd1cc"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6136e9f15e454651d1038dc5debcd1cc">get_tile_size</a> () const</td></tr>
 <tr class="memitem:a3d7f7a7783808097bc1a091c923be3bf" id="r_a3d7f7a7783808097bc1a091c923be3bf"><td class="memItemLeft" align="right" valign="top">Vector2i&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3d7f7a7783808097bc1a091c923be3bf">get_tile_grid_size</a> () const</td></tr>
 <tr class="memitem:ab95daf1a1d2e83cca28e45d24fe962c0" id="r_ab95daf1a1d2e83cca28e45d24fe962c0"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab95daf1a1d2e83cca28e45d24fe962c0">get_tile_splat_capacity</a> () const</td></tr>
@@ -722,6 +727,35 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
+<a id="a0c4350df501a8c4025db1617b0d23464" name="a0c4350df501a8c4025db1617b0d23464"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0c4350df501a8c4025db1617b0d23464">&#9670;&#160;</a></span>HlodOverlapGrowth</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum class <a class="el" href="#a0c4350df501a8c4025db1617b0d23464">TileRenderer::HlodOverlapGrowth</a> : uint8_t</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel strong">strong</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a0c4350df501a8c4025db1617b0d23464ab33343cae11179cc3df2575f7f6ddc33" name="a0c4350df501a8c4025db1617b0d23464ab33343cae11179cc3df2575f7f6ddc33"></a>HELD&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a0c4350df501a8c4025db1617b0d23464a521d53f59fb7ca063c9e3ba55156c5aa" name="a0c4350df501a8c4025db1617b0d23464a521d53f59fb7ca063c9e3ba55156c5aa"></a>GREW&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a0c4350df501a8c4025db1617b0d23464ae27703b85f15646c236839bc632a4267" name="a0c4350df501a8c4025db1617b0d23464ae27703b85f15646c236839bc632a4267"></a>REFUSED_HEADROOM&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a0c4350df501a8c4025db1617b0d23464adcda066639ec16527e09a645c4db4bce" name="a0c4350df501a8c4025db1617b0d23464adcda066639ec16527e09a645c4db4bce"></a>ALLOCATION_FAILED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a name="doc-constructors" id="doc-constructors"></a><h2 id="header-doc-constructors" class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="a0d0ed628f20dbc30b4e2d929c4a5534d" name="a0d0ed628f20dbc30b4e2d929c4a5534d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a0d0ed628f20dbc30b4e2d929c4a5534d">&#9670;&#160;</a></span>TileRenderer()</h2>
@@ -910,16 +944,21 @@ Friends</h2></td></tr>
 
 </div>
 </div>
-<a id="a856c1623f0913de03dc9ada379cce0c0" name="a856c1623f0913de03dc9ada379cce0c0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a856c1623f0913de03dc9ada379cce0c0">&#9670;&#160;</a></span>ensure_hlod_overlap_capacity()</h2>
+<a id="a1469aaa3360306fc7c2b071f09792281" name="a1469aaa3360306fc7c2b071f09792281"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1469aaa3360306fc7c2b071f09792281">&#9670;&#160;</a></span>ensure_hlod_overlap_capacity()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool TileRenderer::ensure_hlod_overlap_capacity </td>
+          <td class="memname"><a class="el" href="#a0c4350df501a8c4025db1617b0d23464">TileRenderer::HlodOverlapGrowth</a> TileRenderer::ensure_hlod_overlap_capacity </td>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_padded_records</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>

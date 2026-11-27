@@ -1,5 +1,16 @@
 var NAVTREEINDEX44 =
 {
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a5b9da87e5dc1490e456d11c388541983":[0,0,12,63,15],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a5b9da87e5dc1490e456d11c388541983":[1,0,9,62,15],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a64509bf1b87d4ce05f97910d184cf36f":[0,0,12,63,30],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a64509bf1b87d4ce05f97910d184cf36f":[1,0,9,62,30],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a65cb242ea30cec0b43d8a9dd684fdbc8":[0,0,12,63,4],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a65cb242ea30cec0b43d8a9dd684fdbc8":[1,0,9,62,4],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7269be9728d48a6bddfa8220977d1807":[0,0,12,63,11],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7269be9728d48a6bddfa8220977d1807":[1,0,9,62,11],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a795fdf594513f1e9f5c201dc597f125f":[0,0,12,63,16],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a795fdf594513f1e9f5c201dc597f125f":[1,0,9,62,16],
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7b0cf890363b6e28ba4205c0bf8c00d3":[0,0,12,63,6],
 "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7b0cf890363b6e28ba4205c0bf8c00d3":[1,0,9,62,6],
 "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7bd9d6d2f62db27081f3d5b057c408cb":[0,0,12,63,17],
 "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7bd9d6d2f62db27081f3d5b057c408cb":[1,0,9,62,17],
@@ -238,16 +249,5 @@ var NAVTREEINDEX44 =
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a9392761e846fc8d67139b89e37c4bc0d":[0,0,12,55,46],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a9392761e846fc8d67139b89e37c4bc0d":[1,0,9,54,46],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a956c45e5183e38da3579f863358cbbe0":[0,0,12,55,17],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a956c45e5183e38da3579f863358cbbe0":[1,0,9,54,17],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9802e93eec2ebe1699d23501995f1325":[0,0,12,55,3],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9802e93eec2ebe1699d23501995f1325":[1,0,9,54,3],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9d31f28b63cf47d13b3a5c21a10e5900":[0,0,12,55,26],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9d31f28b63cf47d13b3a5c21a10e5900":[1,0,9,54,26],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685":[0,0,12,55,45],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685":[1,0,9,54,45],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#aacb59ed1a673c74dc9cf8737a08c7762":[0,0,12,55,20],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#aacb59ed1a673c74dc9cf8737a08c7762":[1,0,9,54,20],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#ab2ad9bdfeff96d5af06cf1cc23cce6b3":[0,0,12,55,44],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#ab2ad9bdfeff96d5af06cf1cc23cce6b3":[1,0,9,54,44],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#abc00fcec4c99f76c6662f4cf2ee16fc0":[0,0,12,55,47]
+"structGaussianSplatting_1_1TileGlobalSortResources.html#a956c45e5183e38da3579f863358cbbe0":[1,0,9,54,17]
 };

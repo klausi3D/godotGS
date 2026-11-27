@@ -63,6 +63,7 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_object_tail_overflow_rebuilds", "structGaussianRenderFacadeState_1_1ResourceState.html#a5871db24edb333d7cd8cf32c0bd04b18", null ],
     [ "hlod_origin_revision", "structGaussianRenderFacadeState_1_1ResourceState.html#aaa247ef57a164b16d9684a644b7efa87", null ],
     [ "hlod_overlap_capacity_records", "structGaussianRenderFacadeState_1_1ResourceState.html#a6c3fc9af0764882143d434b399c7cca0", null ],
+    [ "hlod_overlap_growth_failures", "structGaussianRenderFacadeState_1_1ResourceState.html#a4db75238e8b8e0d0534f2632ec2041a1", null ],
     [ "hlod_overlap_world_need", "structGaussianRenderFacadeState_1_1ResourceState.html#a2258e7ded8fa045d9ddae9012bfb2815", null ],
     [ "hlod_owner_key", "structGaussianRenderFacadeState_1_1ResourceState.html#ace00d482e79127dd505dedcdebe5ac2b", null ],
     [ "hlod_page_store", "structGaussianRenderFacadeState_1_1ResourceState.html#af6f0500f1526c558637a0e0af823571b", null ],

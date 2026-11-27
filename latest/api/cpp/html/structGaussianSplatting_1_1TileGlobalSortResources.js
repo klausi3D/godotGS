@@ -3,7 +3,7 @@ var structGaussianSplatting_1_1TileGlobalSortResources =
     [ "TileGlobalSortResources", "structGaussianSplatting_1_1TileGlobalSortResources.html#a44b5ebe3e04cabfba77c77b937fca17f", null ],
     [ "advance_tile_counts_buffer", "structGaussianSplatting_1_1TileGlobalSortResources.html#abdac7f3c1bdbd528c8cb6c9cbbde4383", null ],
     [ "allocated_sort_bytes", "structGaussianSplatting_1_1TileGlobalSortResources.html#aef57e38f2593fa3935e426d99824770c", null ],
-    [ "ensure_resources", "structGaussianSplatting_1_1TileGlobalSortResources.html#a9802e93eec2ebe1699d23501995f1325", null ],
+    [ "ensure_resources", "structGaussianSplatting_1_1TileGlobalSortResources.html#ad91f7979d01b170474f5856097a4c02c", null ],
     [ "ensure_tile_counts_ready", "structGaussianSplatting_1_1TileGlobalSortResources.html#a127868afa4730ae7137d749200b15225", null ],
     [ "get_previous_tile_counts_buffer", "structGaussianSplatting_1_1TileGlobalSortResources.html#a18ed8836e753befef28a044fcef692d4", null ],
     [ "get_tile_counts_buffer", "structGaussianSplatting_1_1TileGlobalSortResources.html#a8a97d49048624d19b3860d3bc1a4bf3d", null ],

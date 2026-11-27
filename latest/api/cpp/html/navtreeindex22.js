@@ -1,5 +1,11 @@
 var NAVTREEINDEX22 =
 {
+"gaussian__splat__performance__overlay_8h.html#a429b5762ea71e5e70d2d0ce519728052":[2,0,0,0,9,13,5],
+"gaussian__splat__performance__overlay_8h.html#ac6713ced6462aae60aeb9b5ee018c92f":[2,0,0,0,9,13,4],
+"gaussian__splat__performance__overlay_8h_source.html":[2,0,0,0,9,13],
+"gaussian__splat__quality__config_8h.html":[2,0,0,0,3,46],
+"gaussian__splat__quality__config_8h_source.html":[2,0,0,0,3,46],
+"gaussian__splat__region__override_8cpp.html":[2,0,0,0,13,2],
 "gaussian__splat__region__override_8cpp.html#a4fb12cd9e2ce92117cca05dc3a858eca":[2,0,0,0,13,2,0],
 "gaussian__splat__region__override_8h.html":[2,0,0,0,13,3],
 "gaussian__splat__region__override_8h_source.html":[2,0,0,0,13,3],
@@ -243,11 +249,5 @@ var NAVTREEINDEX22 =
 "gs__project__settings_8h.html":[2,0,0,0,3,59],
 "gs__project__settings_8h.html#aa24702d6e3a1d0e99ca1980dfdbdbc16":[2,0,0,0,3,59,3],
 "gs__project__settings_8h_source.html":[2,0,0,0,3,59],
-"gs__raster__thresholds_8h.html":[2,0,0,0,5,10],
-"gs__raster__thresholds_8h_source.html":[2,0,0,0,5,10],
-"gs__region__override__buffer_8h.html":[2,0,0,0,12,29],
-"gs__region__override__buffer_8h_source.html":[2,0,0,0,12,29],
-"gs__scene__depth__linearize_8h.html":[2,0,0,0,5,11],
-"gs__scene__depth__linearize_8h.html#a5dfd987b7d9b21be572dc03a51bf5d9c":[2,0,0,0,5,11,1],
-"gs__scene__depth__linearize_8h_source.html":[2,0,0,0,5,11]
+"gs__raster__thresholds_8h.html":[2,0,0,0,5,10]
 };

@@ -104,7 +104,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a44b5ebe3e04cabfba77c77b937fca17f" id="r_a44b5ebe3e04cabfba77c77b937fca17f"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a44b5ebe3e04cabfba77c77b937fca17f">TileGlobalSortResources</a> (<a class="el" href="classTileRenderer.html">TileRenderer</a> &amp;p_owner)</td></tr>
 <tr class="memitem:afb87a32d4b42b9a2fa5b4449f00e4397" id="r_afb87a32d4b42b9a2fa5b4449f00e4397"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afb87a32d4b42b9a2fa5b4449f00e4397">release</a> (RenderingDevice *p_default_device)</td></tr>
 <tr class="memitem:a04a9f28bb8b666d5d60ffce723a77570" id="r_a04a9f28bb8b666d5d60ffce723a77570"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04a9f28bb8b666d5d60ffce723a77570">reset_state</a> (bool p_clear_sorter)</td></tr>
-<tr class="memitem:a9802e93eec2ebe1699d23501995f1325" id="r_a9802e93eec2ebe1699d23501995f1325"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9802e93eec2ebe1699d23501995f1325">ensure_resources</a> (uint32_t p_visible_count, bool p_growth_headroom=false)</td></tr>
+<tr class="memitem:ad91f7979d01b170474f5856097a4c02c" id="r_ad91f7979d01b170474f5856097a4c02c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad91f7979d01b170474f5856097a4c02c">ensure_resources</a> (uint32_t p_visible_count, bool p_growth_headroom=false, uint32_t p_padded_elements=0)</td></tr>
 <tr class="memitem:a028b9ecde5ff4e304ff2f7fc2fa52db9" id="r_a028b9ecde5ff4e304ff2f7fc2fa52db9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a028b9ecde5ff4e304ff2f7fc2fa52db9">note_sorted_frame_published</a> ()</td></tr>
 <tr class="memitem:aef57e38f2593fa3935e426d99824770c" id="r_aef57e38f2593fa3935e426d99824770c"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aef57e38f2593fa3935e426d99824770c">allocated_sort_bytes</a> () const</td></tr>
 <tr class="memitem:a8a97d49048624d19b3860d3bc1a4bf3d" id="r_a8a97d49048624d19b3860d3bc1a4bf3d"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8a97d49048624d19b3860d3bc1a4bf3d">get_tile_counts_buffer</a> () const</td></tr>
@@ -214,8 +214,8 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a9802e93eec2ebe1699d23501995f1325" name="a9802e93eec2ebe1699d23501995f1325"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9802e93eec2ebe1699d23501995f1325">&#9670;&#160;</a></span>ensure_resources()</h2>
+<a id="ad91f7979d01b170474f5856097a4c02c" name="ad91f7979d01b170474f5856097a4c02c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad91f7979d01b170474f5856097a4c02c">&#9670;&#160;</a></span>ensure_resources()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -228,7 +228,12 @@ Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_growth_headroom</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_growth_headroom</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_padded_elements</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

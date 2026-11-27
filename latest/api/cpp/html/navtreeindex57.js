@@ -1,5 +1,16 @@
 var NAVTREEINDEX57 =
 {
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a83ae4de0981483b14633740089f0f7b8":[1,0,286,0,4],
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#af764edea42c38a3d6df05a1c65ceee50":[1,0,286,0,1],
+"structStreamingQueuePressureController_1_1ScanBudgetResult.html":[1,0,286,1],
+"structStreamingQueuePressureController_1_1ScanBudgetResult.html#a9f2a9ebcfe165c5f39aa8da22f241aa4":[1,0,286,1,0],
+"structStreamingQueuePressureController_1_1ScanBudgetResult.html#aadaf2d60812abdbc40999cbfe7f438b6":[1,0,286,1,1],
+"structStreamingQueuePressureController_1_1ScanBudgetResult.html#ab11656c7f63b30ca90f90509dc6458e5":[1,0,286,1,2],
+"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html":[1,0,286,4],
+"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#a1d6b9f80a2c0d9075f91c9845b1dad5e":[1,0,286,4,1],
+"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#a31830c5cc42fa29223d18bb925aae3d6":[1,0,286,4,2],
+"structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html#aa37a229c6a37c5ac2ce90bd09dc7c627":[1,0,286,4,0],
+"structStreamingStats.html":[1,0,287],
 "structStreamingStats.html#a1d6a4e8b4726dd6667491d1c9e35d8a7":[1,0,287,7],
 "structStreamingStats.html#a21e7cca2e499adff695eb63bcb7c5f41":[1,0,287,0],
 "structStreamingStats.html#a5797025ec6613c6169f0bdb90ec06f25":[1,0,287,11],
@@ -238,16 +249,5 @@ var NAVTREEINDEX57 =
 "structTileBinningStage_1_1BinningUniformSets.html#a539c411c0970cae0e144442026a74610":[1,0,293,0,1],
 "structTileBinningStage_1_1BinningUniformSets.html#aa5de5bb6de5471ce5182d709a18675a6":[1,0,293,0,0],
 "structTileBinningStage_1_1BinningUniformSets.html#ae11ea550780050d374bc5e8cedabab12":[1,0,293,0,2],
-"structTilePrefixScanStage.html":[1,0,294],
-"structTilePrefixScanStage.html#a0044b6e95784d276aebd4c7268d38da8":[1,0,294,9],
-"structTilePrefixScanStage.html#a099f2bc0c87cd5fe893b97cc7667fdf6":[1,0,294,21],
-"structTilePrefixScanStage.html#a16368f4bceaa808723868cbbef335420":[1,0,294,3],
-"structTilePrefixScanStage.html#a182b335a4868907957ca5023bc7b59de":[1,0,294,11],
-"structTilePrefixScanStage.html#a45387d64235e01e4fd19a84206f3479e":[1,0,294,1],
-"structTilePrefixScanStage.html#a4a3b295bfe844e68f392599cd26db133":[1,0,294,16],
-"structTilePrefixScanStage.html#a4dd4907ade7f3c722fc9147f9e71bfbc":[1,0,294,14],
-"structTilePrefixScanStage.html#a5043990372d0df4f02169ba64c0b8bba":[1,0,294,4],
-"structTilePrefixScanStage.html#a50e6ae7cd36dc620a8cee41fed361ad1":[1,0,294,19],
-"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abad":[1,0,294,2],
-"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abada780f594de1b3352f61ad7b4aa535a32e":[1,0,294,2,0]
+"structTilePrefixScanStage.html":[1,0,294]
 };
