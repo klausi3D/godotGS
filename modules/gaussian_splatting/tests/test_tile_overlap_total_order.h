@@ -397,12 +397,24 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Overlap sort total order:
 	const TestGaussianSplatting::GSPumpOutcome again = TestGaussianSplatting::gs_pump_until([&]() {
 		return renderer->render_for_view(view, projection, RID(), resized) && tile->test_tile_order_stats_buffer_valid();
 	}, 20000000, 1);
-	CHECK_MESSAGE(again.ready(), "the counters buffer was never allocated again: ", again.describe());
-	if (again.ready() && tile->test_read_tile_order_stats(before)) {
-		const bool rendered = renderer->render_for_view(view, projection, RID(), resized);
-		const bool read = tile->test_read_tile_order_stats(after);
-		CHECK(rendered);
-		CHECK_MESSAGE((read && after.passes > before.passes), "the total-order pass did not run after the retry");
-	}
 	GSTileOrderTestControl::reset();
+	if (!again.ready()) {
+		FAIL("the counters buffer was never allocated again: ", again.describe());
+		return;
+	}
+	// Every step of the recovered-pass proof must run; an unreadable counter is a failure, never a skip.
+	if (!tile->test_read_tile_order_stats(before)) {
+		FAIL("after the retry the tile order counters are unreadable (baseline read), so the recovered pass cannot be proven");
+		return;
+	}
+	const bool rendered = renderer->render_for_view(view, projection, RID(), resized);
+	if (!rendered) {
+		FAIL("the frame after the retry did not render");
+		return;
+	}
+	if (!tile->test_read_tile_order_stats(after)) {
+		FAIL("after the retry the tile order counters are unreadable (post-frame read), so the recovered pass cannot be proven");
+		return;
+	}
+	CHECK_MESSAGE(after.passes > before.passes, "the total-order pass did not run after the retry");
 }
