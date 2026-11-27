@@ -23,7 +23,10 @@ name: Baseline QA Automation
 #     The same jobs with every path filter off, plus the FULL guard phase including
 #     every guard self-test (cpu-tests runs run_module_tests.py without
 #     --skip-guards), the evidence collector, and the GPU harness in baseline
-#     UPDATE mode (recapture PR when BASELINE_UPDATE_PAT is provisioned).
+#     COMPARE mode, so a harness PNG that differs from its committed reference
+#     fails the nightly (#1553). Recapture is a separate manual step:
+#     workflow_dispatch with baseline_mode=update (recapture PR when
+#     BASELINE_UPDATE_PAT is provisioned).
 #
 # There is no push trigger: a merge to master costs no self-hosted runner time. A
 # regression that only appears when two individually green PRs combine is caught by
@@ -631,9 +634,10 @@ jobs:
         # provenance step, etc.). The create-PR step receives the PAT directly via
         # its own `token:` input, so the recapture-PR flow still works.
         persist-credentials: false
-        # Update-mode runs push baseline changes back through a PR; everything
-        # else stays on the workflow's default token.
-        token: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.baseline_mode == 'update')) && secrets.BASELINE_UPDATE_PAT || secrets.GITHUB_TOKEN }}
+        # Only a manual update-mode dispatch pushes baseline changes back through
+        # a PR; everything else, the nightly included, stays on the workflow's
+        # default token.
+        token: ${{ (github.event_name == 'workflow_dispatch' && inputs.baseline_mode == 'update') && secrets.BASELINE_UPDATE_PAT || secrets.GITHUB_TOKEN }}
 
     - name: Verify Python
       run: |
@@ -701,15 +705,18 @@ jobs:
         echo "path=$resolved" >> "$GITHUB_OUTPUT"
         echo "GODOT_BINARY=$resolved" >> "$GITHUB_ENV"
 
+    # #1553: every unattended event, the nightly schedule included, COMPARES the
+    # GPU harness PNGs against the committed references and fails on a diff. A
+    # nightly that recaptured instead could never see an image regression.
+    # Recapture is a deliberate, separate step: workflow_dispatch with
+    # baseline_mode=update. Guarded by test_baseline_qa_require_flag.py
+    # (HarnessVisualBaselineModeTest), which executes this script per trigger.
     - name: Resolve baseline mode
       id: baseline_mode
       run: |
         mode="compare"
         reason="default-compare"
-        if [ "${{ github.event_name }}" = "schedule" ]; then
-          mode="update"
-          reason="nightly-schedule-update"
-        elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
           mode="update"
           reason="manual-update"
         fi
@@ -883,7 +890,7 @@ jobs:
           Trigger: ${{ github.event_name }} (${{ steps.baseline_mode.outputs.reason }})
           Provenance is in the gpu-harness-recaptured-baselines artifact
           and (after merge) in tests/visual_baselines/.provenance.json.
-        title: "visual_baselines: scheduled recapture (${{ github.run_id }})"
+        title: "visual_baselines: manual recapture (${{ github.run_id }})"
         body: |
           Automated baseline recapture from `baseline_qa.yml` run ${{ github.run_id }}.
           Provenance JSON is attached to the `gpu-harness-recaptured-baselines`
