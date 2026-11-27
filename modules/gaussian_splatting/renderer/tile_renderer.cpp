@@ -4063,7 +4063,8 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
     auto &overflow = async_readback.overflow_state;
     if (!overflow.first_frame_complete || !overflow.overflow_detected) { return false; }
     const uint64_t wanted = uint64_t(overflow.last_unclamped_total) * 3u / 2u;
-    const uint32_t needed = uint32_t(MIN<uint64_t>(wanted, UINT32_MAX));
+    // Clamped like the allocation: a request above the configured cap can never be held, so at the cap it is settled.
+    const uint32_t needed = clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(wanted, UINT32_MAX)));
     if (needed <= global_sort_resources.capacity) {
         overflow.overflow_detected = false;
         return false;
@@ -4072,16 +4073,31 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
     // as a full new allocation (the old buffers stay charged until retired). Refused growth keeps the flag set.
     if (uint64_t(needed) * HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD > p_headroom) { return false; }
     _ensure_global_sort_resources(needed);
+    // Codex F3: the allocator can refuse (pre-flight, sorter build, grow backoff) and keep the old storage. Only a
+    // storage that now holds the demand settles it; otherwise the overflow stays pending for the next safe point.
+    if (!_hlod_overlap_capacity_usable(needed)) { return false; }
     overflow.overflow_detected = false;
     return true;
 }
 
-bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom) {
+bool TileRenderer::_hlod_overlap_capacity_usable(uint32_t p_records) const {
+    const TileGlobalSortResources &sort = global_sort_resources;
+    return sort.sorter_available && sort.sorter.is_valid() && sort.keys_buffer.is_valid() && sort.values_buffer.is_valid() &&
+            _get_effective_overlap_capacity() >= p_records;
+}
+
+TileRenderer::HlodOverlapGrowth TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint32_t p_padded_records,
+        uint64_t p_headroom) {
     const uint32_t needed = clamp_hlod_overlap_records(p_records);
-    if (needed <= global_sort_resources.capacity) { return false; }
-    if (uint64_t(needed) * HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD > p_headroom) { return false; }
-    _ensure_global_sort_resources(needed);
-    return true;
+    if (_hlod_overlap_capacity_usable(needed)) { return HlodOverlapGrowth::HELD; }
+    if (uint64_t(needed) * HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD > p_headroom) { return HlodOverlapGrowth::REFUSED_HEADROOM; }
+    // The slack is optional: charged against the same headroom, and dropped (not the growth) when it does not fit.
+    uint32_t padded = clamp_hlod_overlap_records(MAX(p_padded_records, needed));
+    if (uint64_t(padded) * HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD > p_headroom) { padded = needed; }
+    // One attempt: a refused padded build falls back to the exact size inside it, so the grow backoff a failure arms
+    // cannot skip the exact size (Codex F3).
+    global_sort_resources.ensure_resources(needed, false, padded);
+    return _hlod_overlap_capacity_usable(needed) ? HlodOverlapGrowth::GREW : HlodOverlapGrowth::ALLOCATION_FAILED;
 }
 
 void TileRenderer::invalidate_sh_color_cache_range(uint32_t p_first_record, uint32_t p_record_count) {

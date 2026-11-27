@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 244,
-    "sha256": "b0781c4b83066dfd7947a9a89227fef8c4980e5610236eb8666e6f7f54ff90ed",
-    "sha256_last_changed_by": "Merge of master (BV-17 atlas ceiling: one HLOD relative depth-pass case above 2^31 bytes of a streamed atlas) into HLOD S6b (#1542: one fading-record wind position case); both cases in the existing GpuSorting batch. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot on the merged tree. Filters, required batches, waivers, thresholds and gates unchanged.",
+    "test_count": 246,
+    "sha256": "e87a93fa3b3cbc0f9e5b5e60fe801314d48e47229c8d661f0bab4cb0e1fe6ec5",
+    "sha256_last_changed_by": "Codex F3/F7 (hlod-prod-capacity-truth): two new cases, a refused padded overlap growth (HlodResize batch) and the streamed atlas within the device's storage-buffer binding range (WorldSceneTree batch). Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot on the tree merged with origin/master ae1251c5f68. Filters, required batches, waivers, thresholds and gates unchanged.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -480,8 +480,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 244,
-      "running_in_a_named_batch": 179,
+      "requires_gpu_total": 246,
+      "running_in_a_named_batch": 181,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },

@@ -202,8 +202,10 @@ struct TileGlobalSortResources {
 	void release(RenderingDevice *p_default_device);
 	void reset_state(bool p_clear_sorter);
 	// p_growth_headroom lets a capacity grow pad past the request when the padded size fits (BV-10).
-	// Callers that charged an exact size against a budget leave it off.
-	void ensure_resources(uint32_t p_visible_count, bool p_growth_headroom = false);
+	// Callers that charged an exact size against a budget leave it off. `p_padded_elements` above the request is an
+	// explicit optional padded size for the same grow (the caller charged it); refused, the grow builds the request.
+	// Neither reports success: callers check the realized capacity (TileRenderer::ensure_hlod_overlap_capacity).
+	void ensure_resources(uint32_t p_visible_count, bool p_growth_headroom = false, uint32_t p_padded_elements = 0);
 	// #586 PR 2: called by the frame executor once a frame whose translucent content was
 	// SORTED by this sorter has been PUBLISHED (valid output RID). Closes an open failure
 	// episode: failure count -> 0, sorter_recoveries + 1, one WARN. This is the only place
@@ -265,6 +267,10 @@ struct TileGlobalSortResources {
 	uint64_t resize_peak_bytes = 0;
 	uint64_t resize_preflight_refusals = 0;
 	bool resize_preflight_unverified_logged = false;
+#ifdef TESTS_ENABLED
+	// Test seam: a sorter build above this many elements fails as if create_sorter() could not allocate it (0 = off).
+	uint32_t test_refuse_sorter_above_elements = 0;
+#endif
 	uint64_t allocated_sort_bytes() const;
 	SortKeyConfig key_config;
 	RID keys_buffer;

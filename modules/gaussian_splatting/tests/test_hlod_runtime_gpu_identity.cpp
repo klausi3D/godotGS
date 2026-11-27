@@ -608,6 +608,65 @@ TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] the compositor scratch
     CHECK(after_clear == uint64_t(128) * 128 * 4);
 }
 
+// Codex F3: the route grows the overlap storage with slack, else exactly (resident_instance_contract_publisher.cpp, #1472).
+// A growth whose sorter cannot be built must not report success: the exact size must still be tried, the capacity must
+// hold what was reported, and a measured overflow whose growth failed must stay pending.
+TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] a refused padded overlap growth falls back to the exact size and reports only real growth") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GPU harness required"); return; }
+    ScopedSortDevice manager_device(rd);
+    const Vector2i view(256, 256);
+    const uint64_t headroom = uint64_t(1) << 30;
+    auto provisioned_tile = [&](Ref<TileRenderer> &r_tile) {
+        r_tile.instantiate();
+        return r_tile->initialize(rd, view) == OK && r_tile->provision_hlod_route(view, RD::DATA_FORMAT_MAX, 4096) == OK &&
+                r_tile->get_allocated_overlap_capacity() >= 4096u;
+    };
+    {
+        Ref<TileRenderer> tile;
+        if (!provisioned_tile(tile)) { FAIL("TileRenderer provisioning failed"); return; }
+        auto &sort = tile->_test_global_sort_resources();
+        const uint32_t before = tile->get_allocated_overlap_capacity();
+        const uint32_t exact = before * 2u;
+        const uint32_t padded = before * 3u;
+        // Premise: neither size is clamped by the configured cap, so the padded size really is the larger request.
+        if (tile->clamp_hlod_overlap_records(padded) != padded) { FAIL("max_overlap_records clamps the padded request"); return; }
+        sort.test_refuse_sorter_above_elements = exact; // the padded build fails; the exact one can be built
+        using Growth = TileRenderer::HlodOverlapGrowth;
+        CHECK(tile->ensure_hlod_overlap_capacity(exact, padded, headroom) == Growth::GREW);
+        CHECK(tile->get_allocated_overlap_capacity() >= exact);
+        CHECK(tile->get_allocated_overlap_capacity() < padded);
+        CHECK(sort.sorter.is_valid());
+        // Every build refused: nothing grows, and nothing may say it did.
+        const uint32_t held = tile->get_allocated_overlap_capacity();
+        sort.test_refuse_sorter_above_elements = held;
+        CHECK(tile->ensure_hlod_overlap_capacity(held * 2u, held * 3u, headroom) == Growth::ALLOCATION_FAILED);
+        CHECK(tile->get_allocated_overlap_capacity() == held);
+        CHECK(sort.sorter.is_valid()); // the working sorter is kept
+        // Headroom too small for the exact size: refused before any allocation.
+        sort.test_refuse_sorter_above_elements = 0;
+        CHECK(tile->ensure_hlod_overlap_capacity(held * 2u, held * 3u, uint64_t(held) * TileRenderer::HLOD_OVERLAP_GROWTH_BYTES_PER_RECORD) ==
+                Growth::REFUSED_HEADROOM);
+        CHECK(tile->get_allocated_overlap_capacity() == held);
+        // A storage that already holds the request allocates nothing.
+        CHECK(tile->ensure_hlod_overlap_capacity(held, held * 2u, headroom) == Growth::HELD);
+    }
+    {
+        Ref<TileRenderer> tile;
+        if (!provisioned_tile(tile)) { FAIL("TileRenderer provisioning failed"); return; }
+        auto &sort = tile->_test_global_sort_resources();
+        auto &overflow = tile->_test_async_readback().overflow_state;
+        const uint32_t before = tile->get_allocated_overlap_capacity();
+        overflow.first_frame_complete = true;
+        overflow.overflow_detected = true;
+        overflow.last_unclamped_total = before * 2u;
+        sort.test_refuse_sorter_above_elements = before; // every growth fails
+        CHECK_FALSE(tile->grow_hlod_overlap_storage(headroom));
+        CHECK(tile->get_allocated_overlap_capacity() == before);
+        CHECK(overflow.overflow_detected); // the measured demand is still pending, so the next safe point retries it
+    }
+}
+
 // Package E1 (V4 paged worlds) through the actual World3D entry. This harness has no render buffers, so what is proven
 // here is what does not need a present target: a paged world draws NOTHING from a stand-in (it has no canonical
 // payload and no warmup stub), says why, and the fallback for setups the HLOD route can never serve loads the payload
@@ -700,7 +759,7 @@ public:
     RenderingDevice *get_sort_resource_device() const override { return actual->get_sort_resource_device(); }
 };
 
-static void paged_sort_budget_regression(bool p_overflow) {
+static void paged_sort_budget_regression(bool p_overflow, bool p_binding_limit = false) {
     SceneTree *tree = SceneTree::get_singleton();
     RenderingDevice *rd = RenderingDevice::get_singleton();
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -808,6 +867,34 @@ static void paged_sort_budget_regression(bool p_overflow) {
     CHECK(renderer->is_hlod_prepared_contract_current());
     CHECK(state.hlod_bundle_builds == builds); // The prepared check must use the same bounded capacity.
     CHECK(pipeline->largest_request <= budget);
+    if (p_binding_limit) {
+        // Codex F7: the device's storage-buffer binding range bounds the streamed atlas. First the real query: the ledger
+        // holds what the device reports (Vulkan maxStorageBufferRange), and that is not the 1 GiB every driver returns
+        // for a limit it does not know, so the driver really answers it.
+        const uint64_t reported = rd->limit_get(RD::LIMIT_MAX_STORAGE_BUFFER_RANGE);
+        CHECK(reported != (uint64_t(1) << 30));
+        CHECK(state.device_vram_ledger.max_buffer_bytes() == DeviceVramLedger::binding_limit_for_device(reported));
+        // Then a range injected one byte below the atlas the unconstrained publication built: the rebuilt atlas must fit
+        // it, and the published bound must name it.
+        const uint64_t stride = state.hlod_relative.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+        const uint64_t built_atlas = uint64_t(state.hlod_relative.buffers.atlas_gaussian_count) * stride;
+        if (built_atlas <= 4096 * stride) { FAIL("the unconstrained atlas is too small to shrink: ", built_atlas); return; }
+        const uint64_t range = built_atlas - 1;
+        struct ClearRange {
+            GaussianSplatRenderer *renderer;
+            ~ClearRange() { renderer->test_set_storage_buffer_range_override(0); }
+        } clear_range{ renderer.ptr() };
+        renderer->test_set_storage_buffer_range_override(int64_t(range));
+        renderer->release_hlod_resources();
+        const int republished = renderer->try_publish_hlod_resident_contract(reason);
+        CHECK(state.device_vram_ledger.max_buffer_bytes() == range);
+        if (republished != 1) { FAIL("publication under the injected binding range refused: ", String(state.hlod_reason)); return; }
+        CHECK(state.hlod_streaming);
+        CHECK(uint64_t(state.hlod_relative.buffers.atlas_gaussian_count) * stride <= range);
+        CHECK(state.hlod_stream_atlas_limit_bytes <= range);
+        CHECK(state.hlod_stream_atlas_limit_bound == uint8_t(DeviceVramLedger::StreamedAtlasBound::BUFFER_LIMIT));
+        return;
+    }
     if (!p_overflow) { return; }
 
     // Fault injection AFTER real admission: two resident chunks draw budget + 1
@@ -882,6 +969,10 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] an 
     // The existing overflow mechanism already counts drops; preserve it as the
     // sort allocation shrinks from whole-world capacity to the drawn budget.
     paged_sort_budget_regression(true);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] the streamed atlas stays within the device's storage-buffer binding range (Codex F7)") {
+    paged_sort_budget_regression(false, true);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a paged World3D draws nothing from a stand-in and says why when no present target exists") {
