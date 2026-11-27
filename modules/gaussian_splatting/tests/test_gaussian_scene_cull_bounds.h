@@ -113,7 +113,16 @@ static bool frame_cull_collects(RendererSceneCull::Instance *p_instance, const V
 	const Vector<Plane> planes = camera_planes(p_eye);
 	Projection projection;
 	projection.set_perspective(20.0, 1.0, 0.05, 200.0);
+	// Per-frame Cull state, set the way RendererSceneCull::_render_scene sets it
+	// before _scene_cull for a camera with no directional shadow and no SDFGI
+	// (renderer_scene_cull.cpp: cull.frustum, cull.shadow_count = 0,
+	// cull.sdfgi.region_count = 0). Cull::shadow_count has no initializer
+	// (renderer_scene_cull.h), so leaving it unset makes _scene_cull walk
+	// garbage directional shadows: the Linux CI crash on #1566.
 	scene->cull.frustum = RendererSceneCull::Frustum(planes);
+	scene->cull.shadow_count = 0;
+	scene->cull.sdfgi.region_count = 0;
+	scene->cull.sdfgi.cascade_light_count = 0;
 
 	RendererSceneCull::CullData cull_data;
 	cull_data.cull = &scene->cull;
