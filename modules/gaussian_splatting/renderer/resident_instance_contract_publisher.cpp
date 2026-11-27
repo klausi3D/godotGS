@@ -3014,6 +3014,13 @@ int GaussianSplatRenderer::try_publish_hlod_objects_only_contract(String &r_reas
     gs_hlod_bundle::Rows rows;
     LocalVector<uint64_t> row_keys;
     director->build_hlod_instance_rows_for_renderer(this, rows.instances, rows.grading, rows.asset_ids, row_keys, true);
+#ifdef TESTS_ENABLED
+    if (test_hlod_objects_only_after_rows) {
+        std::function<void()> hook = test_hlod_objects_only_after_rows;
+        test_hlod_objects_only_after_rows = nullptr;
+        hook();
+    }
+#endif
     gs_hlod_objects_only::Inputs inputs;
     inputs.world_route = false; // The caller found the world path closed.
     inputs.node_rows = rows.count() > 0 ? rows.count() - 1u : 0u;

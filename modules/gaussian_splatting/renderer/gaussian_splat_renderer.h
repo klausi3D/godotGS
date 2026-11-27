@@ -2236,6 +2236,9 @@ public:
     void test_set_hlod_route_limit_override(int64_t p_bytes);
     void test_set_storage_buffer_range_override(int64_t p_bytes);
     void test_set_hlod_hold_world_idle(bool p_hold);
+    // Test-only (Codex P1 on #1571): runs once, right after the objects-only publisher collected its rows, so a test can
+    // edit a node in the window between the row collection and the generation the bundle records for those rows.
+    std::function<void()> test_hlod_objects_only_after_rows;
     bool test_hlod_publication_refuses(int p_failure);
     Dictionary test_observe_hlod_publication(int64_t p_request_id = 0);
     Dictionary test_hlod_foreign_device_publication();
