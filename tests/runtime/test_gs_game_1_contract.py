@@ -380,6 +380,34 @@ class ContractTests(unittest.TestCase):
                     '"capture_end_usec": previous_boundary', '"forcing_out_of_window_delay_ms"'):
             self.assertIn(key, tail)
 
+    def test_p1_fixture_is_a_capture_of_what_sample_frames_writes(self):
+        # The verdict tests' P1 baseline is a trimmed producer capture. It must not
+        # drift from the producer: every key it carries is one _sample_frames()
+        # writes, and every frame key the verdict reads is in the capture, so the
+        # verdict tests exercise each field on real values.
+        import gzip
+        import json
+        fixture = ROOT / "tests/runtime/flythrough/fixtures/gs_game_1/p1_subject_frames.json.gz"
+        capture = json.loads(gzip.decompress(fixture.read_bytes()).decode("utf-8"))
+        self.assertIn("Producer capture, not hand-authored", capture["capture"])
+        m = capture["measurement"]
+        sample = self._harness_function("_sample_frames")
+        frame_keys = set().union(*(f.keys() for f in m["frames"]))
+        self.assertEqual(frame_keys, set(m["frames"][0]), "frames carry different key sets")
+        for key in sorted(frame_keys | (set(m) - {"frames"})):
+            with self.subTest(key=key):
+                self.assertRegex(sample, r'"' + re.escape(key) + r'"\s*:|\["' + re.escape(key) + r'"\]\s*=',
+                                 "fixture key the harness never writes")
+        spec = importlib.util.spec_from_file_location("gs_game_1_verdict_for_fixture",
+                                                      ROOT / "tests/runtime/gs_game_1_verdict.py")
+        verdict = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verdict)
+        read = {key for _, key in verdict.P1_BREAKDOWN} | {
+            "sample", "frame", "gpu_frame", "gpu_frame_valid", "frame_ms", "gpu_frame_ms", "spawn",
+            "boundary_usec", "harness_ms", "drawn_frames", "input_digest"}
+        self.assertLessEqual(read, frame_keys, "a frame key the verdict reads is absent from the capture")
+        self.assertEqual(m["frame_basis"], verdict.P1_FRAME_BASIS)
+
     def test_l2_spot_lights_what_pose_a_sees(self):
         # L2 measures spot shadows at pose A. A spot aimed at (0, 0, -10) lit nothing
         # visible from there (a splat wall at about z = 13 hides that ground), so the
