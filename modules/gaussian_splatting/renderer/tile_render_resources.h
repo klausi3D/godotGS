@@ -164,9 +164,11 @@ struct TileShaderResources {
 	RID tile_prefix_shader;
 	RID tile_prefix_shader_pass2;
 	RID tile_prefix_shader_pass3;
+	RID tile_prefix_shader_pass4; // #1544: total order of the sorted overlap records
 	RID tile_prefix_pipeline_pass1;
 	RID tile_prefix_pipeline_pass2;
 	RID tile_prefix_pipeline_pass3;
+	RID tile_prefix_pipeline_pass4; // #1544
 	RID tile_raster_shader;
 	RID tile_raster_pipeline;
 	// Framebuffer format the cached tile_raster_pipeline was created against. The pipeline

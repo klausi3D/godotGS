@@ -29,6 +29,7 @@
 #include "sh_config.h"
 #include "shader_compilation_helper.h"
 #include "sort_fallback_policy.h"
+#include "tile_order_contract.h"
 #include "../logger/gs_logger.h"
 #include "../interfaces/gs_raster_thresholds.h"
 #include "../interfaces/render_device_manager.h"
@@ -1201,6 +1202,13 @@ private:
 				const uint64_t sort_dispatch_start_usec = OS::get_singleton()->get_ticks_usec();
 				renderer.global_sort_resources.sorter->set_pending_frame_label_serial(
 						renderer.frame_state.current_frame_serial);
+				// #1544: the total-order pass runs inside the sort's compute list, after its last pass.
+				renderer.debug_stats.tile_order_pass_recorded = false;
+				TileRenderer *order_owner = &renderer;
+				renderer.global_sort_resources.sorter->set_post_sort_recorder(
+						[order_owner](RenderingDevice *p_device, RD::ComputeListID p_list) {
+							return order_owner->_record_tile_order_pass(p_device, p_list);
+						});
 				uint64_t sort_timeline = renderer.global_sort_resources.sorter->sort_indirect_async(
 						renderer.global_sort_resources.keys_buffer,
 						renderer.global_sort_resources.values_buffer,
@@ -1229,6 +1237,17 @@ private:
 						sort_dispatch_error = int(sort_err);
 					} else {
 						sort_outcome = GaussianSplatting::GlobalSortAttemptOutcome::NOT_SUBMITTED;
+					}
+				}
+				renderer.global_sort_resources.sorter->set_post_sort_recorder(nullptr);
+				// #1544: a sorted frame whose sorter did not run the total-order pass is counted and
+				// warned about, never passed off as ordered.
+				const bool sort_ran = sort_outcome == GaussianSplatting::GlobalSortAttemptOutcome::SUBMITTED ||
+						sort_outcome == GaussianSplatting::GlobalSortAttemptOutcome::SYNC_FALLBACK_OK;
+				if (sort_ran && !renderer.debug_stats.tile_order_pass_recorded) {
+					const uint64_t missing = ++renderer.debug_stats.tile_order_pass_missing_frames;
+					if (missing == 1u) {
+						GS_LOG_WARN_DEFAULT("[TileRenderer] #1544: the overlap sort ran without its total-order pass; equal-key records keep their emit order this frame (tile_order_pass_missing_frames)");
 					}
 				}
 				if (allow_sync_readback) {
@@ -2182,8 +2201,11 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
 
 	bool recreate_buffers = tile_size_changed || format_changed || size_changed;
 	// Debug/diagnostic buffers are required in both modes.
+	// #1544 (Codex P1 on #1570): the total-order counters buffer is required too. Without it the
+	// order pass cannot run, so a missing buffer is re-created (retried) on every frame.
 	recreate_buffers = recreate_buffers || !debug_stats.debug_counter_buffer.is_valid() ||
-            !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid();
+            !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid() ||
+            !debug_stats.tile_order_stats_buffer.is_valid();
 
 	if (recreate_buffers) {
 		projection_buffers.release(device);
@@ -2199,7 +2221,8 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
         _create_output_texture(p_size, config_state.desired_output_format);
 
 		bool allocation_failed = !render_targets.output_texture.is_valid() || !debug_stats.debug_counter_buffer.is_valid() ||
-                !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid();
+                !debug_stats.overflow_statistics_buffer.is_valid() || !debug_stats.debug_splat_audit_buffer.is_valid() ||
+                !debug_stats.tile_order_stats_buffer.is_valid();
         if (allocation_failed && tile_size_changed) {
             GS_LOG_WARN_DEFAULT("[TileRenderer] Adaptive tile size allocation failed, reverting to previous tile size");
             config_state.tile_size = previous_tile_size;
@@ -2231,8 +2254,17 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
                 !render_targets.tile_framebuffer.is_valid() ||
                 !debug_stats.debug_counter_buffer.is_valid() ||
                 !debug_stats.overflow_statistics_buffer.is_valid() ||
-                !debug_stats.debug_splat_audit_buffer.is_valid();
+                !debug_stats.debug_splat_audit_buffer.is_valid() ||
+                !debug_stats.tile_order_stats_buffer.is_valid();
         if (resources_incomplete) {
+            if (!debug_stats.tile_order_stats_buffer.is_valid()) {
+                // #1544: this frame cannot run the total-order pass; it is refused (not presented)
+                // and counted, and the next frame retries the allocation.
+                const uint64_t missing = ++debug_stats.tile_order_pass_missing_frames;
+                if (missing == 1u) {
+                    GS_LOG_WARN_DEFAULT("[TileRenderer] #1544: the total-order counters buffer could not be allocated; frames are refused until it is (tile_order_pass_missing_frames)");
+                }
+            }
             GS_LOG_ERROR_DEFAULT("[TileRenderer] Resource allocation failed during _ensure_resources; failing initialization instead of returning a partially-initialised renderer (#643)");
             projection_buffers.release(device);
             debug_stats.free_buffers(device);
@@ -2509,6 +2541,11 @@ SortKeyConfig TileRenderer::_get_effective_sort_key_config() const {
     return cfg;
 }
 
+uint32_t TileRenderer::_get_sort_tie_bits() const {
+	const SortKeyConfig key_config = _get_effective_sort_key_config();
+	return GaussianSplatting::tile_order_tie_bits(key_config.key_bits, _required_tile_bits(grid_state.total_tiles));
+}
+
 Vector<String> TileRenderer::_build_binning_shader_defines() const {
 	Vector<String> defines = _build_common_shader_defines(true);
 	defines.push_back(vformat("#define GS_TILE_SPLAT_CAPACITY %d\n", MAX_SPLATS_PER_TILE));
@@ -2516,13 +2553,17 @@ Vector<String> TileRenderer::_build_binning_shader_defines() const {
 	defines.push_back(vformat("#define GS_SORT_KEY_BITS %d\n", key_config.key_bits));
 	defines.push_back(vformat("#define GS_SORT_TILE_BITS %d\n", key_config.tile_bits));
 	defines.push_back(vformat("#define GS_SORT_DEPTH_BITS %d\n", key_config.depth_bits));
-	uint32_t tie_bits = 0;
-	if (key_config.key_bits > 32) {
-		const uint32_t required_tile_bits = MIN<uint32_t>(_required_tile_bits(grid_state.total_tiles), 32u);
-		const uint32_t spare_bits = (required_tile_bits < 32u) ? (32u - required_tile_bits) : 0u;
-		tie_bits = MIN<uint32_t>(16u, spare_bits);
-	}
+	// #1544: one source for the tie width, shared with the total-order pass (tile_prefix_scan.glsl pass 4).
+	const uint32_t tie_bits = _get_sort_tie_bits();
 	defines.push_back(vformat("#define GS_SORT_TIE_BITS %d\n", tie_bits));
+#ifdef TESTS_ENABLED
+	{
+		const String order_defines = GSTileOrderTestControl::binning_shader_defines();
+		if (!order_defines.is_empty()) {
+			defines.push_back(order_defines);
+		}
+	}
+#endif
 	if (render_settings.global_sort_enabled) {
 		defines.push_back("#define GS_TILE_GLOBAL_SORT 1\n");
 		defines.push_back("#define GS_TILE_GLOBAL_SORT_EMIT_PASS 1\n");
@@ -2608,7 +2649,8 @@ bool TileRenderer::_check_pipeline_validity(RenderingDevice *p_device, bool p_wa
 	}
 	if (render_settings.global_sort_enabled) {
 		pipelines_valid = pipelines_valid && shader_resources.tile_binning_count_shader.is_valid() && shader_resources.tile_binning_count_pipeline.is_valid() &&
-				shader_resources.tile_prefix_pipeline_pass1.is_valid() && shader_resources.tile_prefix_pipeline_pass2.is_valid() && shader_resources.tile_prefix_pipeline_pass3.is_valid();
+				shader_resources.tile_prefix_pipeline_pass1.is_valid() && shader_resources.tile_prefix_pipeline_pass2.is_valid() && shader_resources.tile_prefix_pipeline_pass3.is_valid() &&
+				shader_resources.tile_prefix_pipeline_pass4.is_valid();
 	}
 	if (p_want_compute_raster) {
 		pipelines_valid = pipelines_valid && shader_resources.tile_raster_compute_shader.is_valid() && shader_resources.tile_raster_compute_pipeline.is_valid();
@@ -2681,6 +2723,12 @@ void TileRenderer::_free_existing_pipelines(RenderingDevice *p_shader_owner) {
 		}
 		shader_resources.tile_prefix_pipeline_pass3 = RID();
 	}
+	if (shader_resources.tile_prefix_pipeline_pass4.is_valid()) {
+		if (p_shader_owner && p_shader_owner->compute_pipeline_is_valid(shader_resources.tile_prefix_pipeline_pass4)) {
+			p_shader_owner->free(shader_resources.tile_prefix_pipeline_pass4);
+		}
+		shader_resources.tile_prefix_pipeline_pass4 = RID();
+	}
 	if (shader_resources.tile_prefix_shader_pass2.is_valid()) {
 		if (p_shader_owner) {
 			p_shader_owner->free(shader_resources.tile_prefix_shader_pass2);
@@ -2692,6 +2740,12 @@ void TileRenderer::_free_existing_pipelines(RenderingDevice *p_shader_owner) {
 			p_shader_owner->free(shader_resources.tile_prefix_shader_pass3);
 		}
 		shader_resources.tile_prefix_shader_pass3 = RID();
+	}
+	if (shader_resources.tile_prefix_shader_pass4.is_valid()) {
+		if (p_shader_owner) {
+			p_shader_owner->free(shader_resources.tile_prefix_shader_pass4);
+		}
+		shader_resources.tile_prefix_shader_pass4 = RID();
 	}
 	if (shader_resources.tile_raster_pipeline.is_valid()) {
 		if (p_shader_owner && p_shader_owner->render_pipeline_is_valid(shader_resources.tile_raster_pipeline)) {
@@ -2758,13 +2812,18 @@ Error TileRenderer::_compile_tile_shaders() {
 	ERR_FAIL_NULL_V(shader_compilation_manager, ERR_UNCONFIGURED);
 #ifdef TESTS_ENABLED
 	const bool force_address = GSSplatIdentityTestControl::get_force_address_keying();
-	if (test_address_identity_enabled != force_address || test_game_shader_variant != GSSplatIdentityTestControl::shader_variant()) {
+	if (test_address_identity_enabled != force_address || test_game_shader_variant != GSSplatIdentityTestControl::shader_variant() ||
+			test_tile_order_shader_variant != GSTileOrderTestControl::shader_variant()) {
 		_release_compiled_shaders();
 	}
 #endif
 	const Error result = shader_compilation_manager->compile_all_shaders(device_context.resource_rd);
 #ifdef TESTS_ENABLED
-	if (result == OK) { test_address_identity_enabled = force_address; test_game_shader_variant = GSSplatIdentityTestControl::shader_variant(); }
+	if (result == OK) {
+		test_address_identity_enabled = force_address;
+		test_game_shader_variant = GSSplatIdentityTestControl::shader_variant();
+		test_tile_order_shader_variant = GSTileOrderTestControl::shader_variant();
+	}
 #endif
 	return result;
 }
@@ -3556,6 +3615,7 @@ Vector<RID> TileRenderer::_test_compiled_pipeline_snapshot() const {
 		shader_resources.tile_prefix_pipeline_pass1,
 		shader_resources.tile_prefix_pipeline_pass2,
 		shader_resources.tile_prefix_pipeline_pass3,
+		shader_resources.tile_prefix_pipeline_pass4,
 		shader_resources.tile_raster_compute_pipeline,
 	};
 	for (const RID &rid : compute_pipelines) {
@@ -3857,6 +3917,8 @@ void TileRenderer::_poll_overflow_drop_telemetry() {
 	if (instance_pipeline_buffers.hlod_relative) {
 		debug_stats.poll_hlod_level_stats(_get_resource_device(), frame_state.current_frame_serial);
 	}
+	// #1544: cumulative total-order pass counters (tile_order_key_overflow warns once).
+	debug_stats.poll_tile_order_stats(_get_resource_device(), frame_state.current_frame_serial);
 }
 
 float TileRenderer::get_projection_success_rate_pct() const {

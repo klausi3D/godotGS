@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `202` documented functions, `37` undocumented functions, `80` documented uniform fields, `119` undocumented uniform fields.
+Coverage summary: `204` documented functions, `40` undocumented functions, `84` documented uniform fields, `119` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -1860,6 +1860,14 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>main()</code></pre></td>
       <td>Pass 3: add workgroup offsets into base ranges.</td>
     </tr>
+    <tr>
+      <td><pre><code>gs_order_key_without_tie(uvec2 key)</code></pre></td>
+      <td>(tile, depth): the key without its tie bits.</td>
+    </tr>
+    <tr>
+      <td><pre><code>main()</code></pre></td>
+      <td>Dispatched directly (not indirectly: the indirect buffer is bound as storage in this compute list) over min(capacity, 65535 groups); a grid-stride loop covers element_count.</td>
+    </tr>
   </tbody>
 </table>
 
@@ -1880,6 +1888,40 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>global_sort_capacity</code></pre></td>
       <td><pre><code>uint</code></pre></td>
       <td>Used for overflow detection in Pass 3</td>
+    </tr>
+  </tbody>
+</table>
+
+#### OrderControl (order_control)
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>key_words</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>1 (32-bit keys) or 2 (64-bit keys, .x = low word)</td>
+    </tr>
+    <tr>
+      <td><pre><code>tie_bits</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>low key bits that hold the tie (0: none)</td>
+    </tr>
+    <tr>
+      <td><pre><code>run_cap</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>longest run this pass orders</td>
+    </tr>
+    <tr>
+      <td><pre><code>test_mode</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>0 in production; read only in test builds: 1 = pass disabled, 2 = tie truncated to 16 bits</td>
     </tr>
   </tbody>
 </table>

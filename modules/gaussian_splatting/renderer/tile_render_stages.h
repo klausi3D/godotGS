@@ -35,6 +35,10 @@
         // whose emit pass ran on the HLOD route; never a sync stall.
         void poll_hlod_level_stats(RenderingDevice *p_device, uint64_t p_frame_serial);
         void on_hlod_level_stats_readback(const Vector<uint8_t> &p_data);
+        // #1544: async readback of the total-order pass counters (TileOrderStatsGPU, cumulative).
+        void poll_tile_order_stats(RenderingDevice *p_device, uint64_t p_frame_serial);
+        void on_tile_order_stats_readback(const Vector<uint8_t> &p_data);
+        void release_tile_order_uniform_set();
         void _log_readback_state_if_needed(uint64_t p_frame_serial, bool p_log_enabled) const;
         void _schedule_debug_readbacks(RenderingDevice *p_device, uint64_t p_frame_serial,
                 bool p_has_debug_buffer, bool p_has_overflow_buffer);
@@ -105,6 +109,15 @@
         BufferOwnership debug_splat_audit_owner;
         RID hlod_level_stats_buffer; // BV-04b: HlodLevelRecordStatsGPU (128 B), cleared per frame
         BufferOwnership hlod_level_stats_owner;
+        RID tile_order_stats_buffer; // #1544: TileOrderStatsGPU (32 B), cumulative, never cleared
+        BufferOwnership tile_order_stats_owner;
+        RID tile_order_uniform_set; // #1544: pass 4 set of the last recorded frame
+        RenderingDevice *tile_order_uniform_set_device = nullptr;
+        bool tile_order_pass_recorded = false; // set by the recorder, read after the overlap sort
+        uint64_t tile_order_pass_missing_frames = 0; // sorted frames whose sorter never ran pass 4
+        GaussianSplatting::TileOrderStatsGPU cached_tile_order_stats;
+        uint64_t cached_tile_order_frame_serial = 0; // 0: never sampled
+        bool tile_order_overflow_warned = false;
 
         mutable DebugCounterSnapshot cached_debug_counters;
         mutable OverflowStatsSnapshot cached_overflow_stats;
@@ -135,6 +148,7 @@
         // #1393/#1457: host context of the sampled frame (binning splats, record allocation, grid, cap).
         mutable GaussianSplatting::TileOverflowSampleContext overflow_signal_context;
         mutable AsyncReadbackState hlod_level_stats_readback; // BV-04b
+        mutable AsyncReadbackState tile_order_stats_readback; // #1544
     };
 
     struct TileRenderParamsBuilder {

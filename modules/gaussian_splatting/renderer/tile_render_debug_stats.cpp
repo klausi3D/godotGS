@@ -1091,6 +1091,26 @@ void TileRenderer::TileRendererDebugStats::create_buffers(RenderingDevice *p_dev
         hlod_level_stats_owner.set(p_device);
     }
 
+    // #1544: cumulative counters of the total-order pass (tile_prefix_scan.glsl pass 4). Never cleared.
+    Vector<uint8_t> order_stats_data;
+    order_stats_data.resize(sizeof(GaussianSplatting::TileOrderStatsGPU));
+    order_stats_data.fill(0);
+#ifdef TESTS_ENABLED
+    if (GSTileOrderTestControl::refuse_stats_allocation.load()) {
+        GSTileOrderTestControl::refused_stats_allocations.fetch_add(1u);
+        tile_order_stats_buffer = RID();
+    } else
+#endif
+    tile_order_stats_buffer = p_device->storage_buffer_create(order_stats_data.size(), order_stats_data);
+    if (!tile_order_stats_buffer.is_valid()) {
+        GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate tile order stats buffer");
+        tile_order_stats_owner.clear();
+    } else {
+        p_device->set_resource_name(tile_order_stats_buffer, "GS_TileRenderer_TileOrderStatsBuffer");
+        tile_order_stats_owner.set(p_device);
+    }
+    tile_order_stats_readback = AsyncReadbackState();
+
     Vector<uint8_t> audit_data;
     audit_data.resize(sizeof(DebugSplatAuditBuffer));
     audit_data.fill(0);
@@ -1123,6 +1143,11 @@ void TileRenderer::TileRendererDebugStats::free_buffers(RenderingDevice *p_devic
 		debug_splat_audit_owner.clear();
 		hlod_level_stats_owner.clear();
 		hlod_level_stats_readback = AsyncReadbackState();
+		tile_order_uniform_set = RID();
+		tile_order_uniform_set_device = nullptr;
+		tile_order_stats_buffer = RID();
+		tile_order_stats_owner.clear();
+		tile_order_stats_readback = AsyncReadbackState();
 		return;
 	}
 
@@ -1148,6 +1173,12 @@ void TileRenderer::TileRendererDebugStats::free_buffers(RenderingDevice *p_devic
 		safe_free_debug_buffer(hlod_level_stats_buffer, hlod_level_stats_owner);
 	}
 	hlod_level_stats_readback = AsyncReadbackState();
+	// #1544: the pass 4 set binds the stats buffer; free it first.
+	release_tile_order_uniform_set();
+	if (tile_order_stats_buffer.is_valid()) {
+		safe_free_debug_buffer(tile_order_stats_buffer, tile_order_stats_owner);
+	}
+	tile_order_stats_readback = AsyncReadbackState();
 }
 
 void TileRenderer::TileRendererDebugStats::clear_counters(RenderingDevice *p_device) {
