@@ -146,6 +146,8 @@ Classes</h2></td></tr>
 <tr class="memitem:SortKey64" id="r_SortKey64"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1SortKey64.html">SortKey64</a></td></tr>
 <tr class="memitem:TileLightingClusterABIConfig" id="r_TileLightingClusterABIConfig"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileLightingClusterABIConfig.html">TileLightingClusterABIConfig</a></td></tr>
 <tr class="memitem:TileLightingSetABI" id="r_TileLightingSetABI"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileLightingSetABI.html">TileLightingSetABI</a></td></tr>
+<tr class="memitem:TileOrderStatsGPU" id="r_TileOrderStatsGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileOrderStatsGPU.html">TileOrderStatsGPU</a></td></tr>
+<tr class="memitem:TileOrderControlGPU" id="r_TileOrderControlGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileOrderControlGPU.html">TileOrderControlGPU</a></td></tr>
 <tr class="memitem:TilePrefixParamsLayout" id="r_TilePrefixParamsLayout"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TilePrefixParamsLayout.html">TilePrefixParamsLayout</a></td></tr>
 <tr class="memitem:TilePrefixPass2ControlLayout" id="r_TilePrefixPass2ControlLayout"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TilePrefixPass2ControlLayout.html">TilePrefixPass2ControlLayout</a></td></tr>
 <tr class="memitem:TilePrefixDispatchCounts" id="r_TilePrefixDispatchCounts"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TilePrefixDispatchCounts.html">TilePrefixDispatchCounts</a></td></tr>
@@ -273,6 +275,10 @@ Enumerations</h2></td></tr>
 &#160;&#160;<a class="el" href="#af38952716e555574435dbe8b2c7debb9ae8febcf6d969e4bd372c3ff45caef9e1">NOT_SUBMITTED</a> = 4
 <br />
  }</td></tr>
+<tr class="memitem:a80e1ae16a2f015f99f88a4bdafc9023e" id="r_a80e1ae16a2f015f99f88a4bdafc9023e"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a80e1ae16a2f015f99f88a4bdafc9023e">TileOrderTestMode</a> : uint32_t { <a class="el" href="#a80e1ae16a2f015f99f88a4bdafc9023ea6583e56f7ab9580f890db0b9611b2610">TILE_ORDER_TEST_MODE_PRODUCTION</a> = 0u
+, <a class="el" href="#a80e1ae16a2f015f99f88a4bdafc9023ea22fd71facd2c17806aee483e3f5ec1e4">TILE_ORDER_TEST_MODE_PASS_DISABLED</a> = 1u
+, <a class="el" href="#a80e1ae16a2f015f99f88a4bdafc9023eaad33869e231b23adb1bcf6dc6875c239">TILE_ORDER_TEST_MODE_TIE_TRUNCATED_16</a> = 2u
+ }</td></tr>
 <tr class="memitem:ad409402fc85c43ac55b946b86ac82aa8" id="r_ad409402fc85c43ac55b946b86ac82aa8"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad409402fc85c43ac55b946b86ac82aa8">TilePrefixPass2Operation</a> : uint32_t { <a class="el" href="#ad409402fc85c43ac55b946b86ac82aa8a50d1a9881cb6304bfa7a01848966abcf">TILE_PREFIX_PASS2_OP_INCLUSIVE_STEP</a> = 0u
 , <a class="el" href="#ad409402fc85c43ac55b946b86ac82aa8aad8a6b73c95457448513d08cc2af5bfc">TILE_PREFIX_PASS2_OP_EXCLUSIVE_SHIFT</a> = 1u
 , <a class="el" href="#ad409402fc85c43ac55b946b86ac82aa8ae4e7fd596b2a88453d205f722bafe9d9">TILE_PREFIX_PASS2_OP_COPY</a> = 2u
@@ -319,6 +325,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a7aac5145d63d542d11705abda70f261b" id="r_a7aac5145d63d542d11705abda70f261b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7aac5145d63d542d11705abda70f261b">float_to_sortable_uint</a> (float value)</td></tr>
 <tr class="memitem:a7c9c2c2393b5cf1251727801a859605a" id="r_a7c9c2c2393b5cf1251727801a859605a"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1SortKey64.html">SortKey64</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7c9c2c2393b5cf1251727801a859605a">pack_sort_key_64</a> (float depth, uint32_t tie_break)</td></tr>
 <tr class="memitem:abcb1a8c67d061f28743591cb2ee38286" id="r_abcb1a8c67d061f28743591cb2ee38286"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abcb1a8c67d061f28743591cb2ee38286">fill_sort_padding</a> (float *keys, uint32_t *values, uint32_t count, uint32_t total)</td></tr>
+<tr class="memitem:a23d2b64aa16d24b04eeb615f41abe5da" id="r_a23d2b64aa16d24b04eeb615f41abe5da"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a23d2b64aa16d24b04eeb615f41abe5da">tile_order_tie_bits</a> (uint32_t p_key_bits, uint32_t p_required_tile_bits)</td></tr>
 <tr class="memitem:aa7a85fe5e903a1c6a58bdf61d83b9329" id="r_aa7a85fe5e903a1c6a58bdf61d83b9329"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa7a85fe5e903a1c6a58bdf61d83b9329">tile_prefix_compute_total_workgroups</a> (uint32_t p_total_tiles)</td></tr>
 <tr class="memitem:af057fc0b5ed54be4bd5d1ce95b11c7b4" id="r_af057fc0b5ed54be4bd5d1ce95b11c7b4"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af057fc0b5ed54be4bd5d1ce95b11c7b4">tile_prefix_compute_dispatch_groups</a> (uint32_t p_total_workgroups)</td></tr>
 <tr class="memitem:acce2bf2ee576888b8494f8c94cf1f26c" id="r_acce2bf2ee576888b8494f8c94cf1f26c"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1TilePrefixDispatchCounts.html">TilePrefixDispatchCounts</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acce2bf2ee576888b8494f8c94cf1f26c">tile_prefix_compute_dispatch_counts</a> (uint32_t p_total_workgroups)</td></tr>
@@ -696,6 +703,25 @@ Variables</h2></td></tr>
 <tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a4da9145f34a054fc10a9369700af7ba4a2a5aad1664f828448481ee7377612724" name="a4da9145f34a054fc10a9369700af7ba4a2a5aad1664f828448481ee7377612724"></a>FORCE_CPU_OVERRIDE&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a4da9145f34a054fc10a9369700af7ba4af0c1640c1b7a985c2f3863b8c0fc9438" name="a4da9145f34a054fc10a9369700af7ba4af0c1640c1b7a985c2f3863b8c0fc9438"></a>SORTER_UNAVAILABLE&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a4da9145f34a054fc10a9369700af7ba4a428af33fbb46f752e4eb36f9391d9062" name="a4da9145f34a054fc10a9369700af7ba4a428af33fbb46f752e4eb36f9391d9062"></a>GPU_SORT_FAILED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a80e1ae16a2f015f99f88a4bdafc9023e" name="a80e1ae16a2f015f99f88a4bdafc9023e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a80e1ae16a2f015f99f88a4bdafc9023e">&#9670;&#160;</a></span>TileOrderTestMode</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#a80e1ae16a2f015f99f88a4bdafc9023e">GaussianSplatting::TileOrderTestMode</a> : uint32_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a80e1ae16a2f015f99f88a4bdafc9023ea6583e56f7ab9580f890db0b9611b2610" name="a80e1ae16a2f015f99f88a4bdafc9023ea6583e56f7ab9580f890db0b9611b2610"></a>TILE_ORDER_TEST_MODE_PRODUCTION&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a80e1ae16a2f015f99f88a4bdafc9023ea22fd71facd2c17806aee483e3f5ec1e4" name="a80e1ae16a2f015f99f88a4bdafc9023ea22fd71facd2c17806aee483e3f5ec1e4"></a>TILE_ORDER_TEST_MODE_PASS_DISABLED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a80e1ae16a2f015f99f88a4bdafc9023eaad33869e231b23adb1bcf6dc6875c239" name="a80e1ae16a2f015f99f88a4bdafc9023eaad33869e231b23adb1bcf6dc6875c239"></a>TILE_ORDER_TEST_MODE_TIE_TRUNCATED_16&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -1877,6 +1903,35 @@ Variables</h2></td></tr>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_shrink_candidate_frames</em></span>&#160;)</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a23d2b64aa16d24b04eeb615f41abe5da" name="a23d2b64aa16d24b04eeb615f41abe5da"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a23d2b64aa16d24b04eeb615f41abe5da">&#9670;&#160;</a></span>tile_order_tie_bits()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::tile_order_tie_bits </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_key_bits</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_required_tile_bits</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>

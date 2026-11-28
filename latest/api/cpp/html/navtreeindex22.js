@@ -1,5 +1,10 @@
 var NAVTREEINDEX22 =
 {
+"gaussian__splat__node__3d_8h.html#a6c2fd80564b092960a3b5c27610389ed":[2,0,0,0,9,9,1],
+"gaussian__splat__node__3d_8h_source.html":[2,0,0,0,9,9],
+"gaussian__splat__node__helpers_8cpp.html":[2,0,0,0,9,10],
+"gaussian__splat__node__helpers_8h.html":[2,0,0,0,9,11],
+"gaussian__splat__node__helpers_8h.html#aeb69e262bb72d73c15932a14c8344a1d":[2,0,0,0,9,11,6],
 "gaussian__splat__node__helpers_8h_source.html":[2,0,0,0,9,11],
 "gaussian__splat__performance__overlay_8cpp.html":[2,0,0,0,9,12],
 "gaussian__splat__performance__overlay_8h.html":[2,0,0,0,9,13],
@@ -244,10 +249,5 @@ var NAVTREEINDEX22 =
 "gs__logger_8h.html#afc4be8e663e95990b3f91226b129e5d6":[2,0,0,0,8,3,4],
 "gs__logger_8h_source.html":[2,0,0,0,8,3],
 "gs__payload__page__store_8cpp.html":[2,0,0,0,6,18],
-"gs__payload__page__store_8h.html":[2,0,0,0,6,19],
-"gs__payload__page__store_8h_source.html":[2,0,0,0,6,19],
-"gs__payload__read__service_8cpp.html":[2,0,0,0,6,20],
-"gs__payload__read__service_8h.html":[2,0,0,0,6,21],
-"gs__payload__read__service_8h_source.html":[2,0,0,0,6,21],
-"gs__project__settings_8h.html":[2,0,0,0,3,59]
+"gs__payload__page__store_8h.html":[2,0,0,0,6,19]
 };

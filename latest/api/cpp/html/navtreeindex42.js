@@ -1,5 +1,15 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a0a1ad8177c45e960a121f319b392e73c":[1,0,9,13,1],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a1c8996e2ef37ae5d2cebe77bcaeccbfb":[0,0,12,14,16],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a1c8996e2ef37ae5d2cebe77bcaeccbfb":[1,0,9,13,16],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a1eb8cbc3e9f65cadfe10923c5d38db5d":[0,0,12,14,0],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a1eb8cbc3e9f65cadfe10923c5d38db5d":[1,0,9,13,0],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a2245707d9e41cd25ff924b9f31a70e04":[0,0,12,14,11],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a2245707d9e41cd25ff924b9f31a70e04":[1,0,9,13,11],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a230f9eaeca34a9eba54eea16161ac701":[0,0,12,14,14],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a230f9eaeca34a9eba54eea16161ac701":[1,0,9,13,14],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a26673c71349bfdf7db72ab08ee54b46d":[0,0,12,14,4],
 "structGaussianSplatting_1_1GaussianSplatLODConfig.html#a26673c71349bfdf7db72ab08ee54b46d":[1,0,9,13,4],
 "structGaussianSplatting_1_1GaussianSplatLODConfig.html#a281f3fbff7792360373054644c389895":[0,0,12,14,10],
 "structGaussianSplatting_1_1GaussianSplatLODConfig.html#a281f3fbff7792360373054644c389895":[1,0,9,13,10],
@@ -239,15 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1HlodLevelRecordSample.html#a0f12e80eff698ab5fd6b0497c8047625":[1,0,9,32,0],
 "structGaussianSplatting_1_1HlodLevelRecordSample.html#a2cbc678caeb49338bcd7010a2eced5f3":[0,0,12,33,1],
 "structGaussianSplatting_1_1HlodLevelRecordSample.html#a2cbc678caeb49338bcd7010a2eced5f3":[1,0,9,32,1],
-"structGaussianSplatting_1_1HlodLevelRecordSample.html#a50cc8596bf63823e5d78a99f2bd19e7e":[0,0,12,33,2],
-"structGaussianSplatting_1_1HlodLevelRecordSample.html#a50cc8596bf63823e5d78a99f2bd19e7e":[1,0,9,32,2],
-"structGaussianSplatting_1_1HlodLevelRecordSample.html#acfd9cffb402600319cf0c78e3a5dcb2b":[0,0,12,33,3],
-"structGaussianSplatting_1_1HlodLevelRecordSample.html#acfd9cffb402600319cf0c78e3a5dcb2b":[1,0,9,32,3],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html":[0,0,12,37],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html":[1,0,9,36],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a5aeb579b25e9357c3eec1e614921d76e":[0,0,12,37,2],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a5aeb579b25e9357c3eec1e614921d76e":[1,0,9,36,2],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a645c47100280fa9066c1ee714228bbe2":[0,0,12,37,3],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a645c47100280fa9066c1ee714228bbe2":[1,0,9,36,3],
-"structGaussianSplatting_1_1IndirectDispatchLayout.html#a8550081f019da90a2fcd15c55aa53338":[0,0,12,37,1]
+"structGaussianSplatting_1_1HlodLevelRecordSample.html#a50cc8596bf63823e5d78a99f2bd19e7e":[0,0,12,33,2]
 };

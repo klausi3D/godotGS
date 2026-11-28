@@ -135,6 +135,8 @@ var classTileRenderer =
     [ "get_tile_count", "classTileRenderer.html#a4afec6fcb70a01dc39874ad1a9965caf", null ],
     [ "get_tile_density_snapshot", "classTileRenderer.html#a2f4be4521b015a14fdfefcc82a967d19", null ],
     [ "get_tile_grid_size", "classTileRenderer.html#a3d7f7a7783808097bc1a091c923be3bf", null ],
+    [ "get_tile_order_pass_missing_frames", "classTileRenderer.html#a72257db7d0d0ff196b5b06074bc6e246", null ],
+    [ "get_tile_order_stats_sample", "classTileRenderer.html#adfb3714dd818c94296d0c3b745f60b66", null ],
     [ "get_tile_raster_pipeline", "classTileRenderer.html#a97430ad958e2b0146248ff5fd1f6d296", null ],
     [ "get_tile_size", "classTileRenderer.html#a6136e9f15e454651d1038dc5debcd1cc", null ],
     [ "get_tile_splat_capacity", "classTileRenderer.html#ab95daf1a1d2e83cca28e45d24fe962c0", null ],

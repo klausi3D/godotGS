@@ -131,6 +131,8 @@ var annotated_dup =
       [ "SortKey64", "structGaussianSplatting_1_1SortKey64.html", "structGaussianSplatting_1_1SortKey64" ],
       [ "TileLightingClusterABIConfig", "structGaussianSplatting_1_1TileLightingClusterABIConfig.html", "structGaussianSplatting_1_1TileLightingClusterABIConfig" ],
       [ "TileLightingSetABI", "structGaussianSplatting_1_1TileLightingSetABI.html", null ],
+      [ "TileOrderStatsGPU", "structGaussianSplatting_1_1TileOrderStatsGPU.html", "structGaussianSplatting_1_1TileOrderStatsGPU" ],
+      [ "TileOrderControlGPU", "structGaussianSplatting_1_1TileOrderControlGPU.html", "structGaussianSplatting_1_1TileOrderControlGPU" ],
       [ "TilePrefixParamsLayout", "structGaussianSplatting_1_1TilePrefixParamsLayout.html", "structGaussianSplatting_1_1TilePrefixParamsLayout" ],
       [ "TilePrefixPass2ControlLayout", "structGaussianSplatting_1_1TilePrefixPass2ControlLayout.html", "structGaussianSplatting_1_1TilePrefixPass2ControlLayout" ],
       [ "TilePrefixDispatchCounts", "structGaussianSplatting_1_1TilePrefixDispatchCounts.html", "structGaussianSplatting_1_1TilePrefixDispatchCounts" ],

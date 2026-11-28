@@ -7,7 +7,8 @@ var searchData=
   ['performancestate_4',['PerformanceState',['../classGaussianSplatRenderer.html#a3496af471471e36b8edea224c5a9e598',1,'GaussianSplatRenderer']]],
   ['pipelineevent_5',['PipelineEvent',['../classGaussianSplatRenderer.html#a766ca6e16de6d4240dd690c594018b08',1,'GaussianSplatRenderer']]],
   ['pipelinefeatureset_6',['PipelineFeatureSet',['../classRenderPipelineStages.html#a09123f6198de8001fb25d4082442fbfc',1,'RenderPipelineStages']]],
-  ['prefixparams_7',['PrefixParams',['../structTilePrefixScanStage.html#a45387d64235e01e4fd19a84206f3479e',1,'TilePrefixScanStage']]],
-  ['preparerenderframecontextfn_8',['PrepareRenderFrameContextFn',['../classRenderInstancingOrchestrator.html#a808a0aa827be973491c9352848857849',1,'RenderInstancingOrchestrator']]],
-  ['publishedinstanceassetremap_9',['PublishedInstanceAssetRemap',['../classGaussianSplatRenderer.html#a850e05e36aa427ee0147488a340b1da9',1,'GaussianSplatRenderer::PublishedInstanceAssetRemap'],['../render__streaming__orchestrator_8cpp.html#a964fb9f42646fb44c945af1984f4ee60',1,'PublishedInstanceAssetRemap:&#160;render_streaming_orchestrator.cpp']]]
+  ['postsortrecorder_7',['PostSortRecorder',['../classIGPUSorter.html#a110381a0f801ef3f80275529b8cf7161',1,'IGPUSorter']]],
+  ['prefixparams_8',['PrefixParams',['../structTilePrefixScanStage.html#a45387d64235e01e4fd19a84206f3479e',1,'TilePrefixScanStage']]],
+  ['preparerenderframecontextfn_9',['PrepareRenderFrameContextFn',['../classRenderInstancingOrchestrator.html#a808a0aa827be973491c9352848857849',1,'RenderInstancingOrchestrator']]],
+  ['publishedinstanceassetremap_10',['PublishedInstanceAssetRemap',['../classGaussianSplatRenderer.html#a850e05e36aa427ee0147488a340b1da9',1,'GaussianSplatRenderer::PublishedInstanceAssetRemap'],['../render__streaming__orchestrator_8cpp.html#a964fb9f42646fb44c945af1984f4ee60',1,'PublishedInstanceAssetRemap:&#160;render_streaming_orchestrator.cpp']]]
 ];

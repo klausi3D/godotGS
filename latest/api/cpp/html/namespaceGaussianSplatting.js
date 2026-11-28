@@ -53,6 +53,8 @@ var namespaceGaussianSplatting =
     [ "SortKey64", "structGaussianSplatting_1_1SortKey64.html", "structGaussianSplatting_1_1SortKey64" ],
     [ "TileLightingClusterABIConfig", "structGaussianSplatting_1_1TileLightingClusterABIConfig.html", "structGaussianSplatting_1_1TileLightingClusterABIConfig" ],
     [ "TileLightingSetABI", "structGaussianSplatting_1_1TileLightingSetABI.html", null ],
+    [ "TileOrderStatsGPU", "structGaussianSplatting_1_1TileOrderStatsGPU.html", "structGaussianSplatting_1_1TileOrderStatsGPU" ],
+    [ "TileOrderControlGPU", "structGaussianSplatting_1_1TileOrderControlGPU.html", "structGaussianSplatting_1_1TileOrderControlGPU" ],
     [ "TilePrefixParamsLayout", "structGaussianSplatting_1_1TilePrefixParamsLayout.html", "structGaussianSplatting_1_1TilePrefixParamsLayout" ],
     [ "TilePrefixPass2ControlLayout", "structGaussianSplatting_1_1TilePrefixPass2ControlLayout.html", "structGaussianSplatting_1_1TilePrefixPass2ControlLayout" ],
     [ "TilePrefixDispatchCounts", "structGaussianSplatting_1_1TilePrefixDispatchCounts.html", "structGaussianSplatting_1_1TilePrefixDispatchCounts" ],
@@ -165,6 +167,11 @@ var namespaceGaussianSplatting =
       [ "SORTER_UNAVAILABLE", "namespaceGaussianSplatting.html#a4da9145f34a054fc10a9369700af7ba4af0c1640c1b7a985c2f3863b8c0fc9438", null ],
       [ "GPU_SORT_FAILED", "namespaceGaussianSplatting.html#a4da9145f34a054fc10a9369700af7ba4a428af33fbb46f752e4eb36f9391d9062", null ]
     ] ],
+    [ "TileOrderTestMode", "namespaceGaussianSplatting.html#a80e1ae16a2f015f99f88a4bdafc9023e", [
+      [ "TILE_ORDER_TEST_MODE_PRODUCTION", "namespaceGaussianSplatting.html#a80e1ae16a2f015f99f88a4bdafc9023ea6583e56f7ab9580f890db0b9611b2610", null ],
+      [ "TILE_ORDER_TEST_MODE_PASS_DISABLED", "namespaceGaussianSplatting.html#a80e1ae16a2f015f99f88a4bdafc9023ea22fd71facd2c17806aee483e3f5ec1e4", null ],
+      [ "TILE_ORDER_TEST_MODE_TIE_TRUNCATED_16", "namespaceGaussianSplatting.html#a80e1ae16a2f015f99f88a4bdafc9023eaad33869e231b23adb1bcf6dc6875c239", null ]
+    ] ],
     [ "TilePrefixPass2Operation", "namespaceGaussianSplatting.html#ad409402fc85c43ac55b946b86ac82aa8", [
       [ "TILE_PREFIX_PASS2_OP_INCLUSIVE_STEP", "namespaceGaussianSplatting.html#ad409402fc85c43ac55b946b86ac82aa8a50d1a9881cb6304bfa7a01848966abcf", null ],
       [ "TILE_PREFIX_PASS2_OP_EXCLUSIVE_SHIFT", "namespaceGaussianSplatting.html#ad409402fc85c43ac55b946b86ac82aa8aad8a6b73c95457448513d08cc2af5bfc", null ],
@@ -222,6 +229,7 @@ var namespaceGaussianSplatting =
     [ "tile_compute_buffer_resize_plan", "namespaceGaussianSplatting.html#add1eda4da697191cbcf11989d62f20fc", null ],
     [ "tile_compute_sh_cache_clear_range", "namespaceGaussianSplatting.html#a6fd54283352679d5bcf2f663eb729ae3", null ],
     [ "tile_compute_sh_cache_resize_plan", "namespaceGaussianSplatting.html#ae7003815270d8db541b6864cc5ea38af", null ],
+    [ "tile_order_tie_bits", "namespaceGaussianSplatting.html#a23d2b64aa16d24b04eeb615f41abe5da", null ],
     [ "tile_prefix_any_pass_requires_cpu_fallback", "namespaceGaussianSplatting.html#a5d0857cb80c77342f810b6d8d7174b72", null ],
     [ "tile_prefix_compute_dispatch_counts", "namespaceGaussianSplatting.html#acce2bf2ee576888b8494f8c94cf1f26c", null ],
     [ "tile_prefix_compute_dispatch_groups", "namespaceGaussianSplatting.html#af057fc0b5ed54be4bd5d1ce95b11c7b4", null ],

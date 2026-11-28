@@ -298,6 +298,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aabb59f18d33467082befd14fb37ead88" id="r_aabb59f18d33467082befd14fb37ead88"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aabb59f18d33467082befd14fb37ead88">get_overflow_tile_count</a> () const</td></tr>
 <tr class="memitem:a72acaa36f8faac3477a880976f6caefa" id="r_a72acaa36f8faac3477a880976f6caefa"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a72acaa36f8faac3477a880976f6caefa">get_clamped_records</a> () const</td></tr>
 <tr class="memitem:a621461f5b957cf228742e43033999cb0" id="r_a621461f5b957cf228742e43033999cb0"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a621461f5b957cf228742e43033999cb0">get_aggregated_count</a> () const</td></tr>
+<tr class="memitem:adfb3714dd818c94296d0c3b745f60b66" id="r_adfb3714dd818c94296d0c3b745f60b66"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1TileOrderStatsGPU.html">GaussianSplatting::TileOrderStatsGPU</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adfb3714dd818c94296d0c3b745f60b66">get_tile_order_stats_sample</a> (uint64_t *r_frame_serial=nullptr) const</td></tr>
+<tr class="memitem:a72257db7d0d0ff196b5b06074bc6e246" id="r_a72257db7d0d0ff196b5b06074bc6e246"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a72257db7d0d0ff196b5b06074bc6e246">get_tile_order_pass_missing_frames</a> () const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
@@ -3084,6 +3086,56 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a72257db7d0d0ff196b5b06074bc6e246" name="a72257db7d0d0ff196b5b06074bc6e246"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a72257db7d0d0ff196b5b06074bc6e246">&#9670;&#160;</a></span>get_tile_order_pass_missing_frames()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_tile_order_pass_missing_frames </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="adfb3714dd818c94296d0c3b745f60b66" name="adfb3714dd818c94296d0c3b745f60b66"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adfb3714dd818c94296d0c3b745f60b66">&#9670;&#160;</a></span>get_tile_order_stats_sample()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1TileOrderStatsGPU.html">GaussianSplatting::TileOrderStatsGPU</a> TileRenderer::get_tile_order_stats_sample </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t *</td>          <td class="paramname"><span class="paramname"><em>r_frame_serial</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a97430ad958e2b0146248ff5fd1f6d296" name="a97430ad958e2b0146248ff5fd1f6d296"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a97430ad958e2b0146248ff5fd1f6d296">&#9670;&#160;</a></span>get_tile_raster_pipeline()</h2>
 
@@ -4782,6 +4834,7 @@ Friends</h2></td></tr>
 </div>
 <hr/>The documentation for this class was generated from the following files:<ul>
 <li><a class="el" href="tile__renderer_8h_source.html">tile_renderer.h</a></li>
+<li><a class="el" href="tile__render__order_8cpp.html">tile_render_order.cpp</a></li>
 <li><a class="el" href="tile__renderer_8cpp.html">tile_renderer.cpp</a></li>
 </ul>
 </div><!-- contents -->

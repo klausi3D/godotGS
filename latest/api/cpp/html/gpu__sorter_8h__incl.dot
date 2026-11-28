@@ -123,4 +123,6 @@ digraph "gpu_sorter.h"
   Node1 -> Node14 [id="edge77_Node000001_Node000014",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node41 [id="edge78_Node000001_Node000041",color="steelblue1",style="solid",tooltip=" "];
   Node41 [id="Node000041",label="chrono",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node42 [id="edge79_Node000001_Node000042",color="steelblue1",style="solid",tooltip=" "];
+  Node42 [id="Node000042",label="functional",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

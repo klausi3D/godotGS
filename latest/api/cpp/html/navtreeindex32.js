@@ -1,5 +1,15 @@
 var NAVTREEINDEX32 =
 {
+"structGaussianMemoryStream_1_1StreamBuffer.html#a2335eff159d1d462690545cc05c71d6e":[1,0,84,0,14],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a277397211c811f8c34c93c04f978456d":[1,0,84,0,10],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a2991da8089932f5ac0a802023119d62a":[1,0,84,0,18],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a32ed7a8617e6278f9eeb37b57dee82ea":[1,0,84,0,6],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a341aee887c0d08d1de77f1faf606439e":[1,0,84,0,16],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a646eee74e5ba99605ad8aaa3321c6622":[1,0,84,0,11],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a66442717ab9143941ad9337601d17cd8":[1,0,84,0,3],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a835172dba6dc2663aeb06d14712fa639":[1,0,84,0,4],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a8a5aff0841166fe7ab77b6a77533b7fe":[1,0,84,0,5],
+"structGaussianMemoryStream_1_1StreamBuffer.html#a90720d427fd1564e8f6cde280605dc17":[1,0,84,0,7],
 "structGaussianMemoryStream_1_1StreamBuffer.html#a909cfebf139b74845237bbe5999c57ec":[1,0,84,0,1],
 "structGaussianMemoryStream_1_1StreamBuffer.html#a94497968af26bfd4b6f3ceb3308367a3":[1,0,84,0,15],
 "structGaussianMemoryStream_1_1StreamBuffer.html#aaeae0d52ebbf61f43d873430ce16580a":[1,0,84,0,8],
@@ -239,15 +249,5 @@ var NAVTREEINDEX32 =
 "structGaussianRenderDebug_1_1DebugState.html#af91aac2ed70a9091fede647a46b07e80":[0,0,3,4,39],
 "structGaussianRenderDebug_1_1DebugState.html#af91aac2ed70a9091fede647a46b07e80":[1,0,2,4,39],
 "structGaussianRenderDebug_1_1DebugState.html#aff014cdb43065c47416d664be4cfc697":[0,0,3,4,35],
-"structGaussianRenderDebug_1_1DebugState.html#aff014cdb43065c47416d664be4cfc697":[1,0,2,4,35],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html":[0,0,3,3],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html":[1,0,2,3],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#a39b874a9c1931fefc2ca46f4268a1eb9":[0,0,3,3,2],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#a39b874a9c1931fefc2ca46f4268a1eb9":[1,0,2,3,2],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#a860abea9dfdfed23cae5d1c118ff7be8":[0,0,3,3,0],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#a860abea9dfdfed23cae5d1c118ff7be8":[1,0,2,3,0],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#ad6f5de0308e9c54fa92a72a42423f306":[0,0,3,3,3],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#ad6f5de0308e9c54fa92a72a42423f306":[1,0,2,3,3],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#aeb806c2c78e3003fe5ac93d3a2ae4bc6":[0,0,3,3,1],
-"structGaussianRenderDebug_1_1JacobianDebugConfig.html#aeb806c2c78e3003fe5ac93d3a2ae4bc6":[1,0,2,3,1]
+"structGaussianRenderDebug_1_1DebugState.html#aff014cdb43065c47416d664be4cfc697":[1,0,2,4,35]
 };

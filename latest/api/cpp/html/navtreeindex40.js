@@ -1,5 +1,15 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatRenderer_1_1RenderFrameContext.html#af1df1912772f961922cd507affacaa63":[1,0,114,4,6],
+"structGaussianSplatRenderer_1_1RenderFrameContext.html#af3638d5d546cc4744346f01d54f82937":[1,0,114,4,9],
+"structGaussianSplatRenderer_1_1RenderFrameContext.html#afd7df80496f9e3eb94397708c51ef267":[1,0,114,4,3],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html":[1,0,114,4,0],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a0aac42517fdad1cd5f9ea02c18ee7144":[1,0,114,4,0,9],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a1fb5c49b7e51d300f51236da914215aa":[1,0,114,4,0,13],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a2fde30525ecfe24d67e4a1be72acb998":[1,0,114,4,0,0],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a3ed691e94bbfcd350925c88c58b6543d":[1,0,114,4,0,4],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a5306b6558af9823b912c0a8baabdce68":[1,0,114,4,0,15],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a5bac91971e9b1716cc26ec115d201075":[1,0,114,4,0,17],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a741c0bbc90679204ce8c1e2d8d283491":[1,0,114,4,0,14],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a7e64644a9de893074a528ee58236706c":[1,0,114,4,0,1],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a88e521e224f41aa9ba8cf4570cb8e830":[1,0,114,4,0,7],
@@ -239,15 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a019a03346968d689a745f767cd8d31b2":[1,0,123,11],
 "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a15c40d1598e523bb10c4b53e598da4aa":[1,0,123,22],
 "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a19425691ad33c33071a0e45f470e6f78":[1,0,123,2],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a283f9c0bacce58674c99c80e49c4f666":[1,0,123,5],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a339be0277dc67580206edfef31e3b1a9":[1,0,123,7],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a3585a56b89ea52f88300686d78ff764c":[1,0,123,8],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a444dc7b4184948c5496e46cc193251ab":[1,0,123,3],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a5df852f2c9c460cc377425a015c20fc5":[1,0,123,4],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a5fb72aa63ceb453581f3fa327fe1615d":[1,0,123,23],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a7996d82523692a10cb68633b87cdecc3":[1,0,123,14],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a8b10ae273687175ed6a9f6ab997bd41e":[1,0,123,17],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a8d22c7dad5d70ceba48da6a5ecf58057":[1,0,123,10],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a93604dddb00c06d7d92086f17a7d743b":[1,0,123,13],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a95312665138221a03fd55e2072e60a11":[1,0,123,12]
+"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a283f9c0bacce58674c99c80e49c4f666":[1,0,123,5]
 };

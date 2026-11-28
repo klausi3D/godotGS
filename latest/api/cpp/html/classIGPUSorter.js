@@ -1,5 +1,6 @@
 var classIGPUSorter =
 [
+    [ "PostSortRecorder", "classIGPUSorter.html#a110381a0f801ef3f80275529b8cf7161", null ],
     [ "~IGPUSorter", "classIGPUSorter.html#acd458cb9e76b9f790e7845d2ef9d5c60", null ],
     [ "end_cpu_record_timing", "classIGPUSorter.html#ad58b74393fcd2bab44fc433deafb38ed", null ],
     [ "get_algorithm_name", "classIGPUSorter.html#ac79b005668594092391d425f9cad2ea5", null ],
@@ -18,6 +19,7 @@ var classIGPUSorter =
     [ "set_dispatch_timing_pass", "classIGPUSorter.html#a6184932240e4800f3369f2b63ec0c305", null ],
     [ "set_key_config", "classIGPUSorter.html#a92e25470ef29afc5e121ae732509acca", null ],
     [ "set_pending_frame_label_serial", "classIGPUSorter.html#af0769b79306bfedf6254bef94571ed9c", null ],
+    [ "set_post_sort_recorder", "classIGPUSorter.html#a6a46c0991eae59fd77c87ccdc73f67e5", null ],
     [ "set_timestamp_label_prefix", "classIGPUSorter.html#ab83685038e037fc89d89289f4342bbf5", null ],
     [ "shutdown", "classIGPUSorter.html#a47ae1cc6567fd80665fa300dbd08ddc3", null ],
     [ "sort", "classIGPUSorter.html#afc2c0d8cedc6bd83579aab6a9c743d4f", null ],
@@ -35,6 +37,7 @@ var classIGPUSorter =
     [ "max_elements", "classIGPUSorter.html#a303948c129b6860844340526b763a6bb", null ],
     [ "metrics_collector", "classIGPUSorter.html#a845ba9e44095460fec8a0d4aba325952", null ],
     [ "pending_frame_label_serial", "classIGPUSorter.html#a11469c719c87043b4d2e8c6380e7df96", null ],
+    [ "post_sort_recorder", "classIGPUSorter.html#a343219e9f7ae09f4d49a242e55c9734e", null ],
     [ "rd", "classIGPUSorter.html#a3e1d9866af4c3dbcd0331090b28e53be", null ],
     [ "sort_start_time", "classIGPUSorter.html#a4280188d014dc0bc73a0209af589089e", null ],
     [ "timestamp_label_prefix", "classIGPUSorter.html#a7f7b9ed75fbd916367bfa0ebd4f63311", null ]

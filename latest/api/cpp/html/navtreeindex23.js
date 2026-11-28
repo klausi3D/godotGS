@@ -1,5 +1,10 @@
 var NAVTREEINDEX23 =
 {
+"gs__payload__page__store_8h_source.html":[2,0,0,0,6,19],
+"gs__payload__read__service_8cpp.html":[2,0,0,0,6,20],
+"gs__payload__read__service_8h.html":[2,0,0,0,6,21],
+"gs__payload__read__service_8h_source.html":[2,0,0,0,6,21],
+"gs__project__settings_8h.html":[2,0,0,0,3,59],
 "gs__project__settings_8h.html#aa24702d6e3a1d0e99ca1980dfdbdbc16":[2,0,0,0,3,59,3],
 "gs__project__settings_8h_source.html":[2,0,0,0,3,59],
 "gs__raster__thresholds_8h.html":[2,0,0,0,5,10],
@@ -244,10 +249,5 @@ var NAVTREEINDEX23 =
 "namespaceGaussianSHRotation_1_1detail.html#ab2fe58192d0399dc31aa4ce802f672bb":[0,0,10,0,0],
 "namespaceGaussianSHRotation_1_1detail.html#ad734015f3f1ae644ea38155f79555845":[0,0,10,0,1],
 "namespaceGaussianSHRotation_1_1detail.html#aef036a4c356f103f60d36e54e5768c7c":[0,0,10,0,2],
-"namespaceGaussianSplatSourcePath.html":[0,0,11],
-"namespaceGaussianSplatting.html":[0,0,12],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887":[0,0,12,92],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3":[0,0,12,92,2],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082":[0,0,12,92,1],
-"namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b":[0,0,12,92,0]
+"namespaceGaussianSplatSourcePath.html":[0,0,11]
 };

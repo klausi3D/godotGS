@@ -811,6 +811,8 @@ var hierarchy =
     [ "GaussianSplatting::TileGridState", "structGaussianSplatting_1_1TileGridState.html", null ],
     [ "GaussianSplatting::TileLightingClusterABIConfig", "structGaussianSplatting_1_1TileLightingClusterABIConfig.html", null ],
     [ "GaussianSplatting::TileLightingSetABI", "structGaussianSplatting_1_1TileLightingSetABI.html", null ],
+    [ "GaussianSplatting::TileOrderControlGPU", "structGaussianSplatting_1_1TileOrderControlGPU.html", null ],
+    [ "GaussianSplatting::TileOrderStatsGPU", "structGaussianSplatting_1_1TileOrderStatsGPU.html", null ],
     [ "GaussianSplatting::TileOverflowSampleContext", "structGaussianSplatting_1_1TileOverflowSampleContext.html", null ],
     [ "GaussianSplatting::TileOverflowStatsSnapshot", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html", null ],
     [ "GaussianSplatting::TilePerformanceMetrics", "structGaussianSplatting_1_1TilePerformanceMetrics.html", null ],

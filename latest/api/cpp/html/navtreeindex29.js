@@ -1,5 +1,15 @@
 var NAVTREEINDEX29 =
 {
+"shader__compilation__helper_8h.html":[2,0,0,0,12,96],
+"shader__compilation__helper_8h_source.html":[2,0,0,0,12,96],
+"shader__compilation__types_8h.html":[2,0,0,0,12,97],
+"shader__compilation__types_8h_source.html":[2,0,0,0,12,97],
+"sort__benchmark__metrics_8h.html":[2,0,0,0,12,98],
+"sort__benchmark__metrics_8h_source.html":[2,0,0,0,12,98],
+"sort__fallback__policy_8h.html":[2,0,0,0,12,99],
+"sort__fallback__policy_8h_source.html":[2,0,0,0,12,99],
+"sorting__config_8cpp.html":[2,0,0,0,12,100],
+"sorting__config_8h.html":[2,0,0,0,12,101],
 "sorting__config_8h_source.html":[2,0,0,0,12,101],
 "sorting__contract_8h.html":[2,0,0,0,12,102],
 "sorting__contract_8h_source.html":[2,0,0,0,12,102],
@@ -239,15 +249,5 @@ var NAVTREEINDEX29 =
 "structChunkSpatialGrid.html":[1,0,57],
 "structChunkSpatialGrid.html#a1f25080485700a41d3a1fbeba77a8dc6":[1,0,57,3],
 "structChunkSpatialGrid.html#a2a54c6e68d85fc49b550bd934dbf9fd5":[1,0,57,0],
-"structChunkSpatialGrid.html#a2b9bd958f89f526d9116a43d9815b5a8":[1,0,57,11],
-"structChunkSpatialGrid.html#a3ee47aa36d23c96a699eea5fe147eb9d":[1,0,57,6],
-"structChunkSpatialGrid.html#a54232812cccb802cb4c29592f1675725":[1,0,57,10],
-"structChunkSpatialGrid.html#a5f86be01e4e11010f5912ab5ac825cfe":[1,0,57,7],
-"structChunkSpatialGrid.html#a629288cf0589a2c96c6721ee23eac79b":[1,0,57,8],
-"structChunkSpatialGrid.html#a6bc399aa52e137e1d9ae3d52b733e49d":[1,0,57,12],
-"structChunkSpatialGrid.html#a6dcc83ac3f117af00225d4253bed1264":[1,0,57,2],
-"structChunkSpatialGrid.html#a6e8e4b271213dbb5b8832bb95719dbc3":[1,0,57,4],
-"structChunkSpatialGrid.html#a9cba5ec820ebda109056f0e36764ce61":[1,0,57,13],
-"structChunkSpatialGrid.html#a9efa398af6de8f187f36873b209b5492":[1,0,57,5],
-"structChunkSpatialGrid.html#ad4efdf0b6a796a9bbf843a1148204f8a":[1,0,57,9]
+"structChunkSpatialGrid.html#a2b9bd958f89f526d9116a43d9815b5a8":[1,0,57,11]
 };
